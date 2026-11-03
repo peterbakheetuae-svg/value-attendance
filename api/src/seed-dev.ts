@@ -11,6 +11,7 @@ import { audit } from './auth/context.ts';
 const url = process.env.DATABASE_URL;
 if (!url) { console.error('DATABASE_URL is required'); process.exit(2); }
 const demo = process.argv.includes('--demo');
+const ifEmpty = process.argv.includes('--if-empty');
 const db = createDb(url);
 
 try {
@@ -18,6 +19,7 @@ try {
   const expect = process.env.EXPECT_DATABASE;
   if (expect && expect !== name) { console.error(`Refusing: connected to "${name}", expected "${expect}"`); process.exit(3); }
   const n = (await db.query(`SELECT count(*)::int AS n FROM employees`)).rows[0].n;
+  if (n > 0 && ifEmpty) { console.log(`seed skipped: "${name}" already has ${n} employees`); process.exit(0); }
   if (n > 0) { console.error(`Refusing: "${name}" already has ${n} employees. Seed only an empty database.`); process.exit(4); }
 
   const created: { code: string; role: string; password: string }[] = [];

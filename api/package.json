@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "start": "node --import tsx src/server.ts",
+    "start:prod": "node --import tsx src/migrate.ts && node --import tsx src/seed-dev.ts --if-empty && node --import tsx src/server.ts",
     "migrate": "tsx src/migrate.ts",
     "seed:dev": "tsx src/seed-dev.ts",
     "typecheck": "tsc --noEmit -p .",
