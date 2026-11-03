@@ -37,7 +37,7 @@ class MorePage extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(s.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-            Text('${s.me?['code'] ?? ''} · ${I18n.lang == 'ar' ? s.me?['role_name_ar'] ?? '' : s.me?['role_name_en'] ?? ''}'),
+            Text('${s.me?['code'] ?? ''} · ${(I18n.lang == 'ar' ? s.me?['role_name_ar'] : s.me?['role_name_en']) ?? ''}'),
           ])),
         ])),
         SectionTitle(t('me')),

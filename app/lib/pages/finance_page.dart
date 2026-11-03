@@ -76,6 +76,7 @@ class _FinancePageState extends State<FinancePage> {
       if (ok != true) return;
       comment = c.text.trim();
     }
+    if (!context.mounted) return;
     try {
       await context.read<Session>().api.post('/finance/adjustments/$id/decision', {'decision': decision, if (comment != null) 'comment': comment});
       await reload();

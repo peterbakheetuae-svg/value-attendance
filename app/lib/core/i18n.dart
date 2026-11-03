@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 
-/// JSON-backed strings (same approach as the original app: assets/l10n/<lang>.json).
+/// JSON-backed strings (same approach as the original app: `assets/l10n/<lang>.json`).
 /// Arabic is primary. A missing key renders as the key itself so gaps are visible in QA;
 /// test/i18n_test.dart fails the build if ar/en keys diverge.
 class I18n {

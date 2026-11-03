@@ -110,12 +110,12 @@ class _TodayAttendanceCardState extends State<TodayAttendanceCard> {
         ]),
         const SizedBox(height: 14),
         Row(children: [
-          Expanded(child: GlassMiniCard(title: t('check_in'), value: checkedIn ? Fmt.time(a['checkIn']) : '—', icon: Icons.login_rounded, iconColor: AppColors.success, height: 80)),
+          Expanded(child: GlassMiniCard(title: t('check_in'), value: checkedIn ? Fmt.time(a?['checkIn']) : '—', icon: Icons.login_rounded, iconColor: AppColors.success, height: 80)),
           const SizedBox(width: 12),
-          Expanded(child: GlassMiniCard(title: t('check_out'), value: checkedOut ? Fmt.time(a['checkOut']) : '—', icon: Icons.logout_rounded, iconColor: AppColors.error, height: 80)),
+          Expanded(child: GlassMiniCard(title: t('check_out'), value: checkedOut ? Fmt.time(a?['checkOut']) : '—', icon: Icons.logout_rounded, iconColor: AppColors.error, height: 80)),
           if (!widget.compact) ...[
             const SizedBox(width: 12),
-            Expanded(child: GlassMiniCard(title: t('late_minutes'), value: checkedIn ? '${a['lateMinutes']}' : '—', icon: Icons.schedule_rounded, iconColor: AppColors.warning, height: 80)),
+            Expanded(child: GlassMiniCard(title: t('late_minutes'), value: checkedIn ? '${a?['lateMinutes']}' : '—', icon: Icons.schedule_rounded, iconColor: AppColors.warning, height: 80)),
           ],
         ]),
         const SizedBox(height: 14),
