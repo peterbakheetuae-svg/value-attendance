@@ -8,7 +8,7 @@ permissions:
   id-token: write
 concurrency: { group: pages, cancel-in-progress: true }
 env:
-  FLUTTER_VERSION: '3.38.0'
+  FLUTTER_VERSION: '3.38.10'
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
   API_BASE_URL: ${{ vars.API_BASE_URL }}
 jobs:
@@ -30,8 +30,12 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - name: Require API_BASE_URL
-        run: test -n "$API_BASE_URL" || (echo "Set repository variable API_BASE_URL (https://...)"; exit 1)
+      - name: API URL check
+        run: |
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::warning::Repository variable API_BASE_URL is not set yet — the app will build but cannot sign in until the API is deployed."
+            echo "API_BASE_URL=https://api.invalid" >> "$GITHUB_ENV"
+          fi
       - name: Build Web
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL
       - name: Build Android APK
