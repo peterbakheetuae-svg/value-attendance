@@ -47,3 +47,8 @@ flutter:
           weight: 600
         - asset: assets/fonts/Cairo-Bold.ttf
           weight: 700
+
+# image 4.11 (via pdf/printing) calls ZLibDecoder.decodeLazy, which archive 4.0.9 lacks.
+# pub resolves archive 4.0.9 because image under-declares its constraint.
+dependency_overrides:
+  archive: ^4.0.10
