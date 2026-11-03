@@ -1,4 +1,6 @@
-# JPH Real Estate HR
+# Value Attendance
+
+*(project folder: `jph_real_estate_hr`)*
 
 Independent, single-company HR & sales-team management system for a real-estate brokerage office.
 **Web (Flutter Web) + Android (Flutter) + one shared API and PostgreSQL database.**

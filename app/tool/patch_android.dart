@@ -25,14 +25,14 @@ void main() {
   if (!xml.contains('usesCleartextTraffic')) {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
   }
-  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="JPH HR"');
+  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Value Attendance"');
   f.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, cleartext (dev).');
 
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();
-    h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>JPH Real Estate HR</title>');
+    h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>Value Attendance</title>');
     if (!h.contains('dir="rtl"')) h = h.replaceFirst('<html>', '<html lang="ar" dir="rtl">');
     web.writeAsStringSync(h);
     stdout.writeln('web/index.html patched: title, lang, dir.');

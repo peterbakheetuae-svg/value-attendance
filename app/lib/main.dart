@@ -23,19 +23,19 @@ Future<void> main() async {
       ChangeNotifierProvider.value(value: settings),
       ChangeNotifierProvider.value(value: session),
     ],
-    child: const JphHrApp(),
+    child: const ValueAttendanceApp(),
   ));
   session.restore();
 }
 
-class JphHrApp extends StatelessWidget {
-  const JphHrApp({super.key});
+class ValueAttendanceApp extends StatelessWidget {
+  const ValueAttendanceApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettings>();
     return MaterialApp(
-      title: 'JPH Real Estate HR',
+      title: 'Value Attendance',
       debugShowCheckedModeBanner: false,
       theme: LightTheme.theme,
       darkTheme: DarkTheme.theme,

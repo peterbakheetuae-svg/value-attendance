@@ -1,0 +1,23 @@
+# Render Blueprint — Value Attendance API (FREE plan only).
+# Free web services sleep after 15 min idle (~1 min cold start). Do NOT add a Render Postgres:
+# free Render databases expire after 30 days. The database is Neon Free (DATABASE_URL secret).
+services:
+  - type: web
+    name: value-attendance-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: api
+    buildCommand: npm install --include=dev && npm run typecheck
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL        # Neon pooled connection string, with ?sslmode=require
+        sync: false
+      - key: CORS_ORIGINS        # e.g. https://<user>.github.io
+        sync: false

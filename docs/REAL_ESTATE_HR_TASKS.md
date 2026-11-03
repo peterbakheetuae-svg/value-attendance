@@ -1,8 +1,14 @@
-# JPH Real Estate HR — Task Board
+# Value Attendance — Task Board
 
 Status legend: **VERIFIED** (tests/evidence run) · **WRITTEN** (code complete, not yet executed) · **BLOCKED** (external blocker) · **TODO**
 
-## ▶ Resume checkpoint
+## ▶ Resume checkpoint (2026-11-04 00:50)
+- Brief v2 ("Value Attendance"): audit done — API 49/49 + typecheck re-verified; claims of **device-bound login, selfie, deduction tiers are NOT implemented** (see SECURITY_AUDIT S1–S3).
+- Renamed to Value Attendance (app name, web title, Android label, API name). Deployment config added: `render.yaml`, `.github/workflows/{api-ci,app}.yml`, `docs/DEPLOYMENT.md`.
+- Flutter 3.38 found at `D:\dev\flutter-3.38` (+ android-sdk, jdk-17). Script `tools\pc\1-check-and-test.cmd` writes logs to `build-logs\`. **Not yet run** (PC screen locked; terminals can't be typed into by screen control).
+- Blocked on owner: run the script / unlock PC; GitHub repo with push access; Neon project; Render account (may require card verification → fallback Cloudflare Workers); decision on S1–S3 and on the value-hr-web URL.
+
+### Earlier checkpoint
 - Backend (Phases 0–13) **VERIFIED**: `api` typecheck 0 errors; **49/49** integration tests on real PostgreSQL 16; 80 routes, every non-public route returns 401 anonymously (test-enforced).
 - Flutter app (Phases 14–15) **WRITTEN**, never compiled yet: no Dart/Flutter SDK was available in the build workspace.
 - **Next exact step:** on the dev PC with Flutter ≥ 3.27 → `cd app` → `flutter create --platforms=android,web --org com.jph.realestatehr --project-name jph_real_estate_hr .` → `dart run tool/patch_android.dart` → `flutter pub get` → `flutter analyze` → fix → `flutter test` → T16.3 / T17.x.

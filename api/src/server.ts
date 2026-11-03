@@ -14,5 +14,5 @@ const db = createDb(url);
 const router = buildRouter({ db, clock: systemClock });
 const log = (o: object) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
 createServer(createHandler(router, { corsOrigins, log })).listen(port, host, () => {
-  log({ level: 'info', msg: `JPH Real Estate HR API on http://${host}:${port}`, routes: router.list().length });
+  log({ level: 'info', msg: `Value Attendance API on http://${host}:${port}`, routes: router.list().length });
 });

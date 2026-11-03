@@ -4,7 +4,7 @@ Every key in the Dart code must exist here (test/i18n_test.dart checks parity)."
 import json, os
 T = {
 # key: (ar, en)
-'app_name': ('JPH للتسويق العقاري — الموارد البشرية', 'JPH Real Estate HR'),
+'app_name': ('Value Attendance — الحضور والانصراف', 'Value Attendance'),
 'login_title': ('تسجيل الدخول', 'Sign in'),
 'login_subtitle': ('الدخول مخصص لموظفي المكتب', 'For office staff only'),
 'employee_code_or_email': ('كود الموظف أو البريد أو الموبايل', 'Employee code, email or mobile'),
