@@ -1,0 +1,220 @@
+import { ok, type Module } from '../ctx.ts';
+import { one, type Q } from '../db.ts';
+import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
+import { date, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
+import { assertCanRead, audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
+import { cairoInstant, local } from '../lib/time.ts';
+import { computeMonth, metrics } from './attendance-calc.ts';
+import { notify } from './notify.ts';
+
+export function haversineM(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+const MAX_ACCURACY_M = 200;
+
+async function geofence(q: Q, body: Record<string, unknown>) {
+  const s = await one(q, `SELECT gps_required FROM company_settings`);
+  const lat = num(body, 'lat', { optional: true, min: -90, max: 90 });
+  const lng = num(body, 'lng', { optional: true, min: -180, max: 180 });
+  const acc = num(body, 'accuracyM', { optional: true, min: 0, max: 100000 });
+  if (!s.gps_required) return { status: 'not_required' as const, lat: lat ?? null, lng: lng ?? null, acc: acc ?? null };
+  const locs = (await q.query(`SELECT * FROM work_locations WHERE active`)).rows;
+  if (!locs.length) throw unprocessable('GPS attendance is enabled but no office location is configured yet');
+  if (lat === undefined || lng === undefined || acc === undefined) throw invalid('Location is required to record attendance', { field: 'lat' });
+  if (acc > MAX_ACCURACY_M) throw unprocessable('Location signal is too weak. Move near a window and try again');
+  const nearest = Math.min(...locs.map((l) => haversineM(lat, lng, l.lat, l.lng) - l.radius_m));
+  if (nearest > 0) throw new AppError('unprocessable', 'You are outside the office area', { distanceOutsideM: Math.round(nearest) });
+  return { status: 'inside' as const, lat, lng, acc };
+}
+
+async function scheduleFor(q: Q, employeeId: string) {
+  return one(q, `
+    SELECT ws.* FROM employees e
+      JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
+     WHERE e.id = $1`, [employeeId]);
+}
+
+/** Apply an approved correction; keeps originals forever. Used by HR direct edits and approved requests. */
+export async function applyCorrection(q: Q, p: {
+  employeeId: string; workDate: string; inHHMM: string; outHHMM: string | null; reason: string;
+  requestedBy: string; approvedBy: string; requestId?: string;
+}) {
+  if (p.approvedBy === p.employeeId) throw forbidden('Nobody can correct their own attendance');
+  const inAt = cairoInstant(p.workDate, p.inHHMM);
+  const outAt = p.outHHMM ? cairoInstant(p.workDate, p.outHHMM) : null;
+  if (outAt && outAt <= inAt) throw invalid('Check-out must be after check-in');
+  const existing = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [p.employeeId, p.workDate]);
+  let attendanceId: string;
+  if (existing) {
+    await q.query(`UPDATE attendance SET check_in_at = $2, check_out_at = $3, corrected = true,
+                     original_check_out_at = COALESCE(original_check_out_at, check_out_at) WHERE id = $1`,
+      [existing.id, inAt, outAt]);
+    attendanceId = existing.id;
+  } else {
+    const s = await scheduleFor(q, p.employeeId);
+    const row = await one(q, `
+      INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
+        overtime_enabled, overtime_min_minutes, check_in_at, check_out_at, original_check_in_at, corrected, source)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,true,'correction') RETURNING id`,
+      [p.employeeId, p.workDate, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes,
+       s.overtime_enabled, s.overtime_min_minutes, inAt, outAt]);
+    attendanceId = row.id;
+  }
+  await q.query(`INSERT INTO attendance_corrections (attendance_id, employee_id, work_date, original_in, original_out,
+                   corrected_in, corrected_out, reason, requested_by, approved_by, request_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [attendanceId, p.employeeId, p.workDate, existing?.check_in_at ?? null, existing?.check_out_at ?? null,
+     inAt, outAt, p.reason, p.requestedBy, p.approvedBy, p.requestId ?? null]);
+  await audit(q, p.approvedBy, 'attendance.correct', 'attendance', attendanceId,
+    existing ? { check_in_at: existing.check_in_at, check_out_at: existing.check_out_at } : null,
+    { check_in_at: inAt, check_out_at: outAt, reason: p.reason, requestId: p.requestId ?? null });
+  await notify(q, { to: p.employeeId, type: 'attendance_corrected', title: 'تم تعديل سجل حضورك',
+    body: `${p.workDate}: ${p.reason}`, entity: 'attendance', entityId: attendanceId,
+    dedupeKey: `att-corr:${attendanceId}:${inAt.toISOString()}:${outAt?.toISOString() ?? '-'}` });
+  return attendanceId;
+}
+
+function shape(a: any, today: string) {
+  return { id: a.id, workDate: a.work_date, checkIn: a.check_in_at, checkOut: a.check_out_at,
+    corrected: a.corrected, source: a.source, geofence: a.geofence_status,
+    schedule: { start: a.schedule_start, end: a.schedule_end }, ...metrics(a, today) };
+}
+
+export const attendanceModule: Module = (r, { db, clock }) => {
+  r.post('/attendance/check-in', async (req) => {
+    const a = await authenticate(db, req);
+    const now = clock(); const l = local(now);
+    const b = obj(req.body ?? {});
+    const row = await db.tx(async (q) => {
+      // serialize per employee so two taps cannot both pass the duplicate check
+      await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
+      const dup = await one(q, `SELECT id FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
+      if (dup) throw conflict('You already checked in today');
+      const g = await geofence(q, b);
+      const s = await scheduleFor(q, a.id);
+      const inserted = await one(q, `
+        INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
+          overtime_enabled, overtime_min_minutes, check_in_at, check_in_lat, check_in_lng, check_in_accuracy_m,
+          geofence_status, original_check_in_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$9) RETURNING *`,
+        [a.id, l.date, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes, s.overtime_enabled,
+         s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status]);
+      await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status });
+      return inserted;
+    });
+    return ok({ attendance: shape(row, l.date) }, 201);
+  });
+
+  r.post('/attendance/check-out', async (req) => {
+    const a = await authenticate(db, req);
+    const now = clock(); const l = local(now);
+    const b = obj(req.body ?? {});
+    const row = await db.tx(async (q) => {
+      const open = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
+      if (!open) throw conflict('You must check in first');
+      if (open.check_out_at) throw conflict('You already checked out today');
+      if (now <= new Date(open.check_in_at)) throw conflict('Check-out must be after check-in');
+      const g = await geofence(q, b);
+      const updated = await one(q, `UPDATE attendance SET check_out_at = $2, original_check_out_at = $2,
+          check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5 WHERE id = $1 RETURNING *`,
+        [open.id, now, g.lat, g.lng, g.acc]);
+      await audit(q, a.id, 'attendance.check_out', 'attendance', open.id, undefined, { at: now });
+      return updated;
+    });
+    return ok({ attendance: shape(row, l.date) });
+  });
+
+  r.get('/attendance/today', async (req) => {
+    const a = await authenticate(db, req);
+    const l = local(clock());
+    const row = await one(db, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
+    const s = await scheduleFor(db, a.id);
+    const holiday = await one(db, `SELECT name FROM holidays WHERE day = $1`, [l.date]);
+    const settings = await one(db, `SELECT gps_required FROM company_settings`);
+    return ok({ date: l.date, attendance: row ? shape(row, l.date) : null,
+      schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
+      isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required });
+  });
+
+  /** Today's board for managers/HR/owner. */
+  r.get('/attendance/board', async (req) => {
+    const a = await authenticate(db, req);
+    requirePerm(a, 'attendance.read_all', 'attendance.read_team');
+    const ids = await readableIds(db, a, 'attendance');
+    const l = local(clock());
+    const rows = await db.query(`
+      SELECT at.*, e.id AS employee_id, e.full_name, e.code, e.job_title, t.name AS team_name
+        FROM employees e LEFT JOIN teams t ON t.id = e.team_id
+        LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
+       WHERE e.status = 'active' AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       ORDER BY e.full_name`, [l.date, ids]);
+    const board = rows.rows.map((x) => ({
+      employeeId: x.employee_id, fullName: x.full_name, code: x.code, jobTitle: x.job_title, teamName: x.team_name,
+      attendance: x.id ? shape(x, l.date) : null,
+    }));
+    return ok({ date: l.date, board });
+  });
+
+  r.get('/attendance', async (req) => {
+    const a = await authenticate(db, req);
+    const employeeId = req.query.get('employeeId') ?? a.id;
+    if (!isUuid(employeeId)) throw notFound();
+    await assertCanRead(db, a, employeeId, 'attendance');
+    const period = monthParam(req.query.get('month'));
+    const today = local(clock()).date;
+    return ok(await computeMonth(db, employeeId, period, today));
+  });
+
+  r.post('/attendance/corrections', async (req) => {
+    const a = await authenticate(db, req);
+    requirePerm(a, 'attendance.correct');
+    const b = obj(req.body);
+    const employeeId = uuid(b, 'employeeId')!;
+    if (employeeId === a.id) throw forbidden('Nobody can correct their own attendance');
+    const workDate = date(b, 'workDate')!;
+    if (workDate > local(clock()).date) throw invalid('Cannot correct a future day', { field: 'workDate' });
+    const emp = await one(db, `SELECT id FROM employees WHERE id = $1`, [employeeId]);
+    if (!emp) throw notFound('Employee not found');
+    const id = await db.tx((q) => applyCorrection(q, {
+      employeeId, workDate, inHHMM: time(b, 'checkIn')!, outHHMM: time(b, 'checkOut', true) ?? null,
+      reason: reqStr(b, 'reason', { min: 3, max: 500 }), requestedBy: a.id, approvedBy: a.id,
+    }));
+    return ok({ attendanceId: id }, 201);
+  });
+
+  r.get('/attendance/:id/corrections', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const att = await one(db, `SELECT employee_id FROM attendance WHERE id = $1`, [req.params.id]);
+    if (!att) throw notFound();
+    await assertCanRead(db, a, att.employee_id, 'attendance');
+    const rows = await db.query(`
+      SELECT c.*, rq.full_name AS requested_by_name, ap.full_name AS approved_by_name
+        FROM attendance_corrections c
+        JOIN employees rq ON rq.id = c.requested_by JOIN employees ap ON ap.id = c.approved_by
+       WHERE c.attendance_id = $1 ORDER BY c.at`, [req.params.id]);
+    return ok({ corrections: rows.rows });
+  });
+
+  r.get('/attendance/issues', async (req) => {
+    const a = await authenticate(db, req);
+    requirePerm(a, 'attendance.read_all', 'attendance.read_team');
+    const ids = await readableIds(db, a, 'attendance');
+    const today = local(clock()).date;
+    const rows = await db.query(`
+      SELECT e.id, e.full_name, e.code, count(*) FILTER (WHERE at.check_out_at IS NULL AND at.work_date < $1)::int AS missing_checkouts,
+             count(*) FILTER (WHERE at.corrected)::int AS corrections
+        FROM employees e JOIN attendance at ON at.employee_id = e.id
+       WHERE at.work_date >= date_trunc('month', $1::date) AND e.status = 'active'
+         AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       GROUP BY e.id HAVING count(*) FILTER (WHERE at.check_out_at IS NULL AND at.work_date < $1) > 0
+       ORDER BY missing_checkouts DESC`, [today, ids]);
+    return ok({ issues: rows.rows });
+  });
+};
+
+export { has };

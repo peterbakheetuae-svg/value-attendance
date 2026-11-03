@@ -1,0 +1,49 @@
+name: jph_real_estate_hr
+description: JPH Real Estate HR — single-company HR & sales management (Web + Android).
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  provider: ^6.1.2
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  geolocator: ^13.0.1
+  image_picker: ^1.1.2
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  file_saver: 0.2.14
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/bg/light_bg.png
+    - assets/bg/dark_bg.png
+    - assets/images/logo.png
+    - assets/avatar.png
+    - assets/l10n/ar.json
+    - assets/l10n/en.json
+    - assets/fonts/Cairo-Regular.ttf
+    - assets/fonts/Cairo-Bold.ttf
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700

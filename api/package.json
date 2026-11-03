@@ -1,0 +1,24 @@
+{
+  "name": "jph-real-estate-hr-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JPH Real Estate HR — single-company HR & sales management API",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "migrate": "tsx src/migrate.ts",
+    "seed:dev": "tsx src/seed-dev.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --import tsx --test --test-concurrency=4 test/*.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
