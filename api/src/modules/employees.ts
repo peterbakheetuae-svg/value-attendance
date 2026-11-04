@@ -101,7 +101,13 @@ export const employeesModule: Module = (r, { db, clock }) => {
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.full_name LIMIT 500`, vals);
     // Team-scoped readers get a reduced card, never contact/emergency/notes of others
     const full = has(a, 'employee.read_all');
-    return ok({ employees: rows.rows.map((e) => full || e.id === a.id ? e : teamCard(e)) });
+    const out = rows.rows.map((e) => full || e.id === a.id ? e : teamCard(e));
+    if (has(a, 'employee.salary_read') && out.length) {
+      const sal = await db.query(`SELECT employee_id, base_salary FROM employee_salaries WHERE employee_id = ANY($1::uuid[])`, [out.map((e: any) => e.id)]);
+      const by = new Map(sal.rows.map((x) => [x.employee_id, x.base_salary]));
+      for (const e of out as any[]) e.base_salary = by.get(e.id) ?? null;
+    }
+    return ok({ employees: out });
   });
 
   r.get('/employees/:id', async (req) => {
