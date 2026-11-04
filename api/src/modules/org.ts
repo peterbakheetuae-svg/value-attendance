@@ -4,6 +4,30 @@ import { forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, date, num, obj, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, requirePerm } from '../auth/context.ts';
 
+function dayDivisor(b: Record<string, unknown>) {
+  if (b.dayDivisor === undefined) return undefined;
+  if (b.dayDivisor !== 26 && b.dayDivisor !== 30) throw invalid('dayDivisor must be 26 or 30', { field: 'dayDivisor' });
+  return b.dayDivisor;
+}
+function deductionMode(b: Record<string, unknown>) {
+  if (b.deductionMode === undefined) return undefined;
+  if (b.deductionMode !== 'per_minute' && b.deductionMode !== 'tiers') throw invalid('deductionMode must be per_minute or tiers', { field: 'deductionMode' });
+  return b.deductionMode;
+}
+/** 0–6 tiers of { afterMinutes 1–600, amount 1–100000 }, distinct minutes. */
+function tiers(b: Record<string, unknown>, field: string) {
+  const v = b[field];
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 6) throw invalid(`${field} must be a list of up to 6 tiers`, { field });
+  const out = v.map((t: any) => {
+    const m = Number(t?.afterMinutes), a = Number(t?.amount);
+    if (!Number.isInteger(m) || m < 1 || m > 600 || !Number.isFinite(a) || a <= 0 || a > 100000) throw invalid(`${field}: minutes 1–600 and a positive amount`, { field });
+    return { afterMinutes: m, amount: Math.round(a * 100) / 100 };
+  }).sort((x, y) => x.afterMinutes - y.afterMinutes);
+  if (new Set(out.map((t) => t.afterMinutes)).size !== out.length) throw invalid(`${field}: each tier needs different minutes`, { field });
+  return out;
+}
+
 export const orgModule: Module = (r, { db }) => {
   // ---------------------------------------------------------------- departments
   r.get('/departments', async (req) => {
@@ -171,12 +195,19 @@ export const orgModule: Module = (r, { db }) => {
     const b = obj(req.body);
     const before = await one(db, `SELECT * FROM company_settings`);
     const s = await one(db, `UPDATE company_settings SET company_name_ar=$1, company_name_en=$2, gps_required=$3,
-      request_backdate_days=$4, break_minutes=$5, updated_at = now() RETURNING *`, [
+      request_backdate_days=$4, break_minutes=$5, payroll_auto_deductions=$6, day_divisor=$7, deduction_mode=$8,
+      late_tiers=$9::jsonb, early_tiers=$10::jsonb, absence_penalty_days=$11, updated_at = now() RETURNING *`, [
       str(b, 'companyNameAr', { optional: true, min: 2, max: 120 }) ?? before.company_name_ar,
       str(b, 'companyNameEn', { optional: true, min: 2, max: 120 }) ?? before.company_name_en,
       bool(b, 'gpsRequired') ?? before.gps_required,
       num(b, 'requestBackdateDays', { optional: true, int: true, min: 0, max: 365 }) ?? before.request_backdate_days,
-      num(b, 'breakMinutes', { optional: true, int: true, min: 0, max: 240 }) ?? before.break_minutes]);
+      num(b, 'breakMinutes', { optional: true, int: true, min: 0, max: 240 }) ?? before.break_minutes,
+      bool(b, 'payrollAutoDeductions') ?? before.payroll_auto_deductions,
+      dayDivisor(b) ?? before.day_divisor,
+      deductionMode(b) ?? before.deduction_mode,
+      JSON.stringify(tiers(b, 'lateTiers') ?? before.late_tiers),
+      JSON.stringify(tiers(b, 'earlyTiers') ?? before.early_tiers),
+      num(b, 'absencePenaltyDays', { optional: true, min: 0, max: 5 }) ?? before.absence_penalty_days]);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s);
     return ok({ settings: s });
   });

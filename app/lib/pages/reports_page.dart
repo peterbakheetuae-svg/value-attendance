@@ -261,14 +261,36 @@ class _PayrollPageState extends State<PayrollPage> {
               ]),
               const GlassDivider(margin: EdgeInsets.symmetric(vertical: 8)),
               if (r.obj('money')!.containsKey('baseSalary')) InfoTile(title: t('base_salary'), value: Fmt.egp(r.obj('money')!['baseSalary'])),
-              InfoTile(title: t('approved_deductions'), value: Fmt.egp(r.obj('money')!['approvedDeductions'])),
-              InfoTile(title: t('approved_bonuses'), value: Fmt.egp(r.obj('money')!['approvedBonuses'])),
+              if (r.obj('payroll') != null) ..._payrollLines(r.obj('payroll')!)
+              else ...[
+                InfoTile(title: t('approved_deductions'), value: Fmt.egp(r.obj('money')!['approvedDeductions'])),
+                InfoTile(title: t('approved_bonuses'), value: Fmt.egp(r.obj('money')!['approvedBonuses'])),
+              ],
             ]))),
           ]),
         ),
       ]),
     );
   }
+}
+
+/// Automatic deductions breakdown (Value HR rules) in the original InfoTile style.
+List<Widget> _payrollLines(Map<String, dynamic> p) {
+  final auto = p.obj('rules')?['auto'] == true;
+  String daysMin(Map<String, dynamic>? x) => '${x?['days'] ?? 0} ${t('day_unit')} · ${x?['minutes'] ?? 0} ${t('min_short')}';
+  return [
+    InfoTile(title: t('day_wage'), value: Fmt.egp(p['dayWage'])),
+    if (!auto) Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Text(t('auto_deductions_off'), style: const TextStyle(fontSize: 12, color: AppColors.warning))),
+    InfoTile(title: '${t('late_deduction')} (${daysMin(p.obj('late'))})', value: Fmt.egp(p.obj('late')?['amount'])),
+    InfoTile(title: '${t('early_deduction')} (${daysMin(p.obj('early'))})', value: Fmt.egp(p.obj('early')?['amount'])),
+    InfoTile(title: '${t('absence_deduction')} (${p.obj('absence')?['days'] ?? 0} ${t('day_unit')})', value: Fmt.egp(p.obj('absence')?['amount'])),
+    InfoTile(title: '${t('unpaid_deduction')} (${p.obj('unpaid')?['days'] ?? 0} ${t('day_unit')})', value: Fmt.egp(p.obj('unpaid')?['amount'])),
+    InfoTile(title: t('admin_deductions'), value: Fmt.egp(p['adminDeductions'])),
+    InfoTile(title: t('approved_bonuses'), value: Fmt.egp(p['bonuses'])),
+    const GlassDivider(margin: EdgeInsets.symmetric(vertical: 6)),
+    InfoTile(title: t('total_deductions'), value: Fmt.egp(p['totalDeductions'])),
+    InfoTile(title: p['complete'] == true ? t('net_salary') : t('net_salary_to_date'), value: Fmt.egp(p['net'])),
+  ];
 }
 
 // ----------------------------------------------------------------------------- PDF (RTL, Cairo)

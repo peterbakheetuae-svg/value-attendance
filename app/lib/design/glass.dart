@@ -141,7 +141,7 @@ class InfoTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: TextStyle(color: isDark ? AppColors.onSurfaceVariantDark : Colors.black54)),
+        Flexible(flex: 3, child: Text(title, style: TextStyle(color: isDark ? AppColors.onSurfaceVariantDark : Colors.black54))),
         const SizedBox(width: 12),
         Flexible(child: Text(value, textAlign: TextAlign.end,
             style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? AppColors.onSurfaceDark : Colors.black))),

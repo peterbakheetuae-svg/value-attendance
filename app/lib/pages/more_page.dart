@@ -64,6 +64,7 @@ class MorePage extends StatelessWidget {
             if (s.has('org.manage')) SettingTile(icon: Icons.apartment_rounded, title: t('departments_and_teams'), onTap: () => _go(context, const OrgAdminPage())),
             if (s.has('attendance.config')) SettingTile(icon: Icons.schedule_rounded, title: t('schedules_holidays_locations'), onTap: () => _go(context, const AttendanceConfigPage())),
             if (s.has('settings.manage')) SettingTile(icon: Icons.settings_rounded, title: t('company_settings'), onTap: () => _go(context, const CompanySettingsPage())),
+            if (s.has('settings.manage')) SettingTile(icon: Icons.rule_rounded, title: t('payroll_rules'), onTap: () => _go(context, const PayrollRulesPage())),
             if (s.has('roles.manage')) SettingTile(icon: Icons.admin_panel_settings_rounded, title: t('roles_permissions'), onTap: () => _go(context, const RolesPage())),
             if (s.has('audit.read')) SettingTile(icon: Icons.manage_search_rounded, title: t('audit_log'), onTap: () => _go(context, const AuditPage())),
           ]),

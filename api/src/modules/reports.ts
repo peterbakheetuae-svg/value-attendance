@@ -5,6 +5,7 @@ import { monthParam, isUuid } from '../http/validate.ts';
 import { assertCanRead, authenticate, has, readableIds, teamMemberIds, type Actor } from '../auth/context.ts';
 import { addMonths, local } from '../lib/time.ts';
 import { workbook, XLSX_MIME, type Cell } from '../lib/xlsx.ts';
+import { computePayroll, loadRules } from './payroll-calc.ts';
 import { computeMonth, type MonthSummary } from './attendance-calc.ts';
 import { ensurePeriod, loadPeriod } from './kpi.ts';
 import { overall } from './evaluations.ts';
@@ -129,6 +130,7 @@ async function filteredEmployees(q: Q, a: Actor, query: URLSearchParams, ids: st
 
 async function payrollRows(q: Q, a: Actor, ids: string[], period: string, today: string) {
   const canSalary = has(a, 'employee.salary_read');
+  const rules = await loadRules(q);
   const out = [];
   for (const id of ids) {
     const e = await one(q, `SELECT e.id, e.code, e.full_name, e.job_title, s.base_salary FROM employees e
@@ -148,6 +150,8 @@ async function payrollRows(q: Q, a: Actor, ids: string[], period: string, today:
       // money is EGP only, and kept apart from any non-financial totals
       money: { currency: 'EGP', baseSalary: canSalary ? e.base_salary ?? null : undefined,
         approvedDeductions: adj.deductions, approvedBonuses: adj.bonuses },
+      // automatic deductions & net need the salary, so only salary readers get them
+      payroll: canSalary ? await computePayroll(q, id, period, today, rules) : undefined,
     });
   }
   return out;
@@ -184,6 +188,15 @@ export const reportsModule: Module = (r, { db, clock }) => {
     for (const id of list) reports.push(await employeeMonthly(db, id, period, today(), { kpi: true, evaluation: true }));
     const complete = reports.length ? reports[0].complete : addMonths(period, 1) <= today();
     return ok({ period, complete, count: reports.length, reports });
+  });
+
+  /** One employee's payroll breakdown — salary readers only (salaries never appear on employee screens). */
+  r.get('/payroll/employee/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'employee.salary_read')) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const period = monthParam(req.query.get('month'));
+    return ok({ period, currency: 'EGP', payroll: await computePayroll(db, req.params.id, period, today(), await loadRules(db)) });
   });
 
   r.get('/reports/payroll', async (req) => {
@@ -237,11 +250,15 @@ export const reportsModule: Module = (r, { db, clock }) => {
     const canSalary = has(a, 'employee.salary_read');
     const header = ['الكود', 'الاسم', 'أيام العمل', 'أيام الحضور', 'غياب معتمد', 'منها بدون مرتب', 'غياب غير معتمد',
       'دقائق التأخير', 'دقائق الانصراف المبكر', 'دقائق إضافية', 'دقائق الأذونات',
-      ...(canSalary ? ['المرتب الأساسي (EGP)'] : []), 'خصومات معتمدة (EGP)', 'مكافآت معتمدة (EGP)'];
+      ...(canSalary ? ['المرتب الأساسي (EGP)', 'أجر اليوم', 'خصم تأخير', 'خصم انصراف بدري', 'خصم غياب', 'خصم بدون مرتب'] : []),
+      'خصومات إدارية (EGP)', 'مكافآت (EGP)', ...(canSalary ? ['إجمالي الخصومات', 'الصافي (EGP)'] : [])];
     const rows = data.map((d) => [d.employee.code, d.employee.fullName, d.attendance.workingDays, d.attendance.attendedDays,
       d.attendance.approvedAbsenceDays, d.attendance.unpaidAbsenceDays, d.attendance.unapprovedAbsenceDays,
       d.attendance.lateMinutes, d.attendance.earlyMinutes, d.attendance.overtimeMinutes, d.attendance.hourlyPermissionMinutes,
-      ...(canSalary ? [d.money.baseSalary ?? null] : []), d.money.approvedDeductions, d.money.approvedBonuses] as Cell[]);
+      ...(canSalary && d.payroll ? [d.money.baseSalary ?? null, d.payroll.dayWage, d.payroll.late.amount, d.payroll.early.amount,
+        d.payroll.absence.amount, d.payroll.unpaid.amount] : []),
+      d.money.approvedDeductions, d.money.approvedBonuses,
+      ...(canSalary && d.payroll ? [d.payroll.totalDeductions, d.payroll.net] : [])] as Cell[]);
     const buf = workbook([{ name: 'ملخص الرواتب', header, rows, rtl: true }]);
     return { binary: buf, contentType: XLSX_MIME, fileName: `payroll-${period.slice(0, 7)}.xlsx` };
   });

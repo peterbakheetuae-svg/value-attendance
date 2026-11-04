@@ -359,3 +359,123 @@ class AuditPage extends StatelessWidget {
     ));
   }
 }
+
+/// Payroll rules (Value HR): day divisor, per-minute or tiered late/early deductions, absence penalty.
+class PayrollRulesPage extends StatefulWidget {
+  const PayrollRulesPage({super.key});
+  @override
+  State<PayrollRulesPage> createState() => _PayrollRulesPageState();
+}
+
+class _TierRow {
+  final TextEditingController minutes;
+  final TextEditingController amount;
+  _TierRow(Object? m, Object? a)
+      : minutes = TextEditingController(text: m == null ? '' : '$m'),
+        amount = TextEditingController(text: a == null ? '' : '$a');
+}
+
+class _PayrollRulesPageState extends State<PayrollRulesPage> {
+  bool _loaded = false, _saving = false;
+  bool _auto = false;
+  int _divisor = 30;
+  String _mode = 'per_minute';
+  final _absence = TextEditingController();
+  final List<_TierRow> _late = [], _early = [];
+  Object? _error;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final st = (await context.read<Session>().api.get('/settings')).obj('settings')!;
+      List<_TierRow> rows(Object? v) => [for (final x in (v as List? ?? const [])) _TierRow((x as Map)['afterMinutes'], x['amount'])];
+      setState(() {
+        _auto = st['payroll_auto_deductions'] == true;
+        _divisor = (st['day_divisor'] ?? 30) as int;
+        _mode = st.s('deduction_mode').isEmpty ? 'per_minute' : st.s('deduction_mode');
+        _absence.text = '${st['absence_penalty_days'] ?? 1}';
+        _late..clear()..addAll(rows(st['late_tiers']));
+        _early..clear()..addAll(rows(st['early_tiers']));
+        _loaded = true;
+      });
+    } catch (e) {
+      setState(() => _error = e);
+    }
+  }
+
+  List<Map<String, num>> _tiers(List<_TierRow> rows) => [
+        for (final r in rows)
+          if (r.minutes.text.trim().isNotEmpty || r.amount.text.trim().isNotEmpty)
+            {'afterMinutes': int.parse(r.minutes.text.trim()), 'amount': num.parse(r.amount.text.trim())},
+      ];
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await context.read<Session>().api.patch('/settings', {
+        'payrollAutoDeductions': _auto, 'dayDivisor': _divisor, 'deductionMode': _mode,
+        'absencePenaltyDays': num.parse(_absence.text.trim()),
+        'lateTiers': _tiers(_late), 'earlyTiers': _tiers(_early),
+      });
+      if (mounted) showSnack(context, t('saved'));
+    } catch (e) {
+      if (mounted) showSnack(context, e is FormatException ? t('tiers_invalid') : errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _tierEditor(String title, List<_TierRow> rows) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SectionTitle(title),
+        for (var i = 0; i < rows.length; i++) Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            Expanded(child: TextField(controller: rows[i].minutes, keyboardType: TextInputType.number, decoration: glassInput(context, t('tier_after_minutes')))),
+            const SizedBox(width: 8),
+            Expanded(child: TextField(controller: rows[i].amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: glassInput(context, t('amount_egp')))),
+            IconButton(icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error), onPressed: () => setState(() => rows.removeAt(i))),
+          ]),
+        ),
+        if (rows.length < 6) Align(alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(icon: const Icon(Icons.add_rounded), label: Text(t('add_tier')), onPressed: () => setState(() => rows.add(_TierRow(null, null))))),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPage(
+      title: t('payroll_rules'),
+      body: _error != null
+          ? ErrorState(errorText(_error!), onRetry: _load, retryLabel: t('retry'))
+          : !_loaded
+              ? const LoadingState()
+              : GlassCard(radius: 20, child: Material(type: MaterialType.transparency, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  SwitchListTile(contentPadding: EdgeInsets.zero, value: _auto, title: Text(t('auto_deductions')), subtitle: Text(t('auto_deductions_help')),
+                      onChanged: (v) => setState(() => _auto = v)),
+                  const SizedBox(height: 8),
+                  Text(t('day_divisor')),
+                  const SizedBox(height: 6),
+                  SegmentedButton<int>(segments: const [ButtonSegment(value: 26, label: Text('26')), ButtonSegment(value: 30, label: Text('30'))],
+                      selected: {_divisor}, onSelectionChanged: (v) => setState(() => _divisor = v.first)),
+                  const SizedBox(height: 14),
+                  Text(t('deduction_mode')),
+                  const SizedBox(height: 6),
+                  SegmentedButton<String>(segments: [
+                    ButtonSegment(value: 'per_minute', label: Text(t('mode_per_minute'))),
+                    ButtonSegment(value: 'tiers', label: Text(t('mode_tiers'))),
+                  ], selected: {_mode}, onSelectionChanged: (v) => setState(() => _mode = v.first)),
+                  const SizedBox(height: 6),
+                  Text(_mode == 'per_minute' ? t('mode_per_minute_help') : t('mode_tiers_help'), style: const TextStyle(fontSize: 12)),
+                  if (_mode == 'tiers') ...[
+                    _tierEditor(t('late_tiers'), _late),
+                    _tierEditor(t('early_tiers'), _early),
+                  ],
+                  const SizedBox(height: 14),
+                  TextField(controller: _absence, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: glassInput(context, t('absence_penalty_days'))),
+                  const SizedBox(height: 16),
+                  PrimaryButton(label: t('save'), loading: _saving, onTap: _save),
+                ]))),
+    );
+  }
+}
