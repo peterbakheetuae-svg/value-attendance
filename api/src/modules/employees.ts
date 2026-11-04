@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, type Actor } from '../auth/context.ts';
-import { hashPassword, tempPassword, tempPin, PIN_ROLES } from '../auth/password.ts';
+import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
 
 const ROLES = ['owner', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
 const PRIVILEGED = new Set(['owner', 'hr_manager', 'accountant']);
@@ -19,7 +19,7 @@ const PROFILE_COLS = `
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
   (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
-  (e.device_id IS NOT NULL) AS device_bound, e.device_label, e.device_bound_at`;
+  (e.device_id IS NOT NULL) AS device_bound, e.device_label, e.device_bound_at, e.legacy_fields`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -54,6 +54,21 @@ function decodeBase64(s: unknown, field: string): Buffer {
   if (!buf.length) throw invalid(`${field} is empty`, { field });
   if (buf.length > 5 * 1024 * 1024) throw invalid(`${field} is larger than 5 MB`, { field });
   return buf;
+}
+
+/** Free-form fields from the original JPH employee form (flat strings/numbers/booleans, ≤ 40 keys). */
+function legacyFields(v: unknown): Record<string, string | number | boolean | null> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw invalid('legacyFields must be an object', { field: 'legacyFields' });
+  const out: Record<string, string | number | boolean | null> = {};
+  const entries = Object.entries(v as Record<string, unknown>);
+  if (entries.length > 40) throw invalid('Too many legacy fields', { field: 'legacyFields' });
+  for (const [k, x] of entries) {
+    if (!/^[A-Za-z_]{1,40}$/.test(k)) throw invalid('Invalid legacy field name', { field: 'legacyFields' });
+    if (x === null || typeof x === 'number' || typeof x === 'boolean') out[k] = x;
+    else if (typeof x === 'string') out[k] = x.slice(0, 200);
+    else throw invalid('Legacy fields must be plain values', { field: 'legacyFields' });
+  }
+  return out;
 }
 
 /** PIN instead of a password: requested, allowed by the company, and only for sales roles. */
@@ -127,18 +142,27 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const salary = num(b, 'baseSalary', { optional: true, min: 0, max: 10_000_000 });
     if (salary !== undefined && !has(a, 'employee.salary_manage')) throw forbidden('You cannot set salary information');
     await validateRefs(db, f);
-    const usePin = await pinFor(db, b.loginKind, role);
-    const pw = usePin ? tempPin() : tempPassword();
+    let usePin = await pinFor(db, b.loginKind, role);
+    // the original JPH form lets HR type the first password/PIN
+    const typed = typeof b.password === 'string' && b.password.trim() ? b.password.trim() : null;
+    if (typed) {
+      const st = await one(db, `SELECT allow_pin FROM company_settings`);
+      const pol = passwordPolicyError(typed, { allowPin: st.allow_pin && PIN_ROLES.has(role) });
+      if (pol) throw invalid(pol, { field: 'password' });
+      usePin = PIN_RE.test(typed);
+    }
+    const pw = typed ?? (usePin ? tempPin() : tempPassword());
     const hash = await hashPassword(pw);
     const created = await db.tx(async (q) => {
       const e = await one(q, `
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
-          notes, password_hash, must_change_password)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17)
+          notes, password_hash, must_change_password, legacy_fields)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
-         role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin]);
+         role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin,
+         JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields))]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
@@ -176,6 +200,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (opt('emergencyContactPhone')) put('emergency_contact_phone', str(b, 'emergencyContactPhone', { optional: true, pattern: PHONE }) ?? null);
     if (opt('notes')) put('notes', str(b, 'notes', { optional: true, max: 2000 }) ?? null);
     if (opt('joiningDate')) put('joining_date', date(b, 'joiningDate'));
+    if (opt('legacyFields')) put('legacy_fields', JSON.stringify(legacyFields(b.legacyFields)));
     const refs: any = {};
     if (opt('departmentId')) { refs.departmentId = uuid(b, 'departmentId', true) ?? null; put('department_id', refs.departmentId); }
     if (opt('teamId')) { refs.teamId = uuid(b, 'teamId', true) ?? null; put('team_id', refs.teamId); }

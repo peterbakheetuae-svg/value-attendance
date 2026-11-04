@@ -7,7 +7,8 @@ let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 before(async () => { h = await harness(); c = await cast(h); });
 after(async () => { await h.close(); });
 
-const PUBLIC = new Set(['GET /healthz', 'GET /readyz', 'POST /auth/login']);
+// /media is public by design but needs a valid HMAC signature (checked below)
+const PUBLIC = new Set(['GET /healthz', 'GET /readyz', 'POST /auth/login', 'GET /media/:kind/:id']);
 const FAKE_ID = '00000000-0000-4000-8000-000000000000';
 
 test('every non-public route rejects anonymous callers with 401', async () => {
@@ -22,6 +23,19 @@ test('every non-public route rejects anonymous callers with 401', async () => {
     if (res.status !== 401) failures.push(`${r} → ${res.status}`);
   }
   assert.deepEqual(failures, []);
+});
+
+test('signed media: unsigned, forged or expired links are 404; a fresh link works', async () => {
+  await h.db.query(`UPDATE employees SET photo = '\\xffd8ffd9', photo_mime = 'image/jpeg' WHERE id = $1`, [c.ids.e1]);
+  assert.equal((await h.call(null, 'GET', `/media/photo/${c.ids.e1}`)).status, 404);
+  assert.equal((await h.call(null, 'GET', `/media/photo/${c.ids.e1}?exp=9999999999&sig=AAAA`)).status, 404);
+  const links = await h.call(c.t.e2, 'POST', '/media/links', { photos: [c.ids.e1] });
+  const url = links.body.links[`photo:${c.ids.e1}`];
+  assert.ok(url);
+  const r = await h.call(null, 'GET', url);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/jpeg');
+  assert.equal((await h.call(null, 'GET', url.replace(/exp=\d+/, 'exp=1000'))).status, 404, 'expired / tampered');
 });
 
 test('a sales employee is refused (403/404) on every management route', async () => {

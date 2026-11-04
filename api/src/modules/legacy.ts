@@ -6,6 +6,7 @@ import { audit, authenticate, has, readableIds, requirePerm } from '../auth/cont
 import { daysBetween, local } from '../lib/time.ts';
 import { holdersOf, notify } from './notify.ts';
 import { randomUUID } from 'node:crypto';
+import { signedMediaPath, verifyMedia } from '../lib/media.ts';
 
 /**
  * Endpoints behind the original JPH pages (advances / work expenses, holiday periods,
@@ -206,6 +207,38 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     await db.query(`DELETE FROM notifications WHERE recipient_id = $1`, [a.id]);
     return ok({ ok: true });
+  });
+
+  // ------------------------------------------------------------------ signed media (no auth header needed)
+  r.get('/media/:kind/:id', async (req) => {
+    const { kind, id } = req.params;
+    if (!isUuid(id) || !['photo', 'selfie', 'advance'].includes(kind)) throw notFound();
+    if (!(await verifyMedia(db, kind, id, req.query.get('exp'), req.query.get('sig'), clock()))) throw notFound();
+    const row = kind === 'photo' ? await one(db, `SELECT photo AS data, photo_mime AS mime FROM employees WHERE id = $1`, [id])
+      : kind === 'selfie' ? await one(db, `SELECT image AS data, mime FROM attendance_selfies WHERE attendance_id = $1`, [id])
+      : await one(db, `SELECT attachment AS data, 'image/jpeg' AS mime FROM advance_requests WHERE id = $1`, [id]);
+    if (!row?.data) throw notFound();
+    return { binary: row.data, contentType: row.mime ?? 'image/jpeg' };
+  });
+
+  /** Signed links for photos of employees the caller may see (and selfies of attendance days they may read). */
+  r.post('/media/links', async (req) => {
+    const a = await authenticate(db, req);
+    const b = obj(req.body);
+    const now = clock();
+    const out: Record<string, string> = {};
+    const photoIds = Array.isArray(b.photos) ? b.photos.filter((x): x is string => typeof x === 'string' && isUuid(x)).slice(0, 500) : [];
+    if (photoIds.length) {
+      const rows = await db.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND photo IS NOT NULL`, [photoIds]);
+      for (const x of rows.rows) out[`photo:${x.id}`] = await signedMediaPath(db, 'photo', x.id, now);
+    }
+    const selfieIds = Array.isArray(b.selfies) ? b.selfies.filter((x): x is string => typeof x === 'string' && isUuid(x)).slice(0, 500) : [];
+    if (selfieIds.length) {
+      const ids = await readableIds(db, a, 'attendance');
+      const rows = await db.query(`SELECT attendance_id, employee_id FROM attendance_selfies WHERE attendance_id = ANY($1::uuid[])`, [selfieIds]);
+      for (const x of rows.rows) if (!ids || ids.includes(x.employee_id)) out[`selfie:${x.attendance_id}`] = await signedMediaPath(db, 'selfie', x.attendance_id, now);
+    }
+    return ok({ links: out });
   });
 
   // ------------------------------------------------------------------ own profile (contact + bank)
