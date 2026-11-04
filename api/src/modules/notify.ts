@@ -1,15 +1,18 @@
 import type { Q } from '../db.ts';
+import { pushTo } from '../lib/fcm.ts';
 
 /** Insert a notification exactly once per (recipient, dedupeKey). */
 export async function notify(q: Q, n: {
   to: string; type: string; title: string; body?: string; entity?: string; entityId?: string; dedupeKey: string;
 }) {
-  await q.query(`
+  const r = await q.query<{ id: string }>(`
     INSERT INTO notifications (recipient_id, type, title, body, entity, entity_id, dedupe_key)
     SELECT $1,$2,$3,$4,$5,$6,$7
      WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
-    ON CONFLICT (recipient_id, dedupe_key) DO NOTHING`,
+    ON CONFLICT (recipient_id, dedupe_key) DO NOTHING RETURNING id`,
     [n.to, n.type, n.title, n.body ?? '', n.entity ?? null, n.entityId ?? null, n.dedupeKey]);
+  // new notification → phone push (rings even when the app is closed); a duplicate never re-rings
+  if (r.rows[0]) await pushTo(q, n.to, { id: r.rows[0].id, type: n.type, title: n.title, body: n.body ?? '', entityId: n.entityId });
 }
 
 /** Active holders of a permission (e.g. every HR approver). */

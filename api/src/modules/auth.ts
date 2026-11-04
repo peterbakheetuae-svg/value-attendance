@@ -1,4 +1,5 @@
 import { ok, type Module } from '../ctx.ts';
+import { pushEnabled } from '../lib/fcm.ts';
 import { one } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
@@ -70,7 +71,20 @@ export const authModule: Module = (r, { db }) => {
   r.post('/auth/logout', async (req) => {
     const a = await authenticate(db, req, { allowPasswordChange: true });
     await db.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [a.sessionId]);
+    await db.query(`DELETE FROM push_tokens WHERE session_id = $1`, [a.sessionId]);
     return ok({ ok: true });
+  });
+
+  /** Register this device for phone pushes (Firebase). Re-registering moves the token to this session. */
+  r.post('/me/push-token', async (req) => {
+    const a = await authenticate(db, req, { allowPasswordChange: true });
+    const b = obj(req.body);
+    const token = reqStr(b, 'token', { min: 20, max: 4096 });
+    const platform = ['android', 'ios', 'web'].includes(String(b.platform)) ? String(b.platform) : 'android';
+    await db.query(`INSERT INTO push_tokens (token, employee_id, session_id, platform) VALUES ($1,$2,$3,$4)
+      ON CONFLICT (token) DO UPDATE SET employee_id = EXCLUDED.employee_id, session_id = EXCLUDED.session_id,
+        platform = EXCLUDED.platform, updated_at = now()`, [token, a.id, a.sessionId, platform]);
+    return ok({ ok: true, pushEnabled: pushEnabled() });
   });
 
   r.post('/auth/change-password', async (req) => {

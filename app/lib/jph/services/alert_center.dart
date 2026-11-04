@@ -7,6 +7,7 @@ import '../widgets/outing_dialogs.dart';
 import 'api_service.dart';
 import 'jph_bridge.dart';
 import 'notification_service.dart';
+import '../../core/push.dart';
 
 /// In-app notification center with an audible ring (no push service on the free plan):
 /// polls the API while the app runs (Android keeps running in the background during a shift),
@@ -55,6 +56,7 @@ class AlertCenter with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _restoreSeen();
     _timer = Timer.periodic(const Duration(seconds: 20), (_) => poll());
+    Push.onMessage = poll; // a phone push while the app is open → ring + dialog now
     Future.delayed(const Duration(seconds: 3), poll);
   }
 
@@ -84,6 +86,7 @@ class AlertCenter with WidgetsBindingObserver {
     if (_busy || !JphBridge.session.signedIn) return;
     _busy = true;
     try {
+      await Push.sync(JphBridge.api);
       final r = await JphBridge.api.get('/notifications', {'unread': '1'});
       final list = ((r['notifications'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
       // first poll after start: only alert about the last 10 minutes, not old unread history
@@ -124,6 +127,7 @@ class AlertCenter with WidgetsBindingObserver {
 
   Future<void> _alert(Map<String, dynamic> n) async {
     if (!_foreground) {
+      if (Push.active) return; // the phone push already rang for this one
       // app in the background (Android shift service keeps it alive): system notification with sound
       await NotificationService().showCustomNotification(title: '${n['title']}', body: '${n['body'] ?? ''}', type: '${n['type']}');
       return;

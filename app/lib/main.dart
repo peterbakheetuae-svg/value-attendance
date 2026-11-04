@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'core/push.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -32,6 +33,7 @@ Future<void> main() async {
 
   try {
     await NotificationService().initialize();
+    await Push.init();
   } catch (_) {}
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);

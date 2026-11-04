@@ -110,3 +110,13 @@ test('login also accepts the mobile number in any common form and the email', as
   }
   assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: '01011112223', password: PW, deviceId: dev('E3') })).status, 401);
 });
+
+test('push token is tied to the session and removed on logout', async () => {
+  const tok = await h.login('E1', PW);
+  const r = await h.call(tok, 'POST', '/me/push-token', { token: 'fcm-token-'.padEnd(40, 'x'), platform: 'android' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.pushEnabled, false, 'no service account in tests');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM push_tokens`)).rows[0].n, 1);
+  await h.call(tok, 'POST', '/auth/logout', {});
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM push_tokens`)).rows[0].n, 0);
+});
