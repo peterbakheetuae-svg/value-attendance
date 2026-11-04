@@ -206,6 +206,47 @@ class JphRouter {
         case 'outings_awaiting':
           return _ok({'outings': _list((await _api.get('/outings', {'status': 'awaiting'}))['outings'])});
 
+        // ---- company information & office geofence (Phase 3)
+        case 'get_company_info':
+        case 'get_company_tree':
+          final r = (await _api.get('/company')).cast<String, dynamic>();
+          final c = ((r['company'] as Map?) ?? {}).cast<String, dynamic>();
+          return _ok({
+            'data': {...c, 'name': c['nameAr'] ?? c['nameEn']},
+            'offices': _list(r['offices']),
+            'canEdit': r['canEdit'] == true,
+          });
+        case 'update_company':
+          await _api.put('/company', {
+            for (final k in const ['nameAr', 'nameEn', 'description', 'address', 'phone', 'email'])
+              if (p[k] != null && (k == 'description' || k == 'address' || p[k].toString().trim().isNotEmpty)) k: p[k].toString().trim(),
+          });
+          return _ok({'message': 'تم حفظ بيانات الشركة'});
+        case 'save_office':
+        case 'add_work_location':
+        case 'update_work_location':
+          final body = {
+            'name': p['name'],
+            'lat': p['lat'] ?? p['latitude'],
+            'lng': p['lng'] ?? p['longitude'],
+            'radiusM': p['radiusM'],
+            if (p['active'] != null) 'active': p['active'],
+          };
+          final id = (p['id'] ?? '').toString();
+          if (id.isEmpty) {
+            await _api.post('/work-locations', body);
+          } else {
+            await _api.patch('/work-locations/$id', body);
+          }
+          return _ok({'message': 'تم حفظ موقع المكتب'});
+        case 'get_work_locations':
+          final r = await _api.get('/work-locations');
+          return _ok({
+            'workLocations': _list(r['locations']).map((l) => {
+                  ...l, 'latitude': l['lat'], 'longitude': l['lng'], 'radiusM': l['radius_m'], 'isActive': l['active'],
+                }).toList(),
+          });
+
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
         case 'getAllLeaveRequests':

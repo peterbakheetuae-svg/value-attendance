@@ -106,3 +106,20 @@ test('rejection reaches the employee; history is immutable in the database', asy
   const list = await h.call(c.t.e2, 'GET', '/outings');
   assert.ok(list.body.outings.every((x: any) => x.employee_id === c.ids.e2), 'employees see only their own');
 });
+
+test('company page: HR and owner edit, changes are logged, employees read only; contact defaults', async () => {
+  const r = await h.call(c.t.e1, 'GET', '/company');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.company.phone, '01080660100');
+  assert.equal(r.body.company.email, 'info@valueaqar.com');
+  assert.equal(r.body.canEdit, false);
+  assert.equal(r.body.offices.length, 1);
+  assert.equal((await h.call(c.t.e1, 'PUT', '/company', { address: 'x' })).status, 403);
+  assert.equal((await h.call(c.t.hr, 'PUT', '/company', { address: 'التجمع الخامس، القاهرة الجديدة', description: 'مكتب تسويق عقاري' })).status, 200);
+  assert.equal((await h.call(c.t.hr, 'PUT', '/company', { phone: 'abc' })).status, 400);
+  const after = await h.call(c.t.owner, 'GET', '/company');
+  assert.equal(after.body.company.address, 'التجمع الخامس، القاهرة الجديدة');
+  assert.equal(after.body.company.updatedByName, 'مديرة الموارد البشرية');
+  const log = await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'company.update'`);
+  assert.equal(log.rowCount, 1);
+});
