@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
+import '../../services/api_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -45,6 +46,9 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   // متغيرات القوائم المنسدلة
   String? _selectedRole;
+  // job positions come from the server (new positions appear here automatically)
+  List<Map<String, dynamic>> _positions = [];
+  String? _selectedPosition;
   String? _selectedAccounting;
   String? _selectedManagedBy;
   String? _selectedLeaveDay;
@@ -54,7 +58,6 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   bool _isActive = true;
 
   // قوائم الخيارات
-  final List<String> _roles = ['صنايعي', 'عامل', 'فورمن', 'سوبرفايزر']; // صاحب عمل غير متاح للإضافة
   final List<String> _accountingTypes = ['شهرى', 'يومى'];
   final List<String> _leaveDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   final List<String> _workHoursList = ['10 ساعات', '9 ساعات', '8 ساعات', '7 ساعات', '6 ساعات'];
@@ -69,6 +72,24 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     super.initState();
     _fetchOwners();
     _initializeDefaultValues();
+    _loadPositions();
+  }
+
+  Future<void> _loadPositions() async {
+    final r = await ApiService.post({'action': 'get_positions'});
+    if (!mounted || r['success'] != true) return;
+    setState(() {
+      _positions = ((r['positions'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>())
+          .where((p) => p['key'] != 'owner').toList();
+      _selectedPosition ??= _positions.where((p) => p['key'] == 'sales_employee').map((p) => '${p['name_ar']}').firstOrNull ?? (_positions.isEmpty ? null : '${_positions.first['name_ar']}');
+    });
+  }
+
+  String? _positionKeyOf(String? name) {
+    for (final p in _positions) {
+      if (p['name_ar'] == name) return p['key']?.toString();
+    }
+    return null;
   }
 
   void _initializeDefaultValues() {
@@ -189,8 +210,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     if (_passwordController.text.trim() != _confirmPasswordController.text.trim()) {
       return 'كلمات المرور غير متطابقة';
     }
-    if (_selectedRole == null) {
-      return 'الرجاء اختيار الدور';
+    if (_selectedPosition == null || _positionKeyOf(_selectedPosition) == null) {
+      return 'الرجاء اختيار الوظيفة';
     }
     if (_selectedAccounting == null) {
       return 'الرجاء اختيار نوع المحاسبة';
@@ -242,6 +263,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         'email': _emailController.text.trim().isEmpty ? '' : _emailController.text.trim(),
         'password': _passwordController.text.trim(),
         'role': _selectedRole,
+        'position': _positionKeyOf(_selectedPosition) ?? '',
         'dailyRate': _dailyRateController.text.trim().isEmpty ? "0" : _dailyRateController.text.trim(),
         'salary': "0", // قيمة افتراضية للراتب الشهري
         'joinDate': _joinDateController.text.trim().isEmpty ? '' : _joinDateController.text.trim(),
@@ -490,14 +512,14 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                               isDark: isDark,
                             ),
                             _buildDropdownField(
-                              label: 'الدور *',
-                              value: _selectedRole,
-                              items: _roles,
+                              label: 'الوظيفة *',
+                              value: _positions.any((p) => p['name_ar'] == _selectedPosition) ? _selectedPosition : null,
+                              items: _positions.map((p) => '${p['name_ar']}').toList(),
                               icon: Icons.work,
                               isEditable: true,
                               onChanged: (value) {
                                 setState(() {
-                                  _selectedRole = value;
+                                  _selectedPosition = value;
                                 });
                               },
                               isDark: isDark,

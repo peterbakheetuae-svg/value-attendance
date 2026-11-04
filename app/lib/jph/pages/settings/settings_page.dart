@@ -29,6 +29,7 @@ import '../advance_request_page.dart';
 import '../notifications/notification_settings.dart'; // إضافة
 import '../public_holidays_page.dart'; // إضافة
 import '../multi_company/company_info_page.dart';
+import '../multi_company/positions_page.dart';
 import '../multi_company/branches_page.dart';
 import '../multi_company/kpi_page.dart';
 import '../multi_company/work_locations_page.dart';
@@ -520,6 +521,22 @@ class _SettingsPageState extends State<SettingsPage> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const CompanyInfoPage(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Job positions & permissions (dynamic)
+                    SettingsTile(
+                      title: 'الوظائف والصلاحيات',
+                      icon: Icons.admin_panel_settings_outlined,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PositionsPage(),
                           ),
                         );
                       },

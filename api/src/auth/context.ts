@@ -26,7 +26,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
            COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms
       FROM sessions s
       JOIN employees e ON e.id = s.employee_id
-      LEFT JOIN role_permissions rp ON rp.role_key = e.role_key
+      LEFT JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
      GROUP BY s.id, e.id`, [sha256(token)]);
   if (!row || row.status !== 'active') throw new AppError('unauthenticated', 'Session expired, sign in again');

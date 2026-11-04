@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
+import '../../services/api_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -48,6 +49,9 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
 
   // متغيرات القوائم المنسدلة
   String? _selectedRole;
+  // job positions come from the server (new positions appear here automatically)
+  List<Map<String, dynamic>> _positions = [];
+  String? _selectedPosition;
   String? _selectedAccounting;
   String? _selectedManagedBy;
   String? _selectedLeaveDay;
@@ -57,7 +61,6 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   bool _isActive = true;
 
   // قوائم الخيارات
-  final List<String> _roles = ['صاحب عمل', 'صنايعي', 'عامل', 'فورمن', 'سوبرفايزر'];
   final List<String> _accountingTypes = ['شهرى', 'يومى'];
   final List<String> _leaveDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   final List<String> _workHoursList = ['10 ساعات', '9 ساعات', '8 ساعات', '7 ساعات', '6 ساعات'];
@@ -73,6 +76,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _initializeControllers();
     _initializeDropdownValues();
     _fetchOwners();
+    _loadPositions();
   }
 
   void _initializeControllers() {
@@ -90,8 +94,26 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _isActive = _employeeData['active'] == true;
   }
 
+  Future<void> _loadPositions() async {
+    final r = await ApiService.post({'action': 'get_positions'});
+    if (!mounted || r['success'] != true) return;
+    setState(() {
+      _positions = ((r['positions'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>())
+          .where((p) => true).toList();
+      if (_selectedPosition != null && !_positions.any((p) => p['name_ar'] == _selectedPosition)) _selectedPosition = null;
+    });
+  }
+
+  String? _positionKeyOf(String? name) {
+    for (final p in _positions) {
+      if (p['name_ar'] == name) return p['key']?.toString();
+    }
+    return null;
+  }
+
   void _initializeDropdownValues() {
     _selectedRole = _employeeData['role']?.toString();
+    _selectedPosition = _employeeData['position']?.toString() ?? _selectedRole;
     _selectedAccounting = _employeeData['accounting']?.toString();
     _selectedManagedBy = _employeeData['managedBy']?.toString();
     _selectedLeaveDay = _employeeData['leaveDay']?.toString();
@@ -189,6 +211,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim(),
         'role': _selectedRole,
+        'position': _positionKeyOf(_selectedPosition) ?? '',
         'dailyRate': _dailyRateController.text.trim(),
         'salary': _salaryController.text.trim(),
         'joinDate': _joinDateController.text.trim(),
@@ -529,14 +552,14 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               keyboardType: TextInputType.emailAddress,
                             ),
                             _buildDropdownField(
-                              label: 'الدور',
-                              value: _selectedRole,
-                              items: _roles,
+                              label: 'الوظيفة',
+                              value: _positions.any((p) => p['name_ar'] == _selectedPosition) ? _selectedPosition : null,
+                              items: _positions.map((p) => '${p['name_ar']}').toList(),
                               icon: Icons.work,
-                              isEditable: _isEditing && canToggleEdit,
+                              isEditable: _isEditing && canToggleEdit && _selectedRole != 'صاحب عمل',
                               onChanged: (value) {
                                 setState(() {
-                                  _selectedRole = value;
+                                  _selectedPosition = value;
                                 });
                               },
                               isDark: isDark,

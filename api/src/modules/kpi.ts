@@ -37,13 +37,14 @@ export function summarize(rows: any[]) {
     belowTarget: status === 'completed' && score !== null && score < 100 };
 }
 
-/** The set that applies to an employee: own employee-scoped set, else their job title's set. */
+/** The set that applies to an employee: own employee-scoped set, else their job position's set, else their job title's set. */
 async function activeSetFor(q: Q, employeeId: string) {
   return one(q, `
     SELECT s.* FROM kpi_sets s, employees e
      WHERE e.id = $1 AND s.active AND ((s.scope_type = 'employee' AND s.employee_id = e.id)
+        OR (s.scope_type = 'position' AND s.position_key = COALESCE(e.position_key, e.role_key))
         OR (s.scope_type = 'job_title' AND s.job_title = e.job_title))
-     ORDER BY (s.scope_type = 'employee') DESC LIMIT 1`, [employeeId]);
+     ORDER BY CASE s.scope_type WHEN 'employee' THEN 0 WHEN 'position' THEN 1 ELSE 2 END LIMIT 1`, [employeeId]);
 }
 
 /** Snapshot the applicable set into result rows for a period (idempotent). Past snapshots are never touched. */
@@ -110,12 +111,12 @@ export const kpiModule: Module = (r, { db, clock }) => {
     requirePerm(a, 'kpi.config', 'kpi.read_all', 'kpi.read_team');
     const includeRetired = req.query.get('includeRetired') === '1';
     const sets = await db.query(`
-      SELECT s.*, e.full_name AS employee_name,
+      SELECT s.*, e.full_name AS employee_name, p.name_ar AS position_name,
              json_agg(json_build_object('kpiId', i.kpi_id, 'nameAr', d.name_ar, 'nameEn', d.name_en,
                'measurementType', d.measurement_type, 'weight', i.weight, 'target', i.target) ORDER BY i.weight DESC) AS items
         FROM kpi_sets s JOIN kpi_set_items i ON i.set_id = s.id JOIN kpi_definitions d ON d.id = i.kpi_id
-        LEFT JOIN employees e ON e.id = s.employee_id
-       ${includeRetired ? '' : 'WHERE s.active'} GROUP BY s.id, e.full_name ORDER BY s.active DESC, s.name, s.version DESC`);
+        LEFT JOIN employees e ON e.id = s.employee_id LEFT JOIN roles p ON p.key = s.position_key
+       ${includeRetired ? '' : 'WHERE s.active'} GROUP BY s.id, e.full_name, p.name_ar ORDER BY s.active DESC, s.name, s.version DESC`);
     return ok({ sets: sets.rows });
   });
 
@@ -126,8 +127,9 @@ export const kpiModule: Module = (r, { db, clock }) => {
   r.post('/kpi/sets', async (req) => {
     const a = await authenticate(db, req); requirePerm(a, 'kpi.config');
     const b = obj(req.body);
-    const scopeType = oneOf(b, 'scopeType', ['job_title', 'employee'] as const)!;
+    const scopeType = oneOf(b, 'scopeType', ['job_title', 'employee', 'position'] as const)!;
     const jobTitle = scopeType === 'job_title' ? reqStr(b, 'jobTitle', { min: 2, max: 80 }) : null;
+    const positionKey = scopeType === 'position' ? reqStr(b, 'positionKey', { max: 40 }) : null;
     const employeeId = scopeType === 'employee' ? uuid(b, 'employeeId')! : null;
     const name = reqStr(b, 'name', { min: 2, max: 80 });
     if (!Array.isArray(b.items) || !b.items.length || b.items.length > 20) throw invalid('items must list 1–20 KPIs', { field: 'items' });
@@ -142,13 +144,14 @@ export const kpiModule: Module = (r, { db, clock }) => {
       const defs = await q.query(`SELECT id FROM kpi_definitions WHERE id = ANY($1::uuid[]) AND active`, [items.map((x: any) => x.kpiId)]);
       if (defs.rowCount !== items.length) throw invalid('Every KPI must exist and be active', { field: 'items' });
       if (employeeId && !(await one(q, `SELECT 1 FROM employees WHERE id = $1`, [employeeId]))) throw invalid('Employee not found', { field: 'employeeId' });
+      if (positionKey && !(await one(q, `SELECT 1 FROM roles WHERE key = $1 AND active`, [positionKey]))) throw invalid('Job position not found', { field: 'positionKey' });
       const prev = await one(q, `SELECT * FROM kpi_sets WHERE active AND scope_type = $1
-                                   AND (job_title = $2 OR employee_id = $3) FOR UPDATE`, [scopeType, jobTitle, employeeId]);
+                                   AND (job_title = $2 OR employee_id = $3 OR position_key = $4) FOR UPDATE`, [scopeType, jobTitle, employeeId, positionKey]);
       if (prev) await q.query(`UPDATE kpi_sets SET active = false, retired_at = now() WHERE id = $1`, [prev.id]);
-      const s = await one(q, `INSERT INTO kpi_sets (name, scope_type, job_title, employee_id, version, created_by)
-                              VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`, [name, scopeType, jobTitle, employeeId, (prev?.version ?? 0) + 1, a.id]);
+      const s = await one(q, `INSERT INTO kpi_sets (name, scope_type, job_title, employee_id, position_key, version, created_by)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [name, scopeType, jobTitle, employeeId, positionKey, (prev?.version ?? 0) + 1, a.id]);
       for (const it of items) await q.query(`INSERT INTO kpi_set_items (set_id, kpi_id, weight, target) VALUES ($1,$2,$3,$4)`, [s.id, it.kpiId, it.weight, it.target]);
-      await audit(q, a.id, prev ? 'kpi.set_new_version' : 'kpi.set_create', 'kpi_set', s.id, prev ? { previous: prev.id } : undefined, { name, scopeType, jobTitle, employeeId, items });
+      await audit(q, a.id, prev ? 'kpi.set_new_version' : 'kpi.set_create', 'kpi_set', s.id, prev ? { previous: prev.id } : undefined, { name, scopeType, jobTitle, employeeId, positionKey, items });
       return s;
     });
     return ok({ set }, 201);
@@ -209,8 +212,10 @@ export const kpiModule: Module = (r, { db, clock }) => {
     requirePerm(a, 'kpi.read_all', 'kpi.read_team');
     const period = req.query.get('month') ? monthParam(req.query.get('month')) : currentPeriod();
     const ids = await readableIds(db, a, 'kpi');
-    const emps = await db.query(`SELECT e.id, e.full_name, e.code, e.job_title, t.name AS team_name FROM employees e
-       LEFT JOIN teams t ON t.id = e.team_id WHERE e.status = 'active' AND e.role_key IN ('sales_employee','sales_manager')
+    const emps = await db.query(`SELECT e.id, e.full_name, e.code, e.job_title, t.name AS team_name,
+       COALESCE(e.position_key, e.role_key) AS position_key, p.name_ar AS position_name FROM employees e
+       JOIN roles p ON p.key = COALESCE(e.position_key, e.role_key)
+       LEFT JOIN teams t ON t.id = e.team_id WHERE e.status = 'active' AND e.role_key <> 'owner'
        AND ($1::uuid[] IS NULL OR e.id = ANY($1::uuid[])) AND e.id <> $2 ORDER BY e.full_name`, [ids, a.id]);
     const out = [];
     for (const e of emps.rows) {

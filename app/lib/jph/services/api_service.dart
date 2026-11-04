@@ -247,6 +247,68 @@ class JphRouter {
                 }).toList(),
           });
 
+        // ---- job positions & permissions (Phase 4)
+        case 'get_positions':
+          return _ok({'positions': _list((await _api.get('/positions'))['positions'])});
+        case 'get_roles':
+          final r = (await _api.get('/roles')).cast<String, dynamic>();
+          return _ok({'roles': _list(r['roles']), 'permissions': _list(r['permissions']),
+            'canEditPermissions': r['canEditPermissions'] == true, 'canManagePositions': r['canManagePositions'] == true});
+        case 'add_position':
+          await _api.post('/roles', {'nameAr': p['nameAr'], 'nameEn': p['nameEn'], 'baseKey': p['baseKey'], 'description': p['description'] ?? ''});
+          return _ok({'message': 'تمت إضافة الوظيفة وظهرت في صفحة الصلاحيات'});
+        case 'update_position':
+          await _api.patch('/roles/${p['key']}', {
+            for (final k in const ['nameAr', 'nameEn', 'description', 'active']) if (p[k] != null) k: p[k],
+          });
+          return _ok({'message': 'تم حفظ الوظيفة'});
+        case 'set_position_permissions':
+          await _api.put('/roles/${p['key']}/permissions', {'permissions': p['permissions']});
+          return _ok({'message': 'تم حفظ الصلاحيات'});
+
+        // ---- position-based KPIs + evaluations (Phase 4)
+        case 'kpi_setup':
+          final pos = _list((await _api.get('/positions'))['positions']);
+          final defs = _list((await _api.get('/kpi/definitions'))['definitions']);
+          List<Map<String, dynamic>> sets = const [];
+          if (_has('kpi.config') || _has('kpi.read_all') || _has('kpi.read_team')) sets = _list((await _api.get('/kpi/sets'))['sets']);
+          return _ok({'positions': pos, 'definitions': defs, 'sets': sets, 'canConfig': _has('kpi.config')});
+        case 'kpi_add_definition':
+          final r = await _api.post('/kpi/definitions', {
+            'key': 'k${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}',
+            'nameAr': p['nameAr'], 'nameEn': p['nameEn'] ?? '', 'measurementType': p['measurementType'] ?? 'count',
+            'higherIsBetter': p['higherIsBetter'] != false,
+          });
+          return _ok({'definition': r['definition'], 'message': 'تمت إضافة المؤشر'});
+        case 'kpi_save_set':
+          final items = _list(p['items']);
+          final defs = {for (final d in _list((await _api.get('/kpi/definitions'))['definitions'])) d['id']: d};
+          for (final it in items) {
+            if (defs[it['kpiId']]?['active'] == false) await _api.patch('/kpi/definitions/${it['kpiId']}', {'active': true});
+          }
+          await _api.post('/kpi/sets', {'scopeType': 'position', 'positionKey': p['positionKey'], 'name': p['name'], 'items': items});
+          return _ok({'message': 'تم حفظ مؤشرات الوظيفة (نسخة جديدة — الشهور السابقة محفوظة كما هي)'});
+        case 'kpi_overview':
+          return _ok((await _api.get('/kpi/overview', <String, String?>{if (p['month'] != null) 'month': '${p['month']}'})).cast<String, dynamic>());
+        case 'kpi_employee':
+          return _ok((await _api.get('/kpi/employees/${p['id'] ?? JphBridge.myId}', <String, String?>{if (p['month'] != null) 'month': '${p['month']}'})).cast<String, dynamic>());
+        case 'kpi_enter':
+          await _api.put('/kpi/results/${p['id']}', {'state': p['state'], if (p['state'] != 'not_evaluated') 'actual': p['actual']});
+          return _ok({'message': 'تم حفظ النتيجة'});
+        case 'eval_list':
+          return _ok({'evaluations': _list((await _api.get('/evaluations', <String, String?>{
+            if (p['employeeId'] != null) 'employeeId': '${p['employeeId']}', if (p['month'] != null) 'month': '${p['month']}'}))['evaluations'])});
+        case 'eval_save':
+          final r = await _api.post('/evaluations', {
+            'employeeId': p['employeeId'], 'month': p['month'], ...((p['scores'] as Map?) ?? {}).cast<String, dynamic>(),
+            'feedback': p['feedback'] ?? '', 'improvementPlan': p['improvementPlan'] ?? '',
+          });
+          if (p['publish'] == true) await _api.post('/evaluations/${r['evaluation']['id']}/publish', {});
+          return _ok({'message': p['publish'] == true ? 'تم نشر التقييم وتبليغ الموظف' : 'تم حفظ التقييم كمسودة'});
+        case 'eval_publish':
+          await _api.post('/evaluations/${p['id']}/publish', {});
+          return _ok({'message': 'تم نشر التقييم وتبليغ الموظف'});
+
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
         case 'getAllLeaveRequests':
@@ -730,6 +792,8 @@ class JphRouter {
       'name': _s(e['full_name'], ''),
       'role': roleAr[role] ?? role,
       'roleKey': role,
+      'position': _s(e['position_name_ar'], roleAr[role] ?? role),
+      'positionKey': _s(e['position_key'], role),
       'phone': _s(e['phone'], ''),
       'email': _s(e['email'], ''),
       'active': e['status'] == 'active',
@@ -781,7 +845,7 @@ class JphRouter {
     final body = <String, dynamic>{
       'code': (p['uid'] ?? '').toString().toUpperCase(),
       'fullName': (p['name'] ?? '').toString().trim(),
-      'role': role,
+      if ((p['position'] ?? '').toString().isNotEmpty) 'position': p['position'] else 'role': role,
       if ((p['phone'] ?? '').toString().trim().isNotEmpty) 'phone': p['phone'].toString().trim(),
       if ((p['email'] ?? '').toString().trim().isNotEmpty) 'email': p['email'].toString().trim(),
       if ((p['password'] ?? '').toString().trim().isNotEmpty) 'password': p['password'].toString().trim(),
@@ -813,7 +877,12 @@ class JphRouter {
       'legacyFields': {...lf, ..._legacyOf(p)},
     };
     final role = p['role'] == null ? null : roleKeyOf(p['role'].toString());
-    if (role != null && role != cur['role_key'] && id != JphBridge.myId) body['role'] = role;
+    final pos = (p['position'] ?? '').toString();
+    if (pos.isNotEmpty) {
+      if (pos != cur['position_key'] && id != JphBridge.myId) body['position'] = pos;
+    } else if (role != null && role != cur['role_key'] && id != JphBridge.myId) {
+      body['role'] = role;
+    }
     await _api.patch('/employees/$id', body);
     final sal = num.tryParse('${p['salary'] ?? ''}');
     final curSal = num.tryParse('${(cur['salary'] as Map?)?['base_salary'] ?? ''}');

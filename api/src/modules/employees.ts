@@ -16,6 +16,7 @@ const PROFILE_COLS = `
   e.id, e.code, e.full_name, e.phone, e.email, e.address, e.job_title,
   e.department_id, d.name_ar AS department_name, e.team_id, t.name AS team_name,
   e.sales_manager_id, m.full_name AS sales_manager_name, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
+  COALESCE(e.position_key, e.role_key) AS position_key, pos.name_ar AS position_name_ar, pos.name_en AS position_name_en,
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
   (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
@@ -23,6 +24,7 @@ const PROFILE_COLS = `
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
+  JOIN roles pos ON pos.key = COALESCE(e.position_key, e.role_key)
   LEFT JOIN departments d ON d.id = e.department_id
   LEFT JOIN teams t ON t.id = e.team_id
   LEFT JOIN employees m ON m.id = e.sales_manager_id
@@ -30,6 +32,14 @@ const PROFILE_FROM = `
 
 function assertAssignableRole(a: Actor, role: string) {
   if (PRIVILEGED.has(role) && !has(a, 'roles.manage')) throw forbidden('Only the owner can assign this role');
+}
+
+/** Resolve a job position (built-in role or custom position) to its system role + stored position key. */
+async function resolvePosition(q: Q, key: unknown): Promise<{ role: string; positionKey: string | null; nameAr: string }> {
+  if (typeof key !== 'string' || !key) throw invalid('Choose a job position', { field: 'position' });
+  const p = await one(q, `SELECT * FROM roles WHERE key = $1 AND active`, [key]);
+  if (!p) throw invalid('Job position not found or disabled', { field: 'position' });
+  return p.builtin ? { role: p.key, positionKey: null, nameAr: p.name_ar } : { role: p.base_key, positionKey: p.key, nameAr: p.name_ar };
 }
 
 async function assertOwnerRemains(q: Q, excludingId: string) {
@@ -127,7 +137,9 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     requirePerm(a, 'employee.manage');
     const b = obj(req.body);
-    const role = oneOf(b, 'role', ROLES)!;
+    const pos = b.position !== undefined && b.position !== null && b.position !== ''
+      ? await resolvePosition(db, b.position) : { role: oneOf(b, 'role', ROLES)!, positionKey: null, nameAr: '' };
+    const role = pos.role;
     assertAssignableRole(a, role);
     const f = {
       code: reqStr(b, 'code', { pattern: CODE }).toUpperCase(),
@@ -135,7 +147,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       phone: str(b, 'phone', { optional: true, pattern: PHONE }) ?? null,
       email: str(b, 'email', { optional: true, pattern: EMAIL, max: 160 })?.toLowerCase() ?? null,
       address: str(b, 'address', { optional: true, max: 300 }) ?? null,
-      jobTitle: str(b, 'jobTitle', { optional: true, max: 80 }) ?? '',
+      jobTitle: str(b, 'jobTitle', { optional: true, max: 80 }) || pos.nameAr,
       departmentId: uuid(b, 'departmentId', true) ?? null,
       teamId: uuid(b, 'teamId', true) ?? null,
       salesManagerId: uuid(b, 'salesManagerId', true) ?? null,
@@ -163,18 +175,18 @@ export const employeesModule: Module = (r, { db, clock }) => {
       const e = await one(q, `
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
-          notes, password_hash, must_change_password, legacy_fields)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18)
+          notes, password_hash, must_change_password, legacy_fields, position_key)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
          role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin,
-         JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields))]);
+         JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields)), pos.positionKey]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
       const year = Number((clock().toISOString()).slice(0, 4));
       await q.query(`INSERT INTO leave_balances (employee_id, year, updated_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [e.id, year, a.id]);
-      await audit(q, a.id, 'employee.create', 'employee', e.id, undefined, { ...f, role, salarySet: salary !== undefined });
+      await audit(q, a.id, 'employee.create', 'employee', e.id, undefined, { ...f, role, position: pos.positionKey, salarySet: salary !== undefined });
       return e;
     });
     // the temporary password is shown exactly once; the employee must change it at first sign-in
@@ -216,17 +228,19 @@ export const employeesModule: Module = (r, { db, clock }) => {
       put('sales_manager_id', refs.salesManagerId);
     }
     if (opt('scheduleId')) { refs.scheduleId = uuid(b, 'scheduleId', true) ?? null; put('schedule_id', refs.scheduleId); }
-    if (opt('role')) {
-      const role = oneOf(b, 'role', ROLES)!;
+    if (opt('role') || opt('position')) {
+      const pos = opt('position') ? await resolvePosition(db, b.position) : { role: oneOf(b, 'role', ROLES)!, positionKey: null, nameAr: '' };
       if (isSelf) throw forbidden('You cannot change your own role');
-      assertAssignableRole(a, role);
+      assertAssignableRole(a, pos.role);
       if (PRIVILEGED.has(before.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can change this role');
-      put('role_key', role);
+      put('role_key', pos.role);
+      put('position_key', pos.positionKey);
+      if (pos.nameAr && !opt('jobTitle')) put('job_title', pos.nameAr);
     }
     await validateRefs(db, refs);
     if (!sets.length) throw invalid('Nothing to update');
     const after = await db.tx(async (q) => {
-      if (opt('role') && before.role_key === 'owner') await assertOwnerRemains(q, before.id);
+      if ((opt('role') || opt('position')) && before.role_key === 'owner') await assertOwnerRemains(q, before.id);
       const r2 = await one(q, `UPDATE employees SET ${sets.join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`, vals);
       await audit(q, a.id, 'employee.update', 'employee', before.id, diff(before, r2), undefined);
       return r2;

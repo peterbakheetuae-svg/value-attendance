@@ -15,7 +15,7 @@ export async function notify(q: Q, n: {
 /** Active holders of a permission (e.g. every HR approver). */
 export async function holdersOf(q: Q, perm: string, exclude: string[] = []): Promise<string[]> {
   const r = await q.query<{ id: string }>(`
-    SELECT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = e.role_key
+    SELECT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
      WHERE rp.perm_key = $1 AND e.status = 'active' AND NOT (e.id = ANY($2::uuid[]))`, [perm, exclude]);
   return r.rows.map((x) => x.id);
 }

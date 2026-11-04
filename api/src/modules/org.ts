@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { forbidden, invalid, notFound } from '../http/errors.ts';
@@ -226,13 +227,68 @@ export const orgModule: Module = (r, { db }) => {
   // ---------------------------------------------------------------- roles & permissions
   r.get('/roles', async (req) => {
     const a = await authenticate(db, req);
-    if (!has(a, 'roles.manage') && !has(a, 'employee.manage')) throw forbidden();
+    if (!['roles.manage', 'employee.manage', 'positions.manage', 'kpi.config'].some((p) => has(a, p))) throw forbidden();
     const roles = await db.query(`
-      SELECT r.*, COALESCE(array_agg(rp.perm_key ORDER BY rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS permissions
-        FROM roles r LEFT JOIN role_permissions rp ON rp.role_key = r.key GROUP BY r.key ORDER BY r.rank DESC`);
+      SELECT r.*, b.name_ar AS base_name_ar,
+             COALESCE((SELECT array_agg(rp.perm_key ORDER BY rp.perm_key) FROM role_permissions rp WHERE rp.role_key = r.key), '{}') AS permissions,
+             (SELECT count(*)::int FROM employees e WHERE e.status = 'active'
+                AND COALESCE(e.position_key, e.role_key) = r.key) AS employee_count
+        FROM roles r LEFT JOIN roles b ON b.key = r.base_key
+       ORDER BY r.active DESC, COALESCE(b.rank, r.rank) DESC, r.builtin DESC, r.name_ar`);
     const perms = await db.query(`SELECT * FROM permissions ORDER BY key`);
-    return ok({ roles: roles.rows, permissions: perms.rows });
+    return ok({ roles: roles.rows, permissions: perms.rows, canEditPermissions: has(a, 'roles.manage'),
+      canManagePositions: has(a, 'positions.manage') || has(a, 'roles.manage') });
   });
+
+  /** Active positions for employee forms (any signed-in user with employee.manage sees all; others just names). */
+  r.get('/positions', async (req) => {
+    await authenticate(db, req);
+    const rows = await db.query(`SELECT key, name_ar, name_en, description, base_key, builtin, COALESCE(base_key, key) AS system_role
+                                   FROM roles WHERE active ORDER BY rank DESC, name_ar`);
+    return ok({ positions: rows.rows });
+  });
+
+  /** New job position: follows one system role; starts with exactly that role's permissions (never more). */
+  r.post('/roles', async (req) => {
+    const a = await authenticate(db, req); requirePerm(a, 'positions.manage', 'roles.manage');
+    const b = obj(req.body);
+    const baseKey = reqStr(b, 'baseKey', { max: 40 });
+    if (!['hr_manager', 'accountant', 'sales_manager', 'sales_employee'].includes(baseKey)) throw invalid('Choose the system role this position follows', { field: 'baseKey' });
+    if (['hr_manager', 'accountant'].includes(baseKey) && !has(a, 'roles.manage')) throw forbidden('Only the owner can create admin positions');
+    const nameAr = reqStr(b, 'nameAr', { min: 2, max: 80 });
+    const role = await db.tx(async (q) => {
+      if (await one(q, `SELECT 1 FROM roles WHERE lower(name_ar) = lower($1)`, [nameAr])) throw invalid('A position with this name already exists', { field: 'nameAr' });
+      const base = await one(q, `SELECT * FROM roles WHERE key = $1`, [baseKey]);
+      const key = 'pos_' + randomBytes(5).toString('hex');
+      const r2 = await one(q, `INSERT INTO roles (key, name_ar, name_en, rank, description, base_key, created_by)
+                               VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [key, nameAr,
+        str(b, 'nameEn', { optional: true, max: 80 }) || nameAr, base.rank - 1, str(b, 'description', { optional: true, max: 500 }) ?? '', baseKey, a.id]);
+      await q.query(`INSERT INTO role_permissions (role_key, perm_key) SELECT $1, perm_key FROM role_permissions WHERE role_key = $2`, [key, baseKey]);
+      await audit(q, a.id, 'position.create', 'role', key, undefined, r2);
+      return r2;
+    });
+    return ok({ role }, 201);
+  });
+
+  r.patch('/roles/:key', async (req) => {
+    const a = await authenticate(db, req); requirePerm(a, 'positions.manage', 'roles.manage');
+    const b = obj(req.body);
+    const before = await one(db, `SELECT * FROM roles WHERE key = $1`, [req.params.key]);
+    if (!before) throw notFound();
+    if (before.builtin && 'active' in b && b.active === false) throw forbidden('Built-in roles cannot be disabled');
+    if (before.builtin && !has(a, 'roles.manage')) throw forbidden('Only the owner can rename built-in roles');
+    const active = bool(b, 'active') ?? before.active;
+    if (!active && before.active) {
+      const n = await one(db, `SELECT count(*)::int AS n FROM employees WHERE status = 'active' AND position_key = $1`, [before.key]);
+      if (n.n) throw invalid(`Move the ${n.n} employee(s) in this position first`, { field: 'active', employees: n.n });
+    }
+    const r2 = await one(db, `UPDATE roles SET name_ar = $2, name_en = $3, description = $4, active = $5 WHERE key = $1 RETURNING *`, [before.key,
+      str(b, 'nameAr', { optional: true, min: 2, max: 80 }) ?? before.name_ar, str(b, 'nameEn', { optional: true, max: 80 }) ?? before.name_en,
+      str(b, 'description', { optional: true, max: 500 }) ?? before.description, active]);
+    await audit(db, a.id, 'position.update', 'role', before.key, before, r2);
+    return ok({ role: r2 });
+  });
+
   r.put('/roles/:key/permissions', async (req) => {
     const a = await authenticate(db, req); requirePerm(a, 'roles.manage');
     if (req.params.key === 'owner') throw forbidden('The owner role always has every permission');

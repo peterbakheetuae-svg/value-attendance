@@ -161,7 +161,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ admin-sent notifications
   r.post('/notifications/send', async (req) => {
     const a = await authenticate(db, req);
-    const canAll = has(a, 'employee.manage') || has(a, 'attendance.read_all');
+    const canAll = has(a, 'employee.manage') || has(a, 'attendance.read_all') || has(a, 'notification.send');
     const canTeam = has(a, 'employee.read_team');
     if (!canAll && !canTeam) throw forbidden();
     const b = obj(req.body);
