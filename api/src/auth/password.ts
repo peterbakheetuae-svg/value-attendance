@@ -20,8 +20,14 @@ export async function verifyPassword(pw: string, stored: string): Promise<boolea
   return got.length === expected.length && timingSafeEqual(got, expected);
 }
 
-export function passwordPolicyError(pw: unknown): string | null {
+export const PIN_RE = /^\d{4,8}$/;
+/** Roles that may sign in with a numeric PIN (when the company allows PINs). */
+export const PIN_ROLES = new Set(['sales_employee', 'sales_manager']);
+
+export function passwordPolicyError(pw: unknown, opts: { allowPin?: boolean } = {}): string | null {
   if (typeof pw !== 'string') return 'Password is required';
+  if (opts.allowPin && PIN_RE.test(pw)) return null;
+  if (opts.allowPin && /^\d+$/.test(pw)) return 'The PIN must be 4 to 8 digits';
   if (pw.length < 8) return 'Password must be at least 8 characters';
   if (pw.length > 128) return 'Password is too long';
   if (!/[A-Za-z؀-ۿ]/.test(pw) || !/\d/.test(pw)) return 'Password must contain letters and digits';
@@ -43,3 +49,11 @@ export function newToken(): { token: string; hash: Buffer } {
   return { token, hash: sha256(token) };
 }
 export const sha256 = (s: string) => createHash('sha256').update(s).digest();
+
+/** Random numeric PIN (6 digits, no leading zero). */
+export function tempPin(): string {
+  const b = randomBytes(6);
+  let out = String(1 + (b[0] % 9));
+  for (let i = 1; i < 6; i++) out += String(b[i] % 10);
+  return out;
+}

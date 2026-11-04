@@ -27,8 +27,9 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     String? err;
     if (_cur.text.isEmpty || n.isEmpty) {
       err = t('field_required');
-    } else if (n.length < 8 || !RegExp(r'\d').hasMatch(n) || !RegExp(r'[A-Za-z؀-ۿ]').hasMatch(n)) {
-      err = t('password_policy');
+    } else if (!(context.read<Session>().canUsePin && RegExp(r'^\d{4,8}$').hasMatch(n)) &&
+        (n.length < 8 || !RegExp(r'\d').hasMatch(n) || !RegExp(r'[A-Za-z؀-ۿ]').hasMatch(n))) {
+      err = context.read<Session>().canUsePin ? t('password_or_pin_policy') : t('password_policy');
     } else if (n != _again.text) {
       err = t('passwords_mismatch');
     }
@@ -63,7 +64,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
             child: Column(children: [
               TextField(controller: _cur, obscureText: true, decoration: glassInput(context, t('current_password'))),
               const SizedBox(height: 14),
-              TextField(controller: _new, obscureText: true, decoration: glassInput(context, t('new_password'), hint: t('password_policy'))),
+              TextField(controller: _new, obscureText: true, decoration: glassInput(context, t('new_password'),
+                  hint: context.read<Session>().canUsePin ? t('password_or_pin_policy') : t('password_policy'))),
               const SizedBox(height: 14),
               TextField(controller: _again, obscureText: true, decoration: glassInput(context, t('confirm_password')), onSubmitted: (_) => _save()),
               if (_err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: const TextStyle(color: Colors.red))),

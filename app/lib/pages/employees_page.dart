@@ -203,6 +203,13 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         SectionTitle(t('account')),
         GlassCard(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), child: Column(children: [
           SettingTile(icon: Icons.key_rounded, title: t('reset_password'), onTap: () => _resetPassword(context, e)),
+          if (s.allowPin && (e['role_key'] == 'sales_employee' || e['role_key'] == 'sales_manager'))
+            SettingTile(icon: Icons.pin_rounded, title: t('new_pin'), onTap: () => _resetPassword(context, e, pin: true)),
+          if (e['device_bound'] == true)
+            SettingTile(icon: Icons.phonelink_erase_rounded, iconColor: AppColors.warning, title: t('unbind_device'),
+                subtitle: '${e['device_label'] ?? ''} · ${Fmt.date(e['device_bound_at'])}', onTap: () => _unbind(context, e, reload))
+          else
+            SettingTile(icon: Icons.smartphone_rounded, title: t('no_device_bound'), showTrailing: false, onTap: () {}),
           SettingTile(icon: e['status'] == 'active' ? Icons.person_off_rounded : Icons.person_rounded,
               iconColor: e['status'] == 'active' ? AppColors.error : AppColors.success,
               title: e['status'] == 'active' ? t('deactivate') : t('activate'), onTap: () => _toggleStatus(context, e, reload)),
@@ -277,12 +284,28 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
     ]));
   }
 
-  Future<void> _resetPassword(BuildContext context, Map<String, dynamic> e) async {
-    final ok = await confirmDialog(context, title: t('reset_password'), message: t('reset_password_confirm'), ok: t('yes'), cancel: t('no'));
+  Future<void> _resetPassword(BuildContext context, Map<String, dynamic> e, {bool pin = false}) async {
+    final ok = await confirmDialog(context, title: pin ? t('new_pin') : t('reset_password'),
+        message: pin ? t('new_pin_confirm') : t('reset_password_confirm'), ok: t('yes'), cancel: t('no'));
     if (!ok || !context.mounted) return;
     try {
-      final r = await context.read<Session>().api.post('/employees/${e['id']}/reset-password');
-      if (context.mounted) await showTempPassword(context, e.s('code'), r.s('temporaryPassword'));
+      final r = await context.read<Session>().api.post('/employees/${e['id']}/reset-password', pin ? {'kind': 'pin'} : {});
+      if (!context.mounted) return;
+      if (pin) {
+        await showPinSheet(context, name: e.s('full_name'), phone: e.s('phone'), code: e.s('code'), pin: r.s('pin'));
+      } else {
+        await showTempPassword(context, e.s('code'), r.s('temporaryPassword'));
+      }
+    } catch (err) { if (context.mounted) showSnack(context, errorText(err), error: true); }
+  }
+
+  Future<void> _unbind(BuildContext context, Map<String, dynamic> e, Future<void> Function() reload) async {
+    final ok = await confirmDialog(context, title: t('unbind_device'), message: t('unbind_device_confirm'), ok: t('yes'), cancel: t('no'));
+    if (!ok || !context.mounted) return;
+    try {
+      await context.read<Session>().api.post('/employees/${e['id']}/unbind-device');
+      if (context.mounted) showSnack(context, t('device_unbound'));
+      await reload();
     } catch (err) { if (context.mounted) showSnack(context, errorText(err), error: true); }
   }
 
@@ -348,6 +371,25 @@ class _History extends StatelessWidget {
       );
 }
 
+/// Value HR: show the PIN once and let HR copy a ready WhatsApp message for the employee.
+Future<void> showPinSheet(BuildContext context, {required String name, required String phone, required String code, required String pin}) {
+  final company = context.read<Session>().company;
+  final companyName = I18n.lang == 'ar' ? (company?['company_name_ar'] ?? '') : (company?['company_name_en'] ?? '');
+  final msg = t('pin_whatsapp_message', {'name': name, 'company': companyName, 'phone': phone.isEmpty ? code : phone, 'pin': pin,
+      'url': 'https://peterbakheetuae-svg.github.io/value-attendance/'});
+  return showGlassSheet(context, title: t('new_pin'), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    Text(t('pin_shown_once')),
+    const SizedBox(height: 12),
+    InfoTile(title: t('phone_or_code'), value: phone.isEmpty ? code : phone),
+    InfoTile(title: t('pin'), value: pin),
+    const SizedBox(height: 12),
+    PrimaryButton(label: t('copy_whatsapp_message'), icon: Icons.chat_rounded, onTap: () async {
+      await Clipboard.setData(ClipboardData(text: msg));
+      if (context.mounted) showSnack(context, t('copied_paste_whatsapp'));
+    }),
+  ]));
+}
+
 Future<void> showTempPassword(BuildContext context, String code, String pw) => showGlassSheet(context, title: t('temporary_password'), child: Column(
   crossAxisAlignment: CrossAxisAlignment.stretch,
   children: [
@@ -374,6 +416,7 @@ class EmployeeFormPage extends StatefulWidget {
 class _EmployeeFormPageState extends State<EmployeeFormPage> {
   late final Map<String, TextEditingController> c;
   String _role = 'sales_employee';
+  bool _usePin = true;
   String? _dept, _team, _manager, _schedule;
   DateTime? _joining;
   bool _busy = false;
@@ -429,9 +472,15 @@ class _EmployeeFormPageState extends State<EmployeeFormPage> {
         body.removeWhere((k, v) => v == null);
         final sal = double.tryParse(c['salary']!.text.trim());
         if (sal != null && s.has('employee.salary_manage')) body['baseSalary'] = sal;
+        final usePin = _usePin && s.allowPin && (_role == 'sales_employee' || _role == 'sales_manager');
+        if (usePin) body['loginKind'] = 'pin';
         final r = await s.api.post('/employees', body);
         if (!mounted) return;
-        await showTempPassword(context, r.s('code'), r.s('temporaryPassword'));
+        if (usePin) {
+          await showPinSheet(context, name: _v('full_name') ?? '', phone: _v('phone') ?? '', code: r.s('code'), pin: r.s('pin'));
+        } else {
+          await showTempPassword(context, r.s('code'), r.s('temporaryPassword'));
+        }
         if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
@@ -481,6 +530,9 @@ class _EmployeeFormPageState extends State<EmployeeFormPage> {
               items: [for (final r in roles) DropdownMenuItem(value: r, child: Text(t('role_$r')))],
               onChanged: (editing && widget.existing!['id'] == s.id) ? null : (v) => setState(() => _role = v ?? _role),
             )),
+            if (!editing && s.allowPin && (_role == 'sales_employee' || _role == 'sales_manager'))
+              SwitchListTile(contentPadding: EdgeInsets.zero, value: _usePin, title: Text(t('login_with_pin')), subtitle: Text(t('login_with_pin_help')),
+                  onChanged: (v) => setState(() => _usePin = v)),
             _drop(t('department'), _dept, deps, (v) => setState(() => _dept = v)),
             _drop(t('team'), _team, teams, (v) => setState(() => _team = v)),
             _drop(t('sales_manager'), _manager, mgrs, (v) => setState(() => _manager = v)),

@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, type Actor } from '../auth/context.ts';
-import { hashPassword, tempPassword } from '../auth/password.ts';
+import { hashPassword, tempPassword, tempPin, PIN_ROLES } from '../auth/password.ts';
 
 const ROLES = ['owner', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
 const PRIVILEGED = new Set(['owner', 'hr_manager', 'accountant']);
@@ -18,7 +18,8 @@ const PROFILE_COLS = `
   e.sales_manager_id, m.full_name AS sales_manager_name, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
-  (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at`;
+  (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
+  (e.device_id IS NOT NULL) AS device_bound, e.device_label, e.device_bound_at`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -53,6 +54,16 @@ function decodeBase64(s: unknown, field: string): Buffer {
   if (!buf.length) throw invalid(`${field} is empty`, { field });
   if (buf.length > 5 * 1024 * 1024) throw invalid(`${field} is larger than 5 MB`, { field });
   return buf;
+}
+
+/** PIN instead of a password: requested, allowed by the company, and only for sales roles. */
+async function pinFor(q: Q, kind: unknown, role: string): Promise<boolean> {
+  if (kind === undefined || kind === 'password') return false;
+  if (kind !== 'pin') throw invalid('kind must be pin or password', { field: 'kind' });
+  const st = await one(q, `SELECT allow_pin FROM company_settings`);
+  if (!st.allow_pin) throw invalid('PINs are turned off in the company settings', { field: 'kind' });
+  if (!PIN_ROLES.has(role)) throw invalid('Admin roles must use a password', { field: 'kind' });
+  return true;
 }
 
 export const employeesModule: Module = (r, { db, clock }) => {
@@ -116,17 +127,18 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const salary = num(b, 'baseSalary', { optional: true, min: 0, max: 10_000_000 });
     if (salary !== undefined && !has(a, 'employee.salary_manage')) throw forbidden('You cannot set salary information');
     await validateRefs(db, f);
-    const pw = tempPassword();
+    const usePin = await pinFor(db, b.loginKind, role);
+    const pw = usePin ? tempPin() : tempPassword();
     const hash = await hashPassword(pw);
     const created = await db.tx(async (q) => {
       const e = await one(q, `
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
-          notes, password_hash)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16)
+          notes, password_hash, must_change_password)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
-         role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash]);
+         role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
@@ -136,7 +148,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       return e;
     });
     // the temporary password is shown exactly once; the employee must change it at first sign-in
-    return ok({ id: created.id, code: created.code, temporaryPassword: pw }, 201);
+    return ok({ id: created.id, code: created.code, temporaryPassword: usePin ? undefined : pw, pin: usePin ? pw : undefined }, 201);
   });
 
   r.patch('/employees/:id', async (req) => {
@@ -216,14 +228,31 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
     if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can reset this account');
-    const pw = tempPassword();
+    const usePin = await pinFor(db, obj(req.body ?? {}).kind, e.role_key);
+    const pw = usePin ? tempPin() : tempPassword();
     const hash = await hashPassword(pw);
     await db.tx(async (q) => {
-      await q.query(`UPDATE employees SET password_hash = $2, must_change_password = true, failed_logins = 0, locked_until = NULL WHERE id = $1`, [e.id, hash]);
+      // a PIN is the employee's own (Value HR); a temporary password must be replaced at first sign-in
+      await q.query(`UPDATE employees SET password_hash = $2, must_change_password = $3, failed_logins = 0, locked_until = NULL WHERE id = $1`, [e.id, hash, !usePin]);
       await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [e.id]);
-      await audit(q, a.id, 'employee.reset_password', 'employee', e.id);
+      await audit(q, a.id, usePin ? 'employee.reset_pin' : 'employee.reset_password', 'employee', e.id);
     });
-    return ok({ temporaryPassword: pw });
+    return usePin ? ok({ pin: pw }) : ok({ temporaryPassword: pw });
+  });
+
+  r.post('/employees/:id/unbind-device', async (req) => {
+    const a = await authenticate(db, req);
+    requirePerm(a, 'employee.manage');
+    if (!isUuid(req.params.id)) throw notFound();
+    const e = await one(db, `SELECT id, role_key, device_id, device_label FROM employees WHERE id = $1`, [req.params.id]);
+    if (!e) throw notFound();
+    if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage') && e.id !== a.id) throw forbidden('Only the owner can unlink this account');
+    await db.tx(async (q) => {
+      await q.query(`UPDATE employees SET device_id = NULL, device_label = NULL, device_bound_at = NULL WHERE id = $1`, [e.id]);
+      await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [e.id]);
+      await audit(q, a.id, 'employee.unbind_device', 'employee', e.id, { label: e.device_label }, undefined);
+    });
+    return ok({ ok: true });
   });
 
   r.put('/employees/:id/salary', async (req) => {

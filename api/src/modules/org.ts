@@ -196,7 +196,8 @@ export const orgModule: Module = (r, { db }) => {
     const before = await one(db, `SELECT * FROM company_settings`);
     const s = await one(db, `UPDATE company_settings SET company_name_ar=$1, company_name_en=$2, gps_required=$3,
       request_backdate_days=$4, break_minutes=$5, payroll_auto_deductions=$6, day_divisor=$7, deduction_mode=$8,
-      late_tiers=$9::jsonb, early_tiers=$10::jsonb, absence_penalty_days=$11, updated_at = now() RETURNING *`, [
+      late_tiers=$9::jsonb, early_tiers=$10::jsonb, absence_penalty_days=$11, allow_pin=$12, device_binding=$13,
+      updated_at = now() RETURNING *`, [
       str(b, 'companyNameAr', { optional: true, min: 2, max: 120 }) ?? before.company_name_ar,
       str(b, 'companyNameEn', { optional: true, min: 2, max: 120 }) ?? before.company_name_en,
       bool(b, 'gpsRequired') ?? before.gps_required,
@@ -207,7 +208,9 @@ export const orgModule: Module = (r, { db }) => {
       deductionMode(b) ?? before.deduction_mode,
       JSON.stringify(tiers(b, 'lateTiers') ?? before.late_tiers),
       JSON.stringify(tiers(b, 'earlyTiers') ?? before.early_tiers),
-      num(b, 'absencePenaltyDays', { optional: true, min: 0, max: 5 }) ?? before.absence_penalty_days]);
+      num(b, 'absencePenaltyDays', { optional: true, min: 0, max: 5 }) ?? before.absence_penalty_days,
+      bool(b, 'allowPin') ?? before.allow_pin,
+      bool(b, 'deviceBinding') ?? before.device_binding]);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s);
     return ok({ settings: s });
   });

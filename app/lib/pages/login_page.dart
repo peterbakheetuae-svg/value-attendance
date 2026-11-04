@@ -47,6 +47,8 @@ class _LoginPageState extends State<LoginPage> {
     if (e is ApiException) {
       if (e.status == 401) return t('login_failed');
       if (e.status == 423) return t('login_locked');
+      if (e.status == 403 && e.details?['reason'] == 'device_mismatch') return t('device_mismatch');
+      if (e.status == 403 && e.details?['reason'] == 'device_required') return t('device_required');
       if (e.status == 403) return t('account_inactive');
     }
     return errorText(e);
@@ -109,7 +111,7 @@ class _LoginPageState extends State<LoginPage> {
                               obscureText: _hide,
                               autofillHints: const [AutofillHints.password],
                               onSubmitted: (_) => _submit(),
-                              decoration: glassInput(context, t('password'),
+                              decoration: glassInput(context, t('password_or_pin'),
                                   suffix: IconButton(icon: Icon(_hide ? Icons.visibility_off : Icons.visibility, color: sub),
                                       onPressed: () => setState(() => _hide = !_hide))).copyWith(errorText: _pwErr),
                               style: TextStyle(color: textColor),

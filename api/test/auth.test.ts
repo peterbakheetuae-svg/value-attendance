@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, dev, type Harness } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 before(async () => { h = await harness(); c = await cast(h); });
@@ -14,7 +14,7 @@ test('unauthenticated requests are rejected', async () => {
 });
 
 test('login accepts code (any case), wrong password is generic, lockout after 5 failures', async () => {
-  assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: 'e1', password: PW })).status, 200);
+  assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: 'e1', password: PW, deviceId: dev('E1') })).status, 200);
   const bad = await h.call(null, 'POST', '/auth/login', { identifier: 'E2', password: 'nope' });
   assert.equal(bad.status, 401);
   const unknown = await h.call(null, 'POST', '/auth/login', { identifier: 'NOBODY', password: 'nope' });

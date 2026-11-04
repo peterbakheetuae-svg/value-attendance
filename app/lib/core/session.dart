@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
+import 'device_id.dart';
 
 /// Signed-in user, permissions and the API client. Permissions only shape the UI —
 /// the server enforces every one of them independently.
@@ -25,6 +26,8 @@ class Session extends ChangeNotifier {
   bool has(String p) => permissions.contains(p);
   bool get managesTeam => me?['manages_team'] == true || role == 'sales_manager';
   bool get gpsRequired => company?['gps_required'] == true;
+  bool get allowPin => company?['allow_pin'] == true;
+  bool get canUsePin => allowPin && (role == 'sales_employee' || role == 'sales_manager');
 
   bool get isOwner => role == 'owner';
   bool get canApprove => has('request.approve_manager') || has('request.approve_hr');
@@ -51,7 +54,10 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> login(String identifier, String password) async {
-    final r = await api.post('/auth/login', {'identifier': identifier, 'password': password});
+    String? device;
+    try { device = await DeviceId.get(); } catch (_) {}
+    final r = await api.post('/auth/login', {'identifier': identifier, 'password': password,
+      if (device != null) 'deviceId': device, 'deviceLabel': DeviceId.label()});
     api.token = r['token'] as String;
     try { (await SharedPreferences.getInstance()).setString('token', api.token!); } catch (_) {}
     await refreshMe();

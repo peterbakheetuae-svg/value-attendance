@@ -271,6 +271,7 @@ class CompanySettingsPage extends StatelessWidget {
         final back = TextEditingController(text: '${st['request_backdate_days']}');
         final brk = TextEditingController(text: '${st['break_minutes'] ?? 60}');
         bool gps = st['gps_required'] == true;
+        bool pin = st['allow_pin'] == true, bind = st['device_binding'] == true;
         return StatefulBuilder(builder: (ctx, set) => GlassCard(radius: 20, child: Material(type: MaterialType.transparency, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TextField(controller: ar, decoration: glassInput(ctx, t('company_name_ar'))),
           const SizedBox(height: 10),
@@ -280,11 +281,14 @@ class CompanySettingsPage extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(controller: brk, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('break_minutes'))),
           SwitchListTile(contentPadding: EdgeInsets.zero, value: gps, title: Text(t('gps_required')), subtitle: Text(t('gps_required_help')), onChanged: (v) => set(() => gps = v)),
+          SwitchListTile(contentPadding: EdgeInsets.zero, value: pin, title: Text(t('allow_pin')), subtitle: Text(t('allow_pin_help')), onChanged: (v) => set(() => pin = v)),
+          SwitchListTile(contentPadding: EdgeInsets.zero, value: bind, title: Text(t('device_binding')), subtitle: Text(t('device_binding_help')), onChanged: (v) => set(() => bind = v)),
           InfoTile(title: t('currency'), value: 'EGP'),
           const SizedBox(height: 12),
           PrimaryButton(label: t('save'), onTap: () async {
             try {
-              await s.api.patch('/settings', {'companyNameAr': ar.text.trim(), 'companyNameEn': en.text.trim(), 'gpsRequired': gps, 'requestBackdateDays': int.parse(back.text), 'breakMinutes': int.parse(brk.text)});
+              await s.api.patch('/settings', {'companyNameAr': ar.text.trim(), 'companyNameEn': en.text.trim(), 'gpsRequired': gps, 'requestBackdateDays': int.parse(back.text), 'breakMinutes': int.parse(brk.text),
+                'allowPin': pin, 'deviceBinding': bind});
               await s.refreshMe();
               if (ctx.mounted) showSnack(ctx, t('saved'));
             } catch (e) { if (ctx.mounted) showSnack(ctx, e is FormatException ? t('invalid_amount') : errorText(e), error: true); }

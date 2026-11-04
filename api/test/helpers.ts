@@ -76,7 +76,7 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
     return { status: res.status, body: parsed, headers: res.headers, raw };
   };
   const login = async (identifier: string, password: string) => {
-    const r = await call(null, 'POST', '/auth/login', { identifier, password });
+    const r = await call(null, 'POST', '/auth/login', { identifier, password, deviceId: dev(identifier) });
     if (r.status !== 200) throw new Error(`login ${identifier} failed: ${r.status} ${JSON.stringify(r.body)}`);
     return r.body.token as string;
   };
@@ -91,6 +91,8 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
 }
 
 export const PW = 'Passw0rd!x';
+/** Stable fake device id per account (device binding is on by default). */
+export const dev = (identifier: string) => `testdevice-${identifier.toUpperCase()}`.padEnd(16, '0');
 
 /** Insert an employee directly (bootstrap) with a known password and no forced change. */
 export async function insertEmployee(db: Db, f: { code: string; name?: string; role: string; jobTitle?: string; teamId?: string | null; managerId?: string | null; joining?: string }) {
