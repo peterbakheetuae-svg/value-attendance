@@ -109,7 +109,7 @@ class _FingerprintHomeState extends State<FingerprintHome> {
 
   Future<void> _onFingerSuccess() async {
     final s = context.read<Session>();
-    String? path, okMsg;
+    String path, okMsg;
     switch (mode) {
       case DashMode.check:
         if (dayFinished) return;
@@ -127,9 +127,9 @@ class _FingerprintHomeState extends State<FingerprintHome> {
     }
     try {
       final needsGps = _today?['gpsRequired'] == true && mode == DashMode.check;
-      await s.api.post(path!, needsGps ? await _location() : <String, dynamic>{});
+      await s.api.post(path, needsGps ? await _location() : <String, dynamic>{});
       if (!mounted) return;
-      showSnack(context, okMsg!);
+      showSnack(context, okMsg);
       await _load();
       widget.onChanged?.call();
     } catch (e) {

@@ -6,7 +6,6 @@ import '../core/i18n.dart';
 import '../core/session.dart';
 import '../design/app_colors.dart';
 import '../design/glass.dart';
-import 'common.dart';
 import 'requests_page.dart';
 import 'fingerprint_home.dart';
 
