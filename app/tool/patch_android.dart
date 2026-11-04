@@ -66,6 +66,29 @@ void main() {
     stdout.writeln('notification sound copied to res/raw.');
   }
 
+  // launcher icon + web icons = the original JPH app logo (tool/icons, made from assets/images/logo.png)
+  for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+    final f = File('tool/icons/android/$d.png');
+    final dir = Directory('android/app/src/main/res/mipmap-$d');
+    if (f.existsSync() && dir.existsSync()) f.copySync('${dir.path}/ic_launcher.png');
+  }
+  final adaptive = File('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml');
+  if (adaptive.existsSync()) adaptive.deleteSync();
+  for (final n in ['Icon-192', 'Icon-512', 'Icon-maskable-192', 'Icon-maskable-512']) {
+    final f = File('tool/icons/web/$n.png');
+    if (f.existsSync() && Directory('web/icons').existsSync()) f.copySync('web/icons/$n.png');
+  }
+  if (File('tool/icons/web/favicon.png').existsSync() && Directory('web').existsSync()) {
+    File('tool/icons/web/favicon.png').copySync('web/favicon.png');
+  }
+  final wm = File('web/manifest.json');
+  if (wm.existsSync()) {
+    wm.writeAsStringSync(wm.readAsStringSync()
+        .replaceAll(RegExp(r'"name":\s*"[^"]*"'), '"name": "Value Attendance"')
+        .replaceAll(RegExp(r'"short_name":\s*"[^"]*"'), '"short_name": "Value Attendance"'));
+  }
+  stdout.writeln('launcher + web icons set to the app logo.');
+
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();
