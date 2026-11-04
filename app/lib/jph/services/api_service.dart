@@ -1,0 +1,972 @@
+import 'dart:convert';
+import '../../core/api.dart';
+import 'jph_bridge.dart';
+
+/// The original JPH screens talk through `ApiService.post({'action': ...})`.
+/// This router answers every action from the Value Attendance API and returns
+/// the response shapes the original screens already read — screens stay unchanged.
+class ApiService {
+  ApiService._();
+
+  static Future<Map<String, dynamic>> post(Map<String, dynamic> data) => JphRouter.dispatch(data);
+
+  static Future<Map<String, dynamic>> checkUpdate({required String currentVersion, String platform = 'android', String lang = 'ar'}) =>
+      post({'action': 'check_update'});
+
+  static Future<Map<String, dynamic>> changePassword({required String uid, required String oldPass, required String newPass}) =>
+      post({'action': 'changePassword', 'oldPass': oldPass, 'newPass': newPass});
+
+  static Future<void> signOut() => JphBridge.session.logout();
+}
+
+class JphRouter {
+  static ApiClient get _api => JphBridge.api;
+
+  // ------------------------------------------------------------------ labels
+  static const roleAr = {
+    'owner': 'صاحب عمل',
+    'hr_manager': 'مدير الموارد البشرية',
+    'accountant': 'محاسب',
+    'sales_manager': 'مدير مبيعات',
+    'sales_employee': 'مستشار عقاري',
+  };
+  static String roleKeyOf(String? label) {
+    if (label == null) return 'sales_employee';
+    if (roleAr.containsKey(label)) return label;
+    for (final e in roleAr.entries) {
+      if (e.value == label) return e.key;
+    }
+    return 'sales_employee';
+  }
+
+  static const _monthsAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  static int _monthIndex(Object? m) {
+    final s = (m ?? '').toString().trim();
+    final i = _monthsAr.indexOf(s);
+    if (i >= 0) return i + 1;
+    final n = int.tryParse(s);
+    return (n != null && n >= 1 && n <= 12) ? n : DateTime.now().month;
+  }
+
+  static const _leaveTypeToKey = {
+    'إجازة بدون راتب': 'unpaid',
+    'إجازة مرضية': 'sick',
+    'إجازة عادية': 'annual',
+    'إجازة طارئة': 'casual',
+  };
+  static const _leaveKeyToType = {
+    'unpaid': 'إجازة بدون راتب',
+    'sick': 'إجازة مرضية',
+    'annual': 'إجازة عادية',
+    'casual': 'إجازة طارئة',
+    'mission': 'مأمورية',
+  };
+  static String _leaveStatus(String s) => switch (s) {
+        'approved' => 'مقبؤل',
+        'rejected' => 'مرفوض',
+        'cancelled' => 'ملغي',
+        _ => 'قيد المراجعة',
+      };
+  static String _advanceStatus(String s) => switch (s) {
+        'confirmed' => 'مؤكد',
+        'rejected' => 'مرفوض',
+        'cancelled' => 'ملغي',
+        _ => 'قيد المراجعة',
+      };
+  static const _weekdaysAr = {1: 'الاثنين', 2: 'الثلاثاء', 3: 'الأربعاء', 4: 'الخميس', 5: 'الجمعة', 6: 'السبت', 7: 'الأحد'};
+
+  // ------------------------------------------------------------------ small helpers
+  static Map<String, dynamic> _ok([Map<String, dynamic> m = const {}]) => {'success': true, ...m};
+  static Map<String, dynamic> _fail(String message) => {'success': false, 'message': message};
+  static String _s(Object? v, [String dflt = '--']) {
+    if (v == null) return dflt;
+    final t = v.toString();
+    return t.isEmpty ? dflt : t;
+  }
+
+  static DateTime? _dt(Object? iso) => iso == null ? null : DateTime.tryParse(iso.toString())?.toLocal();
+  static String _two(int v) => v.toString().padLeft(2, '0');
+  static String _time(Object? iso, [String dflt = '--:--']) {
+    final d = _dt(iso);
+    return d == null ? dflt : '${_two(d.hour)}:${_two(d.minute)}';
+  }
+
+  static String _date(Object? v) {
+    if (v == null) return '';
+    final s = v.toString();
+    return s.length >= 10 ? s.substring(0, 10) : s;
+  }
+
+  static String _hm(num? minutes) {
+    final m = (minutes ?? 0).round();
+    return '${m ~/ 60}h ${m % 60}m';
+  }
+
+  static String _hhmm(num? minutes) {
+    final m = (minutes ?? 0).round();
+    return '${m ~/ 60}:${_two(m % 60)}';
+  }
+
+  static String _hms(num? minutes) {
+    final m = (minutes ?? 0).round();
+    return '${_two(m ~/ 60)}:${_two(m % 60)}:00';
+  }
+
+  static String _ymd(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+  static List<Map<String, dynamic>> _list(Object? v) => ((v as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+  static bool _has(String p) => JphBridge.session.has(p);
+
+  /// "uid" in the original screens is the employee code; resolve it to the API id.
+  static Future<String> _id(Object? uid) async {
+    final s = (uid ?? '').toString().trim();
+    if (s.isEmpty || s == JphBridge.myCode || s == JphBridge.myId) return JphBridge.myId;
+    if (RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-').hasMatch(s)) return s;
+    final known = JphBridge.codeToId[s.toUpperCase()];
+    if (known != null) return known;
+    await _employees();
+    return JphBridge.codeToId[s.toUpperCase()] ?? s;
+  }
+
+  static Future<Map<String, String>> _links({List<String> photos = const [], List<String> selfies = const []}) async {
+    if (photos.isEmpty && selfies.isEmpty) return {};
+    try {
+      final r = await _api.post('/media/links', {'photos': photos, 'selfies': selfies});
+      return ((r['links'] as Map?) ?? {}).map((k, v) => MapEntry(k.toString(), JphBridge.mediaUrl(v.toString())));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  // ------------------------------------------------------------------ dispatch
+  static Future<Map<String, dynamic>> dispatch(Map<String, dynamic> p) async {
+    final action = (p['action'] ?? '').toString();
+    try {
+      switch (action) {
+        case 'login':
+          return await _login(p);
+        case 'forgot_password':
+        case 'reset_password':
+          return _fail('اطلب من الموارد البشرية إعادة تعيين كلمة المرور أو الرقم السري');
+        case 'register':
+          return _fail('إنشاء الحسابات يتم من الإدارة فقط');
+        case 'changePassword':
+          await JphBridge.session.changePassword((p['oldPass'] ?? '').toString(), (p['newPass'] ?? '').toString());
+          return _ok({'message': 'تم تغيير كلمة المرور بنجاح'});
+        case 'check_update':
+          return _ok({'update_available': false, 'maintenance': false});
+        case 'updateFcmToken':
+          return _ok();
+
+        case 'profile':
+          return await _profile(p);
+        case 'update_profile':
+          return await _updateProfile(p);
+
+        case 'dashboard_today':
+        case 'get_dashboard_data':
+          return await _today();
+        case 'dashboard_month':
+          return await _month();
+        case 'checkin':
+          return await _checkIn(p);
+        case 'checkout':
+          return await _checkOut(p);
+        case 'break_start':
+          await _api.post('/attendance/break-start', {});
+          return _ok({'message': 'تم بدء الاستراحة'});
+        case 'break_end':
+          await _api.post('/attendance/break-end', {});
+          return _ok({'message': 'تم إنهاء الاستراحة'});
+
+        case 'getLeaveRequests':
+          return await _leaves(mineOnly: true);
+        case 'getAllLeaveRequests':
+          return await _leaves();
+        case 'get_leave_requests':
+          return await _leaves(pendingOnly: true);
+        case 'submitLeaveRequest':
+        case 'submitLeaveRequestByManager':
+          return await _submitLeave(p);
+        case 'cancelLeaveRequest':
+          await _api.post('/requests/${p['requestId'] ?? p['request_id']}/cancel', {});
+          return _ok({'message': 'تم إلغاء الطلب'});
+        case 'approve_leave_request':
+        case 'reject_leave_request':
+          return await _decideLeave(p, action == 'approve_leave_request');
+
+        case 'submitAdvanceRequest':
+        case 'submitAdvanceRequestByManager':
+        case 'submit_advance':
+          return await _submitAdvance(p);
+        case 'getAdvanceRequests':
+          return await _advances(mineOnly: true);
+        case 'getAllFinancialRequests':
+        case 'getAllAdvanceRequests':
+        case 'get_advances':
+          return await _advances();
+        case 'get_loan_requests':
+          return await _advances(pendingOnly: true);
+        case 'cancelAdvanceRequest':
+          await _api.post('/advances/${Uri.decodeComponent((p['requestId'] ?? p['request_id']).toString())}/cancel', {});
+          return _ok({'message': 'تم إلغاء الطلب'});
+        case 'approve_loan_request':
+        case 'reject_loan_request':
+        case 'approveAdvanceRequest':
+        case 'rejectAdvanceRequest':
+          return await _decideAdvance(p, action.startsWith('approve'));
+        case 'confirmReceiptAdvanceRequest':
+          return _ok({'message': 'تم'});
+
+        case 'get_all_employees':
+          return await _employeesResponse(activeOnly: false);
+        case 'employee_list':
+        case 'getActiveEmployees':
+          return await _employeesResponse(activeOnly: true);
+        case 'get_employee_details':
+          return await _employeeDetails(p);
+        case 'add_employee':
+          return await _addEmployee(p);
+        case 'update_employee':
+          return await _updateEmployee(p);
+        case 'change_employee_status':
+          final id = await _id(p['uid']);
+          final active = p['active'] == true || p['active'] == '1' || p['active'] == 'true';
+          await _api.post('/employees/$id/status', {'status': active ? 'active' : 'inactive'});
+          return _ok({'message': active ? 'تم تفعيل الموظف' : 'تم إيقاف الموظف'});
+        case 'change_employee_work_status':
+          final id = await _id(p['uid']);
+          await _mergeLegacy(id, {'status': (p['status'] ?? '').toString()});
+          return _ok({'message': 'تم تحديث الحالة'});
+        case 'update_employee_photo':
+          return await _updatePhoto(await _id(p['uid']), p['image']);
+
+        case 'getPublicHolidays':
+        case 'getAllPublicHolidays':
+        case 'getHolidaysByYear':
+          return await _holidays(p['year']);
+        case 'getHolidaysStats':
+          return await _holidayStats();
+        case 'addPublicHoliday':
+          await _api.post('/holiday-periods', _holidayBody(p));
+          return _ok({'message': 'تمت إضافة العطلة'});
+        case 'updatePublicHoliday':
+          await _api.put('/holiday-periods/${p['holidayId'] ?? p['id']}', _holidayBody(p));
+          return _ok({'message': 'تم تحديث العطلة'});
+        case 'deletePublicHoliday':
+          await _api.delete('/holiday-periods/${p['holidayId'] ?? p['id']}');
+          return _ok({'message': 'تم حذف العطلة'});
+
+        case 'getUserNotifications':
+        case 'getNotifications':
+        case 'getReceivedNotifications':
+          return await _notifications();
+        case 'markNotificationAsRead':
+          await _api.post('/notifications/${p['notificationId']}/read', {});
+          return _ok();
+        case 'markAllNotificationsAsRead':
+          await _api.post('/notifications/read-all', {});
+          return _ok();
+        case 'deleteNotification':
+          await _api.delete('/notifications/${p['notificationId']}');
+          return _ok();
+        case 'clearAllNotifications':
+          await _api.delete('/notifications');
+          return _ok();
+        case 'sendNotification':
+          return await _sendNotification(p);
+        case 'getSentNotifications':
+          return await _sentNotifications();
+
+        case 'attendance_report_daily':
+        case 'attendance_report_daily_expanded':
+          return await _dailyReport(p, expanded: action.endsWith('expanded'));
+        case 'attendance_report_monthly':
+          return await _monthlyReport(p);
+        case 'get_today_stats':
+        case 'today_stats':
+          return await _todayStats();
+        case 'get_attendance_by_project':
+          return await _byTeam();
+        case 'get_today_attendance':
+          return await _board(onBreakOnly: false);
+        case 'get_break_employees':
+          return await _board(onBreakOnly: true);
+
+        default:
+          return _fail('هذه الخدمة غير متاحة في هذا الإصدار');
+      }
+    } on ApiException catch (e) {
+      return {'success': false, 'code': e.code, 'status': e.status, 'message': _message(e)};
+    } catch (e) {
+      return _fail('حدث خطأ غير متوقع');
+    }
+  }
+
+  static String _message(ApiException e) {
+    if (e.isNetwork) return 'تعذّر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى';
+    if (e.status == 401) return 'انتهت الجلسة، سجّل الدخول مرة أخرى';
+    if (e.details?['reason'] == 'device_mismatch') return 'الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط';
+    if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
+    if (e.details?['distanceOutsideM'] != null) return 'إنت بعيد عن المكتب بحوالي ${e.details!['distanceOutsideM']} متر';
+    if (e.status == 403) return 'ليس لديك صلاحية لهذا الإجراء';
+    if (e.status == 404) return 'غير موجود';
+    return e.message;
+  }
+
+  // ------------------------------------------------------------------ session
+  static Future<Map<String, dynamic>> _login(Map<String, dynamic> p) async {
+    final id = (p['identifier'] ?? p['uid'] ?? '').toString().trim();
+    final pass = (p['pass'] ?? p['password'] ?? '').toString();
+    if (id.isEmpty || pass.isEmpty) return _fail('أدخل الكود أو الموبايل وكلمة المرور');
+    try {
+      await JphBridge.session.login(id, pass);
+    } on ApiException catch (e) {
+      if (e.status == 401) return _fail('الكود أو كلمة المرور غير صحيحة');
+      if (e.status == 423) return _fail('تم إيقاف الدخول مؤقتاً بسبب محاولات خاطئة كثيرة. حاول بعد 15 دقيقة');
+      return _fail(_message(e));
+    }
+    final me = JphBridge.session.me ?? {};
+    JphBridge.remember(_s(me['code'], ''), _s(me['id'], ''));
+    final role = _s(me['role_key'], 'sales_employee');
+    final photo = me['has_photo'] == true ? (await _links(photos: [_s(me['id'])]))['photo:${me['id']}'] ?? '' : '';
+    return _ok({
+      'uid': me['code'],
+      'name': me['full_name'],
+      'role': roleAr[role] ?? role,
+      'validity': role == 'owner' ? 'admin' : 'موظف',
+      'photo': photo,
+      'companyId': 'VALUE',
+      'companyName': JphBridge.session.company?['company_name_ar'] ?? '',
+      'mustChangePassword': JphBridge.session.mustChangePassword,
+    });
+  }
+
+  static Future<Map<String, dynamic>> _profile(Map<String, dynamic> p) async {
+    final id = await _id(p['uid']);
+    Map<String, dynamic> e;
+    Map<String, dynamic>? company;
+    if (id == JphBridge.myId) {
+      final r = await _api.get('/me/profile');
+      e = (r['profile'] as Map).cast<String, dynamic>();
+      company = (r['company'] as Map?)?.cast<String, dynamic>();
+    } else {
+      e = ((await _api.get('/employees/$id'))['employee'] as Map).cast<String, dynamic>();
+    }
+    final lf = ((e['legacy_fields'] as Map?) ?? {}).cast<String, dynamic>();
+    final wd = ((e['weekend_days'] as List?) ?? const []).map((x) => _weekdaysAr[x] ?? '').where((x) => x.isNotEmpty).join('، ');
+    final photo = e['has_photo'] == true ? (await _links(photos: [id]))['photo:$id'] ?? '' : '';
+    final role = _s(e['role_key'], 'sales_employee');
+    return _ok({
+      'source': role == 'owner' ? 'owner' : 'employee',
+      'uid': _s(e['code']),
+      'name': _s(e['full_name']),
+      'role': roleAr[role] ?? role,
+      'email': _s(e['email']),
+      'phone': _s(e['phone']),
+      'joinDate': _date(e['joining_date']).isEmpty ? '--' : _date(e['joining_date']),
+      'followToName': _s(e['manager_name'] ?? e['sales_manager_name']),
+      'payType': _s(lf['accounting'], 'شهرى'),
+      'dailyRate': _s(lf['dailyRate']),
+      'salary': _s(lf['salary']),
+      'startSalary': _s(lf['startSalary']),
+      'increment': _s(lf['increase']),
+      'dayOff': wd.isEmpty ? _s(lf['leaveDay']) : wd,
+      'workHours': e['start_time'] != null ? '${_s(e['start_time']).substring(0, 5)} - ${_s(e['end_time']).substring(0, 5)}' : _s(lf['workHours']),
+      'absenceFactor': _s(lf['absenceMultiplier'], '1'),
+      'overtimeFactor': _s(lf['overtimeMultiplier'], '1'),
+      'bankName': _s(e['bank_name']),
+      'accountHolder': _s(e['account_holder']),
+      'iban': _s(e['iban']),
+      'accountNumber': _s(e['account_number']),
+      'level': _s(lf['level'], '0%'),
+      'employeeStatus': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
+      'status': e['status'] == 'active' ? 'نشط' : 'موقوف',
+      'validity': role == 'owner' ? 'admin' : 'موظف',
+      'companyName': _s(company?['company_name_ar']),
+      'createdAt': _date(e['created_at']),
+      'lastModifiedDate': _date(e['updated_at']),
+      'notes': _s(e['notes']),
+      'team': _s(e['team_name']),
+      'jobTitle': _s(e['job_title']),
+      'photo': photo,
+    });
+  }
+
+  static Future<Map<String, dynamic>> _updateProfile(Map<String, dynamic> p) async {
+    final body = <String, dynamic>{};
+    for (final k in ['email', 'phone', 'bankName', 'accountHolder', 'iban', 'accountNumber']) {
+      if (p[k] != null) body[k] = p[k].toString().trim().isEmpty ? null : p[k].toString().trim();
+    }
+    if (body.isNotEmpty) await _api.patch('/me/profile', body);
+    if (p['photo'] != null && p['photo'].toString().isNotEmpty) {
+      final r = await _updatePhoto(JphBridge.myId, p['photo']);
+      if (r['success'] != true) return r;
+      final link = (await _links(photos: [JphBridge.myId]))['photo:${JphBridge.myId}'];
+      await JphBridge.session.refreshMe();
+      return _ok({'message': 'تم تحديث البيانات بنجاح', 'photo': link ?? ''});
+    }
+    return _ok({'message': 'تم تحديث البيانات بنجاح'});
+  }
+
+  static Future<Map<String, dynamic>> _updatePhoto(String id, Object? image) async {
+    var raw = (image ?? '').toString();
+    if (raw.isEmpty) return _fail('لا توجد صورة');
+    var mime = 'image/jpeg';
+    final m = RegExp(r'^data:(image/[a-z]+);base64,').firstMatch(raw);
+    if (m != null) {
+      mime = m.group(1)!;
+      raw = raw.substring(m.end);
+    } else if (!RegExp(r'^[A-Za-z0-9+/=\s]+$').hasMatch(raw)) {
+      // the original add-employee form sends raw bytes as a char string
+      raw = base64Encode(raw.codeUnits.map((c) => c & 0xff).toList());
+    }
+    if (raw.startsWith('iVBOR')) mime = 'image/png';
+    await _api.put('/employees/$id/photo', {'mime': mime, 'data': raw});
+    return _ok({'message': 'تم تحديث الصورة'});
+  }
+
+  // ------------------------------------------------------------------ attendance (self)
+  static Future<Map<String, dynamic>> _today() async {
+    final r = await _api.get('/attendance/today');
+    final a = (r['attendance'] as Map?)?.cast<String, dynamic>();
+    final b = (r['break'] as Map?)?.cast<String, dynamic>();
+    final me = JphBridge.session.me ?? {};
+    final photo = me['has_photo'] == true ? (await _links(photos: [JphBridge.myId]))['photo:${JphBridge.myId}'] ?? '' : '';
+    final worked = a == null
+        ? null
+        : a['checkOut'] != null
+            ? (a['workedMinutes'] as num?)
+            : DateTime.now().difference(_dt(a['checkIn'])!).inMinutes;
+    return _ok({
+      'checkInTime': a == null ? '--:--' : _time(a['checkIn']),
+      'checkOutTime': a?['checkOut'] == null ? '--:--' : _time(a!['checkOut']),
+      'onBreak': b?['onBreak'] == true,
+      'breakStartTime': b == null ? '--:--' : _time(b['start']),
+      'breakEndTime': b?['end'] == null ? '--:--' : _time(b!['end']),
+      'breakTime': b == null ? '0h 0m' : _hm(b['minutes'] as num?),
+      'breakMinutesAllowed': b?['allowedMinutes'] ?? r['breakAllowedMinutes'],
+      'workTime': worked == null ? '--:--:--' : _hms(worked),
+      'overtime': _hm(a?['overtimeMinutes'] as num?),
+      'photo': photo,
+      'selfieRequired': r['selfieRequired'] == true,
+      'gpsRequired': r['gpsRequired'] == true,
+    });
+  }
+
+  static Future<Map<String, dynamic>> _month() async {
+    final now = DateTime.now();
+    final r = await _api.get('/attendance', {'month': '${now.year}-${_two(now.month)}', 'employeeId': JphBridge.myId});
+    final sm = ((r['summary'] as Map?) ?? {}).cast<String, dynamic>();
+    final sick = _list(r['days']).where((d) => d['absenceType'] == 'sick').length;
+    return _ok({
+      'workDays': '${sm['attendedDays'] ?? 0}',
+      'leaveDays': '${sm['approvedAbsenceDays'] ?? 0}',
+      'leaveAttendance': '${sm['unpaidAbsenceDays'] ?? 0}',
+      'absentDays': '${sm['unapprovedAbsenceDays'] ?? 0}',
+      'sickLeave': '$sick',
+      'overtimeHours': _hhmm(sm['overtimeMinutes'] as num?),
+    });
+  }
+
+  /// location from the original camera service: "lat,lng" or "lat,lng,accuracy"
+  static Map<String, dynamic> _loc(Object? location) {
+    final parts = (location ?? '').toString().split(',').map((x) => double.tryParse(x.trim())).toList();
+    if (parts.length < 2 || parts[0] == null || parts[1] == null) return {};
+    return {'lat': parts[0], 'lng': parts[1], 'accuracyM': parts.length > 2 && parts[2] != null ? parts[2] : 50};
+  }
+
+  static Future<Map<String, dynamic>> _checkIn(Map<String, dynamic> p) async {
+    final today = await _api.get('/attendance/today');
+    final a = today['attendance'] as Map?;
+    if (a != null && a['checkOut'] != null) return _fail('إنت سجلت انصراف النهارده خلاص');
+    if (a != null) return _checkOut(p);
+    final body = <String, dynamic>{..._loc(p['location'])};
+    final img = (p['image'] ?? '').toString();
+    if (img.isNotEmpty) {
+      body['selfie'] = img.replaceFirst(RegExp(r'^data:image/[a-z]+;base64,'), '');
+      body['selfieMime'] = 'image/jpeg';
+    }
+    final r = await _api.post('/attendance/check-in', body);
+    final at = (r['attendance'] as Map).cast<String, dynamic>();
+    final late = (at['lateMinutes'] ?? 0) as num;
+    return _ok({'message': late > 0 ? 'اتسجل حضورك ${_time(at['checkIn'])} — متأخر $late دقيقة' : 'تم تسجيل الحضور ${_time(at['checkIn'])} ✅'});
+  }
+
+  static Future<Map<String, dynamic>> _checkOut(Map<String, dynamic> p) async {
+    final r = await _api.post('/attendance/check-out', _loc(p['location']));
+    final at = (r['attendance'] as Map).cast<String, dynamic>();
+    return _ok({'message': 'تم تسجيل الانصراف ${_time(at['checkOut'])} 👋'});
+  }
+
+  // ------------------------------------------------------------------ leave
+  static Map<String, dynamic> _leaveItem(Map<String, dynamic> r) {
+    final type = _leaveKeyToType[r['absence_type']] ?? 'إجازة';
+    final status = _leaveStatus(_s(r['status'], 'pending'));
+    return {
+      'id': r['id'],
+      'requestId': r['id'],
+      'employeeId': _s(r['employee_code']),
+      'employeeName': _s(r['employee_name']),
+      'leaveType': type,
+      'fromDate': _date(r['start_date']),
+      'toDate': _date(r['end_date']),
+      'startDate': _date(r['start_date']),
+      'endDate': _date(r['end_date']),
+      'days': r['days_count'] ?? 0,
+      'daysCount': r['days_count'] ?? 0,
+      'reason': _s(r['reason'], 'لا يوجد سبب'),
+      'notes': r['status'] == 'pending_hr' ? 'وافق المدير — بانتظار الموارد البشرية' : '',
+      'status': status,
+      'requestDate': _date(r['created_at']),
+      'submittedDate': _date(r['created_at']),
+      'createdAt': _date(r['created_at']),
+      'image': '',
+    };
+  }
+
+  static Future<Map<String, dynamic>> _leaves({bool mineOnly = false, bool pendingOnly = false}) async {
+    final q = <String, String?>{'type': 'full_day_absence'};
+    if (mineOnly) q['scope'] = 'mine';
+    if (pendingOnly) q['awaitingMe'] = '1';
+    final rows = _list((await _api.get('/requests', q))['requests']).map(_leaveItem).toList();
+    final st = {'pending': 0, 'approved': 0, 'rejected': 0, 'cancelled': 0};
+    for (final r in rows) {
+      final k = switch (r['status']) { 'مقبؤل' => 'approved', 'مرفوض' => 'rejected', 'ملغي' => 'cancelled', _ => 'pending' };
+      st[k] = st[k]! + 1;
+    }
+    return _ok({'requests': rows, 'stats': st, 'count': rows.length});
+  }
+
+  static Future<Map<String, dynamic>> _submitLeave(Map<String, dynamic> p) async {
+    final emp = await _id(p['employeeId'] ?? p['uid']);
+    final reason = (p['reason'] ?? '').toString().trim();
+    final body = <String, dynamic>{
+      'type': 'full_day_absence',
+      'startDate': _date(p['fromDate']),
+      'endDate': _date(p['toDate']),
+      'absenceType': _leaveTypeToKey[p['leaveType']] ?? 'annual',
+      'reason': reason.length >= 3 ? reason : 'طلب إجازة',
+      if (emp != JphBridge.myId) 'employeeId': emp,
+    };
+    await _api.post('/requests', body);
+    return _ok({'message': emp == JphBridge.myId ? 'تم إرسال طلب الإجازة ✅' : 'تمت إضافة الإجازة للموظف ✅'});
+  }
+
+  static Future<Map<String, dynamic>> _decideLeave(Map<String, dynamic> p, bool approve) async {
+    final id = Uri.decodeComponent((p['request_id'] ?? p['requestId']).toString());
+    await _api.post('/requests/$id/decision',
+        approve ? {'decision': 'approve'} : {'decision': 'reject', 'comment': (p['note'] ?? 'مرفوض من الإدارة').toString()});
+    return _ok({'message': approve ? 'تمت الموافقة على الطلب' : 'تم رفض الطلب'});
+  }
+
+  // ------------------------------------------------------------------ advances / work expenses
+  static Future<Map<String, dynamic>> _submitAdvance(Map<String, dynamic> p) async {
+    final emp = await _id(p['employeeId'] ?? p['uid']);
+    final month = _monthIndex(p['month']);
+    final now = DateTime.now();
+    final year = month < now.month - 6 ? now.year + 1 : now.year;
+    final img = (p['image'] ?? '').toString();
+    await _api.post('/advances', {
+      'kind': (p['requestType'] ?? '') == 'مصاريف عمل' ? 'work_expense' : 'advance',
+      'amount': num.tryParse('${p['amount']}') ?? 0,
+      'period': '$year-${_two(month)}-01',
+      'note': (p['note'] ?? '').toString(),
+      if (emp != JphBridge.myId) 'employeeId': emp,
+      if (img.isNotEmpty) 'attachment': img,
+    });
+    return _ok({'message': 'تم إرسال الطلب ✅'});
+  }
+
+  static Future<Map<String, dynamic>> _advances({bool mineOnly = false, bool pendingOnly = false}) async {
+    final r = await _api.get('/advances', mineOnly ? {'scope': 'mine'} : null);
+    var rows = _list(r['advances']);
+    if (pendingOnly) rows = rows.where((x) => x['status'] == 'pending' && x['employee_id'] != JphBridge.myId).toList();
+    final items = rows.map((x) {
+      final period = _date(x['period']);
+      final m = int.tryParse(period.length >= 7 ? period.substring(5, 7) : '') ?? 1;
+      final status = _advanceStatus(_s(x['status'], 'pending'));
+      return <String, dynamic>{
+        'id': x['id'],
+        'requestId': x['id'],
+        'employeeId': _s(x['employee_code']),
+        'employeeName': _s(x['employee_name']),
+        'requestType': x['kind'] == 'work_expense' ? 'مصاريف عمل' : 'سلفة',
+        'amount': num.tryParse('${x['amount_egp']}') ?? 0,
+        'month': _monthsAr[m - 1],
+        'note': _s(x['note'], ''),
+        'status': status,
+        'ceoStatus': status,
+        'recipientStatus': x['status'] == 'confirmed' ? 'مؤكد' : '--',
+        'confirmedBy': _s(x['decided_by_name']),
+        'requestDate': _date(x['created_at']),
+        'createdAt': _date(x['created_at']),
+        'day': _date(x['created_at']),
+        'image': '',
+      };
+    }).toList();
+    final st = <String, dynamic>{'total': items.length, 'confirmed': 0, 'pending': 0, 'rejected': 0, 'cancelled': 0, 'totalAmount': 0.0};
+    for (final x in items) {
+      final k = switch (x['status']) { 'مؤكد' => 'confirmed', 'مرفوض' => 'rejected', 'ملغي' => 'cancelled', _ => 'pending' };
+      st[k] = (st[k] as int) + 1;
+      if (k == 'confirmed') st['totalAmount'] = (st['totalAmount'] as double) + (x['amount'] as num).toDouble();
+    }
+    return _ok({'requests': items, 'stats': st, 'count': items.length});
+  }
+
+  static Future<Map<String, dynamic>> _decideAdvance(Map<String, dynamic> p, bool approve) async {
+    final id = Uri.decodeComponent((p['request_id'] ?? p['requestId']).toString());
+    if (p['is_cancel'] == true) {
+      await _api.post('/advances/$id/cancel', {});
+      return _ok({'message': 'تم إلغاء الطلب'});
+    }
+    await _api.post('/advances/$id/decision', {'decision': approve ? 'confirm' : 'reject'});
+    return _ok({'message': approve ? 'تم تأكيد الطلب' : 'تم رفض الطلب'});
+  }
+
+  // ------------------------------------------------------------------ employees
+  static Future<List<Map<String, dynamic>>> _employees({bool all = true}) async {
+    if (!_has('employee.read_all') && !_has('employee.read_team')) {
+      final me = JphBridge.session.me ?? {};
+      final row = <String, dynamic>{...me};
+      JphBridge.remember(_s(me['code'], ''), _s(me['id'], ''));
+      return [row];
+    }
+    final rows = _list((await _api.get('/employees', {'status': all ? 'all' : 'active'}))['employees']);
+    for (final e in rows) {
+      JphBridge.remember(_s(e['code'], ''), _s(e['id'], ''));
+    }
+    return rows;
+  }
+
+  static Map<String, dynamic> _employeeItem(Map<String, dynamic> e, Map<String, String> links) {
+    final lf = ((e['legacy_fields'] as Map?) ?? {}).cast<String, dynamic>();
+    final role = _s(e['role_key'], 'sales_employee');
+    final salary = e['base_salary'] ?? lf['salary'];
+    return {
+      ...lf.map((k, v) => MapEntry(k, v?.toString())),
+      'id': e['id'],
+      'uid': _s(e['code'], ''),
+      'name': _s(e['full_name'], ''),
+      'role': roleAr[role] ?? role,
+      'roleKey': role,
+      'phone': _s(e['phone'], ''),
+      'email': _s(e['email'], ''),
+      'active': e['status'] == 'active',
+      'status': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
+      'salary': salary == null ? '0' : '$salary',
+      'dailyRate': _s(lf['dailyRate'], '0'),
+      'level': _s(lf['level'], '0%'),
+      'joinDate': _date(e['joining_date']),
+      'photo': links['photo:${e['id']}'] ?? '',
+      'team': _s(e['team_name'], ''),
+      'jobTitle': _s(e['job_title'], ''),
+      'managedBy': _s(lf['managedBy'] ?? e['sales_manager_name'], ''),
+      'deviceBound': e['device_bound'] == true,
+    };
+  }
+
+  static Future<Map<String, dynamic>> _employeesResponse({required bool activeOnly}) async {
+    var rows = await _employees(all: !activeOnly);
+    if (activeOnly) rows = rows.where((e) => (e['status'] ?? 'active') == 'active').toList();
+    final links = await _links(photos: rows.where((e) => e['has_photo'] == true).map((e) => _s(e['id'])).toList());
+    final items = rows.map((e) => _employeeItem(e, links)).toList();
+    return _ok({'employees': items, 'count': items.length});
+  }
+
+  static Future<Map<String, dynamic>> _employeeDetails(Map<String, dynamic> p) async {
+    final id = await _id(p['uid']);
+    final e = ((await _api.get('/employees/$id'))['employee'] as Map).cast<String, dynamic>();
+    final links = e['has_photo'] == true ? await _links(photos: [id]) : <String, String>{};
+    final sal = (e['salary'] as Map?)?['base_salary'];
+    return _ok({'employee': {..._employeeItem({...e, if (sal != null) 'base_salary': sal}, links)}});
+  }
+
+  static const _legacyKeys = ['dailyRate', 'accounting', 'managedBy', 'managedByUid', 'foremanId', 'startSalary', 'increase',
+    'leaveDay', 'workHours', 'absenceMultiplier', 'overtimeMultiplier', 'level', 'status', 'salary'];
+
+  static Map<String, dynamic> _legacyOf(Map<String, dynamic> p) => {
+        for (final k in _legacyKeys)
+          if (p[k] != null) k: p[k].toString(),
+      };
+
+  static Future<void> _mergeLegacy(String id, Map<String, dynamic> extra) async {
+    final e = ((await _api.get('/employees/$id'))['employee'] as Map).cast<String, dynamic>();
+    final lf = ((e['legacy_fields'] as Map?) ?? {}).cast<String, dynamic>();
+    await _api.patch('/employees/$id', {'legacyFields': {...lf, ...extra}});
+  }
+
+  static Future<Map<String, dynamic>> _addEmployee(Map<String, dynamic> p) async {
+    final role = roleKeyOf(p['role']?.toString());
+    final body = <String, dynamic>{
+      'code': (p['uid'] ?? '').toString().toUpperCase(),
+      'fullName': (p['name'] ?? '').toString().trim(),
+      'role': role,
+      if ((p['phone'] ?? '').toString().trim().isNotEmpty) 'phone': p['phone'].toString().trim(),
+      if ((p['email'] ?? '').toString().trim().isNotEmpty) 'email': p['email'].toString().trim(),
+      if ((p['password'] ?? '').toString().trim().isNotEmpty) 'password': p['password'].toString().trim(),
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch((p['joinDate'] ?? '').toString())) 'joiningDate': p['joinDate'],
+      'legacyFields': _legacyOf(p),
+    };
+    final sal = num.tryParse('${p['startSalary'] ?? p['salary'] ?? ''}');
+    if (sal != null && sal > 0 && _has('employee.salary_manage')) body['baseSalary'] = sal;
+    final r = await _api.post('/employees', body);
+    JphBridge.remember(_s(r['code'], ''), _s(r['id'], ''));
+    final pw = r['pin'] ?? r['temporaryPassword'];
+    return _ok({
+      'message': pw != null && (p['password'] ?? '').toString().isEmpty
+          ? 'تمت إضافة الموظف ✅ — كلمة الدخول: $pw'
+          : 'تمت إضافة الموظف بنجاح ✅',
+      'uid': r['code'],
+    });
+  }
+
+  static Future<Map<String, dynamic>> _updateEmployee(Map<String, dynamic> p) async {
+    final id = await _id(p['uid']);
+    final cur = ((await _api.get('/employees/$id'))['employee'] as Map).cast<String, dynamic>();
+    final lf = ((cur['legacy_fields'] as Map?) ?? {}).cast<String, dynamic>();
+    final body = <String, dynamic>{
+      if ((p['name'] ?? '').toString().trim().length >= 2) 'fullName': p['name'].toString().trim(),
+      if (p['phone'] != null) 'phone': p['phone'].toString().trim().isEmpty ? null : p['phone'].toString().trim(),
+      if (p['email'] != null) 'email': p['email'].toString().trim().isEmpty ? null : p['email'].toString().trim(),
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch((p['joinDate'] ?? '').toString())) 'joiningDate': p['joinDate'],
+      'legacyFields': {...lf, ..._legacyOf(p)},
+    };
+    final role = p['role'] == null ? null : roleKeyOf(p['role'].toString());
+    if (role != null && role != cur['role_key'] && id != JphBridge.myId) body['role'] = role;
+    await _api.patch('/employees/$id', body);
+    final sal = num.tryParse('${p['salary'] ?? ''}');
+    final curSal = num.tryParse('${(cur['salary'] as Map?)?['base_salary'] ?? ''}');
+    if (sal != null && sal > 0 && sal != curSal && _has('employee.salary_manage') && id != JphBridge.myId) {
+      await _api.put('/employees/$id/salary', {'baseSalary': sal});
+    }
+    return _ok({'message': 'تم تحديث بيانات الموظف بنجاح ✅'});
+  }
+
+  // ------------------------------------------------------------------ holidays
+  static Map<String, dynamic> _holidayBody(Map<String, dynamic> p) => {
+        'fromDate': _date(p['fromDate']),
+        'toDate': _date(p['toDate'] ?? p['fromDate']),
+        'holidayType': (p['holidayType'] ?? 'عطلة رسمية').toString(),
+        'description': (p['description'] ?? '').toString(),
+      };
+
+  static Future<List<Map<String, dynamic>>> _holidayRows() async {
+    return _list((await _api.get('/holiday-periods'))['periods']).map((h) => <String, dynamic>{
+          'id': h['id'],
+          'fromDate': _date(h['from_date']),
+          'toDate': _date(h['to_date']),
+          'holidayType': _s(h['holiday_type'], 'عطلة رسمية'),
+          'description': _s(h['description'] ?? h['name'], ''),
+          'days': h['days'] ?? 1,
+        }).toList();
+  }
+
+  static Future<Map<String, dynamic>> _holidays(Object? year) async {
+    var rows = await _holidayRows();
+    final y = year?.toString();
+    if (y != null && y.isNotEmpty) rows = rows.where((h) => h['fromDate'].toString().startsWith(y) || h['toDate'].toString().startsWith(y)).toList();
+    return _ok({'holidays': rows, 'count': rows.length});
+  }
+
+  static Future<Map<String, dynamic>> _holidayStats() async {
+    final rows = await _holidayRows();
+    final y = DateTime.now().year;
+    final byType = <String, int>{};
+    final byMonth = <String, int>{};
+    for (final h in rows) {
+      byType[h['holidayType']] = (byType[h['holidayType']] ?? 0) + 1;
+      final m = h['fromDate'].toString().length >= 7 ? h['fromDate'].toString().substring(5, 7) : '';
+      byMonth[m] = (byMonth[m] ?? 0) + 1;
+    }
+    return _ok({'stats': {
+      'total': rows.length,
+      'thisYear': rows.where((h) => h['fromDate'].toString().startsWith('$y')).length,
+      'nextYear': rows.where((h) => h['fromDate'].toString().startsWith('${y + 1}')).length,
+      'byType': byType,
+      'byMonth': byMonth,
+    }});
+  }
+
+  // ------------------------------------------------------------------ notifications
+  static Future<Map<String, dynamic>> _notifications() async {
+    final r = await _api.get('/notifications');
+    final items = _list(r['notifications']).map((n) => <String, dynamic>{
+          'id': n['id'],
+          'notificationId': n['id'],
+          'uid': JphBridge.myCode,
+          'title': _s(n['title'], ''),
+          'body': _s(n['body'], ''),
+          'type': _s(n['type'], 'custom'),
+          'read': n['read_at'] != null,
+          'timestamp': _s(n['created_at'], DateTime.now().toIso8601String()),
+          'createdAt': _s(n['created_at'], DateTime.now().toIso8601String()),
+        }).toList();
+    return _ok({'notifications': items, 'count': items.length, 'unread': r['unread'] ?? 0});
+  }
+
+  static Future<Map<String, dynamic>> _sendNotification(Map<String, dynamic> p) async {
+    final ids = <String>[];
+    for (final u in (p['recipients'] as List? ?? const [])) {
+      ids.add(await _id(u));
+    }
+    final r = await _api.post('/notifications/send', {
+      'recipientIds': ids,
+      'title': (p['title'] ?? '').toString(),
+      'content': (p['content'] ?? '').toString(),
+      'category': (p['category'] ?? 'عام').toString(),
+    });
+    return _ok({'message': 'تم إرسال الإشعار إلى ${r['sent']} موظف ✅'});
+  }
+
+  static Future<Map<String, dynamic>> _sentNotifications() async {
+    final r = await _api.get('/notifications/sent');
+    final items = _list(r['sent']).map((n) => <String, dynamic>{
+          'id': n['batch'],
+          'title': _s(n['title'], ''),
+          'content': _s(n['body'], ''),
+          'details': _s(n['body'], ''),
+          'category': _s(n['category'], 'عام'),
+          'sender': JphBridge.session.name,
+          'recipient': _s(n['recipient_names'], ''),
+          'date': _date(n['created_at']),
+          'status': '${n['read']}/${n['recipients']} قرأ',
+        }).toList();
+    return _ok({'notifications': items, 'count': items.length});
+  }
+
+  // ------------------------------------------------------------------ reports
+  static String _dayStatus(Map<String, dynamic> d) {
+    if (d['missingCheckout'] == true) return 'بدون انصراف';
+    if (d['corrected'] == true) return 'معدل';
+    if (d['isLate'] == true) return 'متأخر';
+    return 'حاضر';
+  }
+
+  static Future<Map<String, dynamic>> _dailyReport(Map<String, dynamic> p, {required bool expanded}) async {
+    final id = await _id(p['uid']);
+    final r = await _api.get('/attendance/range', {'employeeId': id, 'from': _date(p['from']), 'to': _date(p['to'])});
+    final rows = _list(r['days']);
+    final links = expanded ? await _links(selfies: rows.where((d) => d['hasSelfie'] == true).map((d) => _s(d['id'])).toList()) : <String, String>{};
+    String loc(Object? lat, Object? lng) => lat == null || lng == null ? '--' : '$lat,$lng';
+    final days = rows.map((d) {
+      final status = _dayStatus(d);
+      if (!expanded) {
+        return <String, dynamic>{
+          'date': _date(d['workDate']),
+          'start': _time(d['checkIn'], '--'),
+          'end': _time(d['checkOut'], '--'),
+          'work': _hhmm(d['workedMinutes'] as num?),
+          'overtime': _hhmm(d['overtimeMinutes'] as num?),
+          'status': status,
+        };
+      }
+      return <String, dynamic>{
+        'date': _date(d['workDate']),
+        'startTime': _time(d['checkIn'], '--'),
+        'endTime': _time(d['checkOut'], '--'),
+        'startImage': links['selfie:${d['id']}'] ?? '--',
+        'endImage': '--',
+        'startLocation': loc(d['checkInLat'], d['checkInLng']),
+        'endLocation': loc(d['checkOutLat'], d['checkOutLng']),
+        'workHours': _hhmm(d['workedMinutes'] as num?),
+        'overtimeHours': _hhmm(d['overtimeMinutes'] as num?),
+        'status': status,
+        'projectName': (d['geofence'] == 'inside') ? 'داخل المكتب' : '--',
+        'projectId': '--',
+        'breakStart': _time(d['breakStart'], '--'),
+        'breakEnd': _time(d['breakEnd'], '--'),
+        'startForemanName': '--',
+        'startForemanId': '--',
+        'endForemanName': '--',
+        'endForemanId': '--',
+        'startCeoConfirm': d['corrected'] == true ? 'معدل من الإدارة' : 'تلقائي',
+        'endCeoConfirm': d['corrected'] == true ? 'معدل من الإدارة' : 'تلقائي',
+        'lateMinutes': '${d['lateMinutes'] ?? 0}',
+      };
+    }).toList();
+    return _ok({'days': days, 'count': days.length});
+  }
+
+  static Future<Map<String, dynamic>> _monthlyReport(Map<String, dynamic> p) async {
+    final id = await _id(p['uid']);
+    final year = int.tryParse('${p['year']}') ?? DateTime.now().year;
+    final month = '$year-${_two(_monthIndex(p['month']))}';
+    final att = await _api.get('/attendance', {'month': month, 'employeeId': id});
+    final sm = ((att['summary'] as Map?) ?? {}).cast<String, dynamic>();
+    final days = _list(att['days']);
+    Map<String, dynamic> pay = {};
+    try {
+      pay = (((await _api.get('/payroll/employee/$id', {'month': month}))['payroll']) as Map).cast<String, dynamic>();
+    } catch (_) {/* no salary rights: attendance figures only */}
+    num amt(String k) => (((pay[k] as Map?)?['amount']) as num?) ?? 0;
+    final holidayAttend = days.where((d) => d['status'] == 'present' && d['holidayName'] != null).length;
+    return _ok({'report': {
+      'workDays': sm['attendedDays'] ?? 0,
+      'holidayAttend': holidayAttend,
+      'holidays': days.where((d) => d['status'] == 'holiday' || d['status'] == 'weekend').length,
+      'sick': days.where((d) => d['absenceType'] == 'sick').length,
+      'absent': sm['unapprovedAbsenceDays'] ?? 0,
+      'overtimeHours': _hhmm(sm['overtimeMinutes'] as num?),
+      'overtimeAmount': 0,
+      'attendSalary': pay['baseSalary'] ?? 0,
+      'allowance': 0,
+      'bonus': pay['bonuses'] ?? 0,
+      'workExpenses': pay['workExpenses'] ?? 0,
+      'deduction': amt('late') + amt('early') + ((pay['adminDeductions'] as num?) ?? 0),
+      'absentDeduction': amt('absence') + amt('unpaid'),
+      'advance': pay['advances'] ?? 0,
+      'received': 0,
+      'dueSalary': pay['net'] ?? 0,
+      'arrears': 0,
+    }});
+  }
+
+  static Future<List<Map<String, dynamic>>> _boardRows() async {
+    final r = await _api.get('/attendance/board');
+    return _list(r['board']);
+  }
+
+  static Future<Map<String, dynamic>> _todayStats() async {
+    final rows = await _boardRows();
+    final present = rows.where((x) => x['attendance'] != null).length;
+    return _ok({'stats': {
+      'totalEmployees': rows.length,
+      'presentCount': present,
+      'absentCount': rows.length - present,
+      'onBreakCount': rows.where((x) => (x['break'] as Map?)?['onBreak'] == true).length,
+    }});
+  }
+
+  static Future<Map<String, dynamic>> _byTeam() async {
+    final rows = await _boardRows();
+    final by = <String, int>{};
+    for (final x in rows.where((x) => x['attendance'] != null)) {
+      final team = _s(x['teamName'], 'بدون فريق');
+      by[team] = (by[team] ?? 0) + 1;
+    }
+    return _ok({'projects': [for (final e in by.entries) {'projectName': e.key, 'attendanceCount': e.value}]});
+  }
+
+  static Future<Map<String, dynamic>> _board({required bool onBreakOnly}) async {
+    final rows = await _boardRows();
+    final out = <Map<String, dynamic>>[];
+    for (final x in rows) {
+      final a = (x['attendance'] as Map?)?.cast<String, dynamic>();
+      final b = (x['break'] as Map?)?.cast<String, dynamic>();
+      if (a == null) continue;
+      if (onBreakOnly && b?['onBreak'] != true) continue;
+      out.add({
+        'id': x['employeeId'],
+        'name': _s(x['fullName']),
+        'project': _s(x['teamName'], 'بدون فريق'),
+        'checkIn': _time(a['checkIn']),
+        'checkOut': a['checkOut'] == null ? '--:--' : _time(a['checkOut']),
+        'status': a['checkOut'] == null ? 'present' : 'left',
+        'breakStart': b == null ? '--:--' : _time(b['start']),
+        'breakDuration': b == null ? '--' : '${b['minutes']} دقيقة',
+        'breakExceeded': b?['exceeded'] == true,
+      });
+    }
+    return _ok({'employees': out, 'count': out.length});
+  }
+}

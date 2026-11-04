@@ -34,6 +34,28 @@ void main() {
   f.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, cleartext (dev).');
 
+  // flutter_local_notifications needs core library desugaring
+  for (final path in ['android/app/build.gradle.kts', 'android/app/build.gradle']) {
+    final g = File(path);
+    if (!g.existsSync()) continue;
+    var t = g.readAsStringSync();
+    final kts = path.endsWith('.kts');
+    if (!t.contains('CoreLibraryDesugaringEnabled')) {
+      t = t.replaceFirst(RegExp(r'compileOptions\s*\{'),
+          kts ? 'compileOptions {\n        isCoreLibraryDesugaringEnabled = true' : 'compileOptions {\n        coreLibraryDesugaringEnabled true');
+    }
+    if (!t.contains('desugar_jdk_libs')) {
+      final dep = kts ? 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")' : "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'";
+      if (RegExp(r'^dependencies\s*\{', multiLine: true).hasMatch(t)) {
+        t = t.replaceFirst(RegExp(r'^dependencies\s*\{', multiLine: true), 'dependencies {\n    $dep');
+      } else {
+        t += '\ndependencies {\n    $dep\n}\n';
+      }
+    }
+    g.writeAsStringSync(t);
+    stdout.writeln('$path patched: core library desugaring.');
+  }
+
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();

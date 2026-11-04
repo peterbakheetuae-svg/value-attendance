@@ -22,6 +22,15 @@ dependencies:
   printing: ^5.13.4
   file_saver: 0.2.14
   url_launcher: ^6.3.1
+  # original JPH screens
+  camera: ^0.11.1
+  flutter_image_compress: ^2.4.0
+  path_provider: ^2.1.5
+  audioplayers: ^6.4.0
+  package_info_plus: ^8.3.0
+  share_plus: ^10.1.4
+  flutter_local_notifications: ^19.4.2
+  device_info_plus: ^11.5.0
 
 dev_dependencies:
   flutter_test:
@@ -37,6 +46,12 @@ flutter:
     - assets/avatar.png
     - assets/l10n/ar.json
     - assets/l10n/en.json
+    - assets/jph_l10n/ar.json
+    - assets/jph_l10n/en.json
+    - assets/jph_l10n/hi.json
+    - assets/jph_l10n/ur.json
+    - assets/sounds/bell_sound.WAV
+    - assets/sounds/notification.WAV
     - assets/fonts/Cairo-Regular.ttf
     - assets/fonts/Cairo-Bold.ttf
   fonts:

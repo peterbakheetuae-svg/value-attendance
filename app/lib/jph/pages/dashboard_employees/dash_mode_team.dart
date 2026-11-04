@@ -1,0 +1,1 @@
+enum DashMode { check, breakTime, leave }

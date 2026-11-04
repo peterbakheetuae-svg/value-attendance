@@ -9,7 +9,8 @@ import '../design/primary_button.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   final bool forced;
-  const ChangePasswordPage({super.key, this.forced = false});
+  final VoidCallback? onDone;
+  const ChangePasswordPage({super.key, this.forced = false, this.onDone});
   @override
   State<ChangePasswordPage> createState() => _ChangePasswordPageState();
 }
@@ -40,7 +41,11 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       await context.read<Session>().changePassword(_cur.text, n);
       if (!mounted) return;
       showSnack(context, t('password_changed'));
-      if (!widget.forced) Navigator.of(context).pop();
+      if (widget.onDone != null) {
+        widget.onDone!();
+      } else if (!widget.forced) {
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       if (mounted) setState(() => _err = errorText(e));
     } finally {
