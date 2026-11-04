@@ -13,12 +13,13 @@ env:
   API_BASE_URL: ${{ vars.API_BASE_URL }}
   # Mirror (Cloudflare Worker forwarding to the API) tried first: some mobile networks cannot reach netlify.app
   API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
-  # Firebase client config (public by design; push stays off while empty). Set as repository variables.
+  # Firebase client config for phone push — public by design (it ships inside every app; not a secret).
+  # The server-side key (FCM_SERVICE_ACCOUNT) lives only in Netlify's environment.
   FIREBASE_DEFINES: >-
-    --dart-define=FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
-    --dart-define=FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
-    --dart-define=FIREBASE_SENDER_ID=${{ vars.FIREBASE_SENDER_ID }}
-    --dart-define=FIREBASE_PROJECT_ID=${{ vars.FIREBASE_PROJECT_ID }}
+    --dart-define=FIREBASE_API_KEY=AIzaSyBpuGxRAmut3r_mCMtvdtqYMlnW3uNNvHY
+    --dart-define=FIREBASE_APP_ID=1:1055799246852:android:1f3156a362edc90023f551
+    --dart-define=FIREBASE_SENDER_ID=1055799246852
+    --dart-define=FIREBASE_PROJECT_ID=bustling-syntax-480805-k4
 jobs:
   build:
     runs-on: ubuntu-latest

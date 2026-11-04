@@ -52,8 +52,10 @@ void main() {
         t += '\ndependencies {\n    $dep\n}\n';
       }
     }
+    // app id registered in Firebase (push notifications)
+    t = t.replaceFirst(RegExp(r'applicationId\s*=?\s*"[^"]*"'), kts ? 'applicationId = "com.jph.valueattendance"' : 'applicationId "com.jph.valueattendance"');
     g.writeAsStringSync(t);
-    stdout.writeln('$path patched: core library desugaring.');
+    stdout.writeln('$path patched: core library desugaring, applicationId.');
   }
 
   // sound used by system notifications (RawResourceAndroidNotificationSound('notification'))
