@@ -36,7 +36,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   bool _isLoading = true;
   Timer? _navigationTimer;
-  Map<String, String>? _session;
+  Map<String, dynamic>? _session;
   bool _dataLoaded = false;
 
   @override
@@ -220,10 +220,10 @@ class _SplashScreenState extends State<SplashScreen>
     if (_session == null) {
       targetScreen = const LoginPage();
     } else {
-      final uid = _session?["uid"];
-      final name = _session?["name"];
-      final role = _session?["role"];
-      final photo = _session?["photo"] ?? "";
+      final uid = _session?["uid"]?.toString();
+      final name = _session?["name"]?.toString();
+      final role = _session?["role"]?.toString();
+      final photo = (_session?["photo"] ?? "").toString();
 
       if (uid == null || name == null || role == null) {
         targetScreen = const LoginPage();

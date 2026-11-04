@@ -661,7 +661,7 @@ class _ReportsPageState extends State<ReportsPage>
             ),
             const SizedBox(height: 8),
             ...companies.whereType<Map>().map((company) {
-              return _ConsolidatedCompanyCard(company: company);
+              return _ConsolidatedCompanyCard(company: Map<String, dynamic>.from(company));
             }),
           ],
         ),

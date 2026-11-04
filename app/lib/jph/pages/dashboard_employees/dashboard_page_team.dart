@@ -18,7 +18,7 @@ import '../selfie_preview_page.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import '../profile/profile_page.dart';
-import '/pages/settings/settings_page.dart';
+import '../settings/settings_page.dart';
 import '../id_card_page.dart';
 import '../leave_request_page.dart';
 import 'break_alert_dialog_team.dart';
