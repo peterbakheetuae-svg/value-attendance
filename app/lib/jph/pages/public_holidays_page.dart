@@ -1133,7 +1133,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                               ),
                             ),
                           ),
-                          if (widget.role == 'admin' || widget.role == 'صاحب عمل')
+                          if (widget.role == 'admin' || widget.role == 'المالك')
                             IconButton(
                               onPressed: () => _showAddEditForm(),
                               icon: Container(
@@ -1744,7 +1744,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
               ),
 
             // Action Buttons (for admin/ceo)
-            if (widget.role == 'admin' || widget.role == 'صاحب عمل') ...[
+            if (widget.role == 'admin' || widget.role == 'المالك') ...[
               const SizedBox(height: 12),
               Row(
                 children: [

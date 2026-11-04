@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
+import '../../services/api_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -31,21 +32,21 @@ class _EmployeesPageState extends State<EmployeesPage> {
   String _selectedFilter = 'الكل'; // قيمة افتراضية للفلتر
 
   // قائمة خيارات الفلتر
-  final List<String> _filterOptions = [
-    'الكل',
-    'صاحب عمل',
-    'سوبرفايزر',
-    'فورمن',
-    'صنايعي',
-    'عامل',
-    'نشط',
-    'غير نشط',
-  ];
+  // الوظائف بتيجي من السيرفر (أي وظيفة جديدة بتظهر هنا لوحدها)
+  List<String> _filterOptions = ['الكل', 'نشط', 'غير نشط'];
+
+  Future<void> _loadPositions() async {
+    final r = await ApiService.post({'action': 'get_positions'});
+    if (!mounted || r['success'] != true) return;
+    final names = ((r['positions'] as List?) ?? const []).whereType<Map>().map((m) => '${m['name_ar']}').toList();
+    setState(() => _filterOptions = ['الكل', ...names, 'نشط', 'غير نشط']);
+  }
 
   @override
   void initState() {
     super.initState();
     _loadEmployees();
+    _loadPositions();
   }
 
   Future<void> _loadEmployees() async {
@@ -100,7 +101,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
       } else if (_selectedFilter == 'غير نشط') {
         filtered = filtered.where((employee) => employee['active'] == false).toList();
       } else {
-        filtered = filtered.where((employee) => employee['role'] == _selectedFilter).toList();
+        filtered = filtered.where((employee) => (employee['position'] ?? employee['role']) == _selectedFilter).toList();
       }
     }
 
@@ -109,7 +110,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
       filtered = filtered.where((employee) {
         final name = employee['name']?.toString().toLowerCase() ?? '';
         final uid = employee['uid']?.toString().toLowerCase() ?? '';
-        final role = employee['role']?.toString().toLowerCase() ?? '';
+        final role = (employee['position'] ?? employee['role'])?.toString().toLowerCase() ?? '';
         final phone = employee['phone']?.toString().toLowerCase() ?? '';
         final email = employee['email']?.toString().toLowerCase() ?? '';
 
@@ -534,7 +535,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   Widget _buildEmployeeCard(Map<String, dynamic> employee, bool isDark) {
     final uid = employee['uid']?.toString() ?? '';
     final name = employee['name']?.toString() ?? 'غير معروف';
-    final role = employee['role']?.toString() ?? 'غير محدد';
+    final role = (employee['position'] ?? employee['role'])?.toString() ?? 'غير محدد';
     final active = employee['active'] == true;
     final photo = employee['photo']?.toString() ?? '';
     final dailyRate = employee['dailyRate']?.toString() ?? '0';
@@ -735,8 +736,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
               // أزرار التحكم
               Column(
                 children: [
-                  // زر تغيير الوضع - يظهر فقط إذا لم يكن صاحب عمل
-                  if (role != 'صاحب عمل')
+                  // زر تغيير الوضع - يظهر فقط إذا لم يكن المالك
+                  if (role != 'المالك')
                     IconButton(
                       icon: Icon(
                         _getStatusIcon(status),
@@ -748,8 +749,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       },
                     ),
 
-                  // زر التعديل - يظهر فقط إذا لم يكن صاحب عمل
-                  if (role != 'صاحب عمل')
+                  // زر التعديل - يظهر فقط إذا لم يكن المالك
+                  if (role != 'المالك')
                     IconButton(
                       icon: Icon(
                         Icons.edit,

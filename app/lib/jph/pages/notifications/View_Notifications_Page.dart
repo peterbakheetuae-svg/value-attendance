@@ -75,7 +75,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
   String _formatRecipient(String recipient) {
     final labels = {
       'CEO': 'أصحاب العمل',
-      'Foremen': 'الفورمن',
+      'Managers': 'المديرين',
       'Accountants': 'المحاسبين',
       'Employees': 'الموظفين',
       'الجميع': 'الجميع',

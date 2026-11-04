@@ -33,15 +33,15 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
   // قائمة الفئات الرئيسية
   final List<String> _categories = [
     'CEO',
-    'Foremen',
+    'Managers',
     'Accountants',
     'Employees',
     'الجميع'
   ];
 
   final Map<String, String> _categoryLabels = {
-    'CEO': 'أصحاب العمل',
-    'Foremen': 'الفورمن',
+    'CEO': 'المالك',
+    'Managers': 'المديرين',
     'Accountants': 'المحاسبين',
     'Employees': 'الموظفين',
     'الجميع': 'الجميع'
@@ -86,20 +86,18 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
       final role = employee['role']?.toString().toLowerCase() ?? '';
       switch (_selectedCategory) {
         case 'CEO':
-          return role.contains('ceo') || role.contains('صاحب عمل');
-        case 'Foremen':
-          return role.contains('foreman') || role.contains('فورمن') || role.contains('مشرف');
+          return role.contains('ceo') || role.contains('المالك');
+        case 'Managers':
+          return role.contains('مدير');
         case 'Accountants':
           return role.contains('accountant') || role.contains('محاسب');
         case 'Employees':
           return role.contains('employee') ||
               role.contains('موظف') ||
-              role.contains('عامل') ||
+              role.contains('مستشار') ||
               (!role.contains('ceo') &&
-                  !role.contains('صاحب عمل') &&
-                  !role.contains('foreman') &&
-                  !role.contains('فورمن') &&
-                  !role.contains('مشرف') &&
+                  !role.contains('المالك') &&
+                  !role.contains('مدير') &&
                   !role.contains('accountant') &&
                   !role.contains('محاسب'));
         default:

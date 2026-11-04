@@ -130,7 +130,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         List<dynamic> employees = response["employees"] ?? [];
         List<Map<String, dynamic>> owners = [];
         for (var emp in employees) {
-          if (emp['role'] == 'صاحب عمل') {
+          if (emp['role'] == 'المالك') {
             owners.add({
               'uid': emp['uid']?.toString(),
               'name': emp['name']?.toString(),
@@ -191,11 +191,11 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   }
 
   Future<void> _updateEmployee() async {
-    // التحقق من صلاحيات المستخدم لتعديل بيانات صاحب عمل
-    if (_selectedRole == 'صاحب عمل' && widget.currentUserId != _employeeData['uid']) {
+    // التحقق من صلاحيات المستخدم لتعديل بيانات المالك
+    if (_selectedRole == 'المالك' && widget.currentUserId != _employeeData['uid']) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('لا يمكنك تعديل بيانات صاحب عمل آخر'),
+          content: Text('لا يمكنك تعديل بيانات المالك'),
           backgroundColor: Colors.red,
         ),
       );
@@ -352,9 +352,9 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         final photo = _employeeData['photo']?.toString() ?? '';
 
         // التحقق مما إذا كان المستخدم الحالي يمكنه تعديل بيانات هذا الموظف
-        final bool canEdit = widget.currentUserRole == 'صاحب عمل' &&
+        final bool canEdit = widget.currentUserRole == 'المالك' &&
             widget.currentUserId == _employeeData['uid'];
-        final bool isViewingOwner = _employeeData['role'] == 'صاحب عمل';
+        final bool isViewingOwner = _employeeData['role'] == 'المالك';
         final bool canToggleEdit = _isEditing || canEdit || !isViewingOwner;
 
         return AppBackground(
@@ -388,7 +388,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               ),
                             ),
                           ),
-                          // إظهار زر التعديل فقط إذا كان المستخدم الحالي هو صاحب العمل نفسه أو الموظف ليس صاحب عمل
+                          // إظهار زر التعديل فقط إذا كان المستخدم الحالي هو صاحب العمل نفسه أو الموظف ليس المالك
                           if (!_isEditing && canToggleEdit)
                             IconButton(
                               icon: Icon(
@@ -399,7 +399,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 if (isViewingOwner && !canEdit) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('لا يمكنك تعديل بيانات صاحب عمل آخر'),
+                                      content: Text('لا يمكنك تعديل بيانات المالك'),
                                       backgroundColor: Colors.red,
                                     ),
                                   );
@@ -557,7 +557,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               value: _positions.any((p) => p['name_ar'] == _selectedPosition) ? _selectedPosition : null,
                               items: _positions.map((p) => '${p['name_ar']}').toList(),
                               icon: Icons.work,
-                              isEditable: _isEditing && canToggleEdit && _selectedRole != 'صاحب عمل',
+                              isEditable: _isEditing && canToggleEdit && _selectedRole != 'المالك',
                               onChanged: (value) {
                                 setState(() {
                                   _selectedPosition = value;
@@ -817,10 +817,10 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                     width: double.infinity,
                                     child: ElevatedButton(
                                       onPressed: () {
-                                        if (_selectedRole == 'صاحب عمل' && widget.currentUserId != _employeeData['uid']) {
+                                        if (_selectedRole == 'المالك' && widget.currentUserId != _employeeData['uid']) {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
-                                              content: Text('لا يمكنك تعديل بيانات صاحب عمل آخر'),
+                                              content: Text('لا يمكنك تعديل بيانات المالك'),
                                               backgroundColor: Colors.red,
                                             ),
                                           );

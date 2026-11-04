@@ -93,7 +93,6 @@ class AttendanceExpandableCard extends StatelessWidget {
     final workHours = AppLocalizations.of(context, 'work_hours');
     final lateLabel = AppLocalizations.of(context, 'late_time');
     final project = AppLocalizations.of(context, 'project');
-    final foreman = AppLocalizations.of(context, 'foreman');
     final location = AppLocalizations.of(context, 'location');
     final breakTime = AppLocalizations.of(context, 'break');
     final ceoConfirm = AppLocalizations.of(context, 'ceo_confirm');
@@ -385,11 +384,6 @@ class AttendanceExpandableCard extends StatelessWidget {
                           locationData: dayData['startLocation']?.toString(),
                         ),
                         _buildDetailItem(
-                          icon: Icons.person,
-                          label: foreman,
-                          value: '${dayData['startForemanName']} (${dayData['startForemanId']})',
-                        ),
-                        _buildDetailItem(
                           icon: Icons.verified,
                           label: ceoConfirm,
                           value: dayData['startCeoConfirm'] ?? '--',
@@ -426,11 +420,6 @@ class AttendanceExpandableCard extends StatelessWidget {
                               : (dayData['endLocation'] ?? '--'),
                           isLocation: _isValidCoordinates(dayData['endLocation']),
                           locationData: dayData['endLocation']?.toString(),
-                        ),
-                        _buildDetailItem(
-                          icon: Icons.person,
-                          label: foreman,
-                          value: '${dayData['endForemanName']} (${dayData['endForemanId']})',
                         ),
                         _buildDetailItem(
                           icon: Icons.verified,
@@ -483,7 +472,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                         _buildDetailItem(
                           icon: Icons.work,
                           label: project,
-                          value: '${dayData['projectName']} (${dayData['projectId']})',
+                          value: '${dayData['projectName']}',
                           valueColor: Colors.purple,
                         ),
                       ],

@@ -98,7 +98,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   void _initializeDefaultValues() {
     // تعيين القيم الافتراضية
-    _selectedRole = 'عامل';
+    _selectedRole = 'مستشار عقاري';
     _selectedAccounting = 'يومى';
     _selectedLeaveDay = 'الجمعة';
     _selectedAbsenceMultiplier = '1';
@@ -121,7 +121,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
             existingUids.add(uid);
           }
 
-          if (emp['role'] == 'صاحب عمل') {
+          if (emp['role'] == 'المالك') {
             owners.add({
               'uid': uid,
               'name': emp['name']?.toString(),

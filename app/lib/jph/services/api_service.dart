@@ -25,7 +25,7 @@ class JphRouter {
 
   // ------------------------------------------------------------------ labels
   static const roleAr = {
-    'owner': 'صاحب عمل',
+    'owner': 'المالك',
     'hr_manager': 'مدير الموارد البشرية',
     'accountant': 'محاسب',
     'sales_manager': 'مدير مبيعات',
