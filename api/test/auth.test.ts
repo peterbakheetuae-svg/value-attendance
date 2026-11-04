@@ -101,3 +101,12 @@ test('role permissions are editable by owner only and owner role is immutable', 
   assert.equal(roles.status, 200);
   assert.equal(roles.body.roles.length, 5);
 });
+
+test('login also accepts the mobile number in any common form and the email', async () => {
+  await h.db.query(`UPDATE employees SET phone = '+201011112222', email = 'e3@value.test' WHERE code = 'E3'`);
+  for (const id of ['01011112222', '+201011112222', '00201011112222', '0101 111 2222', 'E3@Value.test', 'e3']) {
+    const r = await h.call(null, 'POST', '/auth/login', { identifier: id, password: PW, deviceId: dev('E3') });
+    assert.equal(r.status, 200, id);
+  }
+  assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: '01011112223', password: PW, deviceId: dev('E3') })).status, 401);
+});

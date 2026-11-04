@@ -30,10 +30,8 @@ import '../notifications/notification_settings.dart'; // إضافة
 import '../public_holidays_page.dart'; // إضافة
 import '../multi_company/company_info_page.dart';
 import '../multi_company/positions_page.dart';
-import '../multi_company/branches_page.dart';
 import '../multi_company/kpi_page.dart';
 import '../multi_company/work_locations_page.dart';
-import '../multi_company/advances_page.dart';
 import '../multi_company/reports_page.dart';
 import '../multi_company/platform_dashboard_page.dart';
 import '../../widgets/company_selector_sheet.dart';
@@ -544,22 +542,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
-                    // Branches
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'branches'),
-                      icon: Icons.account_tree,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const BranchesPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
                     // KPI
                     SettingsTile(
                       title: AppLocalizations.of(context, 'kpi_definitions'),
@@ -585,22 +567,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const WorkLocationsPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Advances
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'advances'),
-                      icon: Icons.savings,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const AdvancesPage(),
                           ),
                         );
                       },

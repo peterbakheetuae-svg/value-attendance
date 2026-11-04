@@ -22,8 +22,11 @@ export const authModule: Module = (r, { db }) => {
     const emp = await one(db, `
       SELECT id, password_hash, status, failed_logins, locked_until, must_change_password, role_key, device_id
         FROM employees
-       WHERE upper(code) = upper($1) OR lower(email) = lower($1) OR phone = $1
-       LIMIT 1`, [identifier]);
+       WHERE upper(code) = upper($1) OR lower(email) = lower(trim($1)) OR phone = $1
+          -- mobile typed in any form (01xxxxxxxxx / +201xxxxxxxxx / 00201...): compare the last 10 digits
+          OR (length($2) >= 10 AND right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10) = right($2, 10))
+       ORDER BY (upper(code) = upper($1)) DESC, (status = 'active') DESC
+       LIMIT 1`, [identifier.trim(), identifier.replace(/\D/g, '').length === identifier.replace(/[\s+()-]/g, '').length ? identifier.replace(/\D/g, '') : '']);
     if (!emp) {
       dummyHash ??= hashPassword('dummy-password-1');
       await verifyPassword(password, await dummyHash);

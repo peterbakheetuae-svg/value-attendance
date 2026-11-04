@@ -16,7 +16,6 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/primary_button.dart';
 import 'forgot_password_page.dart';
-import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -85,7 +84,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
 
     if (_uidCtrl.text.trim().isEmpty) {
       setState(() {
-        _uidError = '${AppLocalizations.of(context, 'employee_id')} ${AppLocalizations.of(context, 'required')}';
+        _uidError = 'اكتب كود الموظف أو الموبايل أو الإيميل';
       });
       hasError = true;
     }
@@ -494,9 +493,9 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                   key: _uidKey,
                   controller: _uidCtrl,
                   focusNode: _uidFocusNode,
-                  keyboardType: TextInputType.text,
+                  keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    labelText: AppLocalizations.of(context, 'employee_id') ?? 'رقم الموظف',
+                    labelText: 'كود الموظف أو الموبايل أو الإيميل',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: subduedTextColor.withOpacity(0.3))),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primary, width: 2)),
                     labelStyle: TextStyle(color: subduedTextColor),
@@ -565,18 +564,6 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
           },
           child: Text(
             AppLocalizations.of(context, 'forgot_password') ?? 'نسيت كلمة المرور؟',
-            style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
-          ),
-        ),
-        TextButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => RegisterPage()),
-            );
-          },
-          child: Text(
-            AppLocalizations.of(context, 'register') ?? 'تسجيل جديد',
             style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
           ),
         ),
