@@ -55,8 +55,17 @@ export class Router {
 
 const MAX_BODY = 8 * 1024 * 1024;
 
-async function readBody(req: IncomingMessage): Promise<any> {
-  if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+function parseBody(method: string, ct: string, buf: Buffer): any {
+  if (method === 'GET' || method === 'HEAD') return undefined;
+  if (buf.length > MAX_BODY) throw new AppError('payload_too_large', 'Request body too large');
+  if (!buf.length) return {};
+  if (!ct.includes('application/json')) throw new AppError('bad_request', 'Expected application/json');
+  try { return JSON.parse(buf.toString('utf8')); }
+  catch { throw new AppError('bad_request', 'Malformed JSON'); }
+}
+
+async function readNodeBody(req: IncomingMessage): Promise<Buffer> {
+  if (req.method === 'GET' || req.method === 'HEAD') return Buffer.alloc(0);
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const c of req) {
@@ -64,56 +73,64 @@ async function readBody(req: IncomingMessage): Promise<any> {
     if (size > MAX_BODY) throw new AppError('payload_too_large', 'Request body too large');
     chunks.push(c as Buffer);
   }
-  if (!size) return {};
-  const ct = req.headers['content-type'] ?? '';
-  if (!ct.includes('application/json')) throw new AppError('bad_request', 'Expected application/json');
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch { throw new AppError('bad_request', 'Malformed JSON'); }
+  return Buffer.concat(chunks);
 }
 
-export function createHandler(router: Router, opts: { corsOrigins: string[]; log?: (o: object) => void }) {
-  return async (req: IncomingMessage, res: ServerResponse) => {
-    const origin = req.headers.origin;
-    if (origin && opts.corsOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    }
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store');
-    if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
+export interface Opts { corsOrigins: string[]; log?: (o: object) => void }
+interface Out { status: number; headers: Record<string, string>; body: Buffer | string }
 
-    const url = new URL(req.url ?? '/', 'http://local');
-    try {
-      const m = router.match(req.method ?? 'GET', url.pathname);
-      if (!m) throw new AppError('not_found', 'Route not found');
-      const body = await readBody(req);
-      const reply = await m.handler({
-        method: req.method ?? 'GET', path: url.pathname, params: m.params,
-        query: url.searchParams, headers: req.headers, body,
-      });
-      send(res, reply);
-    } catch (e: any) {
-      const err = e instanceof AppError ? e : fromDbError(e);
-      if (err) {
-        send(res, { status: err.status, json: { error: { code: err.code, message: err.message, details: err.details } } });
-      } else {
-        opts.log?.({ level: 'error', msg: 'unhandled', path: url.pathname, err: String(e?.stack ?? e) });
-        send(res, { status: 500, json: { error: { code: 'internal_error', message: 'Internal error' } } });
-      }
+/** Transport-independent core shared by the Node server and the serverless (fetch) entry. */
+async function handle(router: Router, opts: Opts, method: string, rawUrl: string,
+  headers: IncomingMessage['headers'], getBody: () => Promise<Buffer>): Promise<Out> {
+  const h: Record<string, string> = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' };
+  const origin = headers.origin as string | undefined;
+  if (origin && opts.corsOrigins.includes(origin)) {
+    h['Access-Control-Allow-Origin'] = origin;
+    h['Vary'] = 'Origin';
+    h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+    h['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
+    h['Access-Control-Expose-Headers'] = 'Content-Disposition';
+  }
+  if (method === 'OPTIONS') return { status: 204, headers: h, body: '' };
+  const url = new URL(rawUrl, 'http://local');
+  const out = (r: Reply): Out => {
+    if ('binary' in r) {
+      h['Content-Type'] = r.contentType;
+      if (r.fileName) h['Content-Disposition'] = `attachment; filename="${r.fileName.replace(/[^\w.\-]/g, '_')}"`;
+      return { status: r.status ?? 200, headers: h, body: r.binary };
     }
+    h['Content-Type'] = 'application/json; charset=utf-8';
+    return { status: r.status ?? 200, headers: h, body: JSON.stringify(r.json) };
+  };
+  try {
+    const m = router.match(method, url.pathname);
+    if (!m) throw new AppError('not_found', 'Route not found');
+    const body = parseBody(method, String(headers['content-type'] ?? ''), await getBody());
+    return out(await m.handler({ method, path: url.pathname, params: m.params, query: url.searchParams, headers, body }));
+  } catch (e: any) {
+    const err = e instanceof AppError ? e : fromDbError(e);
+    if (err) return out({ status: err.status, json: { error: { code: err.code, message: err.message, details: err.details } } });
+    opts.log?.({ level: 'error', msg: 'unhandled', path: url.pathname, err: String(e?.stack ?? e) });
+    return out({ status: 500, json: { error: { code: 'internal_error', message: 'Internal error' } } });
+  }
+}
+
+export function createHandler(router: Router, opts: Opts) {
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    const o = await handle(router, opts, req.method ?? 'GET', req.url ?? '/', req.headers, () => readNodeBody(req));
+    for (const [k, v] of Object.entries(o.headers)) res.setHeader(k, v);
+    res.writeHead(o.status).end(o.body);
   };
 }
 
-function send(res: ServerResponse, r: Reply) {
-  if ('binary' in r) {
-    res.setHeader('Content-Type', r.contentType);
-    if (r.fileName) res.setHeader('Content-Disposition', `attachment; filename="${r.fileName.replace(/[^\w.\-]/g, '_')}"`);
-    res.writeHead(r.status ?? 200).end(r.binary);
-    return;
-  }
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.writeHead(r.status ?? 200).end(JSON.stringify(r.json));
+/** Web-standard (Request → Response) handler for serverless hosts (Netlify Functions). */
+export function createFetchHandler(router: Router, opts: Opts) {
+  return async (req: Request): Promise<Response> => {
+    const headers: IncomingMessage['headers'] = {};
+    req.headers.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+    const u = new URL(req.url);
+    const o = await handle(router, opts, req.method, u.pathname + u.search, headers,
+      async () => (req.method === 'GET' || req.method === 'HEAD' ? Buffer.alloc(0) : Buffer.from(await req.arrayBuffer())));
+    return new Response(o.status === 204 ? null : (o.body as any), { status: o.status, headers: o.headers });
+  };
 }

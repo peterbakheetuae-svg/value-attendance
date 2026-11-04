@@ -7,7 +7,7 @@ declare module 'pg' {
   }
   export interface PoolConfig {
     connectionString?: string; host?: string; port?: number; user?: string;
-    password?: string; database?: string; max?: number; ssl?: unknown;
+    password?: string; database?: string; max?: number; ssl?: unknown; idleTimeoutMillis?: number;
   }
   export class Pool {
     constructor(config?: PoolConfig);

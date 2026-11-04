@@ -14,8 +14,8 @@ export interface Db extends Q {
   end(): Promise<void>;
 }
 
-export function createDb(connectionString: string): Db {
-  const pool = new pg.Pool({ connectionString, max: 10 });
+export function createDb(connectionString: string, max = 10): Db {
+  const pool = new pg.Pool({ connectionString, max, idleTimeoutMillis: 10_000 });
   pool.on('error', () => { /* idle client errors are surfaced on next query */ });
   return {
     query: (t, v) => pool.query(t, v),

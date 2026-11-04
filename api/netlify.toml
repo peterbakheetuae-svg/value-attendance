@@ -1,0 +1,15 @@
+# Netlify (free Starter plan, no payment card). Base directory on Netlify: api
+[build]
+  publish = "public"
+  # Applies pending DB migrations, then creates the OWNER account only on an empty database
+  # (its one-time temporary password is printed once in this build's log).
+  command = "npm run migrate && npm run seed:dev -- --if-empty"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  # pg has optional native/cloudflare backends esbuild cannot resolve; ship it as a normal module.
+  external_node_modules = ["pg"]
+
+[build.environment]
+  NODE_VERSION = "22"
