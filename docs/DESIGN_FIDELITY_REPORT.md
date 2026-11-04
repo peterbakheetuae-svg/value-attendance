@@ -10,19 +10,18 @@ Locked by `test/widget_test.dart` (design tokens). Full table: `DESIGN_SYSTEM.md
 Screenshot-by-screenshot comparison needs the app running (`flutter run -d chrome`). Not yet possible — see TEST_RESULTS.md.
 Planned pairs: login (light/dark, AR/EN), employee dashboard, attendance, requests/approvals, employees, settings, mobile 390 px and desktop 1280 px.
 
-## Value HR (gorgesaa70-boop.github.io/value-hr-web) — comparison
-| | Value HR (deployed) | Value Attendance (this project) |
-|---|---|---|
-| Source | Built bundle only in `gorgesaa70-boop/value-hr-web` (3 commits, latest 2026-10-25, author "Gorg") — **no source code** in the repo | Full source, tests |
-| Stack | React (Vite) PWA + **Supabase** (`xbstncayxxsitxpemquz.supabase.co`, publishable key in bundle) | Flutter + own API + PostgreSQL |
-| Look | Own navy theme (#0B1F3A), Cairo | Original JPH Attendance design |
-| Login | Mobile number + 4–8 digit PIN, account bound to first device | Employee code/email/mobile + password (≥8, letters+digits); **no device binding yet** |
-| Check-in | Selfie + geofence + background tracking during shift (Android) | Optional geofence; **no selfie, no tracking** |
-| Requests | Hourly permission, casual/annual/sick/unpaid leave, mission; single admin approval | 5 types + **dual approval** (sales manager → HR) |
-| Payroll | Automatic late/early/absence deductions with tiers, bonuses | Manual adjustments (four-eyes); payroll summary + Excel |
-| Roles | Admin / employee | 5 roles with team scoping |
-| KPI / evaluations / monthly reports | No | Yes |
+## Value HR feature parity (2026-11-04) — design stays the original JPH app
+| Value HR capability | Value Attendance |
+|---|---|
+| Mobile + numeric PIN login | ✅ sales roles (4–8 digits); owner/HR/accountant keep passwords |
+| Account bound to first phone, admin unlinks | ✅ owner exempt; HR unlinks from the employee profile |
+| New PIN sent on WhatsApp | ✅ opens wa.me with the ready message, or copy |
+| Selfie at check-in, auto-delete after N days | ✅ setting; compressed front camera; HR/manager view in the attendance log |
+| Several offices with a radius | ✅ (+ "use my current location") |
+| Check-in / check-out reminders, alerts to management | ✅ throttled sweep on normal traffic (no paid scheduler) |
+| In-shift location follow-up (Android), left/returned/stopped alerts | ✅ foreground service; web only while the page is open |
+| Payroll: day divisor 26/30, per-minute or tiered late/early, absence penalty, bonuses/admin deductions, net to date, Excel | ✅ off until enabled in “قواعد المرتبات” |
+| Break (start/end, overrun alert) | ✅ (original JPH feature, now server-backed) |
+| Extra in Value Attendance | 5 roles, dual approval, KPI, evaluations, monthly reports/PDF |
 
-**Can the URL `gorgesaa70-boop.github.io/value-hr-web/` become the official one?** Not safely by me: it belongs to a
-different GitHub account, is a live app with its own Supabase data, and replacing it would take that app offline. Needs the
-owner's explicit decision **and** push access. Recommended: a new repo under your account (e.g. `value-attendance`).
+Home screen = the original employee dashboard: long-press animated fingerprint, attendance/break/leave tabs, glass right card, today log, this month.

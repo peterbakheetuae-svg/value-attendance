@@ -364,7 +364,12 @@ class _FingerprintHomeState extends State<FingerprintHome> {
             border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.2) : AppColors.primary.withValues(alpha: 0.2), width: 1.5),
             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 6, spreadRadius: 1, offset: const Offset(0, 2))],
           ),
-          child: EmployeeAvatar(employeeId: s.id, hasPhoto: s.me?['has_photo'] == true, size: 44),
+          child: s.me?['has_photo'] == true
+              ? EmployeeAvatar(employeeId: s.id, hasPhoto: true, size: 44)
+              : Container(
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: isDark ? Colors.white.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.25)),
+                  child: Icon(Icons.person, size: 24, color: isDark ? Colors.white70 : Colors.grey.shade700),
+                ),
         ),
       ),
     ]);
