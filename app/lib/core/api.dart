@@ -7,6 +7,10 @@ import 'package:http/http.dart' as http;
 ///   flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8095
 const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:8095');
 
+/// Optional extra addresses of the same API (comma separated), tried in order when one cannot be
+/// reached — some mobile networks block a hosting domain; a mirror on another domain keeps the app working.
+const String kApiMirrorUrls = String.fromEnvironment('API_MIRROR_URLS', defaultValue: '');
+
 class ApiException implements Exception {
   final int status;
   final String code;
@@ -20,13 +24,23 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  final String baseUrl;
+  final List<String> _bases;
+  int _active = 0;
   final http.Client _http;
   String? token;
   void Function()? onUnauthorized;
 
+  /// The address currently in use (switches to a mirror when the first one is unreachable).
+  String get baseUrl => _bases[_active];
+
   ApiClient({String? baseUrl, http.Client? client})
-      : baseUrl = (baseUrl ?? kApiBaseUrl).replaceAll(RegExp(r'/+$'), ''),
+      : _bases = [
+          for (final b in [
+            if (baseUrl == null) ...kApiMirrorUrls.split(','),
+            baseUrl ?? kApiBaseUrl,
+          ])
+            if (b.trim().isNotEmpty) b.trim().replaceAll(RegExp(r'/+$'), ''),
+        ],
         _http = client ?? http.Client();
 
   Map<String, String> _headers({bool json = false}) => {
@@ -63,12 +77,22 @@ class ApiClient {
     final tries = retry ? 2 : 1;
     for (var attempt = 1; ; attempt++) {
       try {
-        return await f().timeout(const Duration(seconds: 40));
+        return await f().timeout(Duration(seconds: _bases.length > 1 ? 20 : 40));
       } on TimeoutException {
+        // a blocked domain often just hangs: move to the next mirror
+        if (_bases.length > 1 && attempt <= _bases.length) {
+          _active = (_active + 1) % _bases.length;
+          continue;
+        }
         if (attempt < tries) continue;
         throw ApiException(0, 'timeout', 'timeout — $baseUrl');
       } catch (e) {
         if (e is ApiException) rethrow;
+        // unreachable address (blocked / DNS / refused): switch to the next mirror and try there
+        if (_bases.length > 1 && attempt <= _bases.length) {
+          _active = (_active + 1) % _bases.length;
+          continue;
+        }
         if (attempt < tries) { await Future<void>.delayed(const Duration(seconds: 2)); continue; }
         // SocketException / HandshakeException / ClientException / XMLHttpRequest error on web.
         // Keep the real reason so the screen can show it (helps diagnose phone-only failures).
