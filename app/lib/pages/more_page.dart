@@ -16,6 +16,7 @@ import 'finance_page.dart';
 import 'kpi_page.dart';
 import 'notifications_page.dart';
 import 'reports_page.dart';
+import 'tracking_page.dart';
 
 /// Settings-style hub (original SettingTile list inside GlassCards), filtered by permission.
 class MorePage extends StatelessWidget {
@@ -48,9 +49,10 @@ class MorePage extends StatelessWidget {
           SettingTile(icon: Icons.summarize_rounded, title: t('my_monthly_report'), onTap: () => _go(context, EmployeeReportPage(employeeId: s.id, month: DateTime(DateTime.now().year, DateTime.now().month)))),
           SettingTile(icon: Icons.notifications_rounded, title: t('notifications'), onTap: () => _go(context, const NotificationsPage())),
         ]),
-        if (s.seesReports || s.seesPayroll || s.configuresKpi) ...[
+        if (s.seesReports || s.seesPayroll || s.configuresKpi || s.seesTeam) ...[
           SectionTitle(t('management')),
           _group([
+            if (s.has('attendance.read_all') || s.has('attendance.read_team')) SettingTile(icon: Icons.share_location_rounded, title: t('tracking_live'), onTap: () => _go(context, const TrackingLivePage())),
             if (s.seesReports) SettingTile(icon: Icons.assessment_rounded, title: t('monthly_reports'), onTap: () => _go(context, const ReportsPage())),
             if (s.has('kpi.read_all') || s.has('kpi.read_team')) SettingTile(icon: Icons.leaderboard_rounded, title: t('kpi_overview'), onTap: () => _go(context, const KpiOverviewPage())),
             if (s.configuresKpi) SettingTile(icon: Icons.tune_rounded, title: t('kpi_settings'), onTap: () => _go(context, const KpiConfigPage())),

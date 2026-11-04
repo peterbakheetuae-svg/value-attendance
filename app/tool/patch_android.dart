@@ -15,6 +15,11 @@ void main() {
     'android.permission.ACCESS_FINE_LOCATION',
     'android.permission.ACCESS_COARSE_LOCATION',
     'android.permission.CAMERA',
+    // in-shift location follow-up (foreground service with a visible notification)
+    'android.permission.FOREGROUND_SERVICE',
+    'android.permission.FOREGROUND_SERVICE_LOCATION',
+    'android.permission.POST_NOTIFICATIONS',
+    'android.permission.WAKE_LOCK',
   ];
   for (final p in perms) {
     if (!xml.contains('"$p"')) {

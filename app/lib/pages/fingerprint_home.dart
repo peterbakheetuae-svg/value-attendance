@@ -11,6 +11,7 @@ import '../core/async_view.dart';
 import '../core/format.dart';
 import '../core/i18n.dart';
 import '../core/session.dart';
+import '../core/shift_tracker.dart';
 import '../design/app_colors.dart';
 import '../design/glass.dart';
 import '../design/glass_page.dart';
@@ -64,8 +65,19 @@ class _FingerprintHomeState extends State<FingerprintHome> {
         s.api.get('/attendance', {'month': Fmt.month(DateTime(now.year, now.month)), 'employeeId': s.id}),
       ]);
       if (mounted) setState(() { _today = r[0]; _month = r[1]; _error = null; });
+      _syncTracker();
     } catch (e) {
       if (mounted) setState(() => _error = e);
+    }
+  }
+
+  /// In-shift follow-up runs exactly between check-in and check-out.
+  void _syncTracker() {
+    final s = context.read<Session>();
+    if (checkedIn && !dayFinished) {
+      ShiftTracker.instance.start(s.api, notifTitle: t('tracking_notif_title'), notifText: t('tracking_notif_text'));
+    } else {
+      ShiftTracker.instance.stop();
     }
   }
 

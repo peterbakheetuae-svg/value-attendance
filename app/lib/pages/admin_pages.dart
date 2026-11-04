@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../core/async_view.dart';
 import '../core/format.dart';
@@ -241,7 +242,21 @@ class _AttendanceConfigPageState extends State<AttendanceConfigPage> {
         const SizedBox(width: 10),
         Expanded(child: TextField(controller: lng, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: glassInput(ctx, t('longitude')))),
       ]),
-      const SizedBox(height: 10),
+      Align(alignment: AlignmentDirectional.centerStart, child: TextButton.icon(
+        icon: const Icon(Icons.my_location_rounded),
+        label: Text(t('use_my_location')),
+        onPressed: () async {
+          try {
+            var p = await Geolocator.checkPermission();
+            if (p == LocationPermission.denied) p = await Geolocator.requestPermission();
+            final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 25)));
+            set(() { lat.text = pos.latitude.toStringAsFixed(6); lng.text = pos.longitude.toStringAsFixed(6); });
+            if (ctx.mounted) showSnack(ctx, t('location_accuracy_m', {'m': pos.accuracy.round()}));
+          } catch (_) {
+            if (ctx.mounted) showSnack(ctx, t('gps_off'), error: true);
+          }
+        },
+      )),
       TextField(controller: radius, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('radius_m'))),
       if (x != null) SwitchListTile(contentPadding: EdgeInsets.zero, value: active, title: Text(t('active')), onChanged: (v) => set(() => active = v)),
       const SizedBox(height: 12),
@@ -273,6 +288,11 @@ class CompanySettingsPage extends StatelessWidget {
         bool gps = st['gps_required'] == true;
         bool pin = st['allow_pin'] == true, bind = st['device_binding'] == true, selfie = st['selfie_required'] == true;
         final keep = TextEditingController(text: '${st['selfie_retention_days'] ?? 30}');
+        bool track = st['tracking_enabled'] == true;
+        final remind = TextEditingController(text: '${st['checkin_reminder_minutes'] ?? 30}');
+        final every = TextEditingController(text: '${st['tracking_interval_minutes'] ?? 5}');
+        final stale = TextEditingController(text: '${st['tracking_stale_minutes'] ?? 20}');
+        final margin = TextEditingController(text: '${st['away_margin_m'] ?? 100}');
         return StatefulBuilder(builder: (ctx, set) => GlassCard(radius: 20, child: Material(type: MaterialType.transparency, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TextField(controller: ar, decoration: glassInput(ctx, t('company_name_ar'))),
           const SizedBox(height: 10),
@@ -286,13 +306,27 @@ class CompanySettingsPage extends StatelessWidget {
           SwitchListTile(contentPadding: EdgeInsets.zero, value: bind, title: Text(t('device_binding')), subtitle: Text(t('device_binding_help')), onChanged: (v) => set(() => bind = v)),
           SwitchListTile(contentPadding: EdgeInsets.zero, value: selfie, title: Text(t('selfie_required')), subtitle: Text(t('selfie_required_help')), onChanged: (v) => set(() => selfie = v)),
           TextField(controller: keep, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('selfie_retention_days'))),
+          const SizedBox(height: 12),
+          TextField(controller: remind, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('checkin_reminder_minutes'))),
+          SwitchListTile(contentPadding: EdgeInsets.zero, value: track, title: Text(t('tracking_enabled')), subtitle: Text(t('tracking_enabled_help')), onChanged: (v) => set(() => track = v)),
+          if (track) ...[
+            Row(children: [
+              Expanded(child: TextField(controller: every, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('tracking_interval_minutes')))),
+              const SizedBox(width: 8),
+              Expanded(child: TextField(controller: stale, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('tracking_stale_minutes')))),
+            ]),
+            const SizedBox(height: 10),
+            TextField(controller: margin, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('away_margin_m'))),
+          ],
           const SizedBox(height: 8),
           InfoTile(title: t('currency'), value: 'EGP'),
           const SizedBox(height: 12),
           PrimaryButton(label: t('save'), onTap: () async {
             try {
               await s.api.patch('/settings', {'companyNameAr': ar.text.trim(), 'companyNameEn': en.text.trim(), 'gpsRequired': gps, 'requestBackdateDays': int.parse(back.text), 'breakMinutes': int.parse(brk.text),
-                'allowPin': pin, 'deviceBinding': bind, 'selfieRequired': selfie, 'selfieRetentionDays': int.parse(keep.text)});
+                'allowPin': pin, 'deviceBinding': bind, 'selfieRequired': selfie, 'selfieRetentionDays': int.parse(keep.text),
+                'checkinReminderMinutes': int.parse(remind.text), 'trackingEnabled': track,
+                'trackingIntervalMinutes': int.parse(every.text), 'trackingStaleMinutes': int.parse(stale.text), 'awayMarginM': int.parse(margin.text)});
               await s.refreshMe();
               if (ctx.mounted) showSnack(ctx, t('saved'));
             } catch (e) { if (ctx.mounted) showSnack(ctx, e is FormatException ? t('invalid_amount') : errorText(e), error: true); }

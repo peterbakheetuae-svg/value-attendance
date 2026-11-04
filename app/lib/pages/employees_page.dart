@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/async_view.dart';
 import '../core/format.dart';
 import '../core/i18n.dart';
@@ -383,7 +384,15 @@ Future<void> showPinSheet(BuildContext context, {required String name, required 
     InfoTile(title: t('phone_or_code'), value: phone.isEmpty ? code : phone),
     InfoTile(title: t('pin'), value: pin),
     const SizedBox(height: 12),
-    PrimaryButton(label: t('copy_whatsapp_message'), icon: Icons.chat_rounded, onTap: () async {
+    if (phone.isNotEmpty) ...[
+      PrimaryButton(label: t('send_whatsapp'), icon: Icons.chat_rounded, color: const Color(0xFF25D366), onTap: () {
+        final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+        final intl = digits.startsWith('0') ? '20${digits.substring(1)}' : digits;
+        launchUrl(Uri.parse('https://wa.me/$intl?text=${Uri.encodeComponent(msg)}'), mode: LaunchMode.externalApplication);
+      }),
+      const SizedBox(height: 10),
+    ],
+    PrimaryButton(label: t('copy_whatsapp_message'), icon: Icons.copy_rounded, onTap: () async {
       await Clipboard.setData(ClipboardData(text: msg));
       if (context.mounted) showSnack(context, t('copied_paste_whatsapp'));
     }),

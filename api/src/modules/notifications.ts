@@ -1,11 +1,13 @@
 import { ok, type Module } from '../ctx.ts';
+import { sweep } from './tracking.ts';
 import { notFound } from '../http/errors.ts';
 import { isUuid } from '../http/validate.ts';
 import { authenticate } from '../auth/context.ts';
 
-export const notificationsModule: Module = (r, { db }) => {
+export const notificationsModule: Module = (r, { db, clock }) => {
   r.get('/notifications', async (req) => {
     const a = await authenticate(db, req);
+    await sweep(db, clock()).catch(() => { /* reminders must never break the page */ });
     const unreadOnly = req.query.get('unread') === '1';
     const rows = await db.query(`SELECT id, type, title, body, entity, entity_id, read_at, created_at FROM notifications
       WHERE recipient_id = $1 ${unreadOnly ? 'AND read_at IS NULL' : ''} ORDER BY created_at DESC LIMIT 100`, [a.id]);

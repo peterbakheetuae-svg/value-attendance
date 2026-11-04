@@ -1,4 +1,5 @@
 import { ok, type Module } from '../ctx.ts';
+import { sweep } from './tracking.ts';
 import { one } from '../db.ts';
 import { authenticate, has, readableIds, teamMemberIds } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
@@ -10,6 +11,7 @@ import { overall } from './evaluations.ts';
 export const dashboardModule: Module = (r, { db, clock }) => {
   r.get('/dashboard', async (req) => {
     const a = await authenticate(db, req);
+    await sweep(db, clock()).catch(() => { /* reminders must never break the page */ });
     const l = local(clock());
     const period = l.date.slice(0, 7) + '-01';
     const out: Record<string, unknown> = { date: l.date, period, role: a.role };

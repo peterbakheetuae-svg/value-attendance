@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'device_id.dart';
+import 'shift_tracker.dart';
 
 /// Signed-in user, permissions and the API client. Permissions only shape the UI —
 /// the server enforces every one of them independently.
@@ -84,6 +85,7 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> _clear() async {
+    await ShiftTracker.instance.stop();
     api.token = null;
     me = null;
     permissions = {};
