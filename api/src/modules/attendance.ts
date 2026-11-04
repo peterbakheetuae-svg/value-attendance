@@ -218,9 +218,12 @@ export const attendanceModule: Module = (r, { db, clock }) => {
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
        WHERE e.status = 'active' AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
        ORDER BY e.full_name`, [l.date, ids]);
+    const brs = await db.query(`SELECT b.* FROM attendance_breaks b JOIN attendance t ON t.id = b.attendance_id WHERE t.work_date = $1`, [l.date]);
+    const brBy = new Map(brs.rows.map((b) => [b.attendance_id, b]));
     const board = rows.rows.map((x) => ({
       employeeId: x.employee_id, fullName: x.full_name, code: x.code, jobTitle: x.job_title, teamName: x.team_name,
       attendance: x.id ? shape(x, l.date) : null,
+      break: x.id && brBy.has(x.id) ? breakShape(brBy.get(x.id), clock()) : null,
     }));
     return ok({ date: l.date, board });
   });
@@ -232,6 +235,26 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     if (!row) throw notFound('No selfie (or it was deleted after the retention period)');
     if (row.employee_id !== a.id) await assertCanRead(db, a, row.employee_id, 'attendance');
     return { binary: row.image, contentType: row.mime };
+  });
+
+  /** Day-by-day detail for a date range (original JPH daily report): times, GPS points, break, selfie flag. */
+  r.get('/attendance/range', async (req) => {
+    const a = await authenticate(db, req);
+    const employeeId = req.query.get('employeeId') ?? a.id;
+    if (!isUuid(employeeId)) throw notFound();
+    await assertCanRead(db, a, employeeId, 'attendance');
+    const from = req.query.get('from') ?? '', to = req.query.get('to') ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw invalid('from/to must be YYYY-MM-DD');
+    const today = local(clock()).date;
+    const rows = await db.query(`
+      SELECT a.*, b.started_at AS break_start, b.ended_at AS break_end,
+             EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
+        FROM attendance a LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
+       WHERE a.employee_id = $1 AND a.work_date BETWEEN $2 AND $3 ORDER BY a.work_date DESC LIMIT 400`, [employeeId, from, to]);
+    return ok({ days: rows.rows.map((x) => ({
+      ...shape(x, today), checkInLat: x.check_in_lat, checkInLng: x.check_in_lng, checkOutLat: x.check_out_lat, checkOutLng: x.check_out_lng,
+      breakStart: x.break_start, breakEnd: x.break_end, hasSelfie: x.has_selfie,
+    })) });
   });
 
   r.get('/attendance', async (req) => {
