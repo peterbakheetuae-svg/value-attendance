@@ -114,8 +114,8 @@ class MonthlySection extends StatelessWidget {
     final holidaysText = AppLocalizations.of(context, 'holidays');
     final sickText = AppLocalizations.of(context, 'sick_leave');
     final absentText = AppLocalizations.of(context, 'absent');
-    final overtimeHoursText = AppLocalizations.of(context, 'overtime_hours');
-    final overtimeAmountText = AppLocalizations.of(context, 'overtime_amount');
+    final overtimeHoursText = AppLocalizations.of(context, 'late_month');
+    final overtimeAmountText = AppLocalizations.of(context, 'late_deduction');
     final attendSalaryText = AppLocalizations.of(context, 'attendance_salary');
     final allowanceText = AppLocalizations.of(context, 'allowances');
     final bonusText = AppLocalizations.of(context, 'extra_bonus');
@@ -132,8 +132,8 @@ class MonthlySection extends StatelessWidget {
     final h = safeToInt(monthly["holidays"]).toString();
     final s = safeToInt(monthly["sick"]).toString();
     final a = safeToInt(monthly["absent"]).toString();
-    final oh = formatOvertime(monthly["overtimeHours"]);
-    final oa = formatMoney(monthly["overtimeAmount"]);
+    final oh = formatOvertime(monthly["lateHours"]);
+    final oa = formatMoney(monthly["lateAmount"]);
     final attendSalary = formatMoney(monthly["attendSalary"]);
     final allowance = formatMoney(monthly["allowance"]);
     final bonus = formatMoney(monthly["bonus"]);
@@ -213,7 +213,7 @@ class MonthlySection extends StatelessWidget {
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "HR $oh",
+                  top: "$oh",
                   bottom: overtimeHoursText,
                   bottomColor: isDark ? AppColors.primaryLight : AppColors.primary,
                   isDark: isDark,
@@ -222,13 +222,13 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $oa",
+                  top: "ج.م $oa",
                   bottom: overtimeAmountText,
                   bottomColor: isDark ? AppColors.primaryLight : AppColors.primary,
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "AED $attendSalary",
+                  top: "ج.م $attendSalary",
                   bottom: attendSalaryText,
                   bottomColor: const Color(0xFF2E9B67),
                   isDark: isDark,
@@ -237,13 +237,13 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $allowance",
+                  top: "ج.م $allowance",
                   bottom: allowanceText,
                   bottomColor: const Color(0xFFD0902D),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "AED $bonus",
+                  top: "ج.م $bonus",
                   bottom: bonusText,
                   bottomColor: const Color(0xFFD0902D),
                   isDark: isDark,
@@ -252,13 +252,13 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $workExpenses",
+                  top: "ج.م $workExpenses",
                   bottom: workExpensesText,
                   bottomColor: isDark ? AppColors.primaryLight : AppColors.primary,
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "AED $deduction",
+                  top: "ج.م $deduction",
                   bottom: deductionText,
                   bottomColor: const Color(0xFFB54A3A),
                   isDark: isDark,
@@ -267,13 +267,13 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $absentDeduction",
+                  top: "ج.م $absentDeduction",
                   bottom: absentDeductionText,
                   bottomColor: const Color(0xFFB54A3A),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "AED $advance",
+                  top: "ج.م $advance",
                   bottom: advanceText,
                   bottomColor: const Color(0xFFB54A3A),
                   isDark: isDark,
@@ -282,13 +282,13 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $received",
+                  top: "ج.م $received",
                   bottom: receivedText,
                   bottomColor: const Color(0xFF2E9B67),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
-                  top: "AED $dueSalary",
+                  top: "ج.م $dueSalary",
                   bottom: dueSalaryText,
                   bottomColor: isDark ? AppColors.primaryLight : AppColors.primary,
                   isDark: isDark,
@@ -297,7 +297,7 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "AED $arrears",
+                  top: "ج.م $arrears",
                   bottom: arrearsText,
                   bottomColor: const Color(0xFFD0902D),
                   isDark: isDark,

@@ -91,7 +91,7 @@ class AttendanceExpandableCard extends StatelessWidget {
     final startTime = AppLocalizations.of(context, 'start_time');
     final endTime = AppLocalizations.of(context, 'end_time');
     final workHours = AppLocalizations.of(context, 'work_hours');
-    final overtime = AppLocalizations.of(context, 'overtime');
+    final lateLabel = AppLocalizations.of(context, 'late_time');
     final project = AppLocalizations.of(context, 'project');
     final foreman = AppLocalizations.of(context, 'foreman');
     final location = AppLocalizations.of(context, 'location');
@@ -476,8 +476,8 @@ class AttendanceExpandableCard extends StatelessWidget {
                         ),
                         _buildDetailItem(
                           icon: Icons.timer_outlined,
-                          label: overtime,
-                          value: dayData['overtimeHours'] ?? '--',
+                          label: lateLabel,
+                          value: dayData['lateTime'] ?? '--',
                           valueColor: Colors.orange,
                         ),
                         _buildDetailItem(

@@ -70,7 +70,7 @@ class DailyCardContent extends StatelessWidget {
     final startTimeText = AppLocalizations.of(context, 'start_time');
     final endTimeText = AppLocalizations.of(context, 'end_time');
     final workHoursText = AppLocalizations.of(context, 'work_hours');
-    final overtimeText = AppLocalizations.of(context, 'overtime');
+    final lateText = AppLocalizations.of(context, 'late_time');
     final holidayText = AppLocalizations.of(context, 'holiday');
     final absentText = AppLocalizations.of(context, 'absent');
     final leaveText = AppLocalizations.of(context, 'leave');
@@ -136,8 +136,8 @@ class DailyCardContent extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           DailyInfoRow(
-            label: overtimeText, // 🔥 استخدام الترجمة
-            value: (dayData["overtime"] ?? "--").toString(),
+            label: lateText,
+            value: (dayData["late"] ?? "--").toString(),
             icon: Icons.timer_rounded,
             iconColor: isDark ? const Color(0xFFFF9800) : const Color(0xFFFF5722),
             bgColor: isDark ? const Color(0xFF332211) : const Color(0xFFFFF3E0),

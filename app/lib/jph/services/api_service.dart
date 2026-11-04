@@ -333,6 +333,20 @@ class JphRouter {
           });
           return _ok({'message': p['outcome'] == 'lost' ? 'تم تسجيل العهدة مفقودة' : 'تم استلام العهدة'});
 
+        case 'admin_overview':
+          return _ok((await _api.get('/dashboard/overview')).cast<String, dynamic>());
+        case 'save_late_rules':
+          await _api.patch('/settings', {
+            'payrollAutoDeductions': p['enabled'] == true,
+            'deductionMode': 'hourly',
+            'lateFixedAfterMinutes': p['afterMinutes'],
+            'lateFixedAmount': p['fixedAmount'],
+            'lateHourAmount': p['hourAmount'],
+          });
+          return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        case 'get_settings':
+          return _ok({'settings': (await _api.get('/settings'))['settings']});
+
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
         case 'getAllLeaveRequests':
@@ -613,7 +627,7 @@ class JphRouter {
       'breakTime': _hm(outMinutes),
       'breakMinutesAllowed': b?['allowedMinutes'] ?? r['breakAllowedMinutes'],
       'workTime': worked == null ? '--:--:--' : _hms(worked),
-      'overtime': _hm(a?['overtimeMinutes'] as num?),
+      'lateTime': _hm(a?['lateMinutes'] as num?),
       'photo': photo,
       'selfieRequired': r['selfieRequired'] == true,
       'gpsRequired': r['gpsRequired'] == true,
@@ -631,7 +645,7 @@ class JphRouter {
       'leaveAttendance': '${sm['unpaidAbsenceDays'] ?? 0}',
       'absentDays': '${sm['unapprovedAbsenceDays'] ?? 0}',
       'sickLeave': '$sick',
-      'overtimeHours': _hhmm(sm['overtimeMinutes'] as num?),
+      'lateTime': _hhmm(sm['lateMinutes'] as num?),
     });
   }
 
@@ -1034,7 +1048,7 @@ class JphRouter {
           'start': _time(d['checkIn'], '--'),
           'end': _time(d['checkOut'], '--'),
           'work': _hhmm(d['workedMinutes'] as num?),
-          'overtime': _hhmm(d['overtimeMinutes'] as num?),
+          'late': _hhmm(d['lateMinutes'] as num?),
           'status': status,
         };
       }
@@ -1047,7 +1061,7 @@ class JphRouter {
         'startLocation': loc(d['checkInLat'], d['checkInLng']),
         'endLocation': loc(d['checkOutLat'], d['checkOutLng']),
         'workHours': _hhmm(d['workedMinutes'] as num?),
-        'overtimeHours': _hhmm(d['overtimeMinutes'] as num?),
+        'lateTime': _hhmm(d['lateMinutes'] as num?),
         'status': status,
         'projectName': (d['geofence'] == 'inside') ? 'داخل المكتب' : '--',
         'projectId': '--',
@@ -1084,8 +1098,8 @@ class JphRouter {
       'holidays': days.where((d) => d['status'] == 'holiday' || d['status'] == 'weekend').length,
       'sick': days.where((d) => d['absenceType'] == 'sick').length,
       'absent': sm['unapprovedAbsenceDays'] ?? 0,
-      'overtimeHours': _hhmm(sm['overtimeMinutes'] as num?),
-      'overtimeAmount': 0,
+      'lateHours': _hhmm(sm['lateMinutes'] as num?),
+      'lateAmount': amt('late'),
       'attendSalary': pay['baseSalary'] ?? 0,
       'allowance': 0,
       'bonus': pay['bonuses'] ?? 0,

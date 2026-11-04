@@ -46,6 +46,16 @@ test('payroll: tiers — highest tier reached, once per day; same for early leav
   assert.equal(r.early.amount, 40, 'left at 16:00 = 120 min early → tier');
 });
 
+test('payroll: simple rule — late > 30 min fixed amount, an hour or more per hour', async () => {
+  await h.call(c.t.owner, 'PATCH', '/settings', { deductionMode: 'hourly', lateFixedAfterMinutes: 30, lateFixedAmount: 75, lateHourAmount: 120 });
+  const r = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
+  assert.equal(r.late.amount, 75, '40 min late → fixed amount');
+  assert.equal(r.early.amount, 0, 'the simple rule is for lateness only');
+  assert.equal(r.rules.lateHourAmount, 120);
+  assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { lateFixedAfterMinutes: 90 })).status, 400);
+  await h.call(c.t.owner, 'PATCH', '/settings', { deductionMode: 'tiers' });
+});
+
 test('payroll: validation and access', async () => {
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { dayDivisor: 28 })).status, 400);
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { lateTiers: Array(7).fill({ afterMinutes: 5, amount: 1 }) })).status, 400);

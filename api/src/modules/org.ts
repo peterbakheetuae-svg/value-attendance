@@ -12,7 +12,7 @@ function dayDivisor(b: Record<string, unknown>) {
 }
 function deductionMode(b: Record<string, unknown>) {
   if (b.deductionMode === undefined) return undefined;
-  if (b.deductionMode !== 'per_minute' && b.deductionMode !== 'tiers') throw invalid('deductionMode must be per_minute or tiers', { field: 'deductionMode' });
+  if (!['per_minute', 'tiers', 'hourly'].includes(b.deductionMode as string)) throw invalid('deductionMode must be per_minute, tiers or hourly', { field: 'deductionMode' });
   return b.deductionMode;
 }
 /** 0–6 tiers of { afterMinutes 1–600, amount 1–100000 }, distinct minutes. */
@@ -195,6 +195,10 @@ export const orgModule: Module = (r, { db }) => {
     const a = await authenticate(db, req); requirePerm(a, 'settings.manage');
     const b = obj(req.body);
     const before = await one(db, `SELECT * FROM company_settings`);
+    const lateRule = [
+      num(b, 'lateFixedAfterMinutes', { optional: true, int: true, min: 0, max: 59 }) ?? before.late_fixed_after_minutes,
+      num(b, 'lateFixedAmount', { optional: true, min: 0, max: 100000 }) ?? before.late_fixed_amount,
+      num(b, 'lateHourAmount', { optional: true, min: 0, max: 100000 }) ?? before.late_hour_amount];
     const s = await one(db, `UPDATE company_settings SET company_name_ar=$1, company_name_en=$2, gps_required=$3,
       request_backdate_days=$4, break_minutes=$5, payroll_auto_deductions=$6, day_divisor=$7, deduction_mode=$8,
       late_tiers=$9::jsonb, early_tiers=$10::jsonb, absence_penalty_days=$11, allow_pin=$12, device_binding=$13,
@@ -220,8 +224,10 @@ export const orgModule: Module = (r, { db }) => {
       num(b, 'trackingIntervalMinutes', { optional: true, int: true, min: 1, max: 30 }) ?? before.tracking_interval_minutes,
       num(b, 'trackingStaleMinutes', { optional: true, int: true, min: 0, max: 240 }) ?? before.tracking_stale_minutes,
       num(b, 'awayMarginM', { optional: true, int: true, min: 0, max: 5000 }) ?? before.away_margin_m]);
-    await audit(db, a.id, 'settings.update', 'settings', null, before, s);
-    return ok({ settings: s });
+    // simple lateness rule (late > N min → fixed amount; late ≥ 1 h → amount per hour)
+    const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3 RETURNING *`, lateRule);
+    await audit(db, a.id, 'settings.update', 'settings', null, before, s2);
+    return ok({ settings: s2 });
   });
 
   // ---------------------------------------------------------------- roles & permissions

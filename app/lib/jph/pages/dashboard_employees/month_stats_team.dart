@@ -53,8 +53,8 @@ class MonthStats extends StatelessWidget {
             Expanded(
               child: _buildStatMiniCard(
                 context: context,
-                title: AppLocalizations.of(context, 'overtime_hours'),
-                value: (monthData["overtimeHours"] ?? "--").toString(),
+                title: AppLocalizations.of(context, 'late_month'),
+                value: (monthData["lateTime"] ?? "--").toString(),
               ),
             ),
           ],

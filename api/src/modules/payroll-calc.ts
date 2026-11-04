@@ -5,17 +5,27 @@ import { computeMonth } from './attendance-calc.ts';
 
 export interface Tier { afterMinutes: number; amount: number }
 export interface PayrollRules {
-  auto: boolean; dayDivisor: number; mode: 'per_minute' | 'tiers';
+  auto: boolean; dayDivisor: number; mode: 'per_minute' | 'tiers' | 'hourly';
   lateTiers: Tier[]; earlyTiers: Tier[]; absencePenaltyDays: number;
+  lateFixedAfterMinutes: number; lateFixedAmount: number; lateHourAmount: number;
 }
 
 export async function loadRules(q: Q): Promise<PayrollRules> {
   const s = await one(q, `SELECT * FROM company_settings`);
   return { auto: s.payroll_auto_deductions, dayDivisor: s.day_divisor, mode: s.deduction_mode,
-    lateTiers: s.late_tiers ?? [], earlyTiers: s.early_tiers ?? [], absencePenaltyDays: Number(s.absence_penalty_days) };
+    lateTiers: s.late_tiers ?? [], earlyTiers: s.early_tiers ?? [], absencePenaltyDays: Number(s.absence_penalty_days),
+    lateFixedAfterMinutes: Number(s.late_fixed_after_minutes ?? 30), lateFixedAmount: Number(s.late_fixed_amount ?? 0),
+    lateHourAmount: Number(s.late_hour_amount ?? 0) };
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Simple rule: late ≥ 60 min → per hour (proportional); late > N min → fixed amount; else nothing. */
+export function hourlyLateAmount(r: Pick<PayrollRules, 'lateFixedAfterMinutes' | 'lateFixedAmount' | 'lateHourAmount'>, minutes: number): number {
+  if (minutes >= 60 && r.lateHourAmount > 0) return r2((minutes / 60) * r.lateHourAmount);
+  if (minutes > r.lateFixedAfterMinutes) return r.lateFixedAmount;
+  return 0;
+}
 
 /** Amount of the highest tier the raw minutes passed (0 when below every tier). */
 export function tierAmount(tiers: Tier[], minutes: number): number {
@@ -69,6 +79,9 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
       const l = Math.max(0, late - a.late_grace_minutes), e = Math.max(0, early - a.early_grace_minutes);
       if (l) { lateDays++; lateMin += l; }
       if (e) { earlyDays++; earlyMin += e; }
+    } else if (rules.mode === 'hourly') {
+      const la = hourlyLateAmount(rules, late);
+      if (la) { lateDays++; lateMin += late; lateAmt += la; }
     } else {
       const la = tierAmount(rules.lateTiers, late), ea = tierAmount(rules.earlyTiers, early);
       if (la) { lateDays++; lateMin += late; lateAmt += la; }
@@ -86,7 +99,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
   return {
     complete: summary.complete, baseSalary: base, dayWage: dayWage === null ? null : r2(dayWage),
     minuteWage: minuteWage === null ? null : Math.round(minuteWage * 10000) / 10000,
-    rules: { auto: rules.auto, mode: rules.mode, dayDivisor: rules.dayDivisor, absencePenaltyDays: rules.absencePenaltyDays },
+    rules: { auto: rules.auto, mode: rules.mode, dayDivisor: rules.dayDivisor, absencePenaltyDays: rules.absencePenaltyDays,
+      lateFixedAfterMinutes: rules.lateFixedAfterMinutes, lateFixedAmount: rules.lateFixedAmount, lateHourAmount: rules.lateHourAmount },
     late: { days: lateDays, minutes: lateMin, amount: auto ? r2(lateAmt) : 0 },
     early: { days: earlyDays, minutes: earlyMin, amount: auto ? r2(earlyAmt) : 0 },
     absence: { days: absentDays, amount: auto ? r2(absenceAmt) : 0 },

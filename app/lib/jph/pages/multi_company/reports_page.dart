@@ -521,7 +521,6 @@ class _ReportsPageState extends State<ReportsPage>
         (totals['moneyByCurrency'] as List?) ?? const [];
     final presentDays = totals['presentDays'] ?? 0;
     final workMinutes = totals['workMinutes'] ?? 0;
-    final overtimeMinutes = totals['overtimeMinutes'] ?? 0;
 
     return RefreshIndicator(
       onRefresh: _loadConsolidated,
@@ -586,12 +585,6 @@ class _ReportsPageState extends State<ReportsPage>
                         AppLocalizations.of(context, 'total_work_hours'),
                     value:
                         '${(workMinutes as num).toDouble() / 60 ~/ 1} ${AppLocalizations.of(context, 'hours')}',
-                  ),
-                  InfoTile(
-                    title: AppLocalizations.of(context,
-                        'total_overtime_hours'),
-                    value:
-                        '${(overtimeMinutes as num).toDouble() / 60 ~/ 1} ${AppLocalizations.of(context, 'hours')}',
                   ),
                 ],
               ),
@@ -864,8 +857,6 @@ class _ReportRecordCard extends StatelessWidget {
         record['check_out_at']?.toString() ?? '';
     final workMinutes =
         record['workMinutes'] ?? record['work_minutes'] ?? 0;
-    final overtimeMinutes =
-        record['overtimeMinutes'] ?? record['overtime_minutes'] ?? 0;
 
     final statusColor = status == 'present' || status == 'checked_out'
         ? AppColors.secondary
@@ -963,13 +954,6 @@ class _ReportRecordCard extends StatelessWidget {
                         '${(workMinutes as num).toDouble() ~/ 60}h ${(workMinutes as num).toDouble().toInt() % 60}m',
                   ),
                 ),
-                Expanded(
-                  child: InfoTile(
-                    title: AppLocalizations.of(context, 'overtime'),
-                    value:
-                        '${(overtimeMinutes as num).toDouble() ~/ 60}h ${(overtimeMinutes as num).toDouble().toInt() % 60}m',
-                  ),
-                ),
               ],
             ),
           ],
@@ -1011,8 +995,6 @@ class _SummaryCard extends StatelessWidget {
         employee['totalWorkMinutes'] ?? employee['total_work_minutes'] ?? 0;
     final breakMinutes =
         employee['totalBreakMinutes'] ?? employee['total_break_minutes'] ?? 0;
-    final overtimeMinutes =
-        employee['totalOvertimeMinutes'] ?? employee['total_overtime_minutes'] ?? 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1087,14 +1069,6 @@ class _SummaryCard extends StatelessWidget {
                         '${(breakMinutes as num).toDouble() ~/ 60}h ${(breakMinutes as num).toDouble().toInt() % 60}m',
                   ),
                 ),
-                Expanded(
-                  child: InfoTile(
-                    title:
-                        AppLocalizations.of(context, 'overtime_minutes_col'),
-                    value:
-                        '${(overtimeMinutes as num).toDouble() ~/ 60}h ${(overtimeMinutes as num).toDouble().toInt() % 60}m',
-                  ),
-                ),
               ],
             ),
           ],
@@ -1129,7 +1103,6 @@ class _ConsolidatedCompanyCard extends StatelessWidget {
 
     final presentDays = attendance['presentDays'] ?? 0;
     final workMinutes = attendance['workMinutes'] ?? 0;
-    final overtimeMinutes = attendance['overtimeMinutes'] ?? 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1195,12 +1168,6 @@ class _ConsolidatedCompanyCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            InfoTile(
-              title:
-                  AppLocalizations.of(context, 'overtime_minutes_col'),
-              value:
-                  '${(overtimeMinutes as num).toDouble() ~/ 60}h ${(overtimeMinutes as num).toDouble().toInt() % 60}m',
             ),
             // Money entries — each currency shown separately
             if (money.isNotEmpty) ...[

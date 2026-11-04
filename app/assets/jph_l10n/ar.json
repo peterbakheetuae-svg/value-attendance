@@ -752,5 +752,14 @@
   "today_attendance": "حضور النهارده",
   "outing_kind": "نوع الطلب",
   "outing_left_at": "وقت الخروج",
-  "outing_return_at": "ميعاد الرجوع"
+  "outing_return_at": "ميعاد الرجوع",
+  "admin_present_today": "الحاضرين النهارده",
+  "admin_late": "المتأخرين",
+  "admin_absent": "الغايبين",
+  "admin_out_now": "برّه دلوقتي (إذن / زيارة)",
+  "admin_pending_outings": "طلبات مستنية موافقة",
+  "admin_checked_out": "انصرفوا النهارده",
+  "late_time": "التأخير",
+  "late_month": "دقايق التأخير",
+  "late_deduction": "خصم التأخير"
 }

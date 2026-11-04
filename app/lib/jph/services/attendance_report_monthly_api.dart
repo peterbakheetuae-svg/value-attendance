@@ -45,13 +45,13 @@ class AttendanceReportMonthlyApi {
 
     // قائمة بالمفاتيح التي يجب أن تكون أرقاماً (double) أو مالية
     const doubleKeys = [
-      'overtimeAmount', 'attendSalary', 'allowance', 'bonus',
+      'lateAmount', 'attendSalary', 'allowance', 'bonus',
       'workExpenses', 'deduction', 'absentDeduction', 'advance',
       'received', 'dueSalary', 'arrears'
     ];
 
     // قائمة بالمفاتيح التي تبقى كـ String
-    const stringKeys = ['overtimeHours'];
+    const stringKeys = ['lateHours'];
 
     // دالة مساعدة لتحويل النص العربي إلى double
     double _parseArabicNumber(dynamic value) {

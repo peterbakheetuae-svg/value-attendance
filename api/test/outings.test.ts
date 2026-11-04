@@ -123,3 +123,13 @@ test('company page: HR and owner edit, changes are logged, employees read only; 
   const log = await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'company.update'`);
   assert.equal(log.rowCount, 1);
 });
+
+test('admin overview: today and month totals; employees cannot read it', async () => {
+  const r = await h.call(c.t.owner, 'GET', '/dashboard/overview');
+  assert.equal(r.status, 200);
+  assert.ok(r.body.today.present >= 1, 'E1 checked in today');
+  assert.equal(typeof r.body.month.lateDays, 'number');
+  assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/overview')).status, 403);
+  const sm = await h.call(c.t.sm1, 'GET', '/dashboard/overview');
+  assert.equal(sm.body.scope, 'team');
+});

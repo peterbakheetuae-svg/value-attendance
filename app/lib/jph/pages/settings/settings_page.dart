@@ -30,6 +30,7 @@ import '../notifications/notification_settings.dart'; // إضافة
 import '../public_holidays_page.dart'; // إضافة
 import '../multi_company/company_info_page.dart';
 import '../multi_company/positions_page.dart';
+import 'late_rules_page.dart';
 import '../multi_company/kpi_page.dart';
 import '../multi_company/work_locations_page.dart';
 import '../multi_company/reports_page.dart';
@@ -519,6 +520,22 @@ class _SettingsPageState extends State<SettingsPage> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const CompanyInfoPage(),
+                          ),
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Lateness deduction (late > N min → fixed amount; ≥ 1 h → per hour)
+                    SettingsTile(
+                      title: 'خصم التأخير',
+                      icon: Icons.timer_off_outlined,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LateRulesPage(),
                           ),
                         );
                       },

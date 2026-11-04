@@ -27,6 +27,7 @@ import 'break_alert_dialog.dart';
 import 'break_page.dart';
 import 'fingerprint_config.dart';
 import 'top_tabs.dart';
+import '../../services/api_service.dart';
 import 'dash_mode.dart';
 import '../notifications/notifications_page.dart';
 import 'attendance_today_page.dart';
@@ -71,6 +72,8 @@ class _DashboardPageState extends State<DashboardPage>
   List<Map<String, dynamic>> _leaveRequests = [];
   List<Map<String, dynamic>> _loanRequests = [];
   List<Map<String, dynamic>> _attendanceByProject = [];
+  // company / team totals for the admin home boxes (same look as the employee home)
+  Map<String, dynamic> _overview = {};
   Map<String, dynamic> _todayStats = {
     'totalEmployees': 0,
     'presentCount': 0,
@@ -358,6 +361,12 @@ class _DashboardPageState extends State<DashboardPage>
         });
       }
 
+      // إجماليات اليوم والشهر (مربعات الصفحة الرئيسية)
+      final ov = await ApiService.post({'action': 'admin_overview'});
+      if (ov["success"] == true && mounted) {
+        setState(() => _overview = ov);
+      }
+
       // تحميل إحصائيات اليوم
       final statsRes = await DashboardApi.getTodayStats(widget.uid);
       if (statsRes["success"] == true) {
@@ -460,29 +469,68 @@ class _DashboardPageState extends State<DashboardPage>
     }
   }
 
+  Map<String, dynamic> get _ovToday => ((_overview['today'] as Map?) ?? const {}).cast<String, dynamic>();
+  Map<String, dynamic> get _ovMonth => ((_overview['month'] as Map?) ?? const {}).cast<String, dynamic>();
+  String _n(Object? v) => v == null ? '--' : '$v';
+  String _hm(Object? minutes) {
+    final m = int.tryParse('${minutes ?? ''}');
+    if (m == null) return '--:--';
+    return '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}';
+  }
+
+  /// Admin home: the same glass card as the employee, filled with company totals for the tab.
   StatRightCardModel _getRightCard(BuildContext context) {
+    final t = _ovToday, m = _ovMonth;
     switch (mode) {
       case DashMode.breakTime:
-        return StatRightCardModel.breakTime(
-          start: state.breakStartTime,
-          end: state.breakEndTime,
-          total: state.breakTime,
+        return StatRightCardModel(
+          line1Title: 'admin_out_now', line1Value: _n(t['outNow']), line1Icon: Icons.directions_walk_rounded,
+          line2Title: 'admin_pending_outings', line2Value: _n(t['pendingOutings']), line2Icon: Icons.hourglass_top_rounded,
+          line3Title: 'admin_checked_out', line3Value: _n(t['checkedOut']), line3Icon: Icons.logout_rounded,
         );
       case DashMode.leave:
-        return StatRightCardModel.leave(
-          leaveDays: "0",
-          leaveAttendance: "0",
-          sickLeave: "0",
+        return StatRightCardModel(
+          line1Title: 'leave_days', line1Value: _n(m['leaveDays']), line1Icon: Icons.event_available_rounded,
+          line2Title: 'without_pay', line2Value: _n(m['unpaidDays']), line2Icon: Icons.money_off_rounded,
+          line3Title: 'sick_leave', line3Value: _n(m['sickDays']), line3Icon: Icons.medical_services_rounded,
         );
-
       case DashMode.check:
       default:
-        return StatRightCardModel.check(
-          checkTime: state.checkInTime,
-          checkOutTime: state.checkOutTime,
-          workTime: checkedIn ? _calcWorkTime() : ((sheetData["workTime"] ?? "--:--") as String),
+        return StatRightCardModel(
+          line1Title: 'admin_present_today', line1Value: '${_n(t['present'])} / ${_n(t['employees'])}', line1Icon: Icons.login_rounded,
+          line2Title: 'admin_late', line2Value: _n(t['late']), line2Icon: Icons.schedule_rounded,
+          line3Title: 'admin_absent', line3Value: _n(t['absent']), line3Icon: Icons.person_off_rounded,
         );
     }
+  }
+
+  /// Same mini boxes as the employee home ("today" / "this month"), with totals.
+  Widget _adminBoxes(List<List<String>> rows) {
+    final isDark = Provider.of<AppController>(context).isDark;
+    Widget box(String title, String value) => Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(children: [
+            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+            const SizedBox(height: 4),
+            Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+          ]),
+        );
+    final out = <Widget>[];
+    for (var i = 0; i < rows.length; i += 3) {
+      final chunk = rows.sublist(i, math.min(i + 3, rows.length));
+      if (out.isNotEmpty) out.add(const SizedBox(height: 10));
+      out.add(Row(children: [
+        for (var j = 0; j < chunk.length; j++) ...[
+          if (j > 0) const SizedBox(width: 10),
+          Expanded(child: box(chunk[j][0], chunk[j][1])),
+        ],
+      ]));
+    }
+    return Column(children: out);
   }
 
   String _calcWorkTime() {
@@ -1484,13 +1532,41 @@ class _DashboardPageState extends State<DashboardPage>
                         ],
                       ),
 
+                      const SizedBox(height: 18),
+                      Text(
+                        _overview['holiday'] != null ? 'النهارده — إجازة رسمية: ${_overview['holiday']}' : 'إجمالي النهارده',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      _adminBoxes([
+                        ['الحاضرين', _n(_ovToday['present'])],
+                        ['المتأخرين', _n(_ovToday['late'])],
+                        ['الغايبين', _n(_ovToday['absent'])],
+                        ['في إجازة', _n(_ovToday['onLeave'])],
+                        ['برّه بإذن / زيارة', _n(_ovToday['outNow'])],
+                        ['ساعات الشغل', _hm(_ovToday['workMinutes'])],
+                      ]),
+
+                      const SizedBox(height: 16),
+                      Text(
+                        AppLocalizations.of(context, 'this_month'),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      _adminBoxes([
+                        ['أيام الحضور', _n(_ovMonth['attendanceDays'])],
+                        ['مرات التأخير', _n(_ovMonth['lateDays'])],
+                        ['دقايق التأخير', _n(_ovMonth['lateMinutes'])],
+                        ['أيام الإجازات', _n(_ovMonth['leaveDays'])],
+                        ['إجازات مرضي', _n(_ovMonth['sickDays'])],
+                        ['طلبات معلّقة', _n(_overview['pendingRequests'])],
+                      ]),
+
                       const SizedBox(height: 24),
 
-                      // ✅ عرض الكروت الجديدة
+                      // طلبات مستنية قرار (بتظهر بس لو فيه طلبات)
                       _buildLeaveRequestsCard(context),
                       _buildLoanRequestsCard(context),
-                      _buildTodayStatsCard(context),
-                      _buildProjectAttendanceCard(context),
 
                       const SizedBox(height: 90),
                     ],

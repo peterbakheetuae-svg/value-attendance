@@ -286,7 +286,6 @@ class _ProfilePageState extends State<ProfilePage> {
                           _row(Icons.weekend, AppLocalizations.of(context, 'day_off'), data["dayOff"] ?? "--", subduedTextColor),
                           _row(Icons.access_time, AppLocalizations.of(context, 'work_hours'), data["workHours"] ?? "--", subduedTextColor),
                           _row(Icons.remove_circle, AppLocalizations.of(context, 'absence_factor'), data["absenceFactor"] ?? "--", subduedTextColor),
-                          _row(Icons.add_circle, AppLocalizations.of(context, 'overtime_factor'), data["overtimeFactor"] ?? "--", subduedTextColor),
                         ],
                         textColor,
                       ),

@@ -707,19 +707,6 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               },
                               isDark: isDark,
                             ),
-                            _buildDropdownField(
-                              label: 'مضروب الأوفرتايم',
-                              value: _selectedOvertimeMultiplier,
-                              items: _multipliers,
-                              icon: Icons.calculate,
-                              isEditable: _isEditing && canToggleEdit,
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedOvertimeMultiplier = value;
-                                });
-                              },
-                              isDark: isDark,
-                            ),
 
                             const SizedBox(height: 24),
 

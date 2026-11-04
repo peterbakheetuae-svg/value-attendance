@@ -700,5 +700,14 @@
   "validity": "Validity",
   "outing_kind": "Request",
   "outing_left_at": "Left at",
-  "outing_return_at": "Return by"
+  "outing_return_at": "Return by",
+  "admin_present_today": "Present today",
+  "admin_late": "Late",
+  "admin_absent": "Absent",
+  "admin_out_now": "Out now (permission / visit)",
+  "admin_pending_outings": "Awaiting approval",
+  "admin_checked_out": "Checked out today",
+  "late_time": "Late",
+  "late_month": "Late this month",
+  "late_deduction": "Late deduction"
 }

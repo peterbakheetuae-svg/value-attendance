@@ -1,6 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { sweep } from './tracking.ts';
 import { one } from '../db.ts';
+import { forbidden } from '../http/errors.ts';
 import { authenticate, has, readableIds, teamMemberIds } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
 import { computeMonth } from './attendance-calc.ts';
@@ -9,6 +10,67 @@ import { overall } from './evaluations.ts';
 
 /** One endpoint, role-shaped by permissions. Every number comes from stored data. */
 export const dashboardModule: Module = (r, { db, clock }) => {
+  /**
+   * Admin home: company (or own team) totals for today and this month, shaped like the
+   * employee home boxes. Late = checked in after schedule start + grace (Cairo time).
+   */
+  r.get('/dashboard/overview', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'attendance.read_all') && !has(a, 'attendance.read_team')) throw forbidden();
+    await sweep(db, clock()).catch(() => { /* never break the page */ });
+    const l = local(clock());
+    const period = l.date.slice(0, 7) + '-01';
+    const ids = await readableIds(db, a, 'attendance');
+    const scope = ids ? ids.filter((x) => x !== a.id) : null;
+    const lateExpr = `((at.check_in_at AT TIME ZONE 'Africa/Cairo')::time > at.schedule_start + make_interval(mins => at.late_grace_minutes))`;
+    const lateMin = `GREATEST(0, EXTRACT(EPOCH FROM ((at.check_in_at AT TIME ZONE 'Africa/Cairo')::time - at.schedule_start)) / 60)`;
+    const t = await one(db, `
+      SELECT count(*) FILTER (WHERE e.status = 'active' AND e.role_key <> 'owner')::int AS active,
+             count(at.id)::int AS present,
+             count(at.id) FILTER (WHERE ${lateExpr})::int AS late,
+             count(at.id) FILTER (WHERE at.check_out_at IS NOT NULL)::int AS checked_out,
+             count(*) FILTER (WHERE e.status = 'active' AND e.role_key <> 'owner' AND at.id IS NULL AND ab.id IS NOT NULL)::int AS on_leave,
+             COALESCE(sum(EXTRACT(EPOCH FROM (COALESCE(at.check_out_at, now()) - at.check_in_at)) / 60)
+               FILTER (WHERE at.id IS NOT NULL), 0)::int AS work_minutes
+        FROM employees e
+        LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
+        LEFT JOIN LATERAL (SELECT r.id FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence'
+                  AND r.status = 'approved' AND $1 BETWEEN r.start_date AND r.end_date LIMIT 1) ab ON true
+       WHERE e.status = 'active' AND e.role_key <> 'owner' AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scope]);
+    const out = await one(db, `SELECT count(*)::int AS n FROM outing_requests o
+        WHERE o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM outing_requests c WHERE c.parent_id = o.id AND c.status = 'approved')
+          AND ($2::uuid[] IS NULL OR o.employee_id = ANY($2::uuid[]))`, [l.date, scope]);
+    const pendingOut = await one(db, `SELECT count(*)::int AS n FROM outing_requests WHERE work_date = $1 AND status = 'pending'
+          AND ($2::uuid[] IS NULL OR employee_id = ANY($2::uuid[]))`, [l.date, scope]);
+    const holiday = await one(db, `SELECT name FROM holidays WHERE day = $1`, [l.date]);
+    const m = await one(db, `
+      SELECT count(at.id)::int AS attendance_days,
+             count(at.id) FILTER (WHERE ${lateExpr})::int AS late_days,
+             COALESCE(sum(${lateMin}) FILTER (WHERE ${lateExpr}), 0)::int AS late_minutes
+        FROM attendance at JOIN employees e ON e.id = at.employee_id
+       WHERE at.work_date >= $1 AND at.work_date <= $2 AND e.role_key <> 'owner'
+         AND ($3::uuid[] IS NULL OR at.employee_id = ANY($3::uuid[]))`, [period, l.date, scope]);
+    const lv = await one(db, `
+      SELECT COALESCE(sum(days_count) FILTER (WHERE absence_type <> 'sick'), 0)::int AS leave_days,
+             COALESCE(sum(days_count) FILTER (WHERE absence_type = 'sick'), 0)::int AS sick_days,
+             COALESCE(sum(days_count) FILTER (WHERE absence_type = 'unpaid'), 0)::int AS unpaid_days
+        FROM requests WHERE type = 'full_day_absence' AND status = 'approved'
+         AND start_date >= $1 AND start_date < ($1::date + interval '1 month')
+         AND ($2::uuid[] IS NULL OR employee_id = ANY($2::uuid[]))`, [period, scope]);
+    const pend = await one(db, `SELECT count(*)::int AS n FROM requests WHERE status IN ('pending_manager','pending_hr')
+         AND ($1::uuid[] IS NULL OR employee_id = ANY($1::uuid[]))`, [scope]);
+    const absentToday = holiday ? 0 : Math.max(0, t.active - t.present - t.on_leave);
+    return ok({
+      date: l.date, scope: ids ? 'team' : 'company', holiday: holiday?.name ?? null,
+      today: { employees: t.active, present: t.present, late: t.late, absent: absentToday, onLeave: t.on_leave,
+        checkedOut: t.checked_out, outNow: out.n, pendingOutings: pendingOut.n, workMinutes: t.work_minutes },
+      month: { attendanceDays: m.attendance_days, lateDays: m.late_days, lateMinutes: m.late_minutes,
+        leaveDays: lv.leave_days, sickDays: lv.sick_days, unpaidDays: lv.unpaid_days },
+      pendingRequests: pend.n,
+    });
+  });
+
   r.get('/dashboard', async (req) => {
     const a = await authenticate(db, req);
     await sweep(db, clock()).catch(() => { /* reminders must never break the page */ });
