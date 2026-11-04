@@ -56,6 +56,14 @@ void main() {
     stdout.writeln('$path patched: core library desugaring.');
   }
 
+  // sound used by system notifications (RawResourceAndroidNotificationSound('notification'))
+  final snd = File('assets/sounds/notification.WAV');
+  if (snd.existsSync()) {
+    Directory('android/app/src/main/res/raw').createSync(recursive: true);
+    snd.copySync('android/app/src/main/res/raw/notification.wav');
+    stdout.writeln('notification sound copied to res/raw.');
+  }
+
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();

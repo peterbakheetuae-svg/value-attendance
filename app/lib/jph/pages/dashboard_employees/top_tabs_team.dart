@@ -57,7 +57,7 @@ class TopTabs extends StatelessWidget {
       child: Row(
         children: [
           tab('check', Icons.checklist, DashMode.check),
-          tab('break_time', Icons.access_time, DashMode.breakTime),
+          tab('break_time', Icons.directions_walk_rounded, DashMode.breakTime),
           tab('leave', Icons.logout, DashMode.leave),
         ],
       ),

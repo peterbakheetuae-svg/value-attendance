@@ -10,6 +10,7 @@ import 'jph/pages/dashboard_employees/dashboard_page_team.dart';
 import 'jph/pages/dashboard_employers/dashboard_page.dart';
 import 'jph/pages/login/login_page.dart';
 import 'jph/services/app_controller.dart';
+import 'jph/services/alert_center.dart';
 import 'jph/services/jph_bridge.dart';
 import 'jph/services/notification_service.dart';
 import 'jph/services/session_service.dart';
@@ -83,6 +84,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
       _session = s;
       loading = false;
     });
+    // in-app alerts with sound (polls while signed in)
+    AlertCenter.instance.start(navigatorKey);
   }
 
   @override

@@ -72,6 +72,25 @@ class StatRightCardModel {
     );
   }
 
+  /// Hourly permission / external visit (replaces the break card).
+  factory StatRightCardModel.outing({
+    required String kind,
+    required String start,
+    required String expectedReturn,
+  }) {
+    return StatRightCardModel(
+      line1Title: "outing_kind",
+      line1Value: kind,
+      line1Icon: Icons.directions_walk_rounded,
+      line2Title: "outing_left_at",
+      line2Value: start,
+      line2Icon: Icons.logout_rounded,
+      line3Title: "outing_return_at",
+      line3Value: expectedReturn,
+      line3Icon: Icons.login_rounded,
+    );
+  }
+
   factory StatRightCardModel.leave({
     required String leaveDays,
     required String leaveAttendance,

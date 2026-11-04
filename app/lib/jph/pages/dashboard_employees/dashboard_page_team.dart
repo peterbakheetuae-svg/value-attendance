@@ -28,6 +28,10 @@ import 'today_stats_team.dart';
 import 'top_tabs_team.dart';
 import 'dash_mode_team.dart';
 import '../notifications/notifications_page.dart';
+import '../../services/api_service.dart';
+import '../../services/jph_bridge.dart';
+import '../../widgets/outing_dialogs.dart';
+import '../../../core/shift_tracker.dart';
 
 class DashboardPageTeam extends StatefulWidget {
   final String uid;
@@ -81,6 +85,15 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
   DateTime? _localBreakStart;
   DateTime? _localWorkStart;
+
+  // hourly permission / external visit (replaces the break)
+  Map<String, dynamic>? _outingPending;
+  Map<String, dynamic>? _outingActive;
+  String? _overdueRungFor;
+  bool _outingDialogOpen = false;
+
+  DateTime? get _outingReturn => DateTime.tryParse('${_outingActive?['expected_return_at']}')?.toLocal();
+  bool get _outingOverdue => _outingActive != null && (_outingReturn?.isBefore(DateTime.now()) ?? false);
 
   bool get onActiveBreak => state.onBreak && state.breakEndTime == "--:--";
 
@@ -291,7 +304,30 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     await Future.wait([loadToday(), loadMonth()]);
   }
 
+  Future<void> _loadOuting() async {
+    try {
+      final r = await ApiService.post({'action': 'outing_today'});
+      if (!mounted || r['success'] != true) return;
+      setState(() {
+        _outingPending = (r['pending'] as Map?)?.cast<String, dynamic>();
+        _outingActive = (r['active'] as Map?)?.cast<String, dynamic>();
+      });
+    } catch (_) {}
+  }
+
+  /// In-shift location follow-up (Android keeps it running in the background).
+  void _syncTracker() {
+    if (checkedIn && !dayFinished) {
+      ShiftTracker.instance.start(JphBridge.api,
+          notifTitle: 'Value Attendance — الحضور شغال',
+          notifText: 'بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف');
+    } else {
+      ShiftTracker.instance.stop();
+    }
+  }
+
   Future<void> loadToday() async {
+    _loadOuting();
     try {
       _isRefreshing = true;
       if (mounted) setState(() {});
@@ -327,6 +363,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         }
 
         _initializeLocalTimers();
+        _syncTracker();
         _loadingAnimationController.stop();
       } else {
         setState(() {
@@ -366,6 +403,13 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       }
       if (state.onBreak && mounted) {
         liveBreakTimeN.value = _calcBreakTime();
+      }
+      // approved return time passed: ring once and ask for an action
+      final a = _outingActive;
+      if (mounted && a != null && _outingOverdue && _overdueRungFor != a['id'] && !_outingDialogOpen) {
+        _overdueRungFor = a['id']?.toString();
+        _playBellSound();
+        _openOutingActions(overdue: true);
       }
     });
   }
@@ -568,7 +612,6 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
             iconBg: getPrimaryColor(),
           );
         }
-
         if (state.checkInTime == "--:--") {
           return FingerUiConfig(
             title: AppLocalizations.of(context, 'check_in_first'),
@@ -578,26 +621,26 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
             iconBg: Colors.grey,
           );
         }
-        if (breakFinished) {
+        if (_outingPending != null) {
           return FingerUiConfig(
-            title: AppLocalizations.of(context, 'break_ended'),
-            subtitle: "تم انتهاء الاستراحة",
+            title: 'بانتظار الموافقة',
+            subtitle: _outingPending!['parent_id'] != null ? 'طلب التمديد عند المدير / الموارد البشرية' : 'الطلب عند المدير / الموارد البشرية',
             disabled: true,
-            color: getSecondaryColor(),
-            iconBg: getSecondaryColor(),
+            color: getAccentColor(),
+            iconBg: getAccentColor(),
           );
         }
-        if (state.onBreak) {
+        if (_outingActive != null) {
           return FingerUiConfig(
-            title: AppLocalizations.of(context, 'end_break'),
-            subtitle: "إنهاء الاستراحة",
-            color: getSecondaryColor(),
-            iconBg: getSecondaryColor(),
+            title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تسجيل الرجوع',
+            subtitle: _outingOverdue ? 'سجّل رجوعك أو اطلب تمديد' : 'اضغط مطولاً لما ترجع المكتب',
+            color: _outingOverdue ? Colors.orange : getSecondaryColor(),
+            iconBg: _outingOverdue ? Colors.orange : getSecondaryColor(),
           );
         }
         return FingerUiConfig(
-          title: AppLocalizations.of(context, 'start_break'),
-          subtitle: "بدء الاستراحة",
+          title: 'إذن ساعات / زيارة',
+          subtitle: "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
         );
@@ -615,10 +658,15 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   StatRightCardModel _getRightCard(BuildContext context) {
     switch (mode) {
       case DashMode.breakTime:
-        return StatRightCardModel.breakTime(
-          start: state.breakStartTime,
-          end: state.breakEndTime,
-          total: liveBreakTimeN.value,
+        final o = _outingActive ?? _outingPending;
+        String hhmm(Object? iso) {
+          final d = DateTime.tryParse('$iso')?.toLocal();
+          return d == null ? '--:--' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+        }
+        return StatRightCardModel.outing(
+          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
+          start: o == null ? '--:--' : hhmm(o['requested_at']),
+          expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
         );
       case DashMode.leave:
         return StatRightCardModel.leave(
@@ -656,6 +704,11 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           ),
         ),
       );
+      return;
+    }
+
+    if (mode == DashMode.breakTime) {
+      await _handleOuting();
       return;
     }
 
@@ -757,6 +810,59 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       );
     } finally {
       _cameraInUse = false;
+    }
+  }
+
+  // ------------------------------------------------------------------ permission / visit
+  Future<void> _handleOuting() async {
+    if (_outingActive != null) {
+      await _openOutingActions(overdue: _outingOverdue);
+      return;
+    }
+    if (_outingPending != null) return;
+    final kind = await showOutingKindPicker(context);
+    if (kind == null || !mounted) return;
+    await _submitOuting(kind);
+  }
+
+  Future<void> _submitOuting(String kind, {String? parentId, DateTime? currentReturn}) async {
+    final form = await showOutingForm(context, kind: kind, extension: parentId != null, currentReturn: currentReturn);
+    if (form == null || !mounted) return;
+    final r = await ApiService.post({'action': 'outing_submit', 'kind': kind, ...form, if (parentId != null) 'parentId': parentId});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${r['message'] ?? ''}'),
+      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+    ));
+    await _loadOuting();
+  }
+
+  Future<void> _openOutingActions({required bool overdue}) async {
+    final a = _outingActive;
+    final back = _outingReturn;
+    if (a == null || back == null || _outingDialogOpen) return;
+    _outingDialogOpen = true;
+    try {
+      final choice = await showOutingActions(context, kind: '${a['kind']}', expectedReturn: back, overdue: overdue);
+      await _stopSound();
+      if (!mounted || choice == null) return;
+      if (choice == 'return') {
+        final r = await ApiService.post({'action': 'outing_return'});
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+        await _loadOuting();
+      } else if (choice == 'extend') {
+        await _submitOuting('${a['kind']}', parentId: '${a['id']}', currentReturn: back.isAfter(DateTime.now()) ? back : DateTime.now());
+      } else if (choice == 'new') {
+        // a new request starts after closing the overdue one
+        await ApiService.post({'action': 'outing_return'});
+        await _loadOuting();
+        final kind = mounted ? await showOutingKindPicker(context) : null;
+        if (kind != null && mounted) await _submitOuting(kind);
+      }
+    } finally {
+      _outingDialogOpen = false;
     }
   }
 

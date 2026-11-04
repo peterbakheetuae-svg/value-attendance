@@ -39,7 +39,7 @@
   "break_end_success": "تم إنهاء الاستراحة بنجاح",
   "on_break": "في استراحة",
   "work_time": "وقت العمل",
-  "break_time": "الاستراحة",
+  "break_time": "إذن / زيارة",
   "total_hours": "إجمالي الساعات",
   "today": "اليوم",
   "this_month": "هذا الشهر",
@@ -749,5 +749,8 @@
   "send_reset_code": "إرسال كود إعادة التعيين",
   "show_break_employees": "عرض الموظفين في الاستراحة",
   "show_today_attendance": "عرض حضور النهارده",
-  "today_attendance": "حضور النهارده"
+  "today_attendance": "حضور النهارده",
+  "outing_kind": "نوع الطلب",
+  "outing_left_at": "وقت الخروج",
+  "outing_return_at": "ميعاد الرجوع"
 }

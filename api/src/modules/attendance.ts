@@ -159,21 +159,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
   });
 
   r.post('/attendance/break-start', async (req) => {
-    const a = await authenticate(db, req);
-    const now = clock(); const l = local(now);
-    const br = await db.tx(async (q) => {
-      const att = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
-      if (!att) throw conflict('You must check in first');
-      if (att.check_out_at) throw conflict('Your work day has ended');
-      const prev = await one(q, `SELECT id FROM attendance_breaks WHERE attendance_id = $1`, [att.id]);
-      if (prev) throw conflict('You already took your break today');
-      const allowed = (await one(q, `SELECT break_minutes FROM company_settings`)).break_minutes;
-      const row = await one(q, `INSERT INTO attendance_breaks (attendance_id, employee_id, started_at, allowed_minutes)
-                                VALUES ($1,$2,$3,$4) RETURNING *`, [att.id, a.id, now, allowed]);
-      await audit(q, a.id, 'attendance.break_start', 'attendance', att.id, undefined, { at: now });
-      return row;
-    });
-    return ok({ break: breakShape(br, now) }, 201);
+    await authenticate(db, req);
+    // the break was replaced by hourly permission / external visit (POST /outings); old breaks stay in history
+    throw new AppError('conflict', 'The break has been replaced by hourly permission / external visit', { reason: 'break_removed' });
   });
 
   r.post('/attendance/break-end', async (req) => {

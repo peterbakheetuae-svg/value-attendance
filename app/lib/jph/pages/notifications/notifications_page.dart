@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import '../../services/alert_center.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../services/app_controller.dart';
@@ -1000,6 +1001,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           if (!notification.read) {
             _markAsRead(notification.id);
           }
+          AlertCenter.instance.openRelated(context, notification.id, notification.type);
         },
         child: Container(
           padding: const EdgeInsets.all(16),

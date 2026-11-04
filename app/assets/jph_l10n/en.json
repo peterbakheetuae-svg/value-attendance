@@ -45,7 +45,7 @@
   "break_end_success": "Break ended successfully",
   "on_break": "On Break",
   "work_time": "Work Time",
-  "break_time": "Break",
+  "break_time": "Permission / Visit",
   "total_hours": "Total Hours",
   "today": "Today",
   "this_month": "This Month",
@@ -697,5 +697,8 @@
   "type": "Type",
   "unknown": "Unknown",
   "update_holiday": "Update holiday",
-  "validity": "Validity"
+  "validity": "Validity",
+  "outing_kind": "Request",
+  "outing_left_at": "Left at",
+  "outing_return_at": "Return by"
 }

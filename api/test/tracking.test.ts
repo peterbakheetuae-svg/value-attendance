@@ -26,9 +26,9 @@ test('leaving and returning to the office alerts HR and the team manager, not ot
   at('2026-03-10T09:00:00Z');
   const away = await h.call(c.t.e1, 'POST', '/tracking/ping', { lat: OFFICE.lat + 0.01, lng: OFFICE.lng, accuracyM: 10 }); // ~1.1 km
   assert.equal(away.body.inside, false);
-  assert.ok((await notes(c.t.hr)).includes('left_office'));
-  assert.ok((await notes(c.t.sm1)).includes('left_office'));
-  assert.ok(!(await notes(c.t.sm2)).includes('left_office'), 'other team manager not told');
+  assert.ok((await notes(c.t.hr)).includes('unauthorized_exit'));
+  assert.ok((await notes(c.t.sm1)).includes('unauthorized_exit'));
+  assert.ok(!(await notes(c.t.sm2)).includes('unauthorized_exit'), 'other team manager not told');
   at('2026-03-10T09:30:00Z');
   await h.call(c.t.e1, 'POST', '/tracking/ping', { lat: OFFICE.lat, lng: OFFICE.lng, accuracyM: 10 });
   assert.ok((await notes(c.t.sm1)).includes('back_in_office'));

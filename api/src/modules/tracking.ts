@@ -2,10 +2,11 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
-import { authenticate, readableIds, requirePerm } from '../auth/context.ts';
+import { audit, authenticate, readableIds, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { holdersOf, notify } from './notify.ts';
+import { activeOuting, markReturned } from './outings.ts';
 
 /** Who hears about an employee: HR/owner (attendance.read_all) + the employee's sales manager(s). */
 async function watchersOf(q: Q, employeeId: string): Promise<string[]> {
@@ -50,6 +51,20 @@ export async function sweep(q: Q, now: Date) {
       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
       LEFT JOIN tracking_state ts ON ts.employee_id = e.id AND ts.work_date = $1
      WHERE e.status = 'active' AND e.role_key <> 'owner' AND e.joining_date <= $1`, [l.date]);
+  // approved permission / visit whose return time passed: ring the employee and the approvers once
+  const overdue = await q.query(`
+    SELECT o.*, e.full_name FROM outing_requests o JOIN employees e ON e.id = o.employee_id
+      JOIN attendance t ON t.employee_id = o.employee_id AND t.work_date = o.work_date AND t.check_out_at IS NULL
+     WHERE o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL AND o.overdue_alerted_at IS NULL
+       AND o.expected_return_at < $2 FOR UPDATE OF o`, [l.date, now]);
+  for (const o of overdue.rows) {
+    await q.query(`UPDATE outing_requests SET overdue_alerted_at = $2 WHERE id = $1`, [o.id, now]);
+    await notify(q, { to: o.employee_id, type: 'outing_overdue', title: 'ميعاد رجوعك عدّى ⏰',
+      body: 'سجّل رجوعك، أو اطلب تمديد، أو قدّم طلب جديد.', entity: 'outing_request', entityId: o.id, dedupeKey: `outing:${o.id}:overdue` });
+    await tellWatchers(q, o.employee_id, 'outing_overdue_watch', `${o.full_name} لسه مرجعش`,
+      `ميعاد الرجوع المعتمد عدّى.`, `outing:${o.id}:overdue_watch`);
+  }
+
   const remind = claimed.checkin_reminder_minutes;
   for (const r of rows.rows) {
     if (r.on_leave || (r.weekend_days as number[]).includes(l.isoDow)) continue;
@@ -101,16 +116,31 @@ export const trackingModule: Module = (r, { db, clock }) => {
       let awaySince: Date | null = sameDay && prev.away_since ? new Date(prev.away_since) : null;
       let awayMinutes = sameDay ? prev.away_minutes : 0;
       const wasInside = sameDay ? prev.inside : true;
+      const outing = await activeOuting(q, a.id, l.date);
+      const authorized = !!outing && new Date(outing.expected_return_at) > now;
+      const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       if (inside === false && wasInside !== false) {
         awaySince = now;
-        await tellWatchers(q, a.id, 'left_office', `${a.fullName} خرج برة المكتب`, `على بُعد ${Math.round(outside!)} متر من المكتب.`,
-          `left_office:${a.id}:${now.getTime()}`);
+        if (authorized) {
+          // approved permission / visit: expected exit, no violation
+          await audit(q, a.id, 'tracking.authorized_exit', 'outing_request', outing.id, undefined, { at: now });
+        } else {
+          const where = `على بُعد ${Math.round(outside!)} متر من المكتب — الساعة ${hhmm(now)}`;
+          const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو زيارة معتمدة';
+          await tellWatchers(q, a.id, 'unauthorized_exit', `خروج غير مصرح: ${a.fullName}`, `${why}. ${where}.`,
+            `unauthorized_exit:${a.id}:${now.getTime()}`);
+          await notify(q, { to: a.id, type: 'unauthorized_exit_self', title: 'إنت برة المكتب من غير إذن معتمد',
+            body: 'لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.', dedupeKey: `unauthorized_exit_self:${a.id}:${now.getTime()}` });
+          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!) });
+        }
       } else if (inside === true && wasInside === false && awaySince) {
         const mins = Math.max(0, Math.round((now.getTime() - awaySince.getTime()) / 60000));
         awayMinutes += mins; awaySince = null;
         await tellWatchers(q, a.id, 'back_in_office', `${a.fullName} رجع المكتب`, `كان برة ${mins} دقيقة.`,
           `back_in_office:${a.id}:${now.getTime()}`);
       }
+      // back inside while out on a permission / visit → it is closed automatically
+      if (inside === true && outing) await markReturned(q, outing, now, null, 'geofence');
       await q.query(`
         INSERT INTO tracking_state (employee_id, work_date, last_ping_at, lat, lng, accuracy_m, inside, distance_m, away_since, away_minutes)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)

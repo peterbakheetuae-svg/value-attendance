@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../../core/api.dart';
 import 'jph_bridge.dart';
+import 'alert_center.dart';
 
 /// The original JPH screens talk through `ApiService.post({'action': ...})`.
 /// This router answers every action from the Value Attendance API and returns
@@ -172,11 +173,38 @@ class JphRouter {
         case 'checkout':
           return await _checkOut(p);
         case 'break_start':
-          await _api.post('/attendance/break-start', {});
-          return _ok({'message': 'تم بدء الاستراحة'});
+          return _fail('الاستراحة اتشالت — استخدم «إذن ساعات» أو «زيارة»');
         case 'break_end':
           await _api.post('/attendance/break-end', {});
           return _ok({'message': 'تم إنهاء الاستراحة'});
+
+        // ---- hourly permission / external visit (replaces the break)
+        case 'outing_today':
+          return _ok((await _api.get('/outings/today')).cast<String, dynamic>());
+        case 'outing_submit':
+          final r = await _api.post('/outings', {
+            'kind': p['kind'], 'expectedReturn': p['expectedReturn'], 'reason': p['reason'],
+            if (p['parentId'] != null) 'parentId': p['parentId'],
+          });
+          return _ok({'outing': r['outing'], 'message': p['parentId'] != null ? 'تم إرسال طلب التمديد للموافقة' : 'تم إرسال الطلب للموافقة'});
+        case 'outing_return':
+          await _api.post('/outings/return', {});
+          return _ok({'message': 'تم تسجيل رجوعك'});
+        case 'outing_cancel':
+          await _api.post('/outings/${p['id']}/cancel', {});
+          return _ok({'message': 'تم إلغاء الطلب'});
+        case 'outing_decide':
+          await _api.post('/outings/${p['id']}/decision', {
+            'decision': p['approve'] == true ? 'approve' : 'reject',
+            if ((p['comment'] ?? '').toString().trim().isNotEmpty) 'comment': p['comment'],
+          });
+          return _ok({'message': p['approve'] == true ? 'تمت الموافقة' : 'تم الرفض'});
+        case 'outing_get':
+          final r = await _api.get('/outings');
+          final one = _list(r['outings']).where((x) => x['id'] == p['id']).toList();
+          return one.isEmpty ? _fail('الطلب غير موجود') : _ok({'outing': one.first});
+        case 'outings_awaiting':
+          return _ok({'outings': _list((await _api.get('/outings', {'status': 'awaiting'}))['outings'])});
 
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
@@ -290,7 +318,7 @@ class JphRouter {
         case 'get_today_attendance':
           return await _board(onBreakOnly: false);
         case 'get_break_employees':
-          return await _board(onBreakOnly: true);
+          return await _outNow();
 
         default:
           return _fail('هذه الخدمة غير متاحة في هذا الإصدار');
@@ -428,6 +456,17 @@ class JphRouter {
   // ------------------------------------------------------------------ attendance (self)
   static Future<Map<String, dynamic>> _today() async {
     final r = await _api.get('/attendance/today');
+    var outMinutes = 0;
+    try {
+      final o = await _api.get('/outings/today');
+      for (final x in _list(o['history'])) {
+        if (x['status'] != 'approved' && x['status'] != 'superseded') continue;
+        if (x['parent_id'] != null) continue;
+        final from = _dt(x['requested_at']);
+        final to = _dt(x['returned_at']) ?? DateTime.now();
+        if (from != null) outMinutes += to.difference(from).inMinutes.clamp(0, 24 * 60);
+      }
+    } catch (_) {}
     final a = (r['attendance'] as Map?)?.cast<String, dynamic>();
     final b = (r['break'] as Map?)?.cast<String, dynamic>();
     final me = JphBridge.session.me ?? {};
@@ -440,10 +479,11 @@ class JphRouter {
     return _ok({
       'checkInTime': a == null ? '--:--' : _time(a['checkIn']),
       'checkOutTime': a?['checkOut'] == null ? '--:--' : _time(a!['checkOut']),
-      'onBreak': b?['onBreak'] == true,
+      'onBreak': false, // the break was replaced by hourly permission / visit
+      'outingTime': _hm(outMinutes),
       'breakStartTime': b == null ? '--:--' : _time(b['start']),
       'breakEndTime': b?['end'] == null ? '--:--' : _time(b!['end']),
-      'breakTime': b == null ? '0h 0m' : _hm(b['minutes'] as num?),
+      'breakTime': _hm(outMinutes),
       'breakMinutesAllowed': b?['allowedMinutes'] ?? r['breakAllowedMinutes'],
       'workTime': worked == null ? '--:--:--' : _hms(worked),
       'overtime': _hm(a?['overtimeMinutes'] as num?),
@@ -790,6 +830,9 @@ class JphRouter {
   // ------------------------------------------------------------------ notifications
   static Future<Map<String, dynamic>> _notifications() async {
     final r = await _api.get('/notifications');
+    for (final n in _list(r['notifications'])) {
+      if (n['entity_id'] != null) AlertCenter.entityOf['${n['id']}'] = '${n['entity_id']}';
+    }
     final items = _list(r['notifications']).map((n) => <String, dynamic>{
           'id': n['id'],
           'notificationId': n['id'],
@@ -945,6 +988,26 @@ class JphRouter {
       by[team] = (by[team] ?? 0) + 1;
     }
     return _ok({'projects': [for (final e in by.entries) {'projectName': e.key, 'attendanceCount': e.value}]});
+  }
+
+  /// Employees out right now on an approved permission / visit (replaces "on break").
+  static Future<Map<String, dynamic>> _outNow() async {
+    final now = DateTime.now();
+    final r = await _api.get('/outings', {'status': 'out', 'date': _ymd(now)});
+    final out = <Map<String, dynamic>>[];
+    for (final x in _list(r['outings'])) {
+      final from = _dt(x['requested_at']);
+      final back = _dt(x['expected_return_at']);
+      out.add({
+        'id': x['employee_id'],
+        'name': _s(x['employee_name']),
+        'project': '${x['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'} — الرجوع ${_time(x['expected_return_at'])}',
+        'breakStart': _time(x['requested_at']),
+        'breakDuration': from == null ? '--' : '${now.difference(from).inMinutes} دقيقة',
+        'breakExceeded': back != null && back.isBefore(now),
+      });
+    }
+    return _ok({'employees': out, 'count': out.length});
   }
 
   static Future<Map<String, dynamic>> _board({required bool onBreakOnly}) async {
