@@ -1,4 +1,5 @@
 import { ok, type Module } from '../ctx.ts';
+import { mailEnabled, passwordResetMail, sendMail } from '../lib/mail.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
@@ -306,7 +307,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     requirePerm(a, 'employee.manage');
     if (!isUuid(req.params.id) || req.params.id === a.id) throw forbidden('Use change password for your own account');
-    const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [req.params.id]);
+    const e = await one(db, `SELECT id, role_key, email, full_name, code FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
     if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can reset this account');
     const usePin = await pinFor(db, obj(req.body ?? {}).kind, e.role_key);
@@ -318,7 +319,18 @@ export const employeesModule: Module = (r, { db, clock }) => {
       await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [e.id]);
       await audit(q, a.id, usePin ? 'employee.reset_pin' : 'employee.reset_password', 'employee', e.id);
     });
-    return usePin ? ok({ pin: pw }) : ok({ temporaryPassword: pw });
+    // email it to the employee when possible; the value is then not shown to the admin
+    let emailed = false;
+    if (e.email && obj(req.body ?? {}).sendEmail !== false) {
+      const st = await one(db, `SELECT company_name_ar FROM company_settings`);
+      emailed = await sendMail({ to: e.email, toName: e.full_name,
+        ...passwordResetMail({ name: e.full_name, code: e.code, password: pw, company: st.company_name_ar, isPin: usePin }) });
+      await audit(db, a.id, emailed ? 'employee.reset_password_emailed' : 'employee.reset_password_email_failed', 'employee', e.id);
+    }
+    const mask = e.email ? e.email.replace(/^(.).*(@.*)$/, '$1***$2') : null;
+    if (emailed) return ok({ emailed: true, emailTo: mask });
+    return usePin ? ok({ pin: pw, emailed: false, emailTo: mask, mailConfigured: mailEnabled() })
+      : ok({ temporaryPassword: pw, emailed: false, emailTo: mask, mailConfigured: mailEnabled() });
   });
 
   r.post('/employees/:id/unbind-device', async (req) => {

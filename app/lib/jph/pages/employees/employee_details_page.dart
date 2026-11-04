@@ -899,6 +899,24 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   ),
                                 ),
                               ),
+                            if (!_isEditing && canToggleEdit) ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: _resetPassword,
+                                  icon: const Icon(Icons.lock_reset_rounded),
+                                  label: const Text('إعادة تعيين كلمة المرور',
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    side: BorderSide(color: AppColors.primary.withOpacity(0.6)),
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -910,6 +928,56 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
           ),
         );
       },
+    );
+  }
+
+  /// New temporary password for the employee: emailed to them when they have an email
+  /// (and email is set up); otherwise shown here once to hand over in person.
+  Future<void> _resetPassword() async {
+    final email = (_employeeData['email'] ?? '').toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('إعادة تعيين كلمة المرور'),
+        content: Text(email.isNotEmpty
+            ? 'هيتعمل كلمة مرور مؤقتة جديدة وتتبعت على إيميل الموظف ($email)، وهيتطلب منه يغيّرها أول ما يدخل. الدخول الحالي من أي موبايل هيتقفل.'
+            : 'الموظف ده مالوش إيميل، فكلمة المرور المؤقتة هتظهرلك هنا مرة واحدة وتسلّمهاله بنفسك.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+          ElevatedButton(onPressed: () => Navigator.pop(d, true), child: const Text('تأكيد')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final r = await ApiService.post({'action': 'reset_employee_password', 'uid': _employeeData['id'] ?? _employeeData['uid']});
+    if (!mounted) return;
+    if (r['success'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: Colors.red));
+      return;
+    }
+    if (r['emailed'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('تم إرسال كلمة المرور الجديدة على ${r['emailTo']}'), backgroundColor: Colors.green));
+      return;
+    }
+    final pw = '${r['password'] ?? ''}';
+    await showDialog<void>(
+      context: context,
+      builder: (d) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('كلمة المرور المؤقتة'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (r['emailTo'] != null) Text(r['mailConfigured'] == true
+              ? 'ماقدرناش نبعتها على الإيميل، سلّمها للموظف بنفسك:'
+              : 'الإرسال بالإيميل لسه مش متفعّل، سلّمها للموظف بنفسك:'),
+          const SizedBox(height: 12),
+          SelectableText(pw, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
+          const SizedBox(height: 8),
+          const Text('هتظهر مرة واحدة بس، والموظف هيغيّرها أول ما يدخل.', style: TextStyle(fontSize: 12)),
+        ]),
+        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('تمام'))],
+      ),
     );
   }
 

@@ -347,6 +347,11 @@ class JphRouter {
         case 'get_settings':
           return _ok({'settings': (await _api.get('/settings'))['settings']});
 
+        case 'reset_employee_password':
+          final r = await _api.post('/employees/${await _id(p['uid'])}/reset-password', {});
+          return _ok({'emailed': r['emailed'] == true, 'emailTo': r['emailTo'], 'mailConfigured': r['mailConfigured'] == true,
+            'password': r['temporaryPassword'] ?? r['pin']});
+
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
         case 'getAllLeaveRequests':

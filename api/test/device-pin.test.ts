@@ -53,3 +53,32 @@ test('new employee can be created with a PIN', async () => {
   assert.equal(r.body.temporaryPassword, undefined);
   assert.equal((await login('01000000001', r.body.pin, dev('NEWPIN'))).status, 200, 'mobile number + PIN');
 });
+
+test('password reset is emailed to the employee when email is configured (not shown to the admin)', async () => {
+  await h.db.query(`UPDATE employees SET email = 'e2@value.test' WHERE id = $1`, [c.ids.e2]);
+  // without Brevo configured: shown on screen once
+  const plain = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/reset-password`, {});
+  assert.equal(plain.status, 200);
+  assert.ok(plain.body.temporaryPassword);
+  assert.equal(plain.body.emailed, false);
+  // with Brevo configured: sent by email, never returned
+  const sent: any[] = [];
+  const realFetch = globalThis.fetch;
+  process.env.BREVO_API_KEY = 'test-key'; process.env.MAIL_FROM = 'hr@value.test';
+  globalThis.fetch = (async (url: any, init: any) => {
+    if (String(url).startsWith('https://api.brevo.com/')) { sent.push(JSON.parse(init.body)); return new Response('{}', { status: 201 }); }
+    return realFetch(url, init);
+  }) as typeof fetch;
+  try {
+    const r = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/reset-password`, {});
+    assert.equal(r.status, 200);
+    assert.equal(r.body.emailed, true);
+    assert.equal(r.body.temporaryPassword, undefined, 'admin does not see it');
+    assert.equal(r.body.emailTo, 'e***@value.test');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to[0].email, 'e2@value.test');
+    assert.match(sent[0].textContent, /E2/);
+  } finally {
+    globalThis.fetch = realFetch; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
+  }
+});
