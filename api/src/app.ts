@@ -12,6 +12,7 @@ import { financeModule } from './modules/finance.ts';
 import { dashboardModule } from './modules/dashboard.ts';
 import { notificationsModule } from './modules/notifications.ts';
 import { trackingModule } from './modules/tracking.ts';
+import { legacyModule } from './modules/legacy.ts';
 
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
@@ -25,6 +26,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule]) m(r, ctx);
   return r;
 }

@@ -51,7 +51,8 @@ test('payroll: validation and access', async () => {
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { lateTiers: Array(7).fill({ afterMinutes: 5, amount: 1 }) })).status, 400);
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { lateTiers: [{ afterMinutes: 5, amount: -1 }] })).status, 400);
   assert.equal((await h.call(c.t.hr, 'PATCH', '/settings', { dayDivisor: 26 })).status, 403, 'HR has no settings.manage');
-  assert.equal((await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).status, 403, 'no salary on employee screens');
+  assert.equal((await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).status, 200, 'own payslip (original JPH monthly report)');
+  assert.equal((await h.call(c.t.e2, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).status, 403, 'not someone else\'s');
   const list = await h.call(c.t.owner, 'GET', '/reports/payroll?month=2026-03');
   const row = list.body.rows.find((x: any) => x.employee.id === c.ids.e1);
   assert.equal(row.payroll.late.amount, 100);

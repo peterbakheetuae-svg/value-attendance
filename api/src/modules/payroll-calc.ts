@@ -40,6 +40,10 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'bonus'),0) AS bonuses
                               FROM salary_adjustments WHERE employee_id = $1 AND period = $2 AND status = 'approved'`, [employeeId, period]);
 
+  const adv = await one(q, `SELECT COALESCE(sum(amount_egp) FILTER (WHERE kind = 'advance'),0) AS advances,
+                                   COALESCE(sum(amount_egp) FILTER (WHERE kind = 'work_expense'),0) AS expenses
+                              FROM advance_requests WHERE employee_id = $1 AND period = $2 AND status = 'confirmed'`, [employeeId, period]);
+  const advances = Number(adv.advances), workExpenses = Number(adv.expenses);
   const base = sal ? Number(sal.base_salary) : null;
   const dayWage = base === null ? null : base / rules.dayDivisor;
   const shiftMin = sch ? Math.max(1, timeToMinutes(sch.end_time) - timeToMinutes(sch.start_time)) : 480;
@@ -87,8 +91,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     early: { days: earlyDays, minutes: earlyMin, amount: auto ? r2(earlyAmt) : 0 },
     absence: { days: absentDays, amount: auto ? r2(absenceAmt) : 0 },
     unpaid: { days: unpaidDays, amount: auto ? r2(unpaidAmt) : 0 },
-    adminDeductions: adminDed, bonuses,
+    adminDeductions: adminDed, bonuses, advances, workExpenses,
     totalDeductions: r2(autoTotal + adminDed),
-    net: base === null ? null : r2(base - autoTotal - adminDed + bonuses),
+    net: base === null ? null : r2(base - autoTotal - adminDed + bonuses - advances + workExpenses),
   };
 }

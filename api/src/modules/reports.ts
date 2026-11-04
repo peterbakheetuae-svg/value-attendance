@@ -190,11 +190,11 @@ export const reportsModule: Module = (r, { db, clock }) => {
     return ok({ period, complete, count: reports.length, reports });
   });
 
-  /** One employee's payroll breakdown — salary readers only (salaries never appear on employee screens). */
+  /** One employee's payroll breakdown: their own payslip (as in the original JPH monthly report), or anyone's for salary readers. */
   r.get('/payroll/employee/:id', async (req) => {
     const a = await authenticate(db, req);
-    if (!has(a, 'employee.salary_read')) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
+    if (req.params.id !== a.id && !has(a, 'employee.salary_read')) throw forbidden();
     const period = monthParam(req.query.get('month'));
     return ok({ period, currency: 'EGP', payroll: await computePayroll(db, req.params.id, period, today(), await loadRules(db)) });
   });

@@ -63,6 +63,13 @@ export const requestsModule: Module = (r, { db, clock }) => {
   r.post('/requests', async (req) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
+    // HR may record a request for an employee (original JPH "submit by manager"): it is approved on entry.
+    const forId = typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id ? b.employeeId : null;
+    if (forId) {
+      if (!has(a, 'request.approve_hr')) throw forbidden('Only HR can record a request for another employee');
+      if (!isUuid(forId) || !(await one(db, `SELECT 1 FROM employees WHERE id = $1 AND status = 'active'`, [forId]))) throw notFound('Employee not found');
+    }
+    const subjectId = forId ?? a.id;
     const type = oneOf(b, 'type', REQUEST_TYPES)!;
     const reason = reqStr(b, 'reason', { min: 3, max: 1000 });
     const attachmentId = uuid(b, 'attachmentId', true) ?? null;
@@ -84,7 +91,7 @@ export const requestsModule: Module = (r, { db, clock }) => {
       if ((f.end_date as string) < (f.start_date as string)) throw invalid('End date must be on or after start date', { field: 'endDate' });
       if (daysBetween(f.start_date as string, f.end_date as string) > 60) throw invalid('An absence request cannot exceed 60 days', { field: 'endDate' });
       if ((f.start_date as string) < oldest) throw invalid(`Requests cannot be older than ${settings.request_backdate_days} days`, { field: 'startDate' });
-      f.days_count = await workingDaysInRange(db, a.id, f.start_date as string, f.end_date as string);
+      f.days_count = await workingDaysInRange(db, subjectId, f.start_date as string, f.end_date as string);
       if (!f.days_count) throw invalid('The selected range has no working days', { field: 'startDate' });
     } else {
       f.correction_date = date(b, 'correctionDate'); f.correction_in = time(b, 'correctionIn');
@@ -97,7 +104,33 @@ export const requestsModule: Module = (r, { db, clock }) => {
     }
     if (attachmentId) {
       const doc = await one(db, `SELECT employee_id FROM employee_documents WHERE id = $1`, [attachmentId]);
-      if (!doc || doc.employee_id !== a.id) throw invalid('Attachment not found', { field: 'attachmentId' });
+      if (!doc || doc.employee_id !== subjectId) throw invalid('Attachment not found', { field: 'attachmentId' });
+    }
+
+    if (forId) {
+      const row = await db.tx(async (q) => {
+        await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [forId]);
+        if (type === 'full_day_absence') {
+          const overlap = await one(q, `SELECT 1 FROM requests WHERE employee_id = $1 AND type = 'full_day_absence'
+              AND status = 'approved' AND start_date <= $3 AND end_date >= $2`, [forId, f.start_date, f.end_date]);
+          if (overlap) throw conflict('These dates overlap an approved absence');
+        }
+        const cols = Object.keys(f);
+        const x = await one(q, `
+          INSERT INTO requests (employee_id, type, reason, attachment_id, route, manager_id, status, decided_at ${cols.map((c) => ', ' + c).join('')})
+          VALUES ($1,$2,$3,$4,'hr_only',NULL,'approved',now() ${cols.map((_, i) => `, $${i + 5}`).join('')}) RETURNING *`,
+          [forId, type, reason, attachmentId, ...cols.map((c) => f[c])]);
+        await q.query(`INSERT INTO request_actions (request_id, actor_id, stage, action, comment) VALUES ($1,$2,'hr','submit','سجّلته الموارد البشرية'),($1,$2,'hr','approve',NULL)`, [x.id, a.id]);
+        if (type === 'attendance_correction') {
+          await applyCorrection(q, { employeeId: forId, workDate: x.correction_date, inHHMM: x.correction_in.slice(0, 5),
+            outHHMM: x.correction_out ? x.correction_out.slice(0, 5) : null, reason, requestedBy: a.id, approvedBy: a.id, requestId: x.id });
+        }
+        await audit(q, a.id, 'request.record_for_employee', 'request', x.id, undefined, { type, employeeId: forId });
+        await notify(q, { to: forId, type: 'request_approved', title: `سجّلت الإدارة لك طلب ${TYPE_AR[type]}`, body: reason,
+          entity: 'request', entityId: x.id, dedupeKey: `req:${x.id}:approved` });
+        return x;
+      });
+      return ok({ request: row }, 201);
     }
 
     const created = await db.tx(async (q) => {
