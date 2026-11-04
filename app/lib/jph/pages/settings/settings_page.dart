@@ -868,7 +868,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                           const SizedBox(height: 8),
                           Text(
-                            'JPH © ${DateTime.now().year}',
+                            'Value Attendance © ${DateTime.now().year}',
                             style: TextStyle(
                               fontSize: 10,
                               color: Colors.grey[500],

@@ -70,14 +70,14 @@ class SupportPolicyPage extends StatelessWidget {
 
   void _shareContactInfo(BuildContext context) {
     final shareText = '''
-JPH Attendance Support:
+Value Attendance Support:
 📧 Email: $supportEmail
 🌐 Website: $websiteUrl
 📞 Support: $supportPhone
 💬 WhatsApp: $whatsappNumber
 ''';
 
-    Share.share(shareText, subject: 'JPH Attendance Support Information');
+    Share.share(shareText, subject: 'Value Attendance Support Information');
   }
 
   @override
@@ -310,7 +310,7 @@ JPH Attendance Support:
           isDark: isDark,
           icon: Icons.language,
           title: AppLocalizations.of(context, 'website') ?? 'الموقع الإلكتروني',
-          subtitle: 'JPH ATTENDANCE',
+          subtitle: 'VALUE ATTENDANCE',
           color: Colors.green,
           onTap: () => _launchUrl(websiteUrl),
           onCopy: () => _copyToClipboard(context, websiteUrl, 'Website'),

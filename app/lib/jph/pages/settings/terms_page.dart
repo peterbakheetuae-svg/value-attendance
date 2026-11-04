@@ -96,7 +96,7 @@ ${AppLocalizations.of(context, 'terms_title') ?? 'الشروط والأحكام'
 ${AppLocalizations.of(context, 'service_provider') ?? 'مزود الخدمة'}: $serviceProvider
 ${AppLocalizations.of(context, 'last_updated') ?? 'آخر تحديث'}: $lastUpdated
 
-${AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق JPH...'}
+${AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق Value...'}
 ${AppLocalizations.of(context, 'app_usage_text') ?? 'يُمنع النسخ أو التعديل...'}
 ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على المستخدمين الحفاظ على أمان أجهزتهم...'}
 ''';
@@ -180,7 +180,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           isDark: isDark,
                           icon: Icons.check_circle,
                           title: AppLocalizations.of(context, 'acceptance_of_terms') ?? 'القبول',
-                          content: AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق JPH...',
+                          content: AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق Value...',
                           color: Colors.green,
                         ),
 

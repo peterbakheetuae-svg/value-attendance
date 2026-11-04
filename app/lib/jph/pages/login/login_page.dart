@@ -588,7 +588,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
     return Center(
       child: Column(
         children: [
-          Text(AppLocalizations.of(context, 'app_name') ?? 'JPH Attendance', style: TextStyle(color: subduedTextColor, fontWeight: FontWeight.w500, fontSize: 14)),
+          Text(AppLocalizations.of(context, 'app_name') ?? 'Value Attendance', style: TextStyle(color: subduedTextColor, fontWeight: FontWeight.w500, fontSize: 14)),
           const SizedBox(height: 8),
           Text('© ${DateTime.now().year}', style: TextStyle(color: subduedTextColor.withOpacity(0.6), fontSize: 12)),
         ],

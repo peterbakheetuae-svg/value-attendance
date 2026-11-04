@@ -1,68 +1,137 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'core/api.dart';
-import 'core/app_settings.dart';
 import 'core/i18n.dart';
 import 'core/session.dart';
-import 'design/dark_theme.dart';
-import 'design/glass.dart';
-import 'design/light_theme.dart';
+import 'jph/l10n/app_localizations.dart';
+import 'jph/pages/dashboard_employees/dashboard_page_team.dart';
+import 'jph/pages/dashboard_employers/dashboard_page.dart';
+import 'jph/pages/login/login_page.dart';
+import 'jph/services/app_controller.dart';
+import 'jph/services/jph_bridge.dart';
+import 'jph/services/notification_service.dart';
+import 'jph/services/session_service.dart';
+import 'jph/theme/dark_theme.dart';
+import 'jph/theme/light_theme.dart';
 import 'pages/change_password_page.dart';
-import 'pages/home_shell.dart';
-import 'pages/login_page.dart';
 
+/// Value Attendance — the original JPH Attendance app (screens, design, assets unchanged),
+/// running on the Value Attendance API through `jph/services/api_service.dart`.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // strings used by the few added screens (payroll rules, tracking, PIN)
   await I18n.load();
-  final settings = AppSettings();
-  await settings.restore();
+
   final session = Session(ApiClient());
+  JphBridge.session = session;
+  await session.restore();
+
+  try {
+    await NotificationService().initialize();
+  } catch (_) {}
+
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  ));
+
+  final appController = AppController();
+  await appController.initialize();
+
   runApp(MultiProvider(
     providers: [
-      ChangeNotifierProvider.value(value: settings),
+      ChangeNotifierProvider.value(value: appController),
       ChangeNotifierProvider.value(value: session),
     ],
-    child: const ValueAttendanceApp(),
+    child: const JPHBootstrap(),
   ));
-  session.restore();
 }
 
-class ValueAttendanceApp extends StatelessWidget {
-  const ValueAttendanceApp({super.key});
+class JPHBootstrap extends StatefulWidget {
+  const JPHBootstrap({super.key});
+  @override
+  State<JPHBootstrap> createState() => _JPHBootstrapState();
+}
+
+class _JPHBootstrapState extends State<JPHBootstrap> {
+  Map<String, dynamic>? _session;
+  bool loading = true;
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    var s = await SessionService.get();
+    // a saved screen session without a valid API session means: sign in again
+    if (s != null && !JphBridge.session.signedIn) {
+      await SessionService.logout();
+      s = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _session = s;
+      loading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<AppSettings>();
-    return MaterialApp(
-      title: 'Value Attendance',
-      debugShowCheckedModeBanner: false,
-      theme: LightTheme.theme,
-      darkTheme: DarkTheme.theme,
-      themeMode: settings.themeMode,
-      locale: settings.locale,
-      supportedLocales: const [Locale('ar'), Locale('en')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      builder: (ctx, child) => Directionality(textDirection: I18n.direction, child: child ?? const SizedBox()),
-      home: const _Root(),
+    if (loading) {
+      return const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
+    return Consumer<AppController>(
+      builder: (context, appController, _) {
+        I18n.lang = appController.languageCode == 'ar' ? 'ar' : 'en';
+        return MaterialApp(
+          title: 'Value Attendance',
+          debugShowCheckedModeBanner: false,
+          locale: appController.locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('ar'), Locale('en'), Locale('ur'), Locale('hi')],
+          theme: LightTheme.theme,
+          darkTheme: DarkTheme.theme,
+          themeMode: appController.themeMode,
+          navigatorKey: navigatorKey,
+          home: _home(),
+        );
+      },
     );
   }
-}
 
-class _Root extends StatelessWidget {
-  const _Root();
-  @override
-  Widget build(BuildContext context) {
-    final s = context.watch<Session>();
-    if (s.restoring) {
-      return const Material(child: AppBackground(child: LoadingState()));
+  Widget _home() => Consumer<Session>(builder: (_, session, __) => _route(session));
+
+  Widget _route(Session session) {
+    final s = _session;
+    if (s == null || !session.signedIn) return const LoginPage();
+    final uid = (s['uid'] ?? '').toString();
+    final name = (s['name'] ?? '').toString();
+    final role = (s['role'] ?? '').toString();
+    final photo = (s['photo'] ?? '').toString();
+    if (uid.isEmpty) return const LoginPage();
+    if (session.mustChangePassword) return const ChangePasswordPage(forced: true);
+    final validity = (s['validity'] ?? '').toString().toLowerCase();
+    if (validity == 'admin' || validity == 'super admin') {
+      return DashboardPage(uid: uid, name: name, role: role, photo: photo);
     }
-    if (!s.signedIn) return const LoginPage();
-    if (s.mustChangePassword) return const ChangePasswordPage(forced: true);
-    return const HomeShell();
+    return DashboardPageTeam(uid: uid, name: name, role: role, photo: photo);
   }
 }

@@ -46,7 +46,7 @@ class AppLocalizations {
     switch (locale.languageCode) {
       case 'ar':
         return {
-          'app_name': 'JPH حضور وانصراف',
+          'app_name': 'Value حضور وانصراف',
           'welcome': 'مرحباً',
           'loading': 'جاري التحميل...',
           'login': 'تسجيل الدخول',
@@ -109,7 +109,7 @@ class AppLocalizations {
 
       default: // الإنجليزية (en)
         return {
-          'app_name': 'JPH Attendance',
+          'app_name': 'Value Attendance',
           'welcome': 'Welcome',
           'loading': 'Loading...',
           'login': 'Login',
