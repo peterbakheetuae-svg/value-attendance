@@ -84,6 +84,18 @@ function shape(a: any, today: string) {
     schedule: { start: a.schedule_start, end: a.schedule_end }, ...metrics(a, today) };
 }
 
+const SELFIE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
+function selfieFrom(b: Record<string, unknown>): { buf: Buffer; mime: string } | null {
+  if (b.selfie === undefined || b.selfie === null) return null;
+  if (typeof b.selfie !== 'string' || !/^[A-Za-z0-9+/=\s]+$/.test(b.selfie)) throw invalid('selfie must be base64', { field: 'selfie' });
+  const mime = typeof b.selfieMime === 'string' ? b.selfieMime : 'image/jpeg';
+  if (!SELFIE_MIME.has(mime)) throw invalid('selfie must be a JPEG, PNG or WebP image', { field: 'selfieMime' });
+  const buf = Buffer.from(b.selfie, 'base64');
+  if (!buf.length) throw invalid('selfie is empty', { field: 'selfie' });
+  if (buf.length > 400_000) throw invalid('selfie is too large (max 400 KB)', { field: 'selfie' });
+  return { buf, mime };
+}
+
 function breakShape(b: any, now: Date) {
   const end = b.ended_at ? new Date(b.ended_at) : now;
   const minutes = Math.max(0, Math.floor((end.getTime() - new Date(b.started_at).getTime()) / 60000));
@@ -103,6 +115,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       if (dup) throw conflict('You already checked in today');
       const g = await geofence(q, b);
       const s = await scheduleFor(q, a.id);
+      const cfg = await one(q, `SELECT selfie_required, selfie_retention_days FROM company_settings`);
+      const selfie = selfieFrom(b);
+      if (cfg.selfie_required && !selfie) throw new AppError('unprocessable', 'A selfie is required to check in', { reason: 'selfie_required' });
       const inserted = await one(q, `
         INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
           overtime_enabled, overtime_min_minutes, check_in_at, check_in_lat, check_in_lng, check_in_accuracy_m,
@@ -110,7 +125,13 @@ export const attendanceModule: Module = (r, { db, clock }) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$9) RETURNING *`,
         [a.id, l.date, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes, s.overtime_enabled,
          s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status]);
-      await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status });
+      if (selfie) {
+        await q.query(`INSERT INTO attendance_selfies (attendance_id, employee_id, image, mime, taken_at) VALUES ($1,$2,$3,$4,$5)`,
+          [inserted.id, a.id, selfie.buf, selfie.mime, now]);
+      }
+      // retention: old selfies are removed as part of normal use (no scheduler needed on the free plan)
+      await q.query(`DELETE FROM attendance_selfies WHERE taken_at < $1::timestamptz - make_interval(days => $2)`, [now, cfg.selfie_retention_days]);
+      await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status, selfie: !!selfie });
       return inserted;
     });
     return ok({ attendance: shape(row, l.date) }, 201);
@@ -176,12 +197,13 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     const row = await one(db, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
     const s = await scheduleFor(db, a.id);
     const holiday = await one(db, `SELECT name FROM holidays WHERE day = $1`, [l.date]);
-    const settings = await one(db, `SELECT gps_required, break_minutes FROM company_settings`);
+    const settings = await one(db, `SELECT gps_required, break_minutes, selfie_required FROM company_settings`);
     const br = row ? await one(db, `SELECT * FROM attendance_breaks WHERE attendance_id = $1`, [row.id]) : undefined;
     return ok({ date: l.date, attendance: row ? shape(row, l.date) : null,
       break: br ? breakShape(br, clock()) : null, breakAllowedMinutes: settings.break_minutes,
       schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
-      isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required });
+      isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required,
+      selfieRequired: settings.selfie_required });
   });
 
   /** Today's board for managers/HR/owner. */
@@ -201,6 +223,15 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       attendance: x.id ? shape(x, l.date) : null,
     }));
     return ok({ date: l.date, board });
+  });
+
+  r.get('/attendance/:id/selfie', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const row = await one(db, `SELECT employee_id, image, mime FROM attendance_selfies WHERE attendance_id = $1`, [req.params.id]);
+    if (!row) throw notFound('No selfie (or it was deleted after the retention period)');
+    if (row.employee_id !== a.id) await assertCanRead(db, a, row.employee_id, 'attendance');
+    return { binary: row.image, contentType: row.mime };
   });
 
   r.get('/attendance', async (req) => {

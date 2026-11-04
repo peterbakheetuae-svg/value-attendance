@@ -42,7 +42,7 @@ export type DayStatus =
 
 export interface DayEntry {
   date: string; status: DayStatus; holidayName?: string; absenceType?: string;
-  attendance?: { id: string; checkIn: Date; checkOut: Date | null; corrected: boolean } & DayMetrics;
+  attendance?: { id: string; checkIn: Date; checkOut: Date | null; corrected: boolean; hasSelfie: boolean } & DayMetrics;
   hourlyPermissionMinutes: number;
 }
 
@@ -69,7 +69,8 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
   const days = daysInMonth(period);
   const first = days[0], last = days[days.length - 1];
   const [att, hol, abs, hourly] = await Promise.all([
-    q.query<AttendanceRow>(`SELECT * FROM attendance WHERE employee_id = $1 AND work_date BETWEEN $2 AND $3`, [employeeId, first, last]),
+    q.query<AttendanceRow & { has_selfie: boolean }>(`SELECT a.*, EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
+                                FROM attendance a WHERE a.employee_id = $1 AND a.work_date BETWEEN $2 AND $3`, [employeeId, first, last]),
     q.query(`SELECT day, name FROM holidays WHERE day BETWEEN $1 AND $2`, [first, last]),
     q.query(`SELECT start_date, end_date, absence_type FROM requests
               WHERE employee_id = $1 AND type = 'full_day_absence' AND status = 'approved'
@@ -100,7 +101,7 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
     if (a) {
       const m = metrics(a, today);
       entry.status = 'present';
-      entry.attendance = { id: a.id, checkIn: a.check_in_at, checkOut: a.check_out_at, corrected: a.corrected, ...m };
+      entry.attendance = { id: a.id, checkIn: a.check_in_at, checkOut: a.check_out_at, corrected: a.corrected, hasSelfie: (a as any).has_selfie === true, ...m };
     }
     if (d > today) entry.status = a ? entry.status : 'future';
     else if (emp && d < emp.joining_date) entry.status = 'before_joining';

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../core/api.dart';
 import '../core/async_view.dart';
@@ -127,7 +129,15 @@ class _FingerprintHomeState extends State<FingerprintHome> {
     }
     try {
       final needsGps = _today?['gpsRequired'] == true && mode == DashMode.check;
-      await s.api.post(path, needsGps ? await _location() : <String, dynamic>{});
+      final body = needsGps ? await _location() : <String, dynamic>{};
+      if (path == '/attendance/check-in' && _today?['selfieRequired'] == true) {
+        final shot = await ImagePicker().pickImage(source: ImageSource.camera, preferredCameraDevice: CameraDevice.front,
+            maxWidth: 480, maxHeight: 640, imageQuality: 60);
+        if (shot == null) { if (mounted) showSnack(context, t('selfie_needed'), error: true); return; }
+        body['selfie'] = base64Encode(await shot.readAsBytes());
+        body['selfieMime'] = 'image/jpeg';
+      }
+      await s.api.post(path, body);
       if (!mounted) return;
       showSnack(context, okMsg);
       await _load();

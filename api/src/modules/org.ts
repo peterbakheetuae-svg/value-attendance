@@ -197,7 +197,7 @@ export const orgModule: Module = (r, { db }) => {
     const s = await one(db, `UPDATE company_settings SET company_name_ar=$1, company_name_en=$2, gps_required=$3,
       request_backdate_days=$4, break_minutes=$5, payroll_auto_deductions=$6, day_divisor=$7, deduction_mode=$8,
       late_tiers=$9::jsonb, early_tiers=$10::jsonb, absence_penalty_days=$11, allow_pin=$12, device_binding=$13,
-      updated_at = now() RETURNING *`, [
+      selfie_required=$14, selfie_retention_days=$15, updated_at = now() RETURNING *`, [
       str(b, 'companyNameAr', { optional: true, min: 2, max: 120 }) ?? before.company_name_ar,
       str(b, 'companyNameEn', { optional: true, min: 2, max: 120 }) ?? before.company_name_en,
       bool(b, 'gpsRequired') ?? before.gps_required,
@@ -210,7 +210,9 @@ export const orgModule: Module = (r, { db }) => {
       JSON.stringify(tiers(b, 'earlyTiers') ?? before.early_tiers),
       num(b, 'absencePenaltyDays', { optional: true, min: 0, max: 5 }) ?? before.absence_penalty_days,
       bool(b, 'allowPin') ?? before.allow_pin,
-      bool(b, 'deviceBinding') ?? before.device_binding]);
+      bool(b, 'deviceBinding') ?? before.device_binding,
+      bool(b, 'selfieRequired') ?? before.selfie_required,
+      num(b, 'selfieRetentionDays', { optional: true, int: true, min: 1, max: 365 }) ?? before.selfie_retention_days]);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s);
     return ok({ settings: s });
   });

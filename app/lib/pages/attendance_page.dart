@@ -256,9 +256,23 @@ class _DayRow extends StatelessWidget {
                 child: Text('${Fmt.time(a['checkIn'])} → ${Fmt.time(a['checkOut'])}   ·   ${Fmt.minutes(a['workedMinutes'])}', style: const TextStyle(fontSize: 13))),
           ]),
         ),
+        if (a?['hasSelfie'] == true)
+          IconButton(tooltip: t('selfie'), icon: const Icon(Icons.face_retouching_natural_rounded), onPressed: () => showSelfie(context, a!.s('id'))),
         if (canCorrect && status != 'before_joining')
           IconButton(tooltip: t('correct_attendance'), icon: const Icon(Icons.edit_calendar_rounded), onPressed: onCorrect),
       ]),
     );
+  }
+}
+
+
+/// Check-in selfie (kept for the retention period set by the company).
+Future<void> showSelfie(BuildContext context, String attendanceId) async {
+  try {
+    final bytes = await context.read<Session>().api.bytes('/attendance/$attendanceId/selfie');
+    if (!context.mounted) return;
+    await showGlassSheet(context, title: t('selfie'), child: ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.memory(bytes, fit: BoxFit.contain)));
+  } catch (e) {
+    if (context.mounted) showSnack(context, errorText(e), error: true);
   }
 }
