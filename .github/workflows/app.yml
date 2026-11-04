@@ -45,6 +45,10 @@ jobs:
         run: flutter build apk --release --dart-define=API_BASE_URL=$API_BASE_URL
       - uses: actions/upload-artifact@v4
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
+      - name: Build Android APK — original JPH screens (preview)
+        run: flutter build apk --release -t lib/main_jph.dart --dart-define=API_BASE_URL=$API_BASE_URL
+      - uses: actions/upload-artifact@v4
+        with: { name: value-attendance-jph-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-pages-artifact@v3
         with: { path: app/build/web }
   deploy:
