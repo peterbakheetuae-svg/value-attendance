@@ -309,6 +309,30 @@ class JphRouter {
           await _api.post('/evaluations/${p['id']}/publish', {});
           return _ok({'message': 'تم نشر التقييم وتبليغ الموظف'});
 
+        // ---- employee documents + custody (Phase 5)
+        case 'stage_document':
+          final r = await _api.post('/documents/staged', {'kind': p['kind'], 'fileName': p['fileName'], 'mime': p['mime'], 'data': p['data']});
+          return _ok({'id': r['id']});
+        case 'employee_documents':
+          return _ok((await _api.get('/employees/${await _id(p['id'] ?? p['uid'])}/documents')).cast<String, dynamic>());
+        case 'upload_document':
+          await _api.post('/employees/${await _id(p['id'] ?? p['uid'])}/documents',
+              {'kind': p['kind'], 'fileName': p['fileName'], 'mime': p['mime'], 'data': p['data']});
+          return _ok({'message': 'تم رفع المستند (النسخة القديمة محفوظة في السجل)'});
+        case 'employee_custody':
+          return _ok((await _api.get('/employees/${await _id(p['id'] ?? p['uid'])}/custody')).cast<String, dynamic>());
+        case 'custody_assign':
+          await _api.post('/employees/${await _id(p['id'] ?? p['uid'])}/custody', {
+            for (final k in const ['assetName', 'assetType', 'description', 'serialNo', 'assignedOn', 'condition', 'notes'])
+              if (p[k] != null && '${p[k]}'.isNotEmpty) k: p[k],
+          });
+          return _ok({'message': 'تم تسليم العهدة'});
+        case 'custody_close':
+          await _api.post('/custody/${p['itemId']}/close', {
+            'outcome': p['outcome'], if (p['condition'] != null) 'condition': p['condition'], if ((p['notes'] ?? '').toString().isNotEmpty) 'notes': p['notes'],
+          });
+          return _ok({'message': p['outcome'] == 'lost' ? 'تم تسجيل العهدة مفقودة' : 'تم استلام العهدة'});
+
         case 'getLeaveRequests':
           return await _leaves(mineOnly: true);
         case 'getAllLeaveRequests':
@@ -851,6 +875,7 @@ class JphRouter {
       if ((p['password'] ?? '').toString().trim().isNotEmpty) 'password': p['password'].toString().trim(),
       if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch((p['joinDate'] ?? '').toString())) 'joiningDate': p['joinDate'],
       'legacyFields': _legacyOf(p),
+      if (p['documents'] is Map) 'documents': p['documents'],
     };
     final sal = num.tryParse('${p['startSalary'] ?? p['salary'] ?? ''}');
     if (sal != null && sal > 0 && _has('employee.salary_manage')) body['baseSalary'] = sal;

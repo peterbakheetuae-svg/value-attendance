@@ -14,6 +14,7 @@ import '../attendance/attendance_report_page.dart';
 import '../dashboard_employers/dashboard_page.dart';
 import '../settings/settings_page.dart';
 import 'edit_profile_page.dart';
+import '../../widgets/employee_files.dart';
 
 class ProfilePage extends StatefulWidget {
   final String uid;
@@ -356,6 +357,10 @@ class _ProfilePageState extends State<ProfilePage> {
                         textColor,
                       ),
                     ],
+
+                    // own documents + custody (read-only for the employee)
+                    EmployeeDocumentsSection(employeeId: widget.uid),
+                    EmployeeCustodySection(employeeId: widget.uid),
 
                     const SizedBox(height: 100),
                   ],

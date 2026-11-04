@@ -11,7 +11,7 @@ class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
 
   static const String lastUpdated = 'ديسمبر 2024';
-  static const String privacyEmail = 'JPH_ts@outlook.com';
+  static const String privacyEmail = 'info@valueaqar.com';
 
   Future<void> _sendEmail() async {
     final uri = Uri.parse('mailto:$privacyEmail');

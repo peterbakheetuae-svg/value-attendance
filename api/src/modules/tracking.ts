@@ -37,6 +37,8 @@ export async function sweep(q: Q, now: Date) {
      WHERE last_sweep_at IS NULL OR last_sweep_at < $1::timestamptz - make_interval(secs => $2)
      RETURNING checkin_reminder_minutes, tracking_enabled, tracking_stale_minutes`, [now, SWEEP_EVERY_MS / 1000]);
   if (!claimed) return;
+  // abandoned staged uploads (employee never created) are discarded after a day
+  await q.query(`DELETE FROM employee_documents WHERE employee_id IS NULL AND created_at < $1::timestamptz - interval '1 day'`, [now]);
   const l = local(now);
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`

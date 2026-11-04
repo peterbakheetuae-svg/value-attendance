@@ -38,7 +38,11 @@ async function ensureTemplate() {
         await c.query(`CREATE DATABASE ${TEMPLATE}`);
         const u = new URL(ADMIN_URL); u.pathname = '/' + TEMPLATE;
         const db = createDb(u.toString());
-        try { await migrate(db); } finally { await db.end(); }
+        try {
+          await migrate(db);
+          // most suites create employees without files; the documents suite turns this back on
+          await db.query(`UPDATE company_settings SET require_employee_documents = false`);
+        } finally { await db.end(); }
       }
       await c.query(`SELECT pg_advisory_unlock(424242)`);
     } finally { c.release(); await p.end(); }

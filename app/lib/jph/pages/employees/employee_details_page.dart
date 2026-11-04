@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
 import '../../services/api_service.dart';
+import '../../widgets/employee_files.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -814,6 +815,10 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 ],
                               ),
                             ),
+
+                            // documents + custody (each section shows only if the viewer may see it)
+                            EmployeeDocumentsSection(employeeId: '${_employeeData['id'] ?? _employeeData['uid'] ?? ''}'),
+                            EmployeeCustodySection(employeeId: '${_employeeData['id'] ?? _employeeData['uid'] ?? ''}'),
 
                             const SizedBox(height: 32),
 

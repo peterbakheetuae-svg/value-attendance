@@ -12,10 +12,11 @@ class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
 
   // روابط التواصل
-  static const String supportEmail = 'JPH_ts@outlook.com';
-  static const String websiteUrl = 'https://jph-attendance.com';
-  static const String supportPhone = '+971566090772';
-  static const String whatsappNumber = '+971529285353';
+  // official Value contact (the only support phone / email shown in the app)
+  static const String supportEmail = 'info@valueaqar.com';
+  static const String websiteUrl = 'https://valueaqar.com';
+  static const String supportPhone = '01080660100';
+  static const String whatsappNumber = '01080660100';
 
   // وظائف لفتح الروابط
   Future<void> _launchUrl(String url) async {
@@ -46,7 +47,8 @@ class SupportPolicyPage extends StatelessWidget {
   }
 
   Future<void> _openWhatsApp() async {
-    final url = 'https://wa.me/${whatsappNumber.replaceAll('+', '')}';
+    // Egyptian mobile → international form for WhatsApp (01080660100 → 201080660100)
+    final url = 'https://wa.me/2$whatsappNumber';
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);

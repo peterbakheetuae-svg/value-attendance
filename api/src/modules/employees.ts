@@ -66,6 +66,26 @@ function decodeBase64(s: unknown, field: string): Buffer {
   return buf;
 }
 
+export const REQUIRED_DOCS = ['acknowledgment', 'job_description', 'national_id'] as const;
+const DOC_TITLES: Record<string, string> = { acknowledgment: 'إقرار وتعهد الموظف', job_description: 'الوصف الوظيفي', national_id: 'صورة إثبات الشخصية' };
+
+/** Validate an uploaded file: declared type must match the kind AND the real file signature. */
+function readDocument(b: Record<string, unknown>, kind: string) {
+  const mime = reqStr(b, 'mime');
+  if (!MIME_OK.has(mime)) throw invalid('Only JPEG, PNG, WEBP or PDF files are accepted', { field: 'mime' });
+  if ((kind === 'acknowledgment' || kind === 'job_description') && mime !== 'application/pdf') throw invalid('This document must be a PDF file', { field: 'mime' });
+  if (kind === 'national_id' && !mime.startsWith('image/')) throw invalid('The identity document must be an image', { field: 'mime' });
+  const buf = decodeBase64(b.data, 'data');
+  const sig = buf.subarray(0, 12);
+  const real = sig.subarray(0, 4).toString('latin1') === '%PDF' ? 'application/pdf'
+    : sig[0] === 0xff && sig[1] === 0xd8 && sig[2] === 0xff ? 'image/jpeg'
+    : sig.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'image/png'
+    : sig.subarray(0, 4).toString('latin1') === 'RIFF' && sig.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
+  if (real !== mime) throw invalid('The file content does not match its type', { field: 'data' });
+  const fileName = reqStr(b, 'fileName', { max: 120 }).replace(/[\\/\u0000-\u001f]/g, '_');
+  return { kind, mime, buf, fileName, title: str(b, 'title', { optional: true, max: 120 }) ?? DOC_TITLES[kind] ?? fileName };
+}
+
 /** Free-form fields from the original JPH employee form (flat strings/numbers/booleans, ≤ 40 keys). */
 function legacyFields(v: unknown): Record<string, string | number | boolean | null> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw invalid('legacyFields must be an object', { field: 'legacyFields' });
@@ -160,6 +180,17 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const salary = num(b, 'baseSalary', { optional: true, min: 0, max: 10_000_000 });
     if (salary !== undefined && !has(a, 'employee.salary_manage')) throw forbidden('You cannot set salary information');
     await validateRefs(db, f);
+    // required documents (uploaded first via POST /documents/staged) — checked before anything is created
+    const docIn = b.documents === undefined || b.documents === null ? {} : obj(b.documents);
+    const docIds: Record<string, string> = {};
+    for (const [k, field] of [['acknowledgment', 'acknowledgment'], ['job_description', 'jobDescription'], ['national_id', 'nationalId']] as const) {
+      const v = docIn[field];
+      if (v !== undefined && v !== null && v !== '') docIds[k] = uuid(docIn, field)!;
+    }
+    const missingDocs = REQUIRED_DOCS.filter((k) => !docIds[k]);
+    if (missingDocs.length && (await one(db, `SELECT require_employee_documents AS r FROM company_settings`)).r) {
+      throw invalid('Attach the acknowledgment PDF, the job description PDF and the ID image', { field: 'documents', missing: missingDocs });
+    }
     let usePin = await pinFor(db, b.loginKind, role);
     // the original JPH form lets HR type the first password/PIN
     const typed = typeof b.password === 'string' && b.password.trim() ? b.password.trim() : null;
@@ -184,9 +215,14 @@ export const employeesModule: Module = (r, { db, clock }) => {
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
+      for (const [k, docId] of Object.entries(docIds)) {
+        const d = await one(q, `UPDATE employee_documents SET employee_id = $1, staged_by = NULL
+                                 WHERE id = $2 AND employee_id IS NULL AND staged_by = $3 AND kind = $4 RETURNING id`, [e.id, docId, a.id, k]);
+        if (!d) throw invalid('An attached document was not found — upload it again', { field: 'documents', kind: k });
+      }
       const year = Number((clock().toISOString()).slice(0, 4));
       await q.query(`INSERT INTO leave_balances (employee_id, year, updated_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [e.id, year, a.id]);
-      await audit(q, a.id, 'employee.create', 'employee', e.id, undefined, { ...f, role, position: pos.positionKey, salarySet: salary !== undefined });
+      await audit(q, a.id, 'employee.create', 'employee', e.id, undefined, { ...f, role, position: pos.positionKey, salarySet: salary !== undefined, documents: docIds });
       return e;
     });
     // the temporary password is shown exactly once; the employee must change it at first sign-in
@@ -356,42 +392,72 @@ export const employeesModule: Module = (r, { db, clock }) => {
   });
 
   // ---------------------------------------------------------------- documents
+  // Required employee documents (acknowledgment PDF, job description PDF, national-ID image) + free attachments.
+  // Private: served only through the authenticated /documents/:id endpoint, never through public URLs.
+  const canReadDocs = (a: Actor, employeeId: string) => employeeId === a.id || has(a, 'documents.read') || has(a, 'employee.read_all');
+  const canManageDocs = (a: Actor) => has(a, 'documents.manage') || has(a, 'employee.manage');
+
   r.get('/employees/:id/documents', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    if (req.params.id !== a.id && !has(a, 'employee.read_all')) throw notFound('Employee not found');
-    const rows = await db.query(`SELECT id, title, file_name, mime, size_bytes, created_at FROM employee_documents
-                                  WHERE employee_id = $1 ORDER BY created_at DESC`, [req.params.id]);
-    return ok({ documents: rows.rows });
+    if (!canReadDocs(a, req.params.id)) throw notFound('Employee not found');
+    const rows = await db.query(`SELECT d.id, d.kind, d.title, d.file_name, d.mime, d.size_bytes, d.created_at, d.replaced_at, d.replaced_by,
+                                        u.full_name AS uploaded_by_name
+                                   FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by
+                                  WHERE d.employee_id = $1 ORDER BY d.created_at DESC`, [req.params.id]);
+    const current: Record<string, unknown> = {};
+    for (const k of REQUIRED_DOCS) current[k] = rows.rows.find((d) => d.kind === k && !d.replaced_at) ?? null;
+    return ok({ documents: rows.rows, required: current, missing: REQUIRED_DOCS.filter((k) => !current[k]), canManage: canManageDocs(a) });
   });
 
+  /** Stage a required document before the employee exists (claimed by POST /employees). */
+  r.post('/documents/staged', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManageDocs(a)) throw forbidden();
+    const b = obj(req.body);
+    const f = readDocument(b, oneOf(b, 'kind', REQUIRED_DOCS)!);
+    const d = await one(db, `INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by, staged_by)
+                             VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`, [f.kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id]);
+    return ok({ id: d.id }, 201);
+  });
+
+  /** Upload / replace a document of an existing employee (replacing keeps the old file as history). */
   r.post('/employees/:id/documents', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    if (req.params.id !== a.id && !has(a, 'employee.manage')) throw forbidden();
     const b = obj(req.body);
-    const mime = reqStr(b, 'mime');
-    if (!MIME_OK.has(mime)) throw invalid('Only JPEG, PNG, WEBP or PDF files are accepted', { field: 'mime' });
-    const buf = decodeBase64(b.data, 'data');
-    const fileName = reqStr(b, 'fileName', { max: 120 });
-    const title = str(b, 'title', { optional: true, max: 120 }) ?? fileName;
-    const d = await one(db, `INSERT INTO employee_documents (employee_id, title, file_name, mime, size_bytes, content, uploaded_by)
-                             VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [req.params.id, title, fileName, mime, buf.length, buf, a.id]);
-    await audit(db, a.id, 'employee.document_upload', 'employee', req.params.id, undefined, { documentId: d.id, title });
-    return ok({ id: d.id }, 201);
+    const kind = b.kind === undefined ? 'other' : oneOf(b, 'kind', [...REQUIRED_DOCS, 'other'] as const)!;
+    // employees may attach their own files to requests; required documents are HR/owner only
+    if (kind !== 'other' || req.params.id !== a.id) { if (!canManageDocs(a)) throw forbidden(); }
+    if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1`, [req.params.id]))) throw notFound();
+    const f = readDocument(b, kind);
+    const id = await db.tx(async (q) => {
+      const prev = kind === 'other' ? null : await one(q, `SELECT id FROM employee_documents WHERE employee_id = $1 AND kind = $2
+                                                            AND replaced_at IS NULL FOR UPDATE`, [req.params.id, kind]);
+      if (prev) await q.query(`UPDATE employee_documents SET replaced_at = now() WHERE id = $1`, [prev.id]);
+      const d = await one(q, `INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [req.params.id, kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id]);
+      if (prev) await q.query(`UPDATE employee_documents SET replaced_by = $2 WHERE id = $1`, [prev.id, d.id]);
+      await audit(q, a.id, prev ? 'employee.document_replace' : 'employee.document_upload', 'employee', req.params.id, prev ? { documentId: prev.id } : undefined,
+        { documentId: d.id, kind, title: f.title, size: f.buf.length });
+      return d.id;
+    });
+    return ok({ id }, 201);
   });
 
   r.get('/documents/:id', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const d = await one(db, `SELECT employee_id, file_name, mime, content FROM employee_documents WHERE id = $1`, [req.params.id]);
+    const d = await one(db, `SELECT employee_id, staged_by, file_name, mime, content FROM employee_documents WHERE id = $1`, [req.params.id]);
     if (!d) throw notFound();
-    if (d.employee_id !== a.id && !has(a, 'employee.read_all')) {
+    if (d.employee_id === null) { if (d.staged_by !== a.id) throw notFound(); }
+    else if (!canReadDocs(a, d.employee_id)) {
       // a request approver may open an attachment of a request they can see
       const viaReq = await one(db, `SELECT employee_id FROM requests WHERE attachment_id = $1`, [req.params.id]);
       if (!viaReq) throw notFound();
       await assertCanRead(db, a, viaReq.employee_id, 'request');
     }
+    if (d.employee_id && d.employee_id !== a.id) await audit(db, a.id, 'employee.document_view', 'employee', d.employee_id, undefined, { documentId: req.params.id });
     return { binary: d.content, contentType: d.mime, fileName: d.file_name };
   });
 };

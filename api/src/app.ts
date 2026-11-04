@@ -15,6 +15,7 @@ import { trackingModule } from './modules/tracking.ts';
 import { legacyModule } from './modules/legacy.ts';
 import { outingsModule } from './modules/outings.ts';
 import { companyModule } from './modules/company.ts';
+import { custodyModule } from './modules/custody.ts';
 
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
@@ -28,6 +29,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule]) m(r, ctx);
   return r;
 }

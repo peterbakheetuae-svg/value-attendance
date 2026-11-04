@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
 import '../../services/api_service.dart';
+import '../../widgets/employee_files.dart';
+import '../../widgets/glass_ui_widgets.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -49,6 +51,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   // job positions come from the server (new positions appear here automatically)
   List<Map<String, dynamic>> _positions = [];
   String? _selectedPosition;
+  // required documents (uploaded with the new employee)
+  final Map<String, PickedDoc?> _docs = {for (final k in docTitles.keys) k: null};
   String? _selectedAccounting;
   String? _selectedManagedBy;
   String? _selectedLeaveDay;
@@ -195,6 +199,9 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   // التحقق من صحة البيانات
   String? _validateForm() {
+    if (_docs.values.any((d) => d == null)) {
+      return 'لازم ترفع الإقرار (PDF) والوصف الوظيفي (PDF) وصورة إثبات الشخصية';
+    }
     if (_nameController.text.trim().isEmpty) {
       return 'الاسم مطلوب';
     }
@@ -256,8 +263,23 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         }
       }
 
+      // upload the three documents first; the server attaches them to the employee atomically
+      final docIds = <String, String>{};
+      for (final e in _docs.entries) {
+        final r = await ApiService.post({'action': 'stage_document', 'kind': e.key, 'fileName': e.value!.fileName, 'mime': e.value!.mime, 'data': e.value!.base64});
+        if (r['success'] != true) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${docTitles[e.key]}: ${r['message'] ?? ''}'), backgroundColor: Colors.red));
+          }
+          return;
+        }
+        docIds[e.key] = '${r['id']}';
+      }
+
       final newEmployeeData = {
         'uid': newUid, // إضافة UID المولد
+        'documents': {'acknowledgment': docIds['acknowledgment'], 'jobDescription': docIds['job_description'], 'nationalId': docIds['national_id']},
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim().isEmpty ? '' : _emailController.text.trim(),
@@ -734,6 +756,34 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                                   ),
                                 ],
                               ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // المستندات المطلوبة
+                            Text(
+                              'المستندات المطلوبة *',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
+                            ),
+                            const SizedBox(height: 12),
+                            GlassCard(
+                              child: Column(children: [
+                                for (final k in docTitles.keys)
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(_docs[k] == null ? Icons.upload_file_rounded : Icons.check_circle_rounded,
+                                        color: _docs[k] == null ? Colors.orange : Colors.green),
+                                    title: Text(docTitles[k]!),
+                                    subtitle: Text(_docs[k]?.fileName ?? (k == 'national_id' ? 'صورة JPG / PNG' : 'ملف PDF'), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    trailing: TextButton(
+                                      onPressed: () async {
+                                        final f = await pickDocument(context, k);
+                                        if (f != null) setState(() => _docs[k] = f);
+                                      },
+                                      child: Text(_docs[k] == null ? 'اختيار' : 'تغيير'),
+                                    ),
+                                  ),
+                              ]),
                             ),
 
                             const SizedBox(height: 32),
