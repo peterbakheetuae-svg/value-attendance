@@ -34,7 +34,7 @@ class TodayStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'late_time'),
-                value: (sheetData[\"lateTime\"] ?? \"00:00\").toString(),
+                value: (sheetData["lateTime"] ?? "00:00").toString(),
               ),
             ),
           ],

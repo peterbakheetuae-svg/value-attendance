@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
+import '../../l10n/app_localizations.dart';
 
 class TodayStats extends StatelessWidget {
   final Map<String, dynamic> sheetData;
@@ -33,7 +34,7 @@ class TodayStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'late_time'),
-                value: (sheetData[\"lateTime\"] ?? \"00:00\").toString(),
+                value: (sheetData["lateTime"] ?? "00:00").toString(),
               ),
             ),
           ],
