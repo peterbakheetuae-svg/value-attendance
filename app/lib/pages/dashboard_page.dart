@@ -7,9 +7,8 @@ import '../core/session.dart';
 import '../design/app_colors.dart';
 import '../design/glass.dart';
 import 'common.dart';
-import 'notifications_page.dart';
 import 'requests_page.dart';
-import 'attendance_page.dart';
+import 'fingerprint_home.dart';
 
 /// Role-shaped dashboard in the original layout: header (bell · name/date · avatar),
 /// today card, then bold-titled sections of GlassMiniCards. All values come from /dashboard.
@@ -36,9 +35,10 @@ class _DashboardPageState extends State<DashboardPage> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _header(context, s, d),
-            const SizedBox(height: 18),
-            TodayAttendanceCard(compact: true, onChanged: () => setState(() => _k = UniqueKey())),
+            FingerprintHome(
+              unreadNotifications: (d['unreadNotifications'] ?? 0) as int,
+              onChanged: () => setState(() => _k = UniqueKey()),
+            ),
             if (d['awaitingMyApproval'] != null) ...[
               const SizedBox(height: 12),
               GlassCard(
@@ -63,44 +63,13 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _header(BuildContext context, Session s, Map<String, dynamic> d) {
-    final isDark = isDarkOf(context);
-    final unread = (d['unreadNotifications'] ?? 0) as int;
-    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      GlassIconButton(
-        icon: Icons.notifications,
-        badge: unread > 0,
-        color: unread > 0 ? Colors.red : null,
-        tooltip: t('notifications'),
-        onTap: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsPage()));
-          setState(() => _k = UniqueKey());
-        },
-      ),
-      Expanded(
-        child: Column(children: [
-          Text(Fmt.date(d['date']), style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
-          Text(s.name, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-          Text(I18n.lang == 'ar' ? (s.me?['role_name_ar'] ?? '') : (s.me?['role_name_en'] ?? ''),
-              style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
-        ]),
-      ),
-      EmployeeAvatar(employeeId: s.id, hasPhoto: s.me?['has_photo'] == true),
-    ]);
-  }
-
+  /// Personal extras (requests / KPI / evaluation). The attendance month itself is in FingerprintHome.
   List<Widget> _me(Map<String, dynamic> me) {
-    final m = me.obj('month')!;
     final kpi = me.obj('kpi')!;
     final ev = me.obj('latestEvaluation');
     return [
-      SectionTitle(t('this_month')),
-      if (m['complete'] == false) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t('period_incomplete'), style: TextStyle(fontSize: 12, color: Colors.orange[700]))),
+      SectionTitle(t('my_kpi')),
       MiniCardGrid(children: [
-        GlassMiniCard(title: t('days_attended'), value: '${m['attendedDays']} / ${m['workingDays']}', icon: Icons.event_available_rounded,
-            onTap: () => widget.onOpenTab('attendance')),
-        GlassMiniCard(title: t('attendance_percent'), value: Fmt.percent(m['attendancePercent']), icon: Icons.percent_rounded),
-        GlassMiniCard(title: t('late_arrivals'), value: '${m['lateArrivals']}', icon: Icons.schedule_rounded, iconColor: AppColors.warning),
         GlassMiniCard(title: t('pending_requests'), value: '${me['pendingRequests']}', icon: Icons.hourglass_top_rounded,
             onTap: () => widget.onOpenTab('requests')),
         GlassMiniCard(title: t('kpi_progress'),

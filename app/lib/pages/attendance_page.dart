@@ -21,8 +21,6 @@ class AttendancePage extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         PageHeader(title: t('attendance')),
-        const TodayAttendanceCard(),
-        const SizedBox(height: 8),
         AttendanceMonthView(employeeId: s.id),
         const SizedBox(height: 100),
       ]),

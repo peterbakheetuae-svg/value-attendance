@@ -256,6 +256,35 @@ DYN = {
   'finance_adjustment_rejected': ('رفض تسوية', 'Adjustment rejected'),
  },
 }
+# ---- original JPH home (fingerprint) — wording copied from the original app's ar/en.json
+T.update({
+'tab_check': ('الحضور', 'Attendance'), 'tab_break': ('الاستراحة', 'Break'), 'tab_leave': ('الإجازات', 'Leave'),
+'fp_check_in': ('تسجيل الحضور', 'Check In'), 'fp_check_out': ('تسجيل الانصراف', 'Check Out'),
+'fp_start_break': ('بدء الاستراحة', 'Start Break'), 'fp_end_break': ('إنهاء فترة الاستراحة', 'End Break Period'),
+'fp_end_break_first': ('انهِ وقت الاستراحة أولاً', 'End break first'), 'fp_break_ended': ('الاستراحة انتهت', 'Break ended'),
+'fp_check_in_first': ('سجل حضور أولاً', 'Check in first'), 'fp_work_day_ended': ('انتهى يوم العمل', 'Work day ended'),
+'fp_break_exceeded': ('تم تجاوز الاستراحة!', 'Break Exceeded!'), 'fp_request_leave': ('طلب إجازة', 'Request Leave'),
+'fp_hold': ('اضغط مطولاً للتأكيد', 'Press and hold to confirm'), 'fp_unavailable': ('غير متاح الآن', 'Not available now'),
+'fp_sub_check_in': ('تسجيل بداية العمل', 'Start your work day'), 'fp_sub_check_out': ('تسجيل انتهاء العمل', 'End your work day'),
+'fp_sub_end_break_first': ('انتهِ من الاستراحة أولاً', 'Finish your break first'), 'fp_sub_day_ended': ('تم انتهاء يوم العمل', 'Your work day is over'),
+'fp_sub_check_in_first': ('سجل الحضور أولاً', 'Check in first'), 'fp_sub_break_ended': ('تم انتهاء الاستراحة', 'Your break is over'),
+'fp_sub_end_break': ('إنهاء الاستراحة', 'End the break'), 'fp_sub_start_break': ('بدء الاستراحة', 'Start the break'),
+'fp_sub_leave': ('طلب إجازة أو إذن', 'Request leave or permission'),
+'fp_not_working_day': ('اليوم ليس يوم عمل', 'Today is not a working day'),
+'today_time_log': ('سجل الوقت اليوم', "Today's Time Log"), 'work_time': ('وقت العمل', 'Work Time'),
+'break_label': ('الاستراحة', 'Break'), 'overtime_label': ('الأوفرتايم', 'Overtime'),
+'work_days_label': ('أيام العمل', 'Work Days'), 'leave_days_label': ('أيام الإجازة', 'Leave Days'),
+'absent_days_label': ('أيام الغياب', 'Absent Days'), 'sick_leave_label': ('إجازة مرضية', 'Sick Leave'),
+'overtime_hours_label': ('ساعات الأوفرتايم', 'Overtime Hours'),
+'check_in_time': ('وقت الحضور', 'Check-in Time'), 'check_out_time': ('وقت الانصراف', 'Check-out Time'),
+'working_time': ('وقت العمل', 'Working Time'), 'start_time': ('وقت البداية', 'Start Time'), 'end_time': ('وقت الانتهاء', 'End Time'),
+'without_pay': ('بدون راتب', 'Without Pay'),
+'break_started_ok': ('تم بدء الاستراحة', 'Break started'), 'break_ended_ok': ('تم إنهاء الاستراحة', 'Break ended'),
+'break_exceeded_banner': ('تم تجاوز وقت الاستراحة! الرجاء إنهاء استراحتك.', 'Break time exceeded! Please end your break.'),
+'break_minutes': ('مدة الاستراحة المسموحة (دقيقة)', 'Allowed break (minutes)'),
+'day_1': ('الاثنين', 'Monday'), 'day_2': ('الثلاثاء', 'Tuesday'), 'day_3': ('الأربعاء', 'Wednesday'), 'day_4': ('الخميس', 'Thursday'),
+'day_5': ('الجمعة', 'Friday'), 'day_6': ('السبت', 'Saturday'), 'day_7': ('الأحد', 'Sunday'),
+})
 for prefix, m in DYN.items():
     for k, v in m.items():
         T[f'{prefix}_{k}'] = v

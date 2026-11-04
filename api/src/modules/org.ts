@@ -171,11 +171,12 @@ export const orgModule: Module = (r, { db }) => {
     const b = obj(req.body);
     const before = await one(db, `SELECT * FROM company_settings`);
     const s = await one(db, `UPDATE company_settings SET company_name_ar=$1, company_name_en=$2, gps_required=$3,
-      request_backdate_days=$4, updated_at = now() RETURNING *`, [
+      request_backdate_days=$4, break_minutes=$5, updated_at = now() RETURNING *`, [
       str(b, 'companyNameAr', { optional: true, min: 2, max: 120 }) ?? before.company_name_ar,
       str(b, 'companyNameEn', { optional: true, min: 2, max: 120 }) ?? before.company_name_en,
       bool(b, 'gpsRequired') ?? before.gps_required,
-      num(b, 'requestBackdateDays', { optional: true, int: true, min: 0, max: 365 }) ?? before.request_backdate_days]);
+      num(b, 'requestBackdateDays', { optional: true, int: true, min: 0, max: 365 }) ?? before.request_backdate_days,
+      num(b, 'breakMinutes', { optional: true, int: true, min: 0, max: 240 }) ?? before.break_minutes]);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s);
     return ok({ settings: s });
   });

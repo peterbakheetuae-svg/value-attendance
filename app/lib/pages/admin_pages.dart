@@ -269,6 +269,7 @@ class CompanySettingsPage extends StatelessWidget {
         final st = d.obj('settings')!;
         final ar = TextEditingController(text: st.s('company_name_ar')), en = TextEditingController(text: st.s('company_name_en'));
         final back = TextEditingController(text: '${st['request_backdate_days']}');
+        final brk = TextEditingController(text: '${st['break_minutes'] ?? 60}');
         bool gps = st['gps_required'] == true;
         return StatefulBuilder(builder: (ctx, set) => GlassCard(radius: 20, child: Material(type: MaterialType.transparency, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TextField(controller: ar, decoration: glassInput(ctx, t('company_name_ar'))),
@@ -276,12 +277,14 @@ class CompanySettingsPage extends StatelessWidget {
           TextField(controller: en, decoration: glassInput(ctx, t('company_name_en'))),
           const SizedBox(height: 10),
           TextField(controller: back, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('request_backdate_days'))),
+          const SizedBox(height: 12),
+          TextField(controller: brk, keyboardType: TextInputType.number, decoration: glassInput(ctx, t('break_minutes'))),
           SwitchListTile(contentPadding: EdgeInsets.zero, value: gps, title: Text(t('gps_required')), subtitle: Text(t('gps_required_help')), onChanged: (v) => set(() => gps = v)),
           InfoTile(title: t('currency'), value: 'EGP'),
           const SizedBox(height: 12),
           PrimaryButton(label: t('save'), onTap: () async {
             try {
-              await s.api.patch('/settings', {'companyNameAr': ar.text.trim(), 'companyNameEn': en.text.trim(), 'gpsRequired': gps, 'requestBackdateDays': int.parse(back.text)});
+              await s.api.patch('/settings', {'companyNameAr': ar.text.trim(), 'companyNameEn': en.text.trim(), 'gpsRequired': gps, 'requestBackdateDays': int.parse(back.text), 'breakMinutes': int.parse(brk.text)});
               await s.refreshMe();
               if (ctx.mounted) showSnack(ctx, t('saved'));
             } catch (e) { if (ctx.mounted) showSnack(ctx, e is FormatException ? t('invalid_amount') : errorText(e), error: true); }

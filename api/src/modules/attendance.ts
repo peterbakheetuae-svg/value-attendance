@@ -84,6 +84,13 @@ function shape(a: any, today: string) {
     schedule: { start: a.schedule_start, end: a.schedule_end }, ...metrics(a, today) };
 }
 
+function breakShape(b: any, now: Date) {
+  const end = b.ended_at ? new Date(b.ended_at) : now;
+  const minutes = Math.max(0, Math.floor((end.getTime() - new Date(b.started_at).getTime()) / 60000));
+  return { start: b.started_at, end: b.ended_at, minutes, allowedMinutes: b.allowed_minutes,
+    onBreak: !b.ended_at, exceeded: minutes > b.allowed_minutes };
+}
+
 export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-in', async (req) => {
     const a = await authenticate(db, req);
@@ -117,6 +124,8 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       const open = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
       if (!open) throw conflict('You must check in first');
       if (open.check_out_at) throw conflict('You already checked out today');
+      const onBreak = await one(q, `SELECT 1 FROM attendance_breaks WHERE attendance_id = $1 AND ended_at IS NULL`, [open.id]);
+      if (onBreak) throw conflict('End your break before checking out');
       if (now <= new Date(open.check_in_at)) throw conflict('Check-out must be after check-in');
       const g = await geofence(q, b);
       const updated = await one(q, `UPDATE attendance SET check_out_at = $2, original_check_out_at = $2,
@@ -128,14 +137,49 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     return ok({ attendance: shape(row, l.date) });
   });
 
+  r.post('/attendance/break-start', async (req) => {
+    const a = await authenticate(db, req);
+    const now = clock(); const l = local(now);
+    const br = await db.tx(async (q) => {
+      const att = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
+      if (!att) throw conflict('You must check in first');
+      if (att.check_out_at) throw conflict('Your work day has ended');
+      const prev = await one(q, `SELECT id FROM attendance_breaks WHERE attendance_id = $1`, [att.id]);
+      if (prev) throw conflict('You already took your break today');
+      const allowed = (await one(q, `SELECT break_minutes FROM company_settings`)).break_minutes;
+      const row = await one(q, `INSERT INTO attendance_breaks (attendance_id, employee_id, started_at, allowed_minutes)
+                                VALUES ($1,$2,$3,$4) RETURNING *`, [att.id, a.id, now, allowed]);
+      await audit(q, a.id, 'attendance.break_start', 'attendance', att.id, undefined, { at: now });
+      return row;
+    });
+    return ok({ break: breakShape(br, now) }, 201);
+  });
+
+  r.post('/attendance/break-end', async (req) => {
+    const a = await authenticate(db, req);
+    const now = clock(); const l = local(now);
+    const br = await db.tx(async (q) => {
+      const open = await one(q, `SELECT b.* FROM attendance_breaks b JOIN attendance t ON t.id = b.attendance_id
+                                  WHERE t.employee_id = $1 AND t.work_date = $2 FOR UPDATE OF b`, [a.id, l.date]);
+      if (!open) throw conflict('You have not started a break');
+      if (open.ended_at) throw conflict('Your break has already ended');
+      const row = await one(q, `UPDATE attendance_breaks SET ended_at = $2 WHERE id = $1 RETURNING *`, [open.id, now]);
+      await audit(q, a.id, 'attendance.break_end', 'attendance', open.attendance_id, undefined, { at: now });
+      return row;
+    });
+    return ok({ break: breakShape(br, now) });
+  });
+
   r.get('/attendance/today', async (req) => {
     const a = await authenticate(db, req);
     const l = local(clock());
     const row = await one(db, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
     const s = await scheduleFor(db, a.id);
     const holiday = await one(db, `SELECT name FROM holidays WHERE day = $1`, [l.date]);
-    const settings = await one(db, `SELECT gps_required FROM company_settings`);
+    const settings = await one(db, `SELECT gps_required, break_minutes FROM company_settings`);
+    const br = row ? await one(db, `SELECT * FROM attendance_breaks WHERE attendance_id = $1`, [row.id]) : undefined;
     return ok({ date: l.date, attendance: row ? shape(row, l.date) : null,
+      break: br ? breakShape(br, clock()) : null, breakAllowedMinutes: settings.break_minutes,
       schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
       isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required });
   });
