@@ -42,7 +42,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> get(String path, [Map<String, String?>? query]) =>
-      _send(() => _http.get(_uri(path, query), headers: _headers()));
+      _send(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
   Future<Map<String, dynamic>> post(String path, [Object? body]) =>
       _send(() => _http.post(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})));
   Future<Map<String, dynamic>> put(String path, [Object? body]) =>
@@ -53,25 +53,33 @@ class ApiClient {
 
   /// Binary download (xlsx / photos / documents).
   Future<Uint8List> bytes(String path, [Map<String, String?>? query]) async {
-    final res = await _raw(() => _http.get(_uri(path, query), headers: _headers()));
+    final res = await _raw(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
     if (res.statusCode >= 400) throw _error(res);
     return res.bodyBytes;
   }
 
-  Future<http.Response> _raw(Future<http.Response> Function() f) async {
-    try {
-      return await f().timeout(const Duration(seconds: 30));
-    } on TimeoutException {
-      throw ApiException(0, 'timeout', 'timeout');
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      // SocketException / ClientException / XMLHttpRequest error on web
-      throw ApiException(0, 'network', 'network');
+  Future<http.Response> _raw(Future<http.Response> Function() f, {bool retry = false}) async {
+    // reads get one quiet retry (the free API / database may be waking up); writes never repeat
+    final tries = retry ? 2 : 1;
+    for (var attempt = 1; ; attempt++) {
+      try {
+        return await f().timeout(const Duration(seconds: 40));
+      } on TimeoutException {
+        if (attempt < tries) continue;
+        throw ApiException(0, 'timeout', 'timeout — $baseUrl');
+      } catch (e) {
+        if (e is ApiException) rethrow;
+        if (attempt < tries) { await Future<void>.delayed(const Duration(seconds: 2)); continue; }
+        // SocketException / HandshakeException / ClientException / XMLHttpRequest error on web.
+        // Keep the real reason so the screen can show it (helps diagnose phone-only failures).
+        final why = e.toString().split('\n').first;
+        throw ApiException(0, 'network', '${why.length > 160 ? why.substring(0, 160) : why} — $baseUrl');
+      }
     }
   }
 
-  Future<Map<String, dynamic>> _send(Future<http.Response> Function() f) async {
-    final res = await _raw(f);
+  Future<Map<String, dynamic>> _send(Future<http.Response> Function() f, {bool retry = false}) async {
+    final res = await _raw(f, retry: retry);
     if (res.statusCode >= 400) {
       final e = _error(res);
       if (res.statusCode == 401) onUnauthorized?.call();

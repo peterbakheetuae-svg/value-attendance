@@ -27,6 +27,7 @@ jobs:
             flutter create --platforms=android,web --org com.jph.valueattendance --project-name jph_real_estate_hr .
           fi
           dart run tool/patch_android.dart
+          echo "--- release manifest permissions ---"; grep -n "uses-permission\|<application" android/app/src/main/AndroidManifest.xml
       - run: flutter pub get
       - name: Analyze (errors fail; original JPH screens keep their lint warnings)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; grep -E "^\s*error •" analyze.txt | head -200; ! grep -qE "^\s*error •" analyze.txt

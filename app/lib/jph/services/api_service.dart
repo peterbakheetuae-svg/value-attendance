@@ -458,7 +458,7 @@ class JphRouter {
   }
 
   static String _message(ApiException e) {
-    if (e.isNetwork) return 'تعذّر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى';
+    if (e.isNetwork) return 'تعذّر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى\n(${e.message})';
     if (e.status == 401) return 'انتهت الجلسة، سجّل الدخول مرة أخرى';
     if (e.details?['reason'] == 'device_mismatch') return 'الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط';
     if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
