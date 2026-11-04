@@ -11,7 +11,6 @@
   "confirm": "تأكيد",
   "retry": "إعادة المحاولة",
   "no_data": "لا توجد بيانات",
-
   "login_now": "سجل دخولك الآن!",
   "enter_credentials": "أدخل اسم المستخدم وكلمة المرور",
   "logging_in": "جاري الدخول...",
@@ -22,27 +21,23 @@
   "forgot_password": "نسيت كلمة المرور؟",
   "login_success": "تم تسجيل الدخول بنجاح",
   "invalid_credentials": "بيانات الدخول غير صحيحة",
-
   "dashboard": "لوحة التحكم",
   "leave": "الإجازات",
   "reports": "التقارير",
   "id_card": "بطاقة الهوية",
   "profile": "الشخصي",
   "settings": "الإعدادات",
-
   "check_in": "تسجيل الحضور",
   "check_out": "تسجيل الانصراف",
   "check_in_success": "تم تسجيل الحضور بنجاح",
   "check_out_success": "تم تسجيل الانصراف بنجاح",
   "already_checked_in": "تم تسجيل الحضور مسبقاً",
   "already_checked_out": "تم تسجيل الانصراف مسبقاً",
-
   "break_start": "بدء الاستراحة",
   "break_end": "إنهاء الاستراحة",
   "break_start_success": "تم بدء الاستراحة بنجاح",
   "break_end_success": "تم إنهاء الاستراحة بنجاح",
   "on_break": "في استراحة",
-
   "work_time": "وقت العمل",
   "break_time": "الاستراحة",
   "total_hours": "إجمالي الساعات",
@@ -50,7 +45,6 @@
   "this_month": "هذا الشهر",
   "holidays": "أيام الإجازة",
   "absent_days": "أيام الغياب",
-
   "name": "الاسم",
   "role": "الوظيفة",
   "department": "القسم",
@@ -60,7 +54,6 @@
   "update_profile": "تحديث الملف",
   "change_password": "تغيير كلمة المرور",
   "change_photo": "تغيير الصورة",
-
   "dark_mode": "الوضع المظلم",
   "language": "اللغة",
   "notifications": "الإشعارات",
@@ -68,18 +61,15 @@
   "terms": "الشروط والأحكام",
   "support": "الدعم",
   "version": "الإصدار",
-
   "network_error": "خطأ في الاتصال بالشبكة",
   "server_error": "خطأ في الخادم",
   "camera_error": "خطأ في الكاميرا",
   "location_error": "خطأ في الموقع",
   "permission_denied": "تم رفض الإذن",
-
   "are_you_sure": "هل أنت متأكد؟",
   "yes": "نعم",
   "no": "لا",
   "ok": "موافق",
-
   "january": "يناير",
   "february": "فبراير",
   "march": "مارس",
@@ -92,7 +82,6 @@
   "october": "أكتوبر",
   "november": "نوفمبر",
   "december": "ديسمبر",
-
   "saturday": "السبت",
   "sunday": "الأحد",
   "monday": "الاثنين",
@@ -100,7 +89,6 @@
   "wednesday": "الأربعاء",
   "thursday": "الخميس",
   "friday": "الجمعة",
-
   "check": "الحضور",
   "work_day_ended": "انتهى يوم العمل",
   "check_in_first": "سجل حضور أولاً",
@@ -119,7 +107,6 @@
   "extra": "إضافي",
   "completed": "المعمول",
   "leave_attendance": "حضور الإجازات",
-
   "arabic": "العربية",
   "english": "English",
   "auto": "تلقائي",
@@ -128,7 +115,6 @@
   "light_desc": "مظهر فاتح",
   "dark": "مظلم",
   "dark_desc": "مظهر مظلم",
-
   "attendance_report": "تقرير الحضور",
   "monthly_report": "التقرير الشهري",
   "daily_report": "التقرير اليومي",
@@ -167,37 +153,29 @@
   "no_monthly_data": "لا توجد بيانات للتقرير الشهري",
   "no_daily_data": "لا توجد بيانات للتقرير اليومي",
   "change_date_range": "تغيير النطاق الزمني",
-
   "staff_member": "Staff Member",
   "photo_changed_success": "تم تغيير الصورة بنجاح",
   "photo_upload_failed": "فشل رفع الصورة",
   "sm_initials": "SM",
-
   "professional_info": "المعلومات المهنية",
   "follow_to": "يتبع لـ",
   "accounting": "المحاسبه",
-
   "salary_data": "بيانات الراتب",
   "daily_rate": "اليوميه",
   "salary": "الراتب",
   "start_salary": "راتب بداية العمل",
   "increment": "زيادة",
-
   "work_system": "نظام العمل",
   "day_off": "يوم الإجازة",
   "absence_factor": "للغياب يضرب في",
   "overtime_factor": "الأوفرتايم يضرب في",
-
   "level": "المستوى",
-
   "selfie_preview": "معاينة الصورة",
   "retake_photo": "إعادة التصوير",
   "use_photo": "استخدام الصورة",
-
   "check_in_time": "وقت الحضور",
   "check_out_time": "وقت الانصراف",
   "working_time": "وقت العمل",
-
   "update_available": "تحديث جديد متاح",
   "force_update": "تحديث إجباري",
   "new_update": "تحديث جديد",
@@ -235,10 +213,8 @@
   "app_up_to_date": "أنت تستخدم أحدث إصدار من التطبيق",
   "update_check_failed": "فشل التحقق من التحديثات",
   "update_check_error": "حدث خطأ أثناء التحقق من التحديثات",
-
   "confirm_logout": "تأكيد الخروج",
   "logout_confirmation_message": "هل أنت متأكد من تسجيل الخروج؟",
-
   "present": "حاضر",
   "present_days": "أيام الحضور",
   "attendance_status": "حالة الحضور",
@@ -247,17 +223,13 @@
   "attendance": "تقرير الحضور",
   "work_hours": "ساعات العمل",
   "overtime": "الأوفرتايم",
-
-
   "leave_days": "أيام الإجازة",
   "without_pay": "بدون راتب",
   "attendance_1": "حضور",
   "absent": "غياب",
   "holiday": "اجازه",
-
   "leave_requests": "طلبات الإجازة",
   "finance": "طلبات الماليه",
-
   "day_6": "السبت",
   "day_7": "الأحد",
   "day_1": "الاثنين",
@@ -265,7 +237,6 @@
   "day_3": "الأربعاء",
   "day_4": "الخميس",
   "day_5": "الجمعة",
-
   "break_exceeded_alert": "تم تجاوز الاستراحة!",
   "break_time_exceeded": "تم تجاوز وقت الاستراحة!",
   "break_exceeded_warning": "لقد تجاوزت استراحتك 59 دقيقة",
@@ -278,8 +249,6 @@
   "break_fingerprint_instruction": "اضغط مع الاستمرار على زر البصمة لمدة ثانيتين.",
   "break_fingerprint_hint": "أكمل الرسوم المتحركة لإنهاء استراحتك والعودة إلى العمل",
   "on_active_break": "في استراحة نشطة",
-
-
   "breakExceededAlert": "تم تجاوز وقت الاستراحة",
   "youAreOnBreak": "أنت في فترة استراحة",
   "breakExceededMessage": "لقد تجاوزت استراحتك 59 دقيقة",
@@ -288,11 +257,6 @@
   "breakLimitExceeded": "تجاوز الحد المسموح (59 دقيقة)",
   "endBreak": "إنهاء الاستراحة",
   "end_break_first": "انها وقت الاستراحة أولاً",
-
-
-
-
-
   "support_policy": "سياسة الدعم",
   "support_24_7": "دعم على مدار الساعة",
   "support_description": "نحن هنا لمساعدتك على مدار الساعة. إذا كان لديك أي أسئلة أو مخاوف أو تحتاج إلى مساعدة بخصوص منتجاتنا أو خدماتنا، فلا تتردد في التواصل مع فريق الدعم لدينا.",
@@ -319,7 +283,6 @@
   "technical_support": "الدعم الفني",
   "account_support": "دعم الحساب",
   "billing_support": "دعم الفواتير",
-
   "privacy_policy": "سياسة الخصوصية",
   "privacy_policy_title": "سياسة الخصوصية - تطبيق Value Attendance",
   "last_updated": "آخر تحديث",
@@ -356,7 +319,6 @@
   "update_policy_text": "قد نقوم بتحديث سياسة الخصوصية هذه من وقت لآخر. سنقوم بإعلامك بأي تغييرات جوهرية.",
   "read_more": "قراءة المزيد",
   "read_less": "قراءة أقل",
-
   "terms_and_conditions": "الشروط والأحكام",
   "terms_title": "الشروط والأحكام - تطبيق Value Attendance",
   "acceptance_of_terms": "القبول",
@@ -404,10 +366,8 @@
   "i_agree": "أوافق على الشروط",
   "must_agree": "يجب الموافقة على الشروط والأحكام لاستخدام التطبيق",
   "read_accept": "يرجى قراءة وقبول الشروط والأحكام",
-
   "dark_mode_active": "الوضع المظلم مفعل",
   "light_mode_active": "الوضع الفاتح مفعل",
-
   "save_new_password": "حفظ كلمه المرور الجديدة",
   "passwords_not_match": "كلمة المرور الجديدة غير متطابقة",
   "new_password_same_as_old": "كلمة المرور الجديدة يجب أن تختلف عن القديمة",
@@ -425,7 +385,6 @@
   "الأحد": "الأحد",
   "10 ساعات": "10 ساعات",
   "شهرى": "شهرى",
-
   "employees": "الموظفين",
   "employee": "موظف",
   "search_employees": "ابحث عن موظف...",
@@ -471,23 +430,18 @@
   "manage": "إدارة",
   "all_employees": "جميع الموظفين",
   "close": "إغلاق",
-
   "new_leave_requests": "طلبات إجازة جديدة",
   "new_financial_requests": "طلبات مالية جديدة",
   "today_stats": "إحصائيات اليوم",
   "attendance_by_project": "الحضور حسب المشروع",
-
   "processing": "جاري المعالجة",
   "approve": "موافقة",
   "reject": "رفض",
-
   "currency": "درهم",
   "amount": "المبلغ",
-
   "عرض الموظفين الحاضرين اليوم": "عرض الموظفين الحاضرين اليوم",
   "عرض الموظفين في الاستراحة": "عرض الموظفين في الاستراحة",
   "طلبات الإجازة": "طلبات الإجازة",
-
   "period": "الفترة",
   "approve_leave_request": "الموافقة على طلب الإجازة",
   "confirm_approve_message": "هل أنت متأكد من الموافقة على هذا الطلب؟",
@@ -533,8 +487,6 @@
   "attached_image": "الصورة المرفقة",
   "link_copied": "تم نسخ الرابط",
   "copy_link": "نسخ الرابط",
-
-
   "public_holidays": "العطلات الرسمية",
   "filter_holidays": "تصفية العطلات",
   "holiday_type": "نوع الإجازة",
@@ -620,7 +572,6 @@
   "tip_update_desc": "تأكد من أنك تستخدم آخر نسخة من التطبيق",
   "tip_restart": "إعادة تشغيل التطبيق",
   "tip_restart_desc": "حاول إعادة تشغيل التطبيق إذا استمرت المشكلة",
-
   "select_company": "اختر الشركة",
   "no_companies_available": "لا توجد شركات متاحة",
   "reset_to_home_company": "العودة للشركة الرئيسية",
@@ -718,7 +669,6 @@
   "employee_limit_exceeded": "تم تجاوز الحد الأقصى للموظفين",
   "permission_required_action": "ليس لديك صلاحية للقيام بهذا الإجراء",
   "not_authorized_company": "ليس لديك صلاحية للوصول لهذه الشركة",
-
   "consolidated_report": "تقرير موحد",
   "select_companies_for_report": "اختر الشركات للتقرير",
   "per_company_breakdown": "تفصيل حسب الشركة",
@@ -757,5 +707,47 @@
   "work_location_name": "اسم الموقع",
   "latitude": "خط العرض",
   "longitude": "خط الطول",
-  "radius_meters": "نصف القطر (م)"
+  "radius_meters": "نصف القطر (م)",
+  "Employees": "الموظفين",
+  "account_holder": "اسم صاحب الحساب",
+  "account_number": "رقم الحساب",
+  "bank_info": "بيانات البنك",
+  "bank_name": "اسم البنك",
+  "break": "الاستراحة",
+  "ceo_confirm": "موافقة الإدارة",
+  "company_id": "كود الشركة",
+  "confirm_password": "تأكيد كلمة المرور",
+  "created_at": "تاريخ الإنشاء",
+  "created_by": "أنشأه",
+  "employee_status": "حالة الموظف",
+  "employees_on_break": "الموظفين في الاستراحة",
+  "employer_login": "تسجيل الدخول",
+  "employers_only": "للموظفين المسجلين فقط",
+  "enter_description": "اكتب الوصف",
+  "enter_email_to_reset": "اكتب الكود أو البريد لإعادة التعيين",
+  "enter_holiday_type": "اكتب نوع الإجازة",
+  "enter_reset_code": "اكتب كود إعادة التعيين",
+  "foreman": "المدير المباشر",
+  "full_name": "الاسم بالكامل",
+  "iban": "رقم IBAN",
+  "loading_employees": "جاري تحميل الموظفين...",
+  "location": "الموقع",
+  "login_failed": "فشل تسجيل الدخول",
+  "no_attendance_today": "مفيش حد مسجل حضور النهارده",
+  "no_employees_on_break": "مفيش حد في الاستراحة دلوقتي",
+  "notes": "ملاحظات",
+  "ownership_percent": "نسبة الملكية",
+  "partnership_dates": "تواريخ الشراكة",
+  "profit_percent": "نسبة الأرباح",
+  "project": "الفريق",
+  "register": "إنشاء حساب",
+  "register_as_employee": "تسجيل كموظف",
+  "required": "مطلوب",
+  "reset_code": "كود إعادة التعيين",
+  "select_employee": "اختر الموظف",
+  "select_employee_first": "اختر الموظف الأول",
+  "send_reset_code": "إرسال كود إعادة التعيين",
+  "show_break_employees": "عرض الموظفين في الاستراحة",
+  "show_today_attendance": "عرض حضور النهارده",
+  "today_attendance": "حضور النهارده"
 }
