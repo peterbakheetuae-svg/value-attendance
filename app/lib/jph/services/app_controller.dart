@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';
 
 class AppController extends ChangeNotifier {
-  ThemeMode _themeMode = ThemeMode.light;
+  ThemeMode _themeMode = ThemeMode.dark; // dark by default
   Locale _locale = const Locale('ar');
   bool _isRTL = true;
   bool _isInitialized = false;
@@ -96,7 +96,7 @@ class AppController extends ChangeNotifier {
       _isRTL = languageCode == 'ar';
 
       // الثيم
-      final themeIndex = prefs.getInt('theme_mode') ?? 1;
+      final themeIndex = prefs.getInt('theme_mode') ?? 2; // dark unless the user picked light
       if (themeIndex == 0) {
         final brightness = window.platformBrightness;
         _themeMode = brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light;

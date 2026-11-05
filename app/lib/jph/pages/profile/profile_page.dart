@@ -290,16 +290,6 @@ class _ProfilePageState extends State<ProfilePage> {
                         textColor,
                       ),
                       _section(
-                        AppLocalizations.of(context, 'bank_info'),
-                        [
-                          _row(Icons.account_balance, AppLocalizations.of(context, 'bank_name'), data["bankName"] ?? "--", subduedTextColor),
-                          _row(Icons.person, AppLocalizations.of(context, 'account_holder'), data["accountHolder"] ?? "--", subduedTextColor),
-                          _row(Icons.numbers, AppLocalizations.of(context, 'iban'), data["iban"] ?? "--", subduedTextColor),
-                          _row(Icons.pin, AppLocalizations.of(context, 'account_number'), data["accountNumber"] ?? "--", subduedTextColor),
-                        ],
-                        textColor,
-                      ),
-                      _section(
                         AppLocalizations.of(context, 'additional_info'),
                         [
                           _row(Icons.star, AppLocalizations.of(context, 'level'), data["level"] ?? "--", subduedTextColor),
@@ -319,27 +309,13 @@ class _ProfilePageState extends State<ProfilePage> {
                           _row(Icons.email, AppLocalizations.of(context, 'email'), data["email"] ?? "--", subduedTextColor),
                           _row(Icons.phone, AppLocalizations.of(context, 'phone'), data["phone"] ?? "--", subduedTextColor),
                           _row(Icons.work, AppLocalizations.of(context, 'role'), tr(context, data["role"] ?? ""), subduedTextColor),
-                          _row(Icons.percent, AppLocalizations.of(context, 'ownership_percent'), data["ownershipPercent"] ?? "--", subduedTextColor),
-                          _row(Icons.trending_up, AppLocalizations.of(context, 'profit_percent'), data["profitPercent"] ?? "--", subduedTextColor),
                         ],
                         textColor,
                       ),
                       _section(
-                        AppLocalizations.of(context, 'partnership_dates'),
+                        AppLocalizations.of(context, 'created_at'),
                         [
-                          _row(Icons.event, AppLocalizations.of(context, 'partnership_start'), data["partnershipStart"] ?? "--", subduedTextColor),
-                          _row(Icons.event_busy, AppLocalizations.of(context, 'partnership_end'), data["partnershipEnd"] ?? "--", subduedTextColor),
                           _row(Icons.calendar_today, AppLocalizations.of(context, 'created_at'), data["createdAt"] ?? "--", subduedTextColor),
-                        ],
-                        textColor,
-                      ),
-                      _section(
-                        AppLocalizations.of(context, 'bank_info'),
-                        [
-                          _row(Icons.account_balance, AppLocalizations.of(context, 'bank_name'), data["bankName"] ?? "--", subduedTextColor),
-                          _row(Icons.person, AppLocalizations.of(context, 'account_holder'), data["accountHolder"] ?? "--", subduedTextColor),
-                          _row(Icons.numbers, AppLocalizations.of(context, 'iban'), data["iban"] ?? "--", subduedTextColor),
-                          _row(Icons.pin, AppLocalizations.of(context, 'account_number'), data["accountNumber"] ?? "--", subduedTextColor),
                         ],
                         textColor,
                       ),

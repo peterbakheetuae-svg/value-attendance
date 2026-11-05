@@ -219,42 +219,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         ),
                         keyboardType: TextInputType.phone,
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _bankNameController,
-                        decoration: InputDecoration(
-                          labelText: AppLocalizations.of(context, 'bank_name'),
-                          prefixIcon: Icon(Icons.account_balance, color: primaryColor),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _accountHolderController,
-                        decoration: InputDecoration(
-                          labelText: AppLocalizations.of(context, 'account_holder'),
-                          prefixIcon: Icon(Icons.person, color: primaryColor),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _ibanController,
-                        decoration: InputDecoration(
-                          labelText: AppLocalizations.of(context, 'iban'),
-                          prefixIcon: Icon(Icons.numbers, color: primaryColor),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _accountNumberController,
-                        decoration: InputDecoration(
-                          labelText: AppLocalizations.of(context, 'account_number'),
-                          prefixIcon: Icon(Icons.pin, color: primaryColor),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
                       const SizedBox(height: 24),
                       SizedBox(
                         width: double.infinity,
