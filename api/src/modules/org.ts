@@ -228,6 +228,9 @@ export const orgModule: Module = (r, { db }) => {
     if (typeof b.deviceBinding === 'boolean' && b.deviceBinding !== before.device_binding) {
       await db.query(`UPDATE employees SET device_lock = $1 WHERE role_key <> 'owner'`, [b.deviceBinding]);
     }
+    if (typeof b.selfieRequired === 'boolean' && b.selfieRequired !== before.selfie_required) {
+      await db.query(`UPDATE employees SET selfie_required = $1`, [b.selfieRequired]);
+    }
     // simple lateness rule (late > N min → fixed amount; late ≥ 1 h → amount per hour)
     const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3 RETURNING *`, lateRule);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s2);

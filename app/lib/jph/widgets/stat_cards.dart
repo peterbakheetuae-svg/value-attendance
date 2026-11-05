@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -73,21 +74,24 @@ class StatRightCardModel {
   }
 
   /// Hourly permission / external visit (replaces the break card).
+  /// 1) time out  2) time back  3) live countdown to the return time.
   factory StatRightCardModel.outing({
     required String kind,
     required String start,
     required String expectedReturn,
+    DateTime? returnAt,
   }) {
     return StatRightCardModel(
-      line1Title: "outing_kind",
-      line1Value: kind,
-      line1Icon: Icons.directions_walk_rounded,
-      line2Title: "outing_left_at",
-      line2Value: start,
-      line2Icon: Icons.logout_rounded,
-      line3Title: "outing_return_at",
-      line3Value: expectedReturn,
-      line3Icon: Icons.login_rounded,
+      line1Title: "outing_left_at",
+      line1Value: start,
+      line1Icon: Icons.logout_rounded,
+      line2Title: "outing_return_at",
+      line2Value: expectedReturn,
+      line2Icon: Icons.login_rounded,
+      line3Title: "outing_remaining",
+      line3Value: returnAt == null ? '--:--' : null,
+      line3Widget: returnAt == null ? null : OutingCountdown(until: returnAt),
+      line3Icon: Icons.hourglass_bottom_rounded,
     );
   }
 
@@ -493,5 +497,40 @@ class _StatMiniCardContent extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Live countdown to the return time; turns red and counts up once it has passed.
+class OutingCountdown extends StatefulWidget {
+  final DateTime until;
+  const OutingCountdown({super.key, required this.until});
+
+  @override
+  State<OutingCountdown> createState() => _OutingCountdownState();
+}
+
+class _OutingCountdownState extends State<OutingCountdown> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.until.difference(DateTime.now());
+    final late = d.isNegative;
+    final a = d.abs();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final txt = '${late ? '+' : ''}${two(a.inHours)}:${two(a.inMinutes % 60)}:${two(a.inSeconds % 60)}';
+    return Text(txt, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: late ? Colors.red : null));
   }
 }

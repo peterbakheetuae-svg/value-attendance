@@ -34,7 +34,7 @@ const PROFILE_COLS = `
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
   (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
-  (e.device_id IS NOT NULL) AS device_bound, e.device_lock, e.device_label, e.device_bound_at, e.legacy_fields`;
+  (e.device_id IS NOT NULL) AS device_bound, e.device_lock, e.selfie_required, e.device_label, e.device_bound_at, e.legacy_fields`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -219,6 +219,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const hours = workHours(b) ?? { start: null, end: null };
     const deviceLock = role === 'owner' ? false
       : (bool(b, 'deviceLock') ?? (await one(db, `SELECT device_binding FROM company_settings`)).device_binding === true);
+    const selfieReq = bool(b, 'selfieRequired') ?? (await one(db, `SELECT selfie_required FROM company_settings`)).selfie_required === true;
     await validateRefs(db, f);
     // required documents (uploaded first via POST /documents/staged) — checked before anything is created
     const docIn = b.documents === undefined || b.documents === null ? {} : obj(b.documents);
@@ -247,13 +248,13 @@ export const employeesModule: Module = (r, { db, clock }) => {
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
           notes, password_hash, must_change_password, legacy_fields, position_key,
-          general_manager_id, attendance_exempt, work_start, work_end, device_lock)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+          general_manager_id, attendance_exempt, work_start, work_end, device_lock, selfie_required)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
          role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin,
          JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields)), pos.positionKey,
-         f.generalManagerId, exempt, hours.start, hours.end, deviceLock]);
+         f.generalManagerId, exempt, hours.start, hours.end, deviceLock, selfieReq]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
@@ -325,6 +326,10 @@ export const employeesModule: Module = (r, { db, clock }) => {
     }
     const hours = workHours(b);
     if (hours) { put('work_start', hours.start); put('work_end', hours.end); }
+    if (opt('selfieRequired')) {
+      if (!has(a, 'employee.manage')) throw forbidden('You cannot change this');
+      put('selfie_required', bool(b, 'selfieRequired', false));
+    }
     let lockTurnedOn = false;
     if (opt('deviceLock')) {
       if (!has(a, 'employee.manage')) throw forbidden('You cannot change the phone lock');

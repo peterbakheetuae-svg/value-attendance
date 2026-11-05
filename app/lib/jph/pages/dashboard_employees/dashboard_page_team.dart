@@ -520,6 +520,14 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
     switch (mode) {
       case DashMode.check:
+        if (_outingActive != null) {
+          return FingerUiConfig(
+            title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تم العودة',
+            subtitle: _outingOverdue ? 'سجّل رجوعك أو اطلب تمديد' : 'اضغط مطولاً لما ترجع المكتب',
+            color: _outingOverdue ? Colors.orange : getSecondaryColor(),
+            iconBg: _outingOverdue ? Colors.orange : getSecondaryColor(),
+          );
+        }
         if (sheetData['attendanceExempt'] == true) {
           return FingerUiConfig(
             title: 'ليس لديه حضور وانصراف',
@@ -593,7 +601,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         }
         if (_outingActive != null) {
           return FingerUiConfig(
-            title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تسجيل الرجوع',
+            title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تم العودة',
             subtitle: _outingOverdue ? 'سجّل رجوعك أو اطلب تمديد' : 'اضغط مطولاً لما ترجع المكتب',
             color: _outingOverdue ? Colors.orange : getSecondaryColor(),
             iconBg: _outingOverdue ? Colors.orange : getSecondaryColor(),
@@ -628,6 +636,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
           start: o == null ? '--:--' : hhmm(o['starts_at'] ?? o['requested_at']),
           expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
+          returnAt: _outingActive == null ? null : DateTime.tryParse('${_outingActive!['expected_return_at']}')?.toLocal(),
         );
       case DashMode.leave:
         return StatRightCardModel.leave(
@@ -668,7 +677,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       return;
     }
 
-    if (mode == DashMode.breakTime) {
+    if (mode == DashMode.breakTime || (mode == DashMode.check && _outingActive != null)) {
       await _handleOuting();
       return;
     }
@@ -777,6 +786,15 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   // ------------------------------------------------------------------ permission / visit
   Future<void> _handleOuting() async {
     if (_outingActive != null) {
+      // before the return time: one press = "I'm back" (checked against the office location)
+      if (!_outingOverdue) {
+        final r = await ApiService.post({'action': 'outing_return'});
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+        await _loadOuting();
+        return;
+      }
       await _openOutingActions(overdue: _outingOverdue);
       return;
     }

@@ -47,7 +47,7 @@ test('advances: the general manager approves first, then HR; nobody decides thei
   const p = (await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(p.advances, 1000);
   assert.equal(p.workExpenses, 250);
-  assert.equal(p.net, 9000 - 1000 + 250);
+  assert.equal(p.net, p.attendanceSalary - 1000 + 250, 'due = salary for the days − advance + work expenses');
 });
 
 test('HR records a leave for an employee: approved on entry; employees cannot', async () => {

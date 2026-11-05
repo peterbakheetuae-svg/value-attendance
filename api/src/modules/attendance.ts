@@ -16,7 +16,7 @@ export function haversineM(lat1: number, lng1: number, lat2: number, lng2: numbe
 
 const MAX_ACCURACY_M = 200;
 
-async function geofence(q: Q, body: Record<string, unknown>) {
+export async function geofence(q: Q, body: Record<string, unknown>) {
   const s = await one(q, `SELECT gps_required FROM company_settings`);
   const lat = num(body, 'lat', { optional: true, min: -90, max: 90 });
   const lng = num(body, 'lng', { optional: true, min: -180, max: 180 });
@@ -34,7 +34,7 @@ async function geofence(q: Q, body: Record<string, unknown>) {
 async function scheduleFor(q: Q, employeeId: string) {
   return one(q, `
     SELECT ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time,
-           e.attendance_exempt
+           e.attendance_exempt, e.selfie_required AS emp_selfie_required
       FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
      WHERE e.id = $1`, [employeeId]);
@@ -121,7 +121,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       const g = await geofence(q, b);
       const cfg = await one(q, `SELECT selfie_required, selfie_retention_days FROM company_settings`);
       const selfie = selfieFrom(b);
-      if (cfg.selfie_required && !selfie) throw new AppError('unprocessable', 'A selfie is required to check in', { reason: 'selfie_required' });
+      if (s.emp_selfie_required && !selfie) throw new AppError('unprocessable', 'A selfie is required to check in', { reason: 'selfie_required' });
       const inserted = await one(q, `
         INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
           overtime_enabled, overtime_min_minutes, check_in_at, check_in_lat, check_in_lng, check_in_accuracy_m,
@@ -195,7 +195,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       break: br ? breakShape(br, clock()) : null, breakAllowedMinutes: settings.break_minutes,
       schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
       isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required,
-      selfieRequired: settings.selfie_required, attendanceExempt: s.attendance_exempt === true });
+      selfieRequired: s.emp_selfie_required === true, attendanceExempt: s.attendance_exempt === true });
   });
 
   /** Today's board for managers/HR/owner. */
@@ -243,9 +243,21 @@ export const attendanceModule: Module = (r, { db, clock }) => {
              EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
         FROM attendance a LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
        WHERE a.employee_id = $1 AND a.work_date BETWEEN $2 AND $3 ORDER BY a.work_date DESC LIMIT 400`, [employeeId, from, to]);
+    // permissions / visits of each day (approved ones; an extension replaces its parent)
+    const outs = await db.query(`
+      SELECT o.work_date, o.kind, COALESCE(o.starts_at, o.requested_at) AS from_at, o.expected_return_at, o.returned_at, o.status
+        FROM outing_requests o
+       WHERE o.employee_id = $1 AND o.work_date BETWEEN $2 AND $3 AND o.status = 'approved'
+       ORDER BY COALESCE(o.starts_at, o.requested_at)`, [employeeId, from, to]);
+    const outBy = new Map<string, any[]>();
+    for (const o of outs.rows) {
+      const k = String(o.work_date);
+      if (!outBy.has(k)) outBy.set(k, []);
+      outBy.get(k)!.push({ kind: o.kind, from: o.from_at, expectedReturn: o.expected_return_at, returnedAt: o.returned_at });
+    }
     return ok({ days: rows.rows.map((x) => ({
       ...shape(x, today), checkInLat: x.check_in_lat, checkInLng: x.check_in_lng, checkOutLat: x.check_out_lat, checkOutLng: x.check_out_lng,
-      breakStart: x.break_start, breakEnd: x.break_end, hasSelfie: x.has_selfie,
+      breakStart: x.break_start, breakEnd: x.break_end, hasSelfie: x.has_selfie, outings: outBy.get(String(x.work_date)) ?? [],
     })) });
   });
 

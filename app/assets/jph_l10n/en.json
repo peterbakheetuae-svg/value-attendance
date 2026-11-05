@@ -709,5 +709,6 @@
   "admin_checked_out": "Checked out today",
   "late_time": "Late",
   "late_month": "Late this month",
-  "late_deduction": "Late deduction"
+  "late_deduction": "Late deduction",
+  "outing_remaining": "Time left"
 }

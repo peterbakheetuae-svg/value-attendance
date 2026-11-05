@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'api.dart';
+import 'ring_alert.dart';
 
 /// Phone push (Firebase Cloud Messaging, free): makes alerts ring even when the app is closed.
 /// The Firebase client config is public and injected at build time; without it push stays off
@@ -10,6 +11,21 @@ const _apiKey = String.fromEnvironment('FIREBASE_API_KEY');
 const _appId = String.fromEnvironment('FIREBASE_APP_ID');
 const _senderId = String.fromEnvironment('FIREBASE_SENDER_ID');
 const _projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
+
+/// App closed / in the background: a "ring" push becomes a full-screen ringing alert.
+@pragma('vm:entry-point')
+Future<void> pushBackgroundHandler(RemoteMessage m) async {
+  if (m.data['ring'] != '1') return;
+  try {
+    await RingAlert.init(background: true);
+    await RingAlert.show(
+      id: '${m.data['id'] ?? m.messageId}'.hashCode & 0x7fffffff,
+      title: '${m.data['title'] ?? 'تنبيه'}',
+      body: '${m.data['body'] ?? ''}',
+      payload: '${m.data['type'] ?? ''}',
+    );
+  } catch (_) {}
+}
 
 class Push {
   Push._();
@@ -29,6 +45,9 @@ class Push {
     try {
       await Firebase.initializeApp(
           options: const FirebaseOptions(apiKey: _apiKey, appId: _appId, messagingSenderId: _senderId, projectId: _projectId));
+      FirebaseMessaging.onBackgroundMessage(pushBackgroundHandler);
+      await RingAlert.init();
+      await RingAlert.requestFullScreen();
       final m = FirebaseMessaging.instance;
       await m.requestPermission(alert: true, sound: true, badge: true);
       _token = await m.getToken();

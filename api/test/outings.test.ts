@@ -149,3 +149,17 @@ test('hourly permission keeps its own start and end; a visit starts when request
   assert.equal(v.body.outing.starts_at, null, 'a visit starts now');
   await h.call(c.t.e2, 'POST', `/outings/${v.body.outing.id}/cancel`, {});
 });
+
+test('"I am back" counts only inside the office when GPS is required', async () => {
+  at('2026-03-10T13:00:00Z');
+  await h.call(c.t.owner, 'PATCH', '/settings', { gpsRequired: true });
+  await h.db.query(`UPDATE attendance SET check_out_at = NULL WHERE employee_id = $1`, [c.ids.e3]);
+  const o = await h.call(c.t.e3, 'POST', '/outings', { kind: 'visit', expectedReturn: '17:30', reason: 'معاينة عميل' });
+  assert.equal(o.status, 201);
+  await h.call(c.t.hr, 'POST', `/outings/${o.body.outing.id}/decision`, { decision: 'approve' });
+  const far = await h.call(c.t.e3, 'POST', '/outings/return', { lat: OFFICE.lat + 0.02, lng: OFFICE.lng, accuracyM: 10 });
+  assert.equal(far.status, 422, 'still away from the office');
+  const near = await h.call(c.t.e3, 'POST', '/outings/return', { lat: OFFICE.lat, lng: OFFICE.lng, accuracyM: 10 });
+  assert.equal(near.status, 200);
+  await h.call(c.t.owner, 'PATCH', '/settings', { gpsRequired: false });
+});

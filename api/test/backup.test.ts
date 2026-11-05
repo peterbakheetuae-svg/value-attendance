@@ -28,3 +28,12 @@ test('backup export: off without a configured token, wrong token refused, never 
   assert.equal((await get('/backup/table/sessions', 'b'.repeat(32))).status, 404);
   assert.equal((await get('/backup/table/pg_user', 'b'.repeat(32))).status, 404);
 });
+
+test('minute heartbeat runs the sweep only with the backup token', async () => {
+  process.env.BACKUP_TOKEN = 'x'.repeat(30);
+  const post = (token?: string) => fetch(h.base + '/backup/sweep', { method: 'POST', headers: token ? { 'x-backup-token': token } : {} });
+  assert.equal((await post()).status, 401);
+  assert.equal((await post('y'.repeat(30))).status, 401);
+  assert.equal((await post('x'.repeat(30))).status, 200);
+  delete process.env.BACKUP_TOKEN;
+});

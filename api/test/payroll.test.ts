@@ -23,7 +23,9 @@ test('payroll: rules are off by default — minutes reported, no automatic money
   assert.equal(r.body.payroll.dayWage, 300);
   assert.equal(r.body.payroll.late.minutes, 25, 'minutes after the 15-minute grace');
   assert.equal(r.body.payroll.late.amount, 0);
-  assert.equal(r.body.payroll.net, 9000);
+  assert.equal(r.body.payroll.paidDays, 1, 'the 9th (no attendance) is not paid');
+  assert.equal(r.body.payroll.attendanceSalary, 300, 'salary for the days = 1 × 300');
+  assert.equal(r.body.payroll.net, 300);
 });
 
 test('payroll: per-minute + absence penalty, net to date', async () => {
@@ -32,9 +34,13 @@ test('payroll: per-minute + absence penalty, net to date', async () => {
   const r = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(r.late.amount, 15.63, '25 min × 300/480');
   assert.equal(r.absence.days, 1, 'the 9th has no attendance');
-  assert.equal(r.absence.amount, 300);
+  assert.equal(r.absence.amount, 0, 'penalty 1 day = the unpaid day itself, nothing extra');
   assert.equal(r.early.amount, 75, '120 min × 0.625');
-  assert.equal(r.net, Math.round((9000 - 15.625 - 75 - 300) * 100) / 100);
+  assert.equal(r.net, Math.round((300 - 15.625 - 75) * 100) / 100);
+  await h.call(c.t.owner, 'PATCH', '/settings', { absencePenaltyDays: 2 });
+  const r2 = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
+  assert.equal(r2.absence.amount, 300, 'penalty 2 days = one extra day');
+  await h.call(c.t.owner, 'PATCH', '/settings', { absencePenaltyDays: 1 });
 });
 
 test('payroll: tiers — highest tier reached, once per day; same for early leave', async () => {

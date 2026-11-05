@@ -25,11 +25,11 @@ async function tellWatchers(q: Q, employeeId: string, type: string, title: strin
   }
 }
 
-const SWEEP_EVERY_MS = 5 * 60 * 1000;
+const SWEEP_EVERY_MS = 60 * 1000;
 
 /**
- * Reminders and alerts without a scheduler (free hosting has none): this runs at most every
- * 5 minutes, triggered by normal traffic — tracking pings during shifts and managers opening boards.
+ * Reminders and alerts: runs at most once a minute — called every minute by the owner's Google Apps Script
+ * (POST /backup/sweep) and also triggered by normal traffic — tracking pings during shifts and managers opening boards.
  */
 export async function sweep(q: Q, now: Date) {
   const claimed = await one(q, `
@@ -56,8 +56,8 @@ export async function sweep(q: Q, now: Date) {
   // approved permission / visit whose return time passed: ring the employee and the approvers once
   const overdue = await q.query(`
     SELECT o.*, e.full_name FROM outing_requests o JOIN employees e ON e.id = o.employee_id
-      JOIN attendance t ON t.employee_id = o.employee_id AND t.work_date = o.work_date AND t.check_out_at IS NULL
-     WHERE o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL AND o.overdue_alerted_at IS NULL
+      LEFT JOIN attendance t ON t.employee_id = o.employee_id AND t.work_date = o.work_date
+     WHERE (t.id IS NULL OR t.check_out_at IS NULL) AND o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL AND o.overdue_alerted_at IS NULL
        AND o.expected_return_at < $2 FOR UPDATE OF o`, [l.date, now]);
   for (const o of overdue.rows) {
     await q.query(`UPDATE outing_requests SET overdue_alerted_at = $2 WHERE id = $1`, [o.id, now]);

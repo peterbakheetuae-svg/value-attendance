@@ -112,9 +112,12 @@ class _DashboardPageState extends State<DashboardPage>
     } catch (_) {}
   }
 
+  Timer? _pendingTimer;
+
   @override
   void initState() {
     super.initState();
+    _pendingTimer = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) _loadPendingOutings(); });
     WidgetsBinding.instance.addObserver(this);
     _cameraService = CameraService();
     _audioPlayer = AudioPlayer();
@@ -175,6 +178,7 @@ class _DashboardPageState extends State<DashboardPage>
 
   @override
   void dispose() {
+    _pendingTimer?.cancel();
     _updateTimer?.cancel();
     _forceCloseCamera();
     _audioPlayer.dispose();
@@ -314,7 +318,62 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   // ✅ دالة جديدة لتحميل البيانات الإضافية
+  // permission / visit requests waiting for me (HR or the direct manager)
+  List<Map<String, dynamic>> _pendingOutings = [];
+  Future<void> _loadPendingOutings() async {
+    try {
+      final r = await ApiService.post({'action': 'outings_awaiting'});
+      if (!mounted || r['success'] != true) return;
+      setState(() => _pendingOutings = ((r['outings'] as List?) ?? const [])
+          .whereType<Map>().map((m) => m.cast<String, dynamic>()).where((o) => o['canDecide'] == true).toList());
+    } catch (_) {}
+  }
+
+  Widget _buildPendingOutingsCard() {
+    if (_pendingOutings.isEmpty) return const SizedBox.shrink();
+    final isDark = Provider.of<AppController>(context).isDark;
+    String hhmm(Object? iso) {
+      final d = DateTime.tryParse('$iso')?.toLocal();
+      return d == null ? '--:--' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.orange.withOpacity(0.5)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Icon(Icons.notifications_active_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            Text('طلبات إذن / زيارة مستنية موافقتك (${_pendingOutings.length})',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 8),
+          for (final o in _pendingOutings)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded),
+              title: Text('${o['employee_name'] ?? ''} — ${o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'}${o['parent_id'] != null ? ' (تمديد)' : ''}'),
+              subtitle: Text('من ${hhmm(o['starts_at'] ?? o['requested_at'])} لـ ${hhmm(o['expected_return_at'])} • ${o['reason'] ?? ''}',
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_left_rounded),
+              onTap: () async {
+                await showOutingDecision(context, o,
+                    (approve, comment) => ApiService.post({'action': 'outing_decide', 'id': o['id'], 'approve': approve, 'comment': comment}));
+                await _loadPendingOutings();
+              },
+            ),
+        ]),
+      ),
+    );
+  }
+
   Future<void> _loadAdditionalData() async {
+    _loadPendingOutings();
     try {
       // تحميل طلبات الإجازة
       final leaveRes = await DashboardApi.getLeaveRequests(widget.uid);
@@ -423,6 +482,14 @@ class _DashboardPageState extends State<DashboardPage>
     }
     switch (mode) {
       case DashMode.check:
+        if (_outingActive != null) {
+          return FingerUiConfig(
+            title: 'تم العودة',
+            subtitle: 'اضغط مطولاً لما ترجع المكتب',
+            color: getSecondaryColor(),
+            iconBg: getSecondaryColor(),
+          );
+        }
         if (dayFinished) {
           return FingerUiConfig(
             title: AppLocalizations.of(context, 'work_day_ended'),
@@ -468,7 +535,7 @@ class _DashboardPageState extends State<DashboardPage>
         }
         if (_outingActive != null) {
           return FingerUiConfig(
-            title: 'تسجيل الرجوع',
+            title: 'تم العودة',
             subtitle: 'اضغط مطولاً لما ترجع المكتب',
             color: getSecondaryColor(),
             iconBg: getSecondaryColor(),
@@ -605,7 +672,7 @@ class _DashboardPageState extends State<DashboardPage>
 
     if (config.disabled) return;
 
-    if (mode == DashMode.breakTime) {
+    if (mode == DashMode.breakTime || (mode == DashMode.check && _outingActive != null)) {
       await _handleOuting();
       return;
     }
@@ -1570,6 +1637,7 @@ class _DashboardPageState extends State<DashboardPage>
                       _buildHeader(),
 
                       const SizedBox(height: 18),
+                      _buildPendingOutingsCard(),
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),

@@ -91,12 +91,24 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
   if (rules.mode === 'per_minute' && minuteWage !== null) { lateAmt = lateMin * minuteWage; earlyAmt = earlyMin * minuteWage; }
 
   const absentDays = summary.unapprovedAbsenceDays, unpaidDays = summary.unpaidAbsenceDays;
-  const absenceAmt = dayWage === null ? 0 : absentDays * rules.absencePenaltyDays * dayWage;
-  const unpaidAmt = dayWage === null ? 0 : unpaidDays * dayWage;
+  // salary for the days: every elapsed day of the month is paid (work days, weekends, holidays, paid leave)
+  // except unexcused absence and unpaid leave; a full month never pays more than the monthly salary
+  const elapsed = days.filter((d) => !['future', 'before_joining', 'inactive'].includes(d.status)).length;
+  const paidDays = Math.max(0, elapsed - absentDays - unpaidDays);
+  let attendanceSalary: number | null = null;
+  if (base !== null && dayWage !== null) {
+    attendanceSalary = summary.complete && absentDays + unpaidDays === 0 ? base : Math.min(base, paidDays * dayWage);
+  }
+  // the absent day itself is already unpaid above; the penalty adds only the extra days (e.g. 2 = one more day)
+  const absenceAmt = dayWage === null ? 0 : absentDays * Math.max(0, rules.absencePenaltyDays - 1) * dayWage;
+  const unpaidAmt = 0;
   const auto = rules.auto && base !== null;
   const autoTotal = auto ? lateAmt + earlyAmt + absenceAmt + unpaidAmt : 0;
   const adminDed = Number(adj.deductions), bonuses = Number(adj.bonuses);
   return {
+    paidDays, elapsedDays: elapsed,
+    attendanceSalary: attendanceSalary === null ? null : r2(attendanceSalary),
+    hourWage: dayWage === null ? null : r2(dayWage / (shiftMin / 60)),
     complete: summary.complete, baseSalary: base, dayWage: dayWage === null ? null : r2(dayWage),
     minuteWage: minuteWage === null ? null : Math.round(minuteWage * 10000) / 10000,
     rules: { auto: rules.auto, mode: rules.mode, dayDivisor: rules.dayDivisor, absencePenaltyDays: rules.absencePenaltyDays,
@@ -107,6 +119,7 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     unpaid: { days: unpaidDays, amount: auto ? r2(unpaidAmt) : 0 },
     adminDeductions: adminDed, bonuses, advances, workExpenses,
     totalDeductions: r2(autoTotal + adminDed),
-    net: base === null ? null : r2(base - autoTotal - adminDed + bonuses - advances + workExpenses),
+    // due = salary for the days + bonuses/commissions + work expenses − deductions − advances
+    net: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses - advances + workExpenses),
   };
 }

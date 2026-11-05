@@ -2,6 +2,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { AppError, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
+import { sweep } from './tracking.ts';
 
 /**
  * Daily backup export, read by a Google Apps Script in the owner's Google Drive.
@@ -25,8 +26,14 @@ function plain(v: unknown): unknown {
   return v;
 }
 
-export const backupModule: Module = (r, { db }) => {
+export const backupModule: Module = (r, { db, clock }) => {
   const guard = (req: Req) => { if (!authorized(req)) throw new AppError('unauthenticated', 'Backup token required'); };
+  /** Minute heartbeat (no scheduler on the free plan): overdue permissions ring, reminders go out on time. */
+  r.post('/backup/sweep', async (req) => {
+    guard(req);
+    await sweep(db, clock());
+    return ok({ ok: true });
+  });
 
   const tables = async () => (await db.query<{ t: string }>(`SELECT table_name AS t FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1`)).rows.map((x) => x.t).filter((t) => !SKIP.has(t));

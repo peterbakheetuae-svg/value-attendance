@@ -19,7 +19,25 @@ function setup() {
     .filter((t) => t.getHandlerFunction() === 'backup')
     .forEach((t) => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('backup').timeBased().everyDays(1).atHour(3).inTimezone('Africa/Cairo').create();
+  setupHeartbeat();
   backup();
+}
+
+/**
+ * Minute heartbeat (free): the API has no scheduler, so this pokes it every minute — an overdue
+ * permission / visit rings on time and reminders go out even when nobody has the app open.
+ */
+function setupHeartbeat() {
+  ScriptApp.getProjectTriggers()
+    .filter((t) => t.getHandlerFunction() === 'heartbeat')
+    .forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('heartbeat').timeBased().everyMinutes(1).create();
+}
+
+function heartbeat() {
+  const token = PropertiesService.getScriptProperties().getProperty('BACKUP_TOKEN');
+  if (!token) return;
+  UrlFetchApp.fetch(API + '/backup/sweep', { method: 'post', headers: { 'X-Backup-Token': token }, muteHttpExceptions: true });
 }
 
 function call_(path) {

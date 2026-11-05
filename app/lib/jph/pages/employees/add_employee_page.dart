@@ -57,6 +57,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   String? _selectedManagedBy;
   String? _selectedGeneralManager;
   bool _noAttendance = false;
+  bool _selfieRequired = false;
+  bool _deviceLock = true;
   TimeOfDay? _workStart;
   TimeOfDay? _workEnd;
   String? _selectedLeaveDay;
@@ -337,6 +339,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         'salesManagerId': _idOf(_ownersList, _selectedManagedBy) ?? '',
         'generalManagerId': _idOf(_gmList, _selectedGeneralManager) ?? '',
         if (ApiService.can('employee.attendance_exempt')) 'attendanceExempt': _noAttendance,
+        'selfieRequired': !_noAttendance && _selfieRequired,
+        'deviceLock': _deviceLock,
         'workStart': _noAttendance || _workStart == null ? '' : _hhmm(_workStart!),
         'workEnd': _noAttendance || _workEnd == null ? '' : _hhmm(_workEnd!),
         'foremanId': widget.currentUserId,
@@ -720,6 +724,35 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                                   secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Colors.orange : Colors.green),
                                 ),
                               ),
+                            if (!_noAttendance)
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: SwitchListTile(
+                                  value: _selfieRequired,
+                                  onChanged: (v) => setState(() => _selfieRequired = v),
+                                  title: Text('تسجيل الحضور بصورة', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: Text(_selfieRequired ? 'لازم سيلفي مع كل بصمة حضور' : 'البصمة من غير صورة'),
+                                  secondary: Icon(Icons.camera_front_rounded, color: _selfieRequired ? Colors.green : Colors.grey),
+                                ),
+                              ),
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: SwitchListTile(
+                                value: _deviceLock,
+                                onChanged: (v) => setState(() => _deviceLock = v),
+                                title: Text('ربط الحساب بالجهاز', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                subtitle: Text(_deviceLock ? 'يدخل من أول موبايل يسجّل منه بس' : 'يقدر يدخل من أي جهاز'),
+                                secondary: Icon(Icons.phonelink_lock_rounded, color: _deviceLock ? Colors.green : Colors.grey),
+                              ),
+                            ),
                             if (!_noAttendance) ...[
                               _timeTile('ساعة بداية العمل', _workStart, true, isDark),
                               _timeTile('ساعة نهاية العمل', _workEnd, false, isDark),

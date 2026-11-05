@@ -1,3 +1,4 @@
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../core/api.dart';
@@ -204,7 +205,8 @@ class JphRouter {
           if (r['queued'] == true) return _ok({'message': 'الطلب اتحفظ على الموبايل 📴 وهيتبعت للموافقة أول ما النت يرجع'});
           return _ok({'outing': r['outing'], 'message': p['parentId'] != null ? 'تم إرسال طلب التمديد للموافقة' : 'تم إرسال الطلب للموافقة'});
         case 'outing_return':
-          final rr = await _api.postOrQueue('/outings/return', {}, label: 'تسجيل الرجوع');
+          // "I'm back" is checked against the office location on the server
+          final rr = await _api.postOrQueue('/outings/return', await _gps(), label: 'تسجيل الرجوع');
           return _ok({'message': rr['queued'] == true ? 'اتسجل رجوعك على الموبايل 📴 — هيتبعت أول ما النت يرجع' : 'تم تسجيل رجوعك'});
         case 'outing_cancel':
           await _api.post('/outings/${p['id']}/cancel', {});
@@ -360,6 +362,12 @@ class JphRouter {
             'lateHourAmount': p['hourAmount'],
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        case 'set_employee_flags':
+          await _api.patch('/employees/${await _id(p['uid'])}', {
+            if (p['deviceLock'] != null) 'deviceLock': p['deviceLock'] == true,
+            if (p['selfieRequired'] != null) 'selfieRequired': p['selfieRequired'] == true,
+          });
+          return _ok({'message': 'تم الحفظ ✅'});
         case 'unbind_device':
           await _api.post('/employees/${await _id(p['uid'])}/unbind-device', {});
           return _ok({'message': 'تم فك ربط الموبايل — أول دخول جاي هيتربط بالموبايل الجديد'});
@@ -558,9 +566,28 @@ class JphRouter {
     final wd = ((e['weekend_days'] as List?) ?? const []).map((x) => _weekdaysAr[x] ?? '').where((x) => x.isNotEmpty).join('، ');
     final photo = e['has_photo'] == true ? (await _links(photos: [id]))['photo:$id'] ?? '' : '';
     final role = _s(e['role_key'], 'sales_employee');
+    // salary figures from the real salary (own payslip, or salary readers): hour / day / month / start / increase
+    Map<String, dynamic> pay = {};
+    try {
+      final now = DateTime.now();
+      pay = (((await _api.get('/payroll/employee/$id', {'month': '${now.year}-${_two(now.month)}'}))['payroll']) as Map).cast<String, dynamic>();
+    } catch (_) {}
+    String money(Object? v) {
+      final n = v is num ? v : num.tryParse('${v ?? ''}');
+      if (n == null) return '--';
+      return '${n == n.roundToDouble() ? n.round() : n.toStringAsFixed(2)} ج.م';
+    }
+    final base = pay['baseSalary'] as num?;
+    final start = num.tryParse(_s(lf['startSalary'])) ?? base;
     return _ok({
+      'hourRate': money(pay['hourWage']),
+      'dayRate': money(pay['dayWage']),
+      'monthSalary': money(base),
+      'startSalaryCalc': money(start),
+      'increaseCalc': base == null || start == null ? '--' : money(base - start),
       'source': role == 'owner' ? 'owner' : 'employee',
       'uid': _s(e['code']),
+      'employeeId': id,
       'name': _s(e['full_name']),
       'role': roleAr[role] ?? role,
       'email': _s(e['email']),
@@ -681,6 +708,21 @@ class JphRouter {
       'sickLeave': '$sick',
       'lateTime': _hhmm(sm['lateMinutes'] as num?),
     });
+  }
+
+  /// Current GPS fix for checks done on the server (empty when location is off / not allowed).
+  static Future<Map<String, dynamic>> _gps() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return {};
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return {};
+      final p = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)));
+      return {'lat': p.latitude, 'lng': p.longitude, 'accuracyM': p.accuracy};
+    } catch (_) {
+      return {};
+    }
   }
 
   /// location from the original camera service: "lat,lng" or "lat,lng,accuracy"
@@ -953,6 +995,7 @@ class JphRouter {
       'workEnd': _s(e['work_end'], ''),
       'deviceBound': e['device_bound'] == true,
       'deviceLock': e['device_lock'] == true,
+      'selfieRequired': e['selfie_required'] == true,
       'deviceLabel': _s(e['device_label'], ''),
     };
   }
@@ -995,6 +1038,7 @@ class JphRouter {
       if (p.containsKey('generalManagerId')) 'generalManagerId': idOrNull(p['generalManagerId']),
       if (p.containsKey('attendanceExempt') && _has('employee.attendance_exempt')) 'attendanceExempt': p['attendanceExempt'] == true,
       if (p.containsKey('deviceLock') && _has('employee.manage')) 'deviceLock': p['deviceLock'] == true,
+      if (p.containsKey('selfieRequired') && _has('employee.manage')) 'selfieRequired': p['selfieRequired'] == true,
       if (p.containsKey('workStart'))
         ...((p['workStart'] ?? '').toString().isEmpty || (p['workEnd'] ?? '').toString().isEmpty
             ? {'workStart': null, 'workEnd': null}
@@ -1193,6 +1237,17 @@ class JphRouter {
         'projectId': '--',
         'breakStart': _time(d['breakStart'], '--'),
         'breakEnd': _time(d['breakEnd'], '--'),
+        'scheduleStart': _s((d['schedule'] as Map?)?['start'], '--').length >= 5 ? _s((d['schedule'] as Map?)?['start']).substring(0, 5) : '--',
+        'scheduleEnd': _s((d['schedule'] as Map?)?['end'], '--').length >= 5 ? _s((d['schedule'] as Map?)?['end']).substring(0, 5) : '--',
+        'outings': [
+          for (final o in _list(d['outings']))
+            {
+              'kind': o['kind'],
+              'label': o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات',
+              'text': 'من ${_time(o['from'], '--')} لـ ${_time(o['expectedReturn'], '--')}'
+                  '${o['returnedAt'] != null ? ' — رجع ${_time(o['returnedAt'], '--')}' : ''}',
+            },
+        ],
         'startForemanName': '--',
         'startForemanId': '--',
         'endForemanName': '--',

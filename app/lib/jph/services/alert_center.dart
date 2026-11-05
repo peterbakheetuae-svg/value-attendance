@@ -17,12 +17,10 @@ class AlertCenter with WidgetsBindingObserver {
   AlertCenter._();
   static final AlertCenter instance = AlertCenter._();
 
+  /// Only these ring (full-screen + sound). Everything else is a normal notification.
   static const _ringing = {
     'outing_awaiting', 'outing_extension_awaiting', 'outing_overdue', 'outing_overdue_watch',
-    'outing_approved', 'outing_rejected', 'outing_permission_approved_owner', 'outing_visit_approved_owner',
-    'outing_extension_approved_owner', 'unauthorized_exit', 'unauthorized_exit_self', 'tracking_stopped',
-    'not_checked_in', 'not_checked_out', 'checkin_reminder', 'checkout_reminder',
-    'request_awaiting', 'request_approved', 'request_rejected', 'finance_awaiting', 'admin_message',
+    'unauthorized_exit', 'unauthorized_exit_self',
   };
 
   /// notification id → related record id (filled when the notifications list loads)
@@ -102,7 +100,18 @@ class AlertCenter with WidgetsBindingObserver {
         if (!_ringing.contains(n['type'])) _seen.add('${n['id']}');
       }
       for (final n in fresh) {
-        if (!_ringing.contains(n['type'])) continue;
+        if (!_ringing.contains(n['type'])) {
+          // normal notification: a quiet banner while the app is open (no ringing)
+          final ctx = _nav?.currentContext;
+          if (_foreground && ctx != null && ctx.mounted) {
+            ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
+              content: Text('🔔 ${n['title']}'),
+              duration: const Duration(seconds: 4),
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          continue;
+        }
         await _remember('${n['id']}');
         await _alert(n);
       }
@@ -165,7 +174,9 @@ class AlertCenter with WidgetsBindingObserver {
     _showing = true;
     try {
       final type = '${n['type']}';
-      if ((type == 'outing_awaiting' || type == 'outing_extension_awaiting') && n['entity_id'] != null) {
+      if (type == 'outing_overdue') {
+        await _overdue(ctx);
+      } else if ((type == 'outing_awaiting' || type == 'outing_extension_awaiting') && n['entity_id'] != null) {
         final o = await ApiService.post({'action': 'outing_get', 'id': n['entity_id']});
         if (o['success'] == true && (o['outing'] as Map)['canDecide'] == true && ctx.mounted) {
           await showOutingDecision(ctx, (o['outing'] as Map).cast<String, dynamic>(),
@@ -179,6 +190,36 @@ class AlertCenter with WidgetsBindingObserver {
       await stopRinging();
       // acknowledged → read (stops it from ringing again on any device)
       try { await JphBridge.api.post('/notifications/${n['id']}/read', {}); } catch (_) {}
+    }
+  }
+
+  /// The return time passed: "I'm back" (checked against the office location) or ask for more time.
+  Future<void> _overdue(BuildContext ctx) async {
+    final t = await ApiService.post({'action': 'outing_today'});
+    final active = (t['active'] as Map?)?.cast<String, dynamic>();
+    final back = DateTime.tryParse('${active?['expected_return_at']}')?.toLocal();
+    if (active == null || back == null || !ctx.mounted) return;
+    final choice = await showOutingActions(ctx, kind: '${active['kind']}', expectedReturn: back, overdue: true);
+    await stopRinging();
+    if (!ctx.mounted || choice == null) return;
+    if (choice == 'return') {
+      final r = await ApiService.post({'action': 'outing_return'});
+      if (ctx.mounted) {
+        ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+      }
+    } else if (choice == 'extend' || choice == 'new') {
+      if (choice == 'new') await ApiService.post({'action': 'outing_return'});
+      final kind = choice == 'new' ? await showOutingKindPicker(ctx) : '${active['kind']}';
+      if (kind == null || !ctx.mounted) return;
+      final form = await showOutingForm(ctx, kind: kind, extension: choice == 'extend',
+          currentReturn: choice == 'extend' ? (back.isAfter(DateTime.now()) ? back : DateTime.now()) : null);
+      if (form == null || !ctx.mounted) return;
+      final r = await ApiService.post({'action': 'outing_submit', 'kind': kind, ...form, if (choice == 'extend') 'parentId': active['id']});
+      if (ctx.mounted) {
+        ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+      }
     }
   }
 

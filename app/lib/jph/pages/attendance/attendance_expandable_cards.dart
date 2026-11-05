@@ -434,20 +434,38 @@ class AttendanceExpandableCard extends StatelessWidget {
 
                     const SizedBox(height: 16),
 
-                    // 🔥 قسم الاستراحة
+                    // 🔥 مواعيد الدوام المطلوبة
                     _buildSection(
-                      title: breakTime,
+                      title: 'مواعيد العمل',
                       items: [
                         _buildDetailItem(
-                          icon: Icons.play_arrow,
-                          label: 'البداية',
-                          value: dayData['breakStart'] ?? '--',
+                          icon: Icons.login_rounded,
+                          label: 'بداية العمل',
+                          value: '${dayData['scheduleStart'] ?? '--'}',
                         ),
                         _buildDetailItem(
-                          icon: Icons.stop,
-                          label: 'النهاية',
-                          value: dayData['breakEnd'] ?? '--',
+                          icon: Icons.logout_rounded,
+                          label: 'نهاية العمل',
+                          value: '${dayData['scheduleEnd'] ?? '--'}',
                         ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // 🔥 أذونات الخروج والزيارات
+                    _buildSection(
+                      title: 'أذونات الخروج والزيارات',
+                      items: [
+                        if (((dayData['outings'] as List?) ?? const []).isEmpty)
+                          _buildDetailItem(icon: Icons.directions_walk_rounded, label: 'لا يوجد', value: '--'),
+                        for (final o in ((dayData['outings'] as List?) ?? const []).whereType<Map>())
+                          _buildDetailItem(
+                            icon: o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded,
+                            label: '${o['label']}',
+                            value: '${o['text']}',
+                            valueColor: Colors.teal,
+                          ),
                       ],
                     ),
 

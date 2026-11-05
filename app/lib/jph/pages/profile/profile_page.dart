@@ -17,6 +17,7 @@ import 'edit_profile_page.dart';
 import '../../widgets/employee_files.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/performance_avatar.dart';
+import '../../widgets/employee_kpi_box.dart';
 
 class ProfilePage extends StatefulWidget {
   final String uid;
@@ -276,13 +277,17 @@ class _ProfilePageState extends State<ProfilePage> {
                       _section(
                         AppLocalizations.of(context, 'salary_data'),
                         [
-                          _row(Icons.monetization_on, AppLocalizations.of(context, 'daily_rate'), data["dailyRate"] ?? "--", subduedTextColor),
-                          _row(Icons.account_balance_wallet, AppLocalizations.of(context, 'salary'), data["salary"] ?? "--", subduedTextColor),
-                          _row(Icons.flag, AppLocalizations.of(context, 'start_salary'), data["startSalary"] ?? "--", subduedTextColor),
-                          _row(Icons.trending_up, AppLocalizations.of(context, 'increment'), data["increment"] ?? "--", subduedTextColor),
+                          _row(Icons.schedule, 'أجر الساعة', data["hourRate"] ?? "--", subduedTextColor),
+                          _row(Icons.monetization_on, 'أجر اليوم', data["dayRate"] ?? "--", subduedTextColor),
+                          _row(Icons.account_balance_wallet, 'الراتب الشهري', data["monthSalary"] ?? "--", subduedTextColor),
+                          _row(Icons.flag, 'راتب بداية العمل', data["startSalaryCalc"] ?? "--", subduedTextColor),
+                          _row(Icons.trending_up, 'الزيادة', data["increaseCalc"] ?? "--", subduedTextColor),
                         ],
                         textColor,
                       ),
+                      // all of the employee's KPIs this month
+                      EmployeeKpiBox(employeeId: (data['employeeId'] ?? '').toString()),
+                      const SizedBox(height: 24),
                       _section(
                         AppLocalizations.of(context, 'work_system'),
                         [

@@ -761,5 +761,6 @@
   "admin_checked_out": "انصرفوا النهارده",
   "late_time": "التأخير",
   "late_month": "دقايق التأخير",
-  "late_deduction": "خصم التأخير"
+  "late_deduction": "خصم التأخير",
+  "outing_remaining": "الوقت المتبقي"
 }

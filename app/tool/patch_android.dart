@@ -20,6 +20,9 @@ void main() {
     'android.permission.FOREGROUND_SERVICE_LOCATION',
     'android.permission.POST_NOTIFICATIONS',
     'android.permission.WAKE_LOCK',
+    // ringing alerts over the lock screen (permission / visit requests, overdue return)
+    'android.permission.USE_FULL_SCREEN_INTENT',
+    'android.permission.VIBRATE',
   ];
   for (final p in perms) {
     if (!xml.contains('"$p"')) {
@@ -31,6 +34,10 @@ void main() {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
   }
   xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Value Attendance"');
+  // the ringing alert opens the app over the lock screen
+  if (!xml.contains('android:showWhenLocked')) {
+    xml = xml.replaceFirst('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"');
+  }
   f.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, cleartext (dev).');
 

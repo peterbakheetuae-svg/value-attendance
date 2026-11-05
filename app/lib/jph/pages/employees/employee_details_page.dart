@@ -73,6 +73,30 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   String? _selectedGeneralManager;
   bool _noAttendance = false;
   bool _deviceLock = false;
+  bool _selfieRequired = false;
+  bool _savingFlag = false;
+
+  /// "phone lock" / "check in with a photo": saved at once (no need to enter edit mode)
+  Future<void> _setFlag({bool? deviceLock, bool? selfieRequired}) async {
+    if (_savingFlag) return;
+    final oldLock = _deviceLock, oldSelfie = _selfieRequired;
+    setState(() {
+      _savingFlag = true;
+      if (deviceLock != null) _deviceLock = deviceLock;
+      if (selfieRequired != null) _selfieRequired = selfieRequired;
+    });
+    final r = await ApiService.post({'action': 'set_employee_flags', 'uid': _employeeData['uid'],
+      if (deviceLock != null) 'deviceLock': deviceLock, if (selfieRequired != null) 'selfieRequired': selfieRequired});
+    if (!mounted) return;
+    setState(() {
+      _savingFlag = false;
+      if (r['success'] != true) { _deviceLock = oldLock; _selfieRequired = oldSelfie; }
+      _employeeData['deviceLock'] = _deviceLock;
+      _employeeData['selfieRequired'] = _selfieRequired;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+  }
   TimeOfDay? _workStart;
   TimeOfDay? _workEnd;
 
@@ -162,6 +186,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _selectedGeneralManager = (_employeeData['generalManager']?.toString() ?? '').isEmpty ? null : _employeeData['generalManager'].toString();
     _noAttendance = _employeeData['attendanceExempt'] == true;
     _deviceLock = _employeeData['deviceLock'] == true;
+    _selfieRequired = _employeeData['selfieRequired'] == true;
     _workStart = _parseTime(_employeeData['workStart']);
     _workEnd = _parseTime(_employeeData['workEnd']);
     _selectedLeaveDay = _employeeData['leaveDay']?.toString();
@@ -270,7 +295,6 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         'salesManagerId': _idOf(_ownersList, _selectedManagedBy) ?? '',
         'generalManagerId': _idOf(_gmList, _selectedGeneralManager) ?? '',
         if (ApiService.can('employee.attendance_exempt')) 'attendanceExempt': _noAttendance,
-        if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner') 'deviceLock': _deviceLock,
         'workStart': _noAttendance || _workStart == null ? '' : _hhmm(_workStart!),
         'workEnd': _noAttendance || _workEnd == null ? '' : _hhmm(_workEnd!),
         'name': _nameController.text.trim(),
@@ -787,7 +811,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 child: Column(children: [
                                   SwitchListTile(
                                     value: _deviceLock,
-                                    onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _deviceLock = v) : null,
+                                    onChanged: _savingFlag ? null : (v) => _setFlag(deviceLock: v),
                                     title: Text('ربط الحساب بالجهاز', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
                                     subtitle: Text(_deviceLock
                                         ? 'الموظف يدخل من موبايل واحد بس${(_employeeData['deviceLabel'] ?? '').toString().isNotEmpty ? ' — ${_employeeData['deviceLabel']}' : ''}'
@@ -807,6 +831,21 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                       label: const Text('فك ربط الموبايل الحالي (لو غيّر موبايله)'),
                                     ),
                                 ]),
+                              ),
+                            if (ApiService.can('employee.manage') && !_noAttendance)
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: SwitchListTile(
+                                  value: _selfieRequired,
+                                  onChanged: _savingFlag ? null : (v) => _setFlag(selfieRequired: v),
+                                  title: Text('تسجيل الحضور بصورة', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: Text(_selfieRequired ? 'لازم سيلفي مع كل بصمة حضور' : 'البصمة من غير صورة'),
+                                  secondary: Icon(Icons.camera_front_rounded, color: _selfieRequired ? Colors.green : Colors.grey),
+                                ),
                               ),
                             if (!_noAttendance) ...[
                               _timeTile('ساعة بداية العمل', _workStart, true, isDark, _isEditing && canToggleEdit),

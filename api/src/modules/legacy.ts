@@ -321,7 +321,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
       SELECT e.id, e.code, e.full_name, e.email, e.phone, e.job_title, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
              e.status, e.joining_date, e.created_at, e.updated_at, e.bank_name, e.account_holder, e.iban, e.account_number, e.notes,
              (e.photo IS NOT NULL) AS has_photo, t.name AS team_name, m.full_name AS manager_name, d.name_ar AS department_name,
-             ws.name AS schedule_name, ws.start_time, ws.end_time, ws.weekend_days
+             ws.name AS schedule_name, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time, ws.weekend_days
         FROM employees e JOIN roles r ON r.key = e.role_key
         LEFT JOIN teams t ON t.id = e.team_id LEFT JOIN employees m ON m.id = COALESCE(e.sales_manager_id, t.manager_id)
         LEFT JOIN departments d ON d.id = e.department_id

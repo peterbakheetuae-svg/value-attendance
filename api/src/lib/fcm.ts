@@ -43,6 +43,12 @@ async function accessToken(a: ServiceAccount): Promise<string> {
   return j.access_token;
 }
 
+/** Alerts that ring (full-screen, insistent) instead of a normal notification. */
+export const RING_TYPES = new Set([
+  'outing_awaiting', 'outing_extension_awaiting', 'outing_overdue', 'outing_overdue_watch',
+  'unauthorized_exit', 'unauthorized_exit_self',
+]);
+
 /** Push one notification to every live device of an employee. Never throws (push is best-effort). */
 export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }) {
   const a = sa();
@@ -56,12 +62,14 @@ export async function pushTo(q: Q, employeeId: string, m: { id: string; type: st
     await Promise.all(rows.rows.map(async ({ token }) => {
       const r = await fetch(`https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`, {
         method: 'POST', headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ message: {
-          token,
-          notification: { title: m.title, body: m.body },
-          data: { id: m.id, type: m.type, entityId: m.entityId ?? '' },
-          android: { priority: 'HIGH', notification: { channel_id: 'attendance_channel', sound: 'notification', default_vibrate_timings: true } },
-        } }),
+        body: JSON.stringify({ message: RING_TYPES.has(m.type)
+          // ring: data-only, so the app itself shows a full-screen ringing alert (even closed / locked)
+          ? { token, data: { id: m.id, type: m.type, entityId: m.entityId ?? '', title: m.title, body: m.body, ring: '1' },
+              android: { priority: 'HIGH', ttl: '600s' } }
+          // normal notification: shown by the system with the default sound
+          : { token, notification: { title: m.title, body: m.body },
+              data: { id: m.id, type: m.type, entityId: m.entityId ?? '' },
+              android: { priority: 'HIGH', notification: { channel_id: 'general_channel', default_sound: true, default_vibrate_timings: true } } } }),
         signal: AbortSignal.timeout(5000),
       });
       if (r.status === 404 || r.status === 400) {
