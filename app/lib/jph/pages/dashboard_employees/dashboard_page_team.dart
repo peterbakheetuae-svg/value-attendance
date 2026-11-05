@@ -32,6 +32,7 @@ import '../../services/api_service.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../services/jph_bridge.dart';
 import '../../widgets/outing_dialogs.dart';
+import '../../widgets/app_nav.dart';
 import '../../../core/shift_tracker.dart';
 
 class DashboardPageTeam extends StatefulWidget {
@@ -257,49 +258,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     }
   }
 
-  void onBottomTap(int index) {
-    if (index == bottomIndex) return;
-
-    switch (index) {
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => IdCardPage(
-              uid: widget.uid,
-              name: widget.name,
-              role: widget.role,
-            ),
-          ),
-        );
-        break;
-      case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SettingsPage(
-              uid: widget.uid,
-              name: widget.name,
-              role: widget.role,
-            ),
-          ),
-        );
-        break;
-      case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProfilePage(
-              uid: widget.uid,
-              name: widget.name,
-              role: widget.role,
-              photo: _photoUrl,
-            ),
-          ),
-        );
-        break;
-    }
-  }
+  void onBottomTap(int index) => AppNav.go(context, index, current: 0, uid: widget.uid, name: widget.name, role: widget.role, photo: _photoUrl);
 
   Future<void> _loadInitialData() async {
     await Future.wait([loadToday(), loadMonth()]);
@@ -667,7 +626,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         }
         return StatRightCardModel.outing(
           kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
-          start: o == null ? '--:--' : hhmm(o['requested_at']),
+          start: o == null ? '--:--' : hhmm(o['starts_at'] ?? o['requested_at']),
           expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
         );
       case DashMode.leave:
@@ -1412,7 +1371,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
               backgroundColor: Colors.transparent,
               body: _buildDashboardHome(),
               bottomNavigationBar: GlassBottomNav(
-                currentIndex: bottomIndex,
+                currentIndex: 0,
                 onTap: onBottomTap,
               ),
             ),

@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart'; // ✅ أضف هذا
 import '../theme/app_colors.dart'; // ✅ أضف هذا
 import '../widgets/glass_ui_widgets.dart';
 import '../widgets/app_background.dart'; // ✅ أضف هذا - بدل GlassBackground
+import '../widgets/app_nav.dart';
 import '../widgets/glass_bottom_nav.dart';
 
 class IdCardPage extends StatelessWidget {
@@ -35,10 +36,7 @@ class IdCardPage extends StatelessWidget {
               backgroundColor: Colors.transparent,
               bottomNavigationBar: GlassBottomNav(
                 currentIndex: 1, // لأن IdCard هو الفهرس 1
-                onTap: (index) {
-                  // 🔥 أضف منطق التنقل هنا
-                  print('التنقل إلى: $index');
-                },
+                onTap: (index) => AppNav.go(context, index, current: -1, uid: uid, name: name, role: role),
               ),
               body: SafeArea(
                 child: ListView(

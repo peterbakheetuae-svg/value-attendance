@@ -15,6 +15,7 @@ import '../dashboard_employers/dashboard_page.dart';
 import '../settings/settings_page.dart';
 import 'edit_profile_page.dart';
 import '../../widgets/employee_files.dart';
+import '../../widgets/app_nav.dart';
 import '../../widgets/performance_avatar.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -72,21 +73,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void onBottomNavTap(int index) {
-    if (index == 4) return;
-
-    final page = switch (index) {
-      0 => DashboardPage(uid: widget.uid, name: widget.name, role: widget.role),
-      1 => AttendanceReportPage(uid: widget.uid, name: widget.name, role: widget.role),
-      2 => EmployeesPage(currentUserId: widget.uid, currentUserName: widget.name, currentUserRole: widget.role),
-      3 => SettingsPage(uid: widget.uid, name: widget.name, role: widget.role),
-      _ => null,
-    };
-
-    if (page != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-    }
-  }
+  void onBottomNavTap(int index) => AppNav.go(context, index, current: 4, uid: widget.uid, name: widget.name, role: widget.role, photo: widget.photo);
 
   void _onScore() {
     if (mounted) setState(() {});

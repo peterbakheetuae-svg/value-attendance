@@ -100,6 +100,9 @@ Future<String?> showOutingKindPicker(BuildContext context) {
 Future<Map<String, String>?> showOutingForm(BuildContext context, {required String kind, bool extension = false, DateTime? currentReturn}) {
   final reason = TextEditingController();
   TimeOfDay? back;
+  // hourly permission: start + end; a visit only needs the return time (it starts now)
+  final withStart = kind == 'permission' && !extension;
+  TimeOfDay? start = withStart ? TimeOfDay.now() : null;
   String? error;
   final label = kind == 'visit' ? 'زيارة' : 'إذن ساعات';
   return showDialog<Map<String, String>>(
@@ -115,6 +118,27 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
               ? 'ميعاد الرجوع الحالي ${two(currentReturn.hour)}:${two(currentReturn.minute)}'
               : 'كل الخانات مطلوبة',
           children: [
+            if (withStart) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () async {
+                  final v = await showTimePicker(context: ctx, initialTime: start ?? TimeOfDay.now());
+                  if (v != null) set(() => start = v);
+                },
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'بداية الإذن *',
+                    prefixIcon: const Icon(Icons.login_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                    filled: true,
+                    fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
+                  ),
+                  child: Text(start == null ? 'اختار الساعة' : start!.format(ctx),
+                      style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black)),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () async {
@@ -124,7 +148,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
               },
               child: InputDecorator(
                 decoration: InputDecoration(
-                  labelText: 'ميعاد الرجوع المتوقع *',
+                  labelText: withStart ? 'نهاية الإذن *' : 'ميعاد الرجوع المتوقع *',
                   prefixIcon: const Icon(Icons.schedule_rounded),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                   filled: true,
@@ -162,7 +186,15 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
                 set(() => error = 'الميعاد الجديد لازم يكون بعد الميعاد الحالي');
                 return;
               }
-              Navigator.pop(ctx, {'expectedReturn': '${two(back!.hour)}:${two(back!.minute)}', 'reason': reason.text.trim()});
+              if (withStart && start != null && start!.hour * 60 + start!.minute >= back!.hour * 60 + back!.minute) {
+                set(() => error = 'نهاية الإذن لازم تكون بعد بدايته');
+                return;
+              }
+              Navigator.pop(ctx, {
+                'expectedReturn': '${two(back!.hour)}:${two(back!.minute)}',
+                if (withStart && start != null) 'startAt': '${two(start!.hour)}:${two(start!.minute)}',
+                'reason': reason.text.trim(),
+              });
             }),
             _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Colors.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
           ]);

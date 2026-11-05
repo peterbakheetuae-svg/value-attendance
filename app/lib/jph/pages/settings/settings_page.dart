@@ -35,6 +35,7 @@ import '../multi_company/kpi_page.dart';
 import '../multi_company/work_locations_page.dart';
 import '../multi_company/reports_page.dart';
 import '../multi_company/platform_dashboard_page.dart';
+import '../../widgets/app_nav.dart';
 import '../../widgets/company_selector_sheet.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -121,24 +122,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void onBottomNavTap(int index) {
-    if (index == 3) return; // نحن بالفعل في صفحة الملف الشخصي
-
-    final page = switch (index) {
-      0 => DashboardPage(uid: widget.uid, name: widget.name, role: widget.role),
-      1 => AttendanceReportPage(uid: widget.uid, name: widget.name, role: widget.role),
-      2 => EmployeesPage(currentUserId: widget.uid, currentUserName: widget.name, currentUserRole: widget.role,),
-      4 => ProfilePage(uid: widget.uid, name: widget.name, role: widget.role),
-      _ => null,
-    };
-
-    if (page != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => page),
-      );
-    }
-  }
+  void onBottomNavTap(int index) => AppNav.go(context, index, current: 3, uid: widget.uid, name: widget.name, role: widget.role);
   void _showNoUpdateDialog() {
     showDialog(
       context: context,
@@ -350,66 +334,7 @@ class _SettingsPageState extends State<SettingsPage> {
               backgroundColor: Colors.transparent,
               bottomNavigationBar: GlassBottomNav(
                 currentIndex: 3, // ✅ هذا الفهرس يعتمد على موقع الإعدادات في القائمة
-                onTap: (index) {
-                  switch (index) {
-                    case 0:
-                    // ✅ الرئيسية
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => DashboardPage(
-                            uid: widget.uid,
-                            name: widget.name,
-                            role: widget.role,
-                          ),
-                        ),
-                      );
-                      break;
-                    case 1:
-                    // ✅ تقارير الحضور
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => AttendanceReportPage(
-                            uid: widget.uid,
-                            name: widget.name,
-                            role: widget.role,
-                          ),
-                        ),
-                      );
-                      break;
-                    case 2:
-                    // ✅ الموظفين (الجديد)
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => EmployeesPage(
-                            currentUserId: widget.uid,
-                            currentUserName: widget.name,
-                            currentUserRole: widget.role,
-                          ),
-                        ),
-                      );
-                      break;
-                    case 3:
-                    // ✅ الإعدادات (الصفحة الحالية)
-                    // نحن بالفعل في هذه الصفحة
-                      break;
-                    case 4:
-                    // ✅ الملف الشخصي
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ProfilePage(
-                            uid: widget.uid,
-                            name: widget.name,
-                            role: widget.role,
-                          ),
-                        ),
-                      );
-                      break;
-                  }
-                },
+                onTap: (index) => AppNav.go(context, index, current: 3, uid: widget.uid, name: widget.name, role: widget.role),
               ),
               body: SafeArea(
                 child: ListView(
@@ -481,98 +406,25 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
-                    // ─── إعدادات الشركة: one main item that opens its own list ───
-                    SettingsTile(
-                      title: 'إعدادات الشركة',
-                      icon: _companyOpen ? Icons.expand_less_rounded : Icons.apartment_rounded,
-                      onTap: () => setState(() => _companyOpen = !_companyOpen),
-                    ),
-                    AnimatedSize(
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeOut,
-                      child: !_companyOpen
-                          ? const SizedBox(width: double.infinity)
-                          : Padding(
-                              padding: const EdgeInsetsDirectional.only(start: 18, top: 10),
-                              child: Column(children: [
-                    // Company Info
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'company_info'),
-                      icon: Icons.business,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const CompanyInfoPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    // Job positions & permissions (dynamic)
-                    SettingsTile(
-                      title: 'الوظائف والصلاحيات',
-                      icon: Icons.admin_panel_settings_outlined,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const PositionsPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    // Lateness deduction (late > N min → fixed amount; ≥ 1 h → per hour)
-                    SettingsTile(
-                      title: 'خصم التأخير',
-                      icon: Icons.timer_off_outlined,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const LateRulesPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    // Work Locations (Geofence)
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'work_locations'),
-                      icon: Icons.location_on,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const WorkLocationsPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    // إضافة العطلات الرسمية هنا - قبل تغيير كلمة المرور
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'public_holidays') ?? 'العطلات الرسمية',
-                      icon: Icons.event_note,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PublicHolidaysPage(
-                              uid: widget.uid,
-                              name: widget.name,
-                              role: widget.role,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                              ]),
-                            ),
-                    ),
-
-                    const SizedBox(height: 14),
+                    // ─── إعدادات الشركة: expands in place like "change password" / "language"; admins only ───
+                    if (_companyItems().isNotEmpty) ...[
+                      SettingsExpandableTile(
+                        title: 'إعدادات الشركة',
+                        icon: Icons.apartment_rounded,
+                        expanded: _companyOpen,
+                        onToggle: () => setState(() => _companyOpen = !_companyOpen),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Column(children: [
+                            for (final (i, it) in _companyItems().indexed) ...[
+                              if (i > 0) const SizedBox(height: 12),
+                              _companyOption(appController, it.$1, it.$2, it.$3),
+                            ],
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
 
                     // ─── Multi-Company Management section ───
                     // Company selector (only visible when user has >1 membership)
@@ -586,6 +438,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
 
                     // KPI
+                    if (ApiService.can('kpi.config') || ApiService.can('kpi.read_all') || ApiService.can('kpi.read_team')) ...[
                     SettingsTile(
                       title: AppLocalizations.of(context, 'kpi_definitions'),
                       icon: Icons.insights,
@@ -600,8 +453,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+                    ],
 
                     // Reports
+                    if (ApiService.can('report.read_all') || ApiService.can('report.read_team') || ApiService.can('report.payroll')) ...[
                     SettingsTile(
                       title: AppLocalizations.of(context, 'reports'),
                       icon: Icons.assessment,
@@ -616,6 +471,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+                    ],
 
                     // Platform Dashboard (only for Platform Owners)
                     if (appController.isPlatformOwner) ...[
@@ -894,6 +750,44 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       },
+    );
+  }
+
+  /// Company settings shown only to the people who can change them (an employee sees none).
+  List<(String, IconData, Widget Function())> _companyItems() => [
+        if (ApiService.can('settings.manage')) ('معلومات الشركة', Icons.business, () => const CompanyInfoPage()),
+        if (ApiService.can('positions.manage') || ApiService.can('roles.manage'))
+          ('الوظائف والصلاحيات', Icons.admin_panel_settings_outlined, () => const PositionsPage()),
+        if (ApiService.can('settings.manage')) ('خصم التأخير', Icons.timer_off_outlined, () => const LateRulesPage()),
+        if (ApiService.can('attendance.config')) ('موقع العمل', Icons.location_on, () => const WorkLocationsPage()),
+        if (ApiService.can('attendance.config'))
+          ('العطلات الرسمية', Icons.event_note, () => PublicHolidaysPage(uid: widget.uid, name: widget.name, role: widget.role)),
+      ];
+
+  Widget _companyOption(AppController appController, String title, IconData icon, Widget Function() page) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => page())),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+          ),
+          child: Row(children: [
+            Icon(icon, size: 22, color: Theme.of(context).primaryColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: appController.isDark ? Colors.white : Colors.black)),
+            ),
+            Icon(Icons.chevron_left_rounded, color: appController.isDark ? Colors.white54 : Colors.black45),
+          ]),
+        ),
+      ),
     );
   }
 

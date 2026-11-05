@@ -35,6 +35,7 @@ import 'break_page.dart';
 import '../notifications/notification_settings.dart'; // ✅ إضافة صفحة إعدادات الإشعارات
 import '../../widgets/outing_dialogs.dart';
 import '../../widgets/performance_avatar.dart';
+import '../../widgets/app_nav.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -248,55 +249,7 @@ class _DashboardPageState extends State<DashboardPage>
     }
   }
 
-  void onBottomTap(int index) {
-    if (index == bottomIndex) return;
-
-    switch (index) {
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AttendanceReportPage(uid: '', name: '', role: '',
-            ),
-          ),
-        );
-        break;
-      case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SettingsPage(
-              uid: widget.uid,
-              name: widget.name,
-              role: widget.role,
-            ),
-          ),
-        );
-        break;
-      case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => EmployeesPage(currentUserId: '', currentUserName: '', currentUserRole: '',
-            ),
-          ),
-        );
-        break;
-      case 4:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProfilePage(
-              uid: widget.uid,
-              name: widget.name,
-              role: widget.role,
-              photo: _photoUrl,
-            ),
-          ),
-        );
-        break;
-    }
-  }
+  void onBottomTap(int index) => AppNav.go(context, index, current: 0, uid: widget.uid, name: widget.name, role: widget.role, photo: _photoUrl);
 
   Future<void> _loadInitialData() async {
     await loadToday();

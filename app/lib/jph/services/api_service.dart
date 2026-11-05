@@ -198,6 +198,7 @@ class JphRouter {
         case 'outing_submit':
           final r = await _api.postOrQueue('/outings', {
             'kind': p['kind'], 'expectedReturn': p['expectedReturn'], 'reason': p['reason'],
+            if (p['startAt'] != null) 'startAt': p['startAt'],
             if (p['parentId'] != null) 'parentId': p['parentId'],
           }, label: 'طلب إذن / زيارة');
           if (r['queued'] == true) return _ok({'message': 'الطلب اتحفظ على الموبايل 📴 وهيتبعت للموافقة أول ما النت يرجع'});
@@ -534,7 +535,7 @@ class JphRouter {
       'uid': me['code'],
       'name': me['full_name'],
       'role': roleAr[role] ?? role,
-      'validity': role == 'owner' ? 'admin' : 'موظف',
+      'validity': role == 'owner' || _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
       'photo': photo,
       'companyId': 'VALUE',
       'companyName': JphBridge.session.company?['company_name_ar'] ?? '',
@@ -582,7 +583,7 @@ class JphRouter {
       'level': _s(lf['level'], '0%'),
       'employeeStatus': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
       'status': e['status'] == 'active' ? 'نشط' : 'موقوف',
-      'validity': role == 'owner' ? 'admin' : 'موظف',
+      'validity': role == 'owner' || _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
       'companyName': _s(company?['company_name_ar']),
       'createdAt': _date(e['created_at']),
       'lastModifiedDate': _date(e['updated_at']),
@@ -635,7 +636,7 @@ class JphRouter {
       for (final x in _list(o['history'])) {
         if (x['status'] != 'approved' && x['status'] != 'superseded') continue;
         if (x['parent_id'] != null) continue;
-        final from = _dt(x['requested_at']);
+        final from = _dt(x['starts_at'] ?? x['requested_at']);
         final to = _dt(x['returned_at']) ?? DateTime.now();
         if (from != null) outMinutes += to.difference(from).inMinutes.clamp(0, 24 * 60);
       }
@@ -1270,13 +1271,13 @@ class JphRouter {
     final r = await _api.get('/outings', {'status': 'out', 'date': _ymd(now)});
     final out = <Map<String, dynamic>>[];
     for (final x in _list(r['outings'])) {
-      final from = _dt(x['requested_at']);
+      final from = _dt(x['starts_at'] ?? x['requested_at']);
       final back = _dt(x['expected_return_at']);
       out.add({
         'id': x['employee_id'],
         'name': _s(x['employee_name']),
         'project': '${x['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'} — الرجوع ${_time(x['expected_return_at'])}',
-        'breakStart': _time(x['requested_at']),
+        'breakStart': _time(x['starts_at'] ?? x['requested_at']),
         'breakDuration': from == null ? '--' : '${now.difference(from).inMinutes} دقيقة',
         'breakExceeded': back != null && back.isBefore(now),
       });

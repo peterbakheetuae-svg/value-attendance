@@ -135,3 +135,17 @@ test('admin overview: today and month totals; employees cannot read it', async (
   const sm = await h.call(c.t.sm1, 'GET', '/dashboard/overview');
   assert.equal(sm.body.scope, 'team');
 });
+
+test('hourly permission keeps its own start and end; a visit starts when requested', async () => {
+  at('2026-03-10T12:00:00Z'); // 14:00 Cairo
+  const bad = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', startAt: '17:00', expectedReturn: '16:00', reason: 'مشوار' });
+  assert.equal(bad.status, 400);
+  const p = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', startAt: '15:00', expectedReturn: '16:30', reason: 'مشوار بنك' });
+  assert.equal(p.status, 201);
+  assert.ok(p.body.outing.starts_at, 'start saved');
+  await h.call(c.t.e2, 'POST', `/outings/${p.body.outing.id}/cancel`, {});
+  const v = await h.call(c.t.e2, 'POST', '/outings', { kind: 'visit', startAt: '15:00', expectedReturn: '16:30', reason: 'معاينة' });
+  assert.equal(v.status, 201);
+  assert.equal(v.body.outing.starts_at, null, 'a visit starts now');
+  await h.call(c.t.e2, 'POST', `/outings/${v.body.outing.id}/cancel`, {});
+});

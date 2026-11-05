@@ -77,6 +77,13 @@ export const outingsModule: Module = (r, { db, clock }) => {
     if (Number.isNaN(expected.getTime())) throw invalid('Expected return time is invalid', { field: 'expectedReturn' });
     if (expected <= now) throw invalid('The return time must be later than now', { field: 'expectedReturn' });
     if (local(expected).date !== l.date) throw invalid('The return time must be today', { field: 'expectedReturn' });
+    // hourly permission: its own start (HH:MM today); a visit (and an extension) starts now
+    let startsAt: Date | null = null;
+    if (kind === 'permission' && typeof b.startAt === 'string' && b.startAt) {
+      if (!/^\d{2}:\d{2}$/.test(b.startAt)) throw invalid('Start time must be HH:MM', { field: 'startAt' });
+      startsAt = cairoInstant(l.date, b.startAt);
+      if (startsAt >= expected) throw invalid('The permission must end after it starts', { field: 'startAt' });
+    }
     const parentId = typeof b.parentId === 'string' && b.parentId ? b.parentId : null;
     if (parentId && !isUuid(parentId)) throw notFound();
 
@@ -95,17 +102,17 @@ export const outingsModule: Module = (r, { db, clock }) => {
         throw conflict('You are already out on an approved permission/visit — request an extension instead');
       }
       const managerId = await resolveManager(q, a.id);
-      const x = await one(q, `INSERT INTO outing_requests (employee_id, kind, parent_id, work_date, requested_at, expected_return_at, reason, manager_id)
-                               VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [a.id, parentId ? active.kind : kind, parentId, l.date, now, expected, reason, managerId]);
+      const x = await one(q, `INSERT INTO outing_requests (employee_id, kind, parent_id, work_date, requested_at, expected_return_at, reason, manager_id, starts_at)
+                               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [a.id, parentId ? active.kind : kind, parentId, l.date, now, expected, reason, managerId, parentId ? null : startsAt]);
       await audit(q, a.id, parentId ? 'outing.extension_submit' : 'outing.submit', 'outing_request', x.id, undefined,
         { kind: x.kind, expectedReturn: expected, parentId });
       const label = parentId ? `تمديد ${KIND_AR[x.kind]}` : KIND_AR[x.kind];
-      const hhmm = local(expected).minutes;
-      const back = `${String(Math.floor(hhmm / 60)).padStart(2, '0')}:${String(hhmm % 60).padStart(2, '0')}`;
+      const fmt = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+      const back = startsAt ? `${fmt(startsAt)} → ${fmt(expected)}` : fmt(expected);
       for (const to of await approversOf(q, a.id, managerId)) {
         await notify(q, { to, type: parentId ? 'outing_extension_awaiting' : 'outing_awaiting', title: `طلب ${label} من ${a.fullName}`,
-          body: `الرجوع ${back} — ${reason}`, entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:awaiting` });
+          body: `${startsAt ? 'من' : 'الرجوع'} ${back} — ${reason}`, entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:awaiting` });
       }
       return x;
     });

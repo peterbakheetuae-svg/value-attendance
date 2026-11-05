@@ -6,6 +6,7 @@ import '../l10n/app_localizations.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import '../pages/attendance/attendance_report_page.dart'; // 🔥 استيراد صفحة تقارير الحضور الجديدة
+import '../services/api_service.dart';
 import '../pages/employees/employees_page.dart'; // أو المسار الصحيح
 
 class GlassBottomNav extends StatelessWidget {
@@ -85,6 +86,7 @@ class GlassBottomNav extends StatelessWidget {
                             activeColor: activeColor,
                             inactiveColor: inactiveColor,
                           ),
+                        if (ApiService.can('employee.read_all') || ApiService.can('employee.read_team'))
                         _Item(
                           icon: Icons.group_rounded,
                           label: AppLocalizations.of(context, 'Employees'),
