@@ -81,14 +81,15 @@ class CameraService {
       await file.writeAsBytes(compressedBytes);
 
       // الحصول على الموقع
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-      );
+      // high accuracy + the real accuracy sent with it: check-in is tied to the office location
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+          .timeout(const Duration(seconds: 15), onTimeout: () async =>
+              (await Geolocator.getLastKnownPosition()) ?? (throw Exception('مش قادر أحدد مكانك — شغّل اللوكيشن وجرب تاني')));
 
       return CaptureResult(
         file: file,
         base64: base64Encode(compressedBytes),
-        location: "${position.latitude},${position.longitude}",
+        location: "${position.latitude},${position.longitude},${position.accuracy}",
         // One id per capture — minted here, not at request time, so every
         // retry of this photo carries the same token.
         uploadId: uuidV4(),
@@ -108,10 +109,10 @@ class CameraService {
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return '';
       final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
           .timeout(const Duration(seconds: 15));
-      return '${position.latitude},${position.longitude}';
+      return '${position.latitude},${position.longitude},${position.accuracy}';
     } catch (_) {
       final last = await Geolocator.getLastKnownPosition();
-      return last == null ? '' : '${last.latitude},${last.longitude}';
+      return last == null ? '' : '${last.latitude},${last.longitude},${last.accuracy}';
     }
   }
 

@@ -41,8 +41,6 @@ test('concurrent double tap creates one record', async () => {
 test('geofence: required + configured office → outside refused, inside accepted, weak signal refused', async () => {
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { gpsRequired: true })).status, 200);
   at('2026-03-10T08:00:00Z');
-  const noLoc = await h.call(c.t.solo, 'POST', '/attendance/check-in', { lat: 30.0444, lng: 31.2357, accuracyM: 10 });
-  assert.equal(noLoc.status, 422, 'no office configured yet');
   assert.equal((await h.call(c.t.hr, 'POST', '/work-locations', { name: 'المكتب الرئيسي', lat: 30.0444, lng: 31.2357, radiusM: 150 })).status, 201);
   assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-in', {})).status, 400, 'location required');
   assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-in', { lat: 30.06, lng: 31.25, accuracyM: 10 })).status, 422);
@@ -50,6 +48,9 @@ test('geofence: required + configured office → outside refused, inside accepte
   const ok = await h.call(c.t.solo, 'POST', '/attendance/check-in', { lat: 30.0445, lng: 31.2358, accuracyM: 12 });
   assert.equal(ok.status, 201);
   assert.equal(ok.body.attendance.geofence, 'inside');
+  // check-out only records the place: leaving from outside the office is fine
+  at('2026-03-10T16:00:00Z');
+  assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-out', { lat: 30.06, lng: 31.25, accuracyM: 10 })).status, 200);
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { gpsRequired: false })).status, 200);
 });
 

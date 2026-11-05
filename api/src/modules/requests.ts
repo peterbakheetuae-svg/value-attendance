@@ -1,6 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
-import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, obj, oneOf, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, has, readableIds, type Actor } from '../auth/context.ts';
 import { daysBetween, isoDow, local, timeToMinutes } from '../lib/time.ts';
@@ -142,7 +142,7 @@ export const requestsModule: Module = (r, { db, clock }) => {
               OR (start_date IS NOT NULL AND start_date <= $5::date AND end_date >= $4::date)
               OR (correction_date IS NOT NULL AND correction_date = $6::date))`,
         [a.id, type, f.day ?? null, f.start_date ?? null, f.end_date ?? null, f.correction_date ?? null]);
-      if (dup) throw conflict('You already have a pending request like this');
+      if (dup) throw new AppError('conflict', 'You already have a pending request like this', { reason: 'pending_exists', what: 'طلب زي ده' });
       if (type === 'full_day_absence') {
         const overlap = await one(q, `SELECT 1 FROM requests WHERE employee_id = $1 AND type = 'full_day_absence'
             AND status = 'approved' AND start_date <= $3 AND end_date >= $2`, [a.id, f.start_date, f.end_date]);

@@ -48,6 +48,35 @@ class AlertCenter with WidgetsBindingObserver {
   bool _foreground = true;
   bool _primed = false;
 
+  /// A popup error (e.g. a repeated request while another one is still waiting).
+  Future<void> popupError(String title, String message) async {
+    final ctx = _nav?.currentContext;
+    if (ctx == null) return;
+    await showDialog<void>(
+      context: ctx,
+      builder: (c) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          icon: const Icon(Icons.error_outline_rounded, color: Colors.red, size: 46),
+          title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
+          content: Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(c),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                child: const Text('حاضر'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void start(GlobalKey<NavigatorState> nav) {
     _nav = nav;
     if (_timer != null) return;

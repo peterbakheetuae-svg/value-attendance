@@ -523,7 +523,13 @@ class JphRouter {
           return _fail('هذه الخدمة غير متاحة في هذا الإصدار');
       }
     } on ApiException catch (e) {
-      return {'success': false, 'code': e.code, 'status': e.status, 'message': _message(e)};
+      final msg = _message(e);
+      // a repeated request while another one is still waiting / overlapping: a popup, not only a small bar
+      final reason = e.details?['reason'];
+      if (reason == 'pending_exists' || reason == 'overlap') {
+        AlertCenter.instance.popupError('مينفعش تكرر الطلب', msg);
+      }
+      return {'success': false, 'code': e.code, 'status': e.status, 'message': msg};
     } catch (e) {
       return _fail('حدث خطأ غير متوقع');
     }
@@ -535,6 +541,11 @@ class JphRouter {
     if (e.details?['reason'] == 'device_mismatch') return 'الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط';
     if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
     if (e.details?['distanceOutsideM'] != null) return 'إنت بعيد عن المكتب بحوالي ${e.details!['distanceOutsideM']} متر';
+    if (e.details?['reason'] == 'pending_exists') {
+      final what = '${e.details?['what'] ?? 'طلب'}';
+      return 'عندك $what لسه مستني الموافقة — استنى الرد عليه أو الغيه الأول وبعدين اطلب تاني';
+    }
+    if (e.details?['reason'] == 'overlap') return 'الوقت ده متداخل مع إذن أو زيارة تانية ليك';
     if (e.details?['reason'] == 'otp_invalid') return 'الكود غلط أو انتهت صلاحيته';
     if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
     if (e.details?['reason'] == 'reset_expired') return 'الوقت خلص — اطلب كود جديد';

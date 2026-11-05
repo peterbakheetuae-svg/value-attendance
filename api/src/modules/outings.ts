@@ -100,17 +100,19 @@ export const outingsModule: Module = (r, { db, clock }) => {
         if (!active || active.id !== parentId) throw conflict('Only the current approved permission/visit can be extended');
         if (expected <= new Date(active.expected_return_at)) throw invalid('The new return time must be after the current one', { field: 'expectedReturn' });
         if (await one(q, `SELECT 1 FROM outing_requests WHERE parent_id = $1 AND status = 'pending'`, [parentId])) {
-          throw conflict('An extension is already waiting for approval');
+          throw new AppError('conflict', 'An extension is already waiting for approval', { reason: 'pending_exists', what: 'طلب تمديد' });
         }
       } else {
-        // several permissions / visits a day are fine — they just cannot overlap
+        // several permissions / visits a day are fine — but not a new one while another still waits for approval
+        const waiting = await one(q, `SELECT kind FROM outing_requests WHERE employee_id = $1 AND status = 'pending' AND parent_id IS NULL LIMIT 1`, [a.id]);
+        if (waiting) throw new AppError('conflict', 'You already have a request waiting for approval', { reason: 'pending_exists', what: `طلب ${KIND_AR[waiting.kind]}` });
         const from = startsAt ?? now;
         const clash = await one(q, `
           SELECT 1 FROM outing_requests
            WHERE employee_id = $1 AND work_date = $2 AND parent_id IS NULL
              AND (status = 'pending' OR (status = 'approved' AND returned_at IS NULL))
              AND COALESCE(starts_at, requested_at) < $4 AND expected_return_at > $3`, [a.id, l.date, from, expected]);
-        if (clash) throw conflict('This time overlaps another permission / visit of yours');
+        if (clash) throw new AppError('conflict', 'This time overlaps another permission / visit of yours', { reason: 'overlap' });
       }
       const managerId = await resolveManager(q, a.id);
       const x = await one(q, `INSERT INTO outing_requests (employee_id, kind, parent_id, work_date, requested_at, expected_return_at, reason, manager_id, starts_at)

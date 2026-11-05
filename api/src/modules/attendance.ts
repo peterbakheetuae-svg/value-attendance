@@ -16,14 +16,15 @@ export function haversineM(lat1: number, lng1: number, lat2: number, lng2: numbe
 
 const MAX_ACCURACY_M = 200;
 
-export async function geofence(q: Q, body: Record<string, unknown>) {
+export async function geofence(q: Q, body: Record<string, unknown>, opts: { enforce?: boolean } = {}) {
   const s = await one(q, `SELECT gps_required FROM company_settings`);
   const lat = num(body, 'lat', { optional: true, min: -90, max: 90 });
   const lng = num(body, 'lng', { optional: true, min: -180, max: 180 });
   const acc = num(body, 'accuracyM', { optional: true, min: 0, max: 100000 });
   if (!s.gps_required) return { status: 'not_required' as const, lat: lat ?? null, lng: lng ?? null, acc: acc ?? null };
   const locs = (await q.query(`SELECT * FROM work_locations WHERE active`)).rows;
-  if (!locs.length) throw unprocessable('GPS attendance is enabled but no office location is configured yet');
+  // no office saved yet, or a step that only records the place (check-out): never blocks
+  if (!locs.length || opts.enforce === false) return { status: 'not_required' as const, lat: lat ?? null, lng: lng ?? null, acc: acc ?? null };
   if (lat === undefined || lng === undefined || acc === undefined) throw invalid('Location is required to record attendance', { field: 'lat' });
   if (acc > MAX_ACCURACY_M) throw unprocessable('Location signal is too weak. Move near a window and try again');
   const nearest = Math.min(...locs.map((l) => haversineM(lat, lng, l.lat, l.lng) - l.radius_m));
@@ -152,7 +153,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       const onBreak = await one(q, `SELECT 1 FROM attendance_breaks WHERE attendance_id = $1 AND ended_at IS NULL`, [open.id]);
       if (onBreak) throw conflict('End your break before checking out');
       if (now <= new Date(open.check_in_at)) throw conflict('Check-out must be after check-in');
-      const g = await geofence(q, b);
+      const g = await geofence(q, b, { enforce: false }); // check-out records the place; only check-in is tied to the office
       const updated = await one(q, `UPDATE attendance SET check_out_at = $2, original_check_out_at = $2,
           check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5, check_out_offline = $6 WHERE id = $1 RETURNING *`,
         [open.id, now, g.lat, g.lng, g.acc, offline]);

@@ -168,11 +168,16 @@ test('several permissions a day are allowed when they do not overlap; a later on
   at('2026-03-10T09:00:00Z'); // 11:00 Cairo
   const late = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', startAt: '15:00', expectedReturn: '15:30', reason: 'مشوار أول' });
   assert.equal(late.status, 201);
+  const dup = await h.call(c.t.e2, 'POST', '/outings', { kind: 'visit', expectedReturn: '16:30', reason: 'مكرر' });
+  assert.equal(dup.status, 409, 'no new request while one still waits');
+  assert.equal(dup.body.error.details.reason, 'pending_exists');
+  await h.call(c.t.hr, 'POST', `/outings/${late.body.outing.id}/decision`, { decision: 'approve' });
   const second = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', startAt: '16:00', expectedReturn: '16:30', reason: 'مشوار تاني' });
-  assert.equal(second.status, 201, 'a second request while the first is pending');
+  assert.equal(second.status, 201, 'a second one after the first was decided');
+  await h.call(c.t.hr, 'POST', `/outings/${second.body.outing.id}/decision`, { decision: 'approve' });
   const clash = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', startAt: '15:15', expectedReturn: '15:45', reason: 'متداخل' });
   assert.equal(clash.status, 409);
-  await h.call(c.t.hr, 'POST', `/outings/${late.body.outing.id}/decision`, { decision: 'approve' });
+  assert.equal(clash.body.error.details.reason, 'overlap');
   const today = (await h.call(c.t.e2, 'GET', '/outings/today')).body;
   assert.equal(today.active, null, 'approved for 15:00 — not out at 11:00');
   assert.ok(today.upcoming.length >= 2);

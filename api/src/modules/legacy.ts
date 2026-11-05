@@ -1,6 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
-import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
 import { daysBetween, local } from '../lib/time.ts';
@@ -64,6 +64,11 @@ export const legacyModule: Module = (r, { db, clock }) => {
       if (attachment.length > 600_000) throw invalid('Attachment is too large', { field: 'attachment' });
     }
     const row = await db.tx(async (q) => {
+      await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [employeeId]);
+      if (await one(q, `SELECT 1 FROM advance_requests WHERE employee_id = $1 AND kind = $2 AND status = 'pending'`, [employeeId, kind])) {
+        throw new AppError('conflict', 'A request like this is already waiting for approval',
+          { reason: 'pending_exists', what: kind === 'advance' ? 'طلب سلفة' : 'طلب مصاريف عمل' });
+      }
       const gmId = await generalManagerOf(q, employeeId);
       // recorded on someone's behalf by their own general manager (or an owner): the first stage is already given
       const gmDone = onBehalf && gmStageBy(a, { gm_id: gmId });

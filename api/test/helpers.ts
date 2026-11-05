@@ -41,7 +41,7 @@ async function ensureTemplate() {
         try {
           await migrate(db);
           // most suites create employees without files; the documents suite turns this back on
-          await db.query(`UPDATE company_settings SET require_employee_documents = false`);
+          await db.query(`UPDATE company_settings SET require_employee_documents = false, gps_required = false`); // suites that test the office check turn it on
         } finally { await db.end(); }
       }
       await c.query(`SELECT pg_advisory_unlock(424242)`);
