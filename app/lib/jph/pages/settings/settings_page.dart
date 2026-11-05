@@ -27,7 +27,6 @@ import 'support_policy_page.dart';
 import 'terms_page.dart';
 import '../leave_summary.dart';
 import '../advance_request_page.dart';
-import '../notifications/notification_settings.dart'; // إضافة
 import '../public_holidays_page.dart'; // إضافة
 import '../multi_company/company_info_page.dart';
 import '../multi_company/positions_page.dart';
@@ -591,27 +590,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ],
                       ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // إضافة إعدادات الإشعارات هنا - قبل الخصوصية
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'notification_settings') ?? 'إعدادات الإشعارات',
-                      icon: Icons.notifications_active,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => NotificationSettingsPage(
-                              uid: widget.uid,
-                              name: widget.name,
-                              role: widget.role,
-
-                            ),
-                          ),
-                        );
-                      },
                     ),
 
                     const SizedBox(height: 14),
