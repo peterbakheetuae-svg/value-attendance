@@ -152,8 +152,10 @@ class JphRouter {
         case 'login':
           return await _login(p);
         case 'forgot_password':
-          await _api.post('/auth/forgot', {'identifier': (p['identifier'] ?? p['email'] ?? '').toString().trim()});
-          return _ok({'message': 'لو الحساب ليه إيميل مسجّل، هيوصلك كود من 4 أرقام'});
+          final fg = await _api.post('/auth/forgot', {'identifier': (p['identifier'] ?? p['email'] ?? '').toString().trim()});
+          final to = (fg['sentTo'] ?? '').toString();
+          return _ok({'sentTo': to,
+            'message': to.isNotEmpty ? 'اتبعت كود من 4 أرقام على $to — بص في البريد الوارد والـ Spam' : 'لو الحساب ليه إيميل مسجّل، هيوصلك كود من 4 أرقام'});
         case 'verify_otp':
           final v = await _api.post('/auth/forgot/verify', {'identifier': (p['identifier'] ?? '').toString().trim(), 'code': p['code']});
           return _ok({'resetToken': v['resetToken']});
@@ -357,6 +359,9 @@ class JphRouter {
             'lateHourAmount': p['hourAmount'],
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        case 'unbind_device':
+          await _api.post('/employees/${await _id(p['uid'])}/unbind-device', {});
+          return _ok({'message': 'تم فك ربط الموبايل — أول دخول جاي هيتربط بالموبايل الجديد'});
         case 'my_score':
           final sc = await _api.get('/me/score');
           return _ok({'score': sc['score'], 'deductions': sc['deductions'], 'evaluation': sc['evaluation']});
@@ -502,6 +507,8 @@ class JphRouter {
     if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
     if (e.details?['reason'] == 'reset_expired') return 'الوقت خلص — اطلب كود جديد';
     if (e.details?['reason'] == 'mail_off') return 'الإرسال بالإيميل مش متفعّل — كلّم الموارد البشرية';
+    if (e.details?['reason'] == 'no_email') return 'مفيش إيميل مسجّل للحساب ده — كلّم الموارد البشرية تضيفه أو تعيد تعيين كلمة المرور';
+    if (e.details?['reason'] == 'mail_failed') return 'ماقدرناش نبعت الكود دلوقتي — جرّب كمان شوية أو كلّم الموارد البشرية';
     if (e.status == 403) return 'ليس لديك صلاحية لهذا الإجراء';
     if (e.status == 404) return 'غير موجود';
     return e.message;
@@ -944,6 +951,8 @@ class JphRouter {
       'workStart': _s(e['work_start'], ''),
       'workEnd': _s(e['work_end'], ''),
       'deviceBound': e['device_bound'] == true,
+      'deviceLock': e['device_lock'] == true,
+      'deviceLabel': _s(e['device_label'], ''),
     };
   }
 
@@ -984,6 +993,7 @@ class JphRouter {
       if (p.containsKey('salesManagerId')) 'salesManagerId': idOrNull(p['salesManagerId']),
       if (p.containsKey('generalManagerId')) 'generalManagerId': idOrNull(p['generalManagerId']),
       if (p.containsKey('attendanceExempt') && _has('employee.attendance_exempt')) 'attendanceExempt': p['attendanceExempt'] == true,
+      if (p.containsKey('deviceLock') && _has('employee.manage')) 'deviceLock': p['deviceLock'] == true,
       if (p.containsKey('workStart'))
         ...((p['workStart'] ?? '').toString().isEmpty || (p['workEnd'] ?? '').toString().isEmpty
             ? {'workStart': null, 'workEnd': null}

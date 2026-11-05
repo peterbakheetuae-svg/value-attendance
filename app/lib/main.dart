@@ -31,10 +31,6 @@ Future<void> main() async {
   JphBridge.session = session;
   await session.restore();
 
-  try {
-    await NotificationService().initialize();
-    await Push.init();
-  } catch (_) {}
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -55,6 +51,14 @@ Future<void> main() async {
     ],
     child: const JPHBootstrap(),
   ));
+
+  // notifications / push start after the first screen is up (never delay opening the app)
+  Future(() async {
+    try {
+      await NotificationService().initialize();
+      await Push.init();
+    } catch (_) {}
+  });
 }
 
 class JPHBootstrap extends StatefulWidget {
@@ -86,8 +90,21 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
       _session = s;
       loading = false;
     });
+    // keep the screen session in step with the API session (sign-out anywhere → login page)
+    JphBridge.session.addListener(_onSession);
     // in-app alerts with sound (polls while signed in)
     AlertCenter.instance.start(navigatorKey);
+  }
+
+  Future<void> _onSession() async {
+    final s = JphBridge.session.signedIn ? await SessionService.get() : null;
+    if (mounted && (s == null) != (_session == null)) setState(() => _session = s);
+  }
+
+  @override
+  void dispose() {
+    JphBridge.session.removeListener(_onSession);
+    super.dispose();
   }
 
   @override
@@ -95,7 +112,7 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     if (loading) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+        home: Scaffold(backgroundColor: Color(0xFF0B1020)),
       );
     }
     return Consumer<AppController>(

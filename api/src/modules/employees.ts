@@ -34,7 +34,7 @@ const PROFILE_COLS = `
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
   (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
-  (e.device_id IS NOT NULL) AS device_bound, e.device_label, e.device_bound_at, e.legacy_fields`;
+  (e.device_id IS NOT NULL) AS device_bound, e.device_lock, e.device_label, e.device_bound_at, e.legacy_fields`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -217,6 +217,8 @@ export const employeesModule: Module = (r, { db, clock }) => {
       throw forbidden('Only the owner can change "no attendance"');
     }
     const hours = workHours(b) ?? { start: null, end: null };
+    const deviceLock = role === 'owner' ? false
+      : (bool(b, 'deviceLock') ?? (await one(db, `SELECT device_binding FROM company_settings`)).device_binding === true);
     await validateRefs(db, f);
     // required documents (uploaded first via POST /documents/staged) — checked before anything is created
     const docIn = b.documents === undefined || b.documents === null ? {} : obj(b.documents);
@@ -245,13 +247,13 @@ export const employeesModule: Module = (r, { db, clock }) => {
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
           notes, password_hash, must_change_password, legacy_fields, position_key,
-          general_manager_id, attendance_exempt, work_start, work_end)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+          general_manager_id, attendance_exempt, work_start, work_end, device_lock)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
          role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin,
          JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields)), pos.positionKey,
-         f.generalManagerId, exempt, hours.start, hours.end]);
+         f.generalManagerId, exempt, hours.start, hours.end, deviceLock]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
@@ -323,6 +325,14 @@ export const employeesModule: Module = (r, { db, clock }) => {
     }
     const hours = workHours(b);
     if (hours) { put('work_start', hours.start); put('work_end', hours.end); }
+    let lockTurnedOn = false;
+    if (opt('deviceLock')) {
+      if (!has(a, 'employee.manage')) throw forbidden('You cannot change the phone lock');
+      const on = bool(b, 'deviceLock', false)!;
+      if (on && before.role_key === 'owner') throw invalid('The owner account is never locked to one phone', { field: 'deviceLock' });
+      lockTurnedOn = on && !before.device_lock;
+      put('device_lock', on);
+    }
     if (opt('scheduleId')) { refs.scheduleId = uuid(b, 'scheduleId', true) ?? null; put('schedule_id', refs.scheduleId); }
     if (opt('role') || opt('position')) {
       const pos = opt('position') ? await resolvePosition(db, b.position) : { role: oneOf(b, 'role', ROLES)!, positionKey: null, nameAr: '' };
@@ -330,6 +340,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       assertAssignableRole(a, pos.role);
       if (PRIVILEGED.has(before.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can change this role');
       put('role_key', pos.role);
+      if (pos.role === 'owner' && !opt('deviceLock')) put('device_lock', false);
       put('position_key', pos.positionKey);
       if (pos.nameAr && !opt('jobTitle')) put('job_title', pos.nameAr);
     }
@@ -338,6 +349,8 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const after = await db.tx(async (q) => {
       if ((opt('role') || opt('position')) && before.role_key === 'owner') await assertOwnerRemains(q, before.id);
       const r2 = await one(q, `UPDATE employees SET ${sets.join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`, vals);
+      // lock switched on: every open session ends; the next sign-in binds the phone it comes from
+      if (lockTurnedOn) await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [before.id]);
       await audit(q, a.id, 'employee.update', 'employee', before.id, diff(before, r2), undefined);
       return r2;
     });

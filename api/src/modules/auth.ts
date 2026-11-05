@@ -1,6 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { pushEnabled } from '../lib/fcm.ts';
-import { mailEnabled, otpMail, sendMail } from '../lib/mail.ts';
+import { lastMailError, mailEnabled, otpMail, sendMail } from '../lib/mail.ts';
 import { createHash, randomInt } from 'node:crypto';
 import { one } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
@@ -23,7 +23,7 @@ export const authModule: Module = (r, { db }) => {
     const deviceId = typeof b.deviceId === 'string' && DEVICE_RE.test(b.deviceId) ? b.deviceId : null;
     const deviceLabel = typeof b.deviceLabel === 'string' ? b.deviceLabel.slice(0, 120) : null;
     const emp = await one(db, `
-      SELECT id, password_hash, status, failed_logins, locked_until, must_change_password, role_key, device_id
+      SELECT id, password_hash, status, failed_logins, locked_until, must_change_password, role_key, device_id, device_lock
         FROM employees
        WHERE upper(code) = upper($1) OR lower(email) = lower(trim($1)) OR phone = $1
           -- mobile typed in any form (01xxxxxxxxx / +201xxxxxxxxx / 00201...): compare the last 10 digits
@@ -47,8 +47,8 @@ export const authModule: Module = (r, { db }) => {
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
     if (emp.status !== 'active') throw new AppError('forbidden', 'This account is deactivated');
-    const st = await one(db, `SELECT device_binding FROM company_settings`);
-    const bind = st.device_binding && emp.role_key !== 'owner';
+    // one phone per account when "lock to device" is on for this employee (never for owners)
+    const bind = emp.device_lock === true && emp.role_key !== 'owner';
     if (bind) {
       if (!deviceId) throw new AppError('forbidden', 'This device could not be identified', { reason: 'device_required' });
       if (emp.device_id && emp.device_id !== deviceId) {
@@ -114,8 +114,11 @@ export const authModule: Module = (r, { db }) => {
       await db.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
       const st = await one(db, `SELECT company_name_ar FROM company_settings`);
       const sent = await sendMail({ to: e.email, toName: e.full_name, ...otpMail({ name: e.full_name, code, company: st.company_name_ar }) });
-      await audit(db, e.id, sent ? 'auth.otp_sent' : 'auth.otp_send_failed', 'employee', e.id);
+      await audit(db, e.id, sent ? 'auth.otp_sent' : 'auth.otp_send_failed', 'employee', e.id, undefined, sent ? undefined : { reason: lastMailError });
+      if (!sent) throw new AppError('unprocessable', 'The code could not be emailed right now — try again or ask HR', { reason: 'mail_failed' });
+      return ok({ ok: true, message: GENERIC, sentTo: e.email.replace(/^(.).*?(@.*)$/, '$1***$2') });
     }
+    if (e && !e.email) throw new AppError('unprocessable', 'No email is registered for this account — ask HR to add one or reset your password', { reason: 'no_email' });
     return ok({ ok: true, message: GENERIC });
   });
 

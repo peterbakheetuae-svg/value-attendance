@@ -89,9 +89,27 @@ void main() {
   }
   stdout.writeln('launcher + web icons set to the app logo.');
 
+  // no white launch screen: the native splash uses the app's dark background
+  for (final path in ['android/app/src/main/res/drawable/launch_background.xml', 'android/app/src/main/res/drawable-v21/launch_background.xml']) {
+    final f = File(path);
+    if (f.existsSync()) {
+      f.writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n'
+          '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <item><shape android:shape="rectangle"><solid android:color="#FF0B1020"/></shape></item>\n'
+          '</layer-list>\n');
+    }
+  }
+  for (final path in ['android/app/src/main/res/values/styles.xml', 'android/app/src/main/res/values-night/styles.xml']) {
+    final f = File(path);
+    if (f.existsSync()) {
+      f.writeAsStringSync(f.readAsStringSync().replaceAll('?android:colorBackground', '@android:color/black'));
+    }
+  }
+
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();
+    if (!h.contains('background:#0B1020')) h = h.replaceFirst('</head>', '<style>html,body{background:#0B1020;}</style>\n</head>');
     h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>Value Attendance</title>');
     if (!h.contains('dir="rtl"')) h = h.replaceFirst('<html>', '<html lang="ar" dir="rtl">');
     web.writeAsStringSync(h);

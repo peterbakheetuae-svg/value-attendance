@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/attendance_report_monthly_api.dart';
+import '../../services/api_service.dart';
 import '../../services/attendance_report_daily_expanded_api.dart'; // 🔥 استيراد API الجديد
 import '../../services/employee_list_api.dart';
 import '../../theme/app_colors.dart';
@@ -550,6 +551,9 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
         child: MonthlySection(
+          canPrint: ApiService.can('employee.salary_read'),
+          employeeName: selectedEmployeeName ?? '',
+          monthLabel: '${_monthNameAr(selMonth)} $selYear',
           monthly: monthly,
           isDark: isDark,
           safeToInt: safeToInt,

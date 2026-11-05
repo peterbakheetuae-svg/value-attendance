@@ -622,7 +622,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                             ),
 
                             _buildDropdownField(
-                              label: 'يتبع لـ',
+                              label: 'المدير المباشر',
                               value: _selectedManagedBy,
                               items: _ownersList.map<String>((owner) => owner['name']?.toString() ?? '').toList(),
                               icon: Icons.supervisor_account,

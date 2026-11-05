@@ -1,6 +1,6 @@
 /**
  * Transactional email through Brevo (free plan: 300 emails/day, no card). Configured only by
- * environment variables on Netlify — BREVO_API_KEY (secret) and MAIL_FROM (a sender verified in Brevo).
+ * environment variables on the API host (Vercel) — BREVO_API_KEY (secret) and MAIL_FROM (a sender verified in Brevo).
  * Without them, email is simply off and callers fall back to showing the value on screen.
  */
 export const mailEnabled = () => !!process.env.BREVO_API_KEY && !!process.env.MAIL_FROM;
@@ -18,11 +18,21 @@ export async function sendMail(m: { to: string; toName?: string; subject: string
       }),
       signal: AbortSignal.timeout(8000),
     });
+    if (!r.ok) {
+      // never logs the key; Brevo's reason (e.g. sender not verified, account not activated) goes to the host logs
+      lastMailError = `brevo ${r.status}: ${(await r.text().catch(() => '')).slice(0, 300)}`;
+      console.error(JSON.stringify({ t: new Date().toISOString(), level: 'error', msg: 'mail_failed', detail: lastMailError }));
+    } else lastMailError = null;
     return r.ok;
-  } catch {
+  } catch (e) {
+    lastMailError = `network: ${String(e).slice(0, 200)}`;
+    console.error(JSON.stringify({ t: new Date().toISOString(), level: 'error', msg: 'mail_failed', detail: lastMailError }));
     return false;
   }
 }
+
+/** Last Brevo failure reason (no secrets) — kept for the admin diagnostics. */
+export let lastMailError: string | null = null;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 

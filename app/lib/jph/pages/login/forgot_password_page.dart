@@ -37,7 +37,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     if (!mounted) return;
     setState(() => _loading = false);
     if (response["success"] == true) {
-      final done = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => OtpPage(identifier: id)));
+      final done = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => OtpPage(identifier: id, sentTo: '${response['sentTo'] ?? ''}')));
       if (done == true && mounted) Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

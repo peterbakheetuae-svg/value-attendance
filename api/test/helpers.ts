@@ -101,8 +101,8 @@ export const dev = (identifier: string) => `testdevice-${identifier.toUpperCase(
 /** Insert an employee directly (bootstrap) with a known password and no forced change. */
 export async function insertEmployee(db: Db, f: { code: string; name?: string; role: string; jobTitle?: string; teamId?: string | null; managerId?: string | null; joining?: string }) {
   const hash = await hashPassword(PW);
-  const r = await db.query(`INSERT INTO employees (code, full_name, role_key, job_title, team_id, sales_manager_id, joining_date, password_hash, must_change_password)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false) RETURNING id`,
+  const r = await db.query(`INSERT INTO employees (code, full_name, role_key, job_title, team_id, sales_manager_id, joining_date, password_hash, must_change_password, device_lock)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$3 <> 'owner') RETURNING id`,
     [f.code, f.name ?? f.code, f.role, f.jobTitle ?? '', f.teamId ?? null, f.managerId ?? null, f.joining ?? '2026-01-01', hash]);
   await db.query(`INSERT INTO leave_balances (employee_id, year) VALUES ($1, 2026)`, [r.rows[0].id]);
   return r.rows[0].id as string;

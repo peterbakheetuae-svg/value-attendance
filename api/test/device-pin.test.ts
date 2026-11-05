@@ -82,3 +82,18 @@ test('password reset is emailed to the employee when email is configured (not sh
     globalThis.fetch = realFetch; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
   }
 });
+
+test('per-employee phone lock: HR turns it off/on; turning it on ends open sessions; owner never locked', async () => {
+  await h.call(c.t.hr, 'POST', `/employees/${c.ids.e3}/unbind-device`);
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/employees/${c.ids.e3}`, { deviceLock: false })).status, 200);
+  assert.equal((await login('E3', PW, dev('PHONE-A'))).status, 200);
+  assert.equal((await login('E3', PW, dev('PHONE-B'))).status, 200, 'unlocked: any phone');
+  const s = await login('E3', PW, dev('PHONE-B'));
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/employees/${c.ids.e3}`, { deviceLock: true })).status, 200);
+  assert.equal((await h.call(s.body.token, 'GET', '/me')).status, 401, 'sessions ended when the lock is switched on');
+  assert.equal((await login('E3', PW, dev('PHONE-A'))).status, 200, 'first sign-in after locking binds this phone');
+  assert.equal((await login('E3', PW, dev('PHONE-B'))).status, 403, 'another phone is refused');
+  assert.equal((await h.call(c.t.hr, 'GET', `/employees/${c.ids.e3}`)).body.employee.device_lock, true);
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/employees/${c.ids.owner}`, { deviceLock: true })).status, 400);
+  assert.equal((await h.call(c.t.sm1, 'PATCH', `/employees/${c.ids.e3}`, { deviceLock: false })).status, 404, 'no employee.manage');
+});

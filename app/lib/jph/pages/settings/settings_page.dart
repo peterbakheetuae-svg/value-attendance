@@ -56,6 +56,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool expandPassword = false;
   bool expandLanguage = false;
+  bool _companyOpen = false;
   bool _isCheckingUpdate = false;
   PackageInfo? _packageInfo;
 
@@ -295,17 +296,17 @@ class _SettingsPageState extends State<SettingsPage> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
+                              // the dialog's own context dies when it closes: keep the app navigator
+                              final nav = Navigator.of(this.context, rootNavigator: true);
                               Navigator.pop(context);
-
-                              await ApiService.signOut();
+                              // sign out on the phone first and show the login page right away;
+                              // the server is told in the background (a slow network never keeps the user in)
                               await SessionService.logout();
-
-                              if (!mounted) return;
-
-                              Navigator.of(context).pushAndRemoveUntil(
+                              nav.pushAndRemoveUntil(
                                 MaterialPageRoute(builder: (_) => const LoginPage()),
-                                    (route) => false,
+                                (route) => false,
                               );
+                              ApiService.signOut().timeout(const Duration(seconds: 12)).catchError((_) {});
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.redAccent,
@@ -480,6 +481,76 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
+                    // ─── إعدادات الشركة: one main item that opens its own list ───
+                    SettingsTile(
+                      title: 'إعدادات الشركة',
+                      icon: _companyOpen ? Icons.expand_less_rounded : Icons.apartment_rounded,
+                      onTap: () => setState(() => _companyOpen = !_companyOpen),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOut,
+                      child: !_companyOpen
+                          ? const SizedBox(width: double.infinity)
+                          : Padding(
+                              padding: const EdgeInsetsDirectional.only(start: 18, top: 10),
+                              child: Column(children: [
+                    // Company Info
+                    SettingsTile(
+                      title: AppLocalizations.of(context, 'company_info'),
+                      icon: Icons.business,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CompanyInfoPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    // Job positions & permissions (dynamic)
+                    SettingsTile(
+                      title: 'الوظائف والصلاحيات',
+                      icon: Icons.admin_panel_settings_outlined,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PositionsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    // Lateness deduction (late > N min → fixed amount; ≥ 1 h → per hour)
+                    SettingsTile(
+                      title: 'خصم التأخير',
+                      icon: Icons.timer_off_outlined,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LateRulesPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    // Work Locations (Geofence)
+                    SettingsTile(
+                      title: AppLocalizations.of(context, 'work_locations'),
+                      icon: Icons.location_on,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const WorkLocationsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
                     // إضافة العطلات الرسمية هنا - قبل تغيير كلمة المرور
                     SettingsTile(
                       title: AppLocalizations.of(context, 'public_holidays') ?? 'العطلات الرسمية',
@@ -497,6 +568,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         );
                       },
                     ),
+                              ]),
+                            ),
+                    ),
 
                     const SizedBox(height: 14),
 
@@ -511,54 +585,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 14),
                     ],
 
-                    // Company Info
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'company_info'),
-                      icon: Icons.business,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const CompanyInfoPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Lateness deduction (late > N min → fixed amount; ≥ 1 h → per hour)
-                    SettingsTile(
-                      title: 'خصم التأخير',
-                      icon: Icons.timer_off_outlined,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const LateRulesPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Job positions & permissions (dynamic)
-                    SettingsTile(
-                      title: 'الوظائف والصلاحيات',
-                      icon: Icons.admin_panel_settings_outlined,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const PositionsPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
                     // KPI
                     SettingsTile(
                       title: AppLocalizations.of(context, 'kpi_definitions'),
@@ -568,22 +594,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => const KpiPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Work Locations (Geofence)
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'work_locations'),
-                      icon: Icons.location_on,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const WorkLocationsPage(),
                           ),
                         );
                       },

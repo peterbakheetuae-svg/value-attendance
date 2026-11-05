@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
@@ -44,6 +45,15 @@ class Session extends ChangeNotifier {
       final tok = p.getString('token');
       if (tok != null) {
         api.token = tok;
+        // open instantly from the last known profile; refresh from the server in the background
+        final cached = p.getString('me_cache');
+        if (cached != null) {
+          try {
+            _apply(jsonDecode(cached) as Map<String, dynamic>);
+            refreshMe().catchError((_) {});
+            return;
+          } catch (_) {}
+        }
         await refreshMe();
       }
     } catch (_) {
@@ -66,6 +76,11 @@ class Session extends ChangeNotifier {
 
   Future<void> refreshMe() async {
     final r = await api.get('/me');
+    try { (await SharedPreferences.getInstance()).setString('me_cache', jsonEncode(r)); } catch (_) {}
+    _apply(r);
+  }
+
+  void _apply(Map<String, dynamic> r) {
     me = r['employee'] as Map<String, dynamic>;
     company = r['company'] as Map<String, dynamic>?;
     permissions = ((r['permissions'] as List?) ?? const []).map((e) => e.toString()).toSet();
@@ -80,8 +95,9 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    try { await api.flushQueue(); } catch (_) {} // send anything recorded offline first
-    try { await api.post('/auth/logout'); } catch (_) {}
+    // send anything recorded offline first, but never let a slow network keep the user signed in
+    try { await api.flushQueue().timeout(const Duration(seconds: 6)); } catch (_) {}
+    try { await api.post('/auth/logout').timeout(const Duration(seconds: 4)); } catch (_) {}
     await ApiClient.clearOffline();
     await _clear();
   }
@@ -91,7 +107,11 @@ class Session extends ChangeNotifier {
     api.token = null;
     me = null;
     permissions = {};
-    try { (await SharedPreferences.getInstance()).remove('token'); } catch (_) {}
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.remove('token');
+      await p.remove('me_cache');
+    } catch (_) {}
     notifyListeners();
   }
 }

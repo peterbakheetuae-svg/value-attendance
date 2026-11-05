@@ -224,6 +224,10 @@ export const orgModule: Module = (r, { db }) => {
       num(b, 'trackingIntervalMinutes', { optional: true, int: true, min: 1, max: 30 }) ?? before.tracking_interval_minutes,
       num(b, 'trackingStaleMinutes', { optional: true, int: true, min: 0, max: 240 }) ?? before.tracking_stale_minutes,
       num(b, 'awayMarginM', { optional: true, int: true, min: 0, max: 5000 }) ?? before.away_margin_m]);
+    // the company-wide phone lock switches every (non-owner) employee at once; HR fine-tunes per employee after
+    if (typeof b.deviceBinding === 'boolean' && b.deviceBinding !== before.device_binding) {
+      await db.query(`UPDATE employees SET device_lock = $1 WHERE role_key <> 'owner'`, [b.deviceBinding]);
+    }
     // simple lateness rule (late > N min → fixed amount; late ≥ 1 h → amount per hour)
     const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3 RETURNING *`, lateRule);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s2);

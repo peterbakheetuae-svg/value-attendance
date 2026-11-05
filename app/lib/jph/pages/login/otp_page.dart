@@ -14,7 +14,8 @@ import '../../widgets/glass_ui_widgets.dart';
 /// shake + red pills on a wrong code, then it resets by itself), inside the app's glass card and background.
 class OtpPage extends StatefulWidget {
   final String identifier;
-  const OtpPage({super.key, required this.identifier});
+  final String sentTo;
+  const OtpPage({super.key, required this.identifier, this.sentTo = ''});
 
   @override
   State<OtpPage> createState() => _OtpPageState();
@@ -158,7 +159,9 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
         _Stage.loading || _Stage.orbit => ('جاري التحقق…', 'بنراجع الكود بأمان.'),
         _Stage.success => ('تم التحقق', 'تمام — هنكمّل لتغيير كلمة المرور…'),
         _Stage.error => ('التحقق فشل', 'الكود اللي كتبته مش صحيح.'),
-        _Stage.input => ('اكتب كود التحقق', 'اتبعتلك كود من 4 أرقام على إيميلك المسجّل، صالح 10 دقايق.'),
+        _Stage.input => ('اكتب كود التحقق', widget.sentTo.isNotEmpty
+            ? 'اتبعتلك كود من 4 أرقام على ${widget.sentTo} — صالح 10 دقايق (بص في الـ Spam لو مش لاقيه).'
+            : 'اتبعتلك كود من 4 أرقام على إيميلك المسجّل، صالح 10 دقايق.'),
       };
 
   @override

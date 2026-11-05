@@ -72,6 +72,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   List<Map<String, dynamic>> _gmList = [];
   String? _selectedGeneralManager;
   bool _noAttendance = false;
+  bool _deviceLock = false;
   TimeOfDay? _workStart;
   TimeOfDay? _workEnd;
 
@@ -160,6 +161,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _selectedManagedBy = (_employeeData['managedBy']?.toString() ?? '').isEmpty ? null : _employeeData['managedBy'].toString();
     _selectedGeneralManager = (_employeeData['generalManager']?.toString() ?? '').isEmpty ? null : _employeeData['generalManager'].toString();
     _noAttendance = _employeeData['attendanceExempt'] == true;
+    _deviceLock = _employeeData['deviceLock'] == true;
     _workStart = _parseTime(_employeeData['workStart']);
     _workEnd = _parseTime(_employeeData['workEnd']);
     _selectedLeaveDay = _employeeData['leaveDay']?.toString();
@@ -268,6 +270,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         'salesManagerId': _idOf(_ownersList, _selectedManagedBy) ?? '',
         'generalManagerId': _idOf(_gmList, _selectedGeneralManager) ?? '',
         if (ApiService.can('employee.attendance_exempt')) 'attendanceExempt': _noAttendance,
+        if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner') 'deviceLock': _deviceLock,
         'workStart': _noAttendance || _workStart == null ? '' : _hhmm(_workStart!),
         'workEnd': _noAttendance || _workEnd == null ? '' : _hhmm(_workEnd!),
         'name': _nameController.text.trim(),
@@ -656,7 +659,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                             ),
 
                             _buildDropdownField(
-                              label: 'يتبع لـ',
+                              label: 'المدير المباشر',
                               value: _selectedManagedBy,
                               items: _getOwnerNames(),
                               icon: Icons.supervisor_account,
@@ -773,6 +776,37 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Colors.orange.shade700, fontWeight: FontWeight.w600)),
+                              ),
+                            if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(children: [
+                                  SwitchListTile(
+                                    value: _deviceLock,
+                                    onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _deviceLock = v) : null,
+                                    title: Text('ربط الحساب بالجهاز', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                    subtitle: Text(_deviceLock
+                                        ? 'الموظف يدخل من موبايل واحد بس${(_employeeData['deviceLabel'] ?? '').toString().isNotEmpty ? ' — ${_employeeData['deviceLabel']}' : ''}'
+                                        : 'يقدر يدخل من أي جهاز'),
+                                    secondary: Icon(Icons.phonelink_lock_rounded, color: _deviceLock ? Colors.green : Colors.grey),
+                                  ),
+                                  if (_deviceLock && _employeeData['deviceBound'] == true)
+                                    TextButton.icon(
+                                      onPressed: () async {
+                                        final r = await ApiService.post({'action': 'unbind_device', 'uid': _employeeData['uid']});
+                                        if (!mounted) return;
+                                        if (r['success'] == true) setState(() => _employeeData['deviceBound'] = false);
+                                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+                                      },
+                                      icon: const Icon(Icons.phonelink_erase_rounded),
+                                      label: const Text('فك ربط الموبايل الحالي (لو غيّر موبايله)'),
+                                    ),
+                                ]),
                               ),
                             if (!_noAttendance) ...[
                               _timeTile('ساعة بداية العمل', _workStart, true, isDark, _isEditing && canToggleEdit),
