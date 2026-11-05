@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": "npm run migrate && npm run seed:dev -- --if-empty && node scripts/vercel-build.mjs",
+  "outputDirectory": "public"
+}

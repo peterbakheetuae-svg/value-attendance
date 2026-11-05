@@ -13,3 +13,4 @@ app/android/app/release/
 *.jks
 *.keystore
 dist/
+.vercel/

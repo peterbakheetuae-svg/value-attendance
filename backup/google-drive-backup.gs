@@ -3,14 +3,14 @@
  *
  * Setup (once):
  *  1. script.google.com → New project → paste this file.
- *  2. Project Settings → Script properties → add BACKUP_TOKEN = the same secret you put on Netlify.
+ *  2. Project Settings → Script properties → add BACKUP_TOKEN = the same secret you put on the API host (Vercel).
  *  3. Run `setup` once and allow access to Drive. It creates a daily trigger (around 3 AM)
  *     and takes the first backup right away.
  *
  * Each run writes a folder "Value Attendance Backups/YYYY-MM-DD" with one JSON file per table
  * and keeps the last 30 days. Files are private to your Drive.
  */
-const API = 'https://value-attendance-api.netlify.app';
+const API = 'https://value-attendance-api.peter-bakheet-uae.workers.dev';
 const ROOT_FOLDER = 'Value Attendance Backups';
 const KEEP_DAYS = 30;
 
