@@ -3,7 +3,7 @@
 import { build } from 'esbuild';
 import { mkdirSync, rmSync, writeFileSync, cpSync } from 'node:fs';
 
-const out = '.vercel/output';
+const out = process.argv[2] ?? '.vercel/output';
 const fn = `${out}/functions/index.func`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(fn, { recursive: true });
