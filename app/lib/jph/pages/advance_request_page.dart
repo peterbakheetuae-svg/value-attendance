@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import '../widgets/deal_commission_form.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -53,7 +54,9 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   final List<String> _requestTypes = [
     'سلفة',
     'مصاريف عمل',
+    'عمولة صفقة',
   ];
+  static const _deal = 'عمولة صفقة';
 
   final List<String> _months = [
     'يناير',
@@ -73,11 +76,13 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   final Map<String, IconData> _requestTypeIcons = {
     'سلفة': Icons.account_balance_wallet_rounded,
     'مصاريف عمل': Icons.business_center_rounded,
+    'عمولة صفقة': Icons.handshake_rounded,
   };
 
   final Map<String, Color> _requestTypeColors = {
     'سلفة': Colors.blue,
     'مصاريف عمل': Colors.purple,
+    'عمولة صفقة': Colors.teal,
   };
 
   @override
@@ -361,14 +366,15 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         ),
                                       ),
 
-                                      // زر اختيار الموظف - بنفس شكل تقرير الحضور
-                                      _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
-
-                                      const SizedBox(height: 20),
+                                      // زر اختيار الموظف - بنفس شكل تقرير الحضور (عمولة الصفقة دايماً باسمك)
+                                      if (_requestType != _deal) ...[
+                                        _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
+                                        const SizedBox(height: 20),
+                                      ],
 
                                       // بيانات طلب السلفة/المصاريف
                                       Text(
-                                        'بيانات طلب السلفة/المصاريف',
+                                        _requestType == _deal ? 'بيانات الصفقة' : 'بيانات طلب السلفة/المصاريف',
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w800,
@@ -382,6 +388,9 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
 
                                       const SizedBox(height: 16),
 
+                                      if (_requestType == _deal)
+                                        DealCommissionForm(isDark: isDark)
+                                      else ...[
                                       // الشهر
                                       _buildMonthButton(isDark, textColor, subduedTextColor, primaryColor),
 
@@ -935,6 +944,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           ),
                                         ),
                                       ),
+                                      ],
                                     ],
                                   ),
                                 ),

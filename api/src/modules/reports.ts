@@ -251,14 +251,14 @@ export const reportsModule: Module = (r, { db, clock }) => {
     const header = ['الكود', 'الاسم', 'أيام العمل', 'أيام الحضور', 'غياب معتمد', 'منها بدون مرتب', 'غياب غير معتمد',
       'دقائق التأخير', 'دقائق الانصراف المبكر', 'دقائق إضافية', 'دقائق الأذونات',
       ...(canSalary ? ['المرتب الأساسي (EGP)', 'أجر اليوم', 'خصم تأخير', 'خصم انصراف بدري', 'خصم غياب', 'خصم بدون مرتب'] : []),
-      'خصومات إدارية (EGP)', 'مكافآت (EGP)', ...(canSalary ? ['إجمالي الخصومات', 'الصافي (EGP)'] : [])];
+      'خصومات إدارية (EGP)', 'مكافآت (EGP)', ...(canSalary ? ['عمولات صفقات (EGP)', 'إجمالي الخصومات', 'الصافي (EGP)'] : [])];
     const rows = data.map((d) => [d.employee.code, d.employee.fullName, d.attendance.workingDays, d.attendance.attendedDays,
       d.attendance.approvedAbsenceDays, d.attendance.unpaidAbsenceDays, d.attendance.unapprovedAbsenceDays,
       d.attendance.lateMinutes, d.attendance.earlyMinutes, d.attendance.overtimeMinutes, d.attendance.hourlyPermissionMinutes,
       ...(canSalary && d.payroll ? [d.money.baseSalary ?? null, d.payroll.dayWage, d.payroll.late.amount, d.payroll.early.amount,
         d.payroll.absence.amount, d.payroll.unpaid.amount] : []),
       d.money.approvedDeductions, d.money.approvedBonuses,
-      ...(canSalary && d.payroll ? [d.payroll.totalDeductions, d.payroll.net] : [])] as Cell[]);
+      ...(canSalary && d.payroll ? [d.payroll.commissions, d.payroll.totalDeductions, d.payroll.net] : [])] as Cell[]);
     const buf = workbook([{ name: 'ملخص الرواتب', header, rows, rtl: true }]);
     return { binary: buf, contentType: XLSX_MIME, fileName: `payroll-${period.slice(0, 7)}.xlsx` };
   });

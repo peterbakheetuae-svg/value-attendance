@@ -67,6 +67,10 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
                                     COALESCE(sum(amount_egp) FILTER (WHERE kind = 'commission'), 0) AS commission
                                FROM payouts WHERE employee_id = $1 AND period = $2 AND status <> 'cancelled'`, [employeeId, period]);
   const salaryPaid = Number(paid.salary), commissionPaid = Number(paid.commission);
+  // deal commissions approved by the general manager for this payroll month (salesperson / sales manager share)
+  const com = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM commission_entitlements
+                             WHERE employee_id = $1 AND period = $2 AND status = 'active'`, [employeeId, period]);
+  const commissions = Number(com.s);
   const base = sal ? Number(sal.base_salary) : null;
   const dayWage = base === null ? null : base / rules.dayDivisor;
   const shiftMin = sch ? Math.max(1, timeToMinutes(sch.end_time) - timeToMinutes(sch.start_time)) : 480;
@@ -130,12 +134,14 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     early: { days: earlyDays, minutes: earlyMin, amount: auto ? r2(earlyAmt) : 0 },
     absence: { days: absentDays, amount: auto ? r2(absenceAmt) : 0 },
     unpaid: { days: unpaidDays, amount: auto ? r2(unpaidAmt) : 0 },
-    adminDeductions: adminDed, bonuses, advances, workExpenses,
+    adminDeductions: adminDed, bonuses, commissions: r2(commissions), advances, workExpenses,
     totalDeductions: r2(autoTotal + adminDed),
     // due = salary for the days + bonuses/commissions + work expenses − deductions − advances
-    net: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses - advances + workExpenses),
+    net: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses + commissions - advances + workExpenses),
     // cash actually handed over for this month (صرف القبض) and what is still owed
     salaryPaid: r2(salaryPaid), commissionPaid: r2(commissionPaid),
-    remaining: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses - advances + workExpenses - salaryPaid),
+    // commission payouts (صرف عمولة) settle the commissions part, salary payouts the rest
+    remaining: attendanceSalary === null ? null
+      : r2(attendanceSalary - autoTotal - adminDed + bonuses + commissions - advances + workExpenses - salaryPaid - commissionPaid),
   };
 }

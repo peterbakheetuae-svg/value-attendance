@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../commissions/commissions_page.dart';
 import '../../services/session_service.dart';
 import '../../services/api_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -402,6 +403,14 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         );
                       },
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    SettingsTile(
+                      title: 'عمولات المشاريع',
+                      icon: Icons.handshake_rounded,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CommissionsPage())),
                     ),
 
                     const SizedBox(height: 14),

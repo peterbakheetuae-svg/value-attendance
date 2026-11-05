@@ -72,6 +72,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
     const advanceId = typeof b.advanceId === 'string' && b.advanceId ? b.advanceId : null;
     if (advanceId && !isUuid(advanceId)) throw invalid('advanceId is invalid', { field: 'advanceId' });
+    const entitlementId = typeof b.entitlementId === 'string' && b.entitlementId ? b.entitlementId : null;
+    if (entitlementId && (!isUuid(entitlementId) || kind !== 'commission')) throw invalid('entitlementId is invalid', { field: 'entitlementId' });
 
     const row = await db.tx(async (q) => {
       const emp = await one(q, `SELECT id, full_name, status FROM employees WHERE id = $1`, [employeeId]);
@@ -92,9 +94,19 @@ export const payoutsModule: Module = (r, { db, clock }) => {
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });
           if (await one(q, `SELECT 1 FROM payouts WHERE advance_id = $1 AND status <> 'cancelled'`, [advanceId])) throw conflict('This advance was already paid');
         }
+        if (entitlementId) {
+          // paying an approved deal commission: amount and month come from the entitlement, never from the app
+          const ce = await one(q, `SELECT * FROM commission_entitlements WHERE id = $1 FOR UPDATE`, [entitlementId]);
+          if (!ce || ce.employee_id !== employeeId || ce.status !== 'active') throw invalid('The commission is not approved', { field: 'entitlementId' });
+          if (Number(ce.amount_egp) !== amount) throw invalid(`The commission amount is ${Number(ce.amount_egp)}`, { field: 'amount' });
+          if (String(ce.period).slice(0, 10) !== period) throw invalid('The commission belongs to another payroll month', { field: 'month' });
+          if (await one(q, `SELECT 1 FROM payouts WHERE commission_entitlement_id = $1 AND status <> 'cancelled'`, [entitlementId])) {
+            throw conflict('This commission was already paid');
+          }
+        }
       }
-      const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, advance_id, created_by)
-                              VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [employeeId, kind, amount, period, note, advanceId, a.id]);
+      const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, advance_id, created_by, commission_entitlement_id)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [employeeId, kind, amount, period, note, advanceId, a.id, entitlementId]);
       await audit(q, a.id, 'payout.create', 'payout', p.id, undefined, { kind, amount, employeeId, period });
       await notify(q, { to: employeeId, type: 'payout_pending', title: `${PAYOUT_AR[kind]}: ${amount} جنيه — أكّد الاستلام`,
         body: `من ${a.fullName}${note ? ' — ' + note : ''}`, entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}:pending` });

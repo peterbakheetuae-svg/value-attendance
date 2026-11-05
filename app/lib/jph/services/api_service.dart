@@ -369,6 +369,50 @@ class JphRouter {
             if (p['status'] != null) 'status': '${p['status']}',
           });
           return _ok(pl.cast<String, dynamic>());
+        // ---------------------------------------------------------------- project commissions (عمولات المشاريع)
+        case 'commission_projects':
+          return _ok((await _api.get('/commissions/projects', <String, String?>{
+            if ((p['q'] ?? '').toString().isNotEmpty) 'q': '${p['q']}',
+            if ((p['status'] ?? '').toString().isNotEmpty) 'status': '${p['status']}',
+          })).cast<String, dynamic>());
+        case 'commission_project':
+          return _ok((await _api.get('/commissions/projects/${p['id']}')).cast<String, dynamic>());
+        case 'commission_project_save':
+          final body = <String, dynamic>{
+            'name': p['name'], 'totalPct': p['totalPct'], 'salesPct': p['salesPct'],
+            'managerPct': p['managerPct'], 'companyPct': p['companyPct'], 'status': p['status'],
+          };
+          final saved = p['id'] == null
+              ? await _api.post('/commissions/projects', body)
+              : await _api.patch('/commissions/projects/${p['id']}', body);
+          return _ok({...saved.cast<String, dynamic>(), 'message': p['id'] == null ? 'تم إضافة المشروع ✅' : 'تم حفظ المشروع ✅'});
+        case 'commission_request_create':
+          final cr = await _api.post('/commissions/requests', {
+            'projectId': p['projectId'], 'unitNo': p['unitNo'], 'pricePerM2': p['pricePerM2'], 'areaM2': p['areaM2'],
+            if ((p['note'] ?? '').toString().isNotEmpty) 'note': p['note'],
+          });
+          return _ok({...cr.cast<String, dynamic>(), 'message': 'تم إرسال طلب العمولة — مستني موافقة المدير العام'});
+        case 'commission_requests':
+          return _ok((await _api.get('/commissions/requests', <String, String?>{
+            if (p['scope'] != null) 'scope': '${p['scope']}',
+            if (p['status'] != null) 'status': '${p['status']}',
+            if (p['projectId'] != null) 'projectId': '${p['projectId']}',
+          })).cast<String, dynamic>());
+        case 'commission_decide':
+          final d = await _api.post('/commissions/requests/${p['id']}/decision', {
+            'decision': p['decision'],
+            if (p['month'] != null) 'month': p['month'],
+            if ((p['reason'] ?? '').toString().isNotEmpty) 'reason': p['reason'],
+          });
+          return _ok({...d.cast<String, dynamic>(), 'message': p['decision'] == 'approve' ? 'تم اعتماد العمولة ✅' : 'تم رفض الطلب'});
+        case 'commission_void':
+          await _api.post('/commissions/requests/${p['id']}/void', {'reason': p['reason']});
+          return _ok({'message': 'تم إلغاء العمولة'});
+        case 'commission_entitlements':
+          return _ok((await _api.get('/commissions/entitlements', <String, String?>{
+            if (p['scope'] != null) 'scope': '${p['scope']}',
+            if ((p['month'] ?? '').toString().isNotEmpty) 'month': '${p['month']}',
+          })).cast<String, dynamic>());
         case 'payout_cashiers':
           return _ok((await _api.get('/payouts/cashiers')).cast<String, dynamic>());
         case 'payout_create':
@@ -377,6 +421,7 @@ class JphRouter {
             if ((p['month'] ?? '').toString().isNotEmpty) 'month': p['month'],
             if ((p['note'] ?? '').toString().isNotEmpty) 'note': p['note'],
             if (p['advanceId'] != null) 'advanceId': p['advanceId'],
+            if (p['entitlementId'] != null) 'entitlementId': p['entitlementId'],
           });
           return _ok({'message': p['kind'] == 'fund' ? 'تم صرف الأموال — مستنية تأكيد الاستلام' : 'تم الصرف — مستني الموظف يأكد الاستلام'});
         case 'payout_receive':
@@ -526,7 +571,7 @@ class JphRouter {
       final msg = _message(e);
       // a repeated request while another one is still waiting / overlapping: a popup, not only a small bar
       final reason = e.details?['reason'];
-      if (reason == 'pending_exists' || reason == 'overlap') {
+      if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold') {
         AlertCenter.instance.popupError('مينفعش تكرر الطلب', msg);
       }
       return {'success': false, 'code': e.code, 'status': e.status, 'message': msg};
@@ -545,6 +590,13 @@ class JphRouter {
       final what = '${e.details?['what'] ?? 'طلب'}';
       return 'عندك $what لسه مستني الموافقة — استنى الرد عليه أو الغيه الأول وبعدين اطلب تاني';
     }
+    if (e.details?['reason'] == 'split_mismatch') {
+      return 'مجموع النسب (${e.details?['sum']}%) لازم يساوي إجمالي العمولة (${e.details?['total']}%)';
+    }
+    if (e.details?['reason'] == 'unit_sold') return 'الوحدة دي اتباعت واتعتمدت عمولتها قبل كده في نفس المشروع';
+    if (e.details?['reason'] == 'project_inactive') return 'المشروع ده مش بيستقبل صفقات دلوقتي';
+    if (e.details?['reason'] == 'month_closed') return 'مرتب الشهر ده اتصرف خلاص — اختار شهر بعده';
+    if (e.details?['reason'] == 'already_paid') return 'العمولة دي اتصرفت — الغي الصرف الأول';
     if (e.details?['reason'] == 'overlap') return 'الوقت ده متداخل مع إذن أو زيارة تانية ليك';
     if (e.details?['reason'] == 'otp_invalid') return 'الكود غلط أو انتهت صلاحيته';
     if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
@@ -1321,12 +1373,14 @@ class JphRouter {
       'lateAmount': amt('late'),
       'attendSalary': pay['attendanceSalary'] ?? pay['baseSalary'] ?? 0,
       'allowance': 0,
-      'bonus': pay['bonuses'] ?? 0,
+      // "المكافآت والعمولات": bonuses + approved deal commissions of this payroll month
+      'bonus': ((pay['bonuses'] as num?) ?? 0) + ((pay['commissions'] as num?) ?? 0),
+      'commissions': pay['commissions'] ?? 0,
       'workExpenses': pay['workExpenses'] ?? 0,
       'deduction': amt('late') + amt('early') + ((pay['adminDeductions'] as num?) ?? 0),
       'absentDeduction': amt('absence') + amt('unpaid'),
       'advance': pay['advances'] ?? 0,
-      'received': pay['salaryPaid'] ?? 0,
+      'received': ((pay['salaryPaid'] as num?) ?? 0) + ((pay['commissionPaid'] as num?) ?? 0),
       'dueSalary': pay['net'] ?? 0,
       'arrears': pay['remaining'] ?? 0,
     }});
