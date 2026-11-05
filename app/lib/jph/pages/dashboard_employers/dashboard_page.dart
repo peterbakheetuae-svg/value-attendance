@@ -36,6 +36,7 @@ import '../notifications/notification_settings.dart'; // ✅ إضافة صفحة
 import '../../widgets/outing_dialogs.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../widgets/app_nav.dart';
+import '../../widgets/payouts_widgets.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -738,7 +739,10 @@ class _DashboardPageState extends State<DashboardPage>
     }
   }
 
+  int _payoutsTick = 0;
+
   Future<void> _handleRefresh() async {
+    setState(() => _payoutsTick++);
     PerformanceScore.refresh(force: true);
     await Future.wait([loadToday(), _loadAdditionalData()]);
   }
@@ -1638,6 +1642,7 @@ class _DashboardPageState extends State<DashboardPage>
 
                       const SizedBox(height: 18),
                       _buildPendingOutingsCard(),
+                      PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),

@@ -54,6 +54,10 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'work_expense'),0) AS expenses
                               FROM advance_requests WHERE employee_id = $1 AND period = $2 AND status = 'confirmed'`, [employeeId, period]);
   const advances = Number(adv.advances), workExpenses = Number(adv.expenses);
+  const paid = await one(q, `SELECT COALESCE(sum(amount_egp) FILTER (WHERE kind = 'salary'), 0) AS salary,
+                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'commission'), 0) AS commission
+                               FROM payouts WHERE employee_id = $1 AND period = $2 AND status <> 'cancelled'`, [employeeId, period]);
+  const salaryPaid = Number(paid.salary), commissionPaid = Number(paid.commission);
   const base = sal ? Number(sal.base_salary) : null;
   const dayWage = base === null ? null : base / rules.dayDivisor;
   const shiftMin = sch ? Math.max(1, timeToMinutes(sch.end_time) - timeToMinutes(sch.start_time)) : 480;
@@ -121,5 +125,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     totalDeductions: r2(autoTotal + adminDed),
     // due = salary for the days + bonuses/commissions + work expenses − deductions − advances
     net: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses - advances + workExpenses),
+    // cash actually handed over for this month (صرف القبض) and what is still owed
+    salaryPaid: r2(salaryPaid), commissionPaid: r2(commissionPaid),
+    remaining: attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses - advances + workExpenses - salaryPaid),
   };
 }

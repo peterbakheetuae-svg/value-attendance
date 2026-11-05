@@ -56,6 +56,8 @@ const Map<String, List<String>> _permLabels = {
   'finance.read': ['المالية', 'عرض التسويات المالية'],
   'finance.manage': ['المالية', 'إنشاء تسويات مالية'],
   'finance.approve': ['المالية', 'اعتماد التسويات المالية'],
+  'finance.disburse': ['المالية', 'صرف القبض والسلف والعمولات من العهدة'],
+  'finance.fund': ['المالية', 'صرف أموال للموارد البشرية'],
   'notification.send': ['الإشعارات', 'إرسال إشعارات للموظفين'],
   'employee.attendance_exempt': ['الموظفين', 'تفعيل "ليس لديه حضور وانصراف"'],
 };

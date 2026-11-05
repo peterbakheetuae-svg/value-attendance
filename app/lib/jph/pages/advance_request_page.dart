@@ -11,6 +11,9 @@ import '../services/employee_api.dart';
 import '../widgets/app_background.dart';
 import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
+import '../services/api_service.dart';
+import 'disbursements_page.dart';
+import '../widgets/payouts_widgets.dart';
 import 'advance_summary.dart';
 
 class AdvanceRequestPage extends StatefulWidget {
@@ -243,7 +246,40 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      // زر الانتقال السريع إلى ملخص السلف
+                                      // طلب (this page) | صرف (disbursements) — for HR, the manager and the owner
+                                      if (ApiService.can('finance.disburse') || ApiService.can('finance.fund'))
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          child: Row(children: [
+                                            Expanded(
+                                              child: ElevatedButton.icon(
+                                                onPressed: null,
+                                                icon: const Icon(Icons.request_page_rounded),
+                                                label: const Text('طلب'),
+                                                style: ElevatedButton.styleFrom(
+                                                  disabledBackgroundColor: AppColors.primary,
+                                                  disabledForegroundColor: Colors.white,
+                                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: OutlinedButton.icon(
+                                                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DisbursementsPage())),
+                                                icon: const Icon(Icons.payments_rounded),
+                                                label: const Text('صرف'),
+                                                style: OutlinedButton.styleFrom(
+                                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                                ),
+                                              ),
+                                            ),
+                                          ]),
+                                        ),
+                                      const MyPayoutsSection(),
+                                      // زر الانتقال السريع إلى ملخص المالية
                                       GestureDetector(
                                         onTap: () {
                                           Navigator.push(
@@ -296,7 +332,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                   crossAxisAlignment: CrossAxisAlignment.end,
                                                   children: [
                                                     Text(
-                                                      'ملخص السلف والمصاريف',
+                                                      'ملخص المالية',
                                                       style: TextStyle(
                                                         fontSize: 16,
                                                         fontWeight: FontWeight.w800,
@@ -305,7 +341,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     ),
                                                     const SizedBox(height: 4),
                                                     Text(
-                                                      'عرض جميع طلبات السلف والمصاريف',
+                                                      'كل الطلبات والمصروفات المالية',
                                                       style: TextStyle(
                                                         fontSize: 12,
                                                         color: isDark ? Colors.blue.shade200 : Colors.blue.shade600,
@@ -446,7 +482,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               const SizedBox(width: 8),
                                               Expanded(
                                                 child: Text(
-                                                  'المبلغ: $_amount درهم ',
+                                                  'المبلغ: $_amount جنيه ',
                                                   style: TextStyle(
                                                     fontSize: 14,
                                                     fontWeight: FontWeight.w600,

@@ -33,6 +33,7 @@ import '../../widgets/performance_avatar.dart';
 import '../../services/jph_bridge.dart';
 import '../../widgets/outing_dialogs.dart';
 import '../../widgets/app_nav.dart';
+import '../../widgets/payouts_widgets.dart';
 import '../../../core/shift_tracker.dart';
 
 class DashboardPageTeam extends StatefulWidget {
@@ -924,7 +925,10 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     }
   }
 
+  int _payoutsTick = 0;
+
   Future<void> _handleRefresh() async {
+    setState(() => _payoutsTick++);
     PerformanceScore.refresh(force: true);
     await Future.wait([loadToday(), loadMonth()]);
   }
@@ -987,6 +991,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       _buildHeader(),
 
                       const SizedBox(height: 18),
+                      // money handed to me → "تم الاستلام"
+                      PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),

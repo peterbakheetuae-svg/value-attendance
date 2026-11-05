@@ -1013,7 +1013,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                           ),
                           const Spacer(),
                           Text(
-                            'الطلبات المالية',
+                            'ملخص المالية',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -1466,7 +1466,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            isAmount ? '$count درهم' : count,
+            isAmount ? '$count جنيه' : count,
             style: TextStyle(
               fontSize: isAmount ? 16 : 22,
               fontWeight: FontWeight.w900,
@@ -1567,7 +1567,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
 
                 // Amount
                 Text(
-                  '${amount.toStringAsFixed(2)} درهم',
+                  '${amount.toStringAsFixed(2)} جنيه',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w900,

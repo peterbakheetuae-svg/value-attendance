@@ -17,6 +17,7 @@ import { outingsModule } from './modules/outings.ts';
 import { companyModule } from './modules/company.ts';
 import { custodyModule } from './modules/custody.ts';
 import { backupModule } from './modules/backup.ts';
+import { payoutsModule } from './modules/payouts.ts';
 import { pushEnabled } from './lib/fcm.ts';
 import { mailEnabled } from './lib/mail.ts';
 
@@ -32,6 +33,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule]) m(r, ctx);
   return r;
 }

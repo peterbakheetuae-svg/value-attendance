@@ -362,6 +362,29 @@ class JphRouter {
             'lateHourAmount': p['hourAmount'],
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        // ---- صرف مالية: salary / advance / commission / work-expense payouts and cash handed to HR
+        case 'payouts_list':
+          final pl = await _api.get('/payouts', <String, String?>{
+            if (p['scope'] != null) 'scope': '${p['scope']}',
+            if (p['status'] != null) 'status': '${p['status']}',
+          });
+          return _ok(pl.cast<String, dynamic>());
+        case 'payout_cashiers':
+          return _ok((await _api.get('/payouts/cashiers')).cast<String, dynamic>());
+        case 'payout_create':
+          await _api.post('/payouts', {
+            'employeeId': p['employeeId'], 'kind': p['kind'], 'amount': p['amount'],
+            if ((p['month'] ?? '').toString().isNotEmpty) 'month': p['month'],
+            if ((p['note'] ?? '').toString().isNotEmpty) 'note': p['note'],
+            if (p['advanceId'] != null) 'advanceId': p['advanceId'],
+          });
+          return _ok({'message': p['kind'] == 'fund' ? 'تم صرف الأموال — مستنية تأكيد الاستلام' : 'تم الصرف — مستني الموظف يأكد الاستلام'});
+        case 'payout_receive':
+          await _api.post('/payouts/${p['id']}/receive', {});
+          return _ok({'message': 'تم تأكيد الاستلام ✅'});
+        case 'payout_cancel':
+          await _api.post('/payouts/${p['id']}/cancel', {});
+          return _ok({'message': 'تم إلغاء الصرف'});
         case 'set_employee_flags':
           await _api.patch('/employees/${await _id(p['uid'])}', {
             if (p['deviceLock'] != null) 'deviceLock': p['deviceLock'] == true,
@@ -516,6 +539,7 @@ class JphRouter {
     if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
     if (e.details?['reason'] == 'reset_expired') return 'الوقت خلص — اطلب كود جديد';
     if (e.details?['reason'] == 'mail_off') return 'الإرسال بالإيميل مش متفعّل — كلّم الموارد البشرية';
+    if (e.details?['reason'] == 'no_cash') return 'الرصيد اللي معاك مش كفاية (${e.details?['balance'] ?? 0} جنيه) — اطلب صرف أموال من المدير أو المالك';
     if (e.details?['reason'] == 'no_email') return 'مفيش إيميل مسجّل للحساب ده — كلّم الموارد البشرية تضيفه أو تعيد تعيين كلمة المرور';
     if (e.details?['reason'] == 'mail_failed') return 'ماقدرناش نبعت الكود دلوقتي — جرّب كمان شوية أو كلّم الموارد البشرية';
     if (e.status == 403) return 'ليس لديك صلاحية لهذا الإجراء';
@@ -1281,16 +1305,16 @@ class JphRouter {
       'absent': sm['unapprovedAbsenceDays'] ?? 0,
       'lateHours': _hhmm(sm['lateMinutes'] as num?),
       'lateAmount': amt('late'),
-      'attendSalary': pay['baseSalary'] ?? 0,
+      'attendSalary': pay['attendanceSalary'] ?? pay['baseSalary'] ?? 0,
       'allowance': 0,
       'bonus': pay['bonuses'] ?? 0,
       'workExpenses': pay['workExpenses'] ?? 0,
       'deduction': amt('late') + amt('early') + ((pay['adminDeductions'] as num?) ?? 0),
       'absentDeduction': amt('absence') + amt('unpaid'),
       'advance': pay['advances'] ?? 0,
-      'received': 0,
+      'received': pay['salaryPaid'] ?? 0,
       'dueSalary': pay['net'] ?? 0,
-      'arrears': 0,
+      'arrears': pay['remaining'] ?? 0,
     }});
   }
 
