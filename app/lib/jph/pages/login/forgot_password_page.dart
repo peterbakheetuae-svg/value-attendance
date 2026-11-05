@@ -8,6 +8,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
+import 'otp_page.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -18,93 +19,29 @@ class ForgotPasswordPage extends StatefulWidget {
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _codeController = TextEditingController();
-  final TextEditingController _newPasswordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
 
   bool _loading = false;
-  bool _codeSent = false;
   String? _emailError;
-  String? _codeError;
-  String? _passwordError;
 
   void _sendCode() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      setState(() => _emailError = 'البريد الإلكتروني مطلوب');
+    final id = _emailController.text.trim();
+    if (id.isEmpty) {
+      setState(() => _emailError = 'اكتب كود الموظف أو الموبايل أو الإيميل');
       return;
     }
-
     setState(() {
       _loading = true;
       _emailError = null;
     });
-
-    final response = await ApiService.post({
-      "action": "forgot_password",
-      "email": email,
-    });
-
-    setState(() => _loading = false);
-
+    final response = await ApiService.post({"action": "forgot_password", "identifier": id});
     if (!mounted) return;
-
+    setState(() => _loading = false);
     if (response["success"] == true) {
-      setState(() => _codeSent = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(response["message"] ?? 'تم إرسال الرمز')),
-      );
+      final done = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => OtpPage(identifier: id)));
+      if (done == true && mounted) Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(response["message"] ?? 'فشل الإرسال')),
-      );
-    }
-  }
-
-  void _resetPassword() async {
-    final email = _emailController.text.trim();
-    final code = _codeController.text.trim();
-    final newPass = _newPasswordController.text.trim();
-    final confirm = _confirmPasswordController.text.trim();
-
-    if (code.isEmpty) {
-      setState(() => _codeError = 'الرمز مطلوب');
-      return;
-    }
-    if (newPass.isEmpty || newPass.length < 4) {
-      setState(() => _passwordError = 'كلمة المرور يجب أن تكون 4 أحرف على الأقل');
-      return;
-    }
-    if (newPass != confirm) {
-      setState(() => _passwordError = 'كلمة المرور غير متطابقة');
-      return;
-    }
-
-    setState(() {
-      _loading = true;
-      _codeError = null;
-      _passwordError = null;
-    });
-
-    final response = await ApiService.post({
-      "action": "reset_password",
-      "email": email,
-      "code": code,
-      "newPassword": newPass,
-    });
-
-    setState(() => _loading = false);
-
-    if (!mounted) return;
-
-    if (response["success"] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(response["message"] ?? 'تم تغيير كلمة المرور')),
-      );
-      Navigator.pop(context);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(response["message"] ?? 'فشل التحقق')),
+        SnackBar(content: Text(response["message"] ?? 'فشل الإرسال'), backgroundColor: Colors.red),
       );
     }
   }
@@ -131,9 +68,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (!_codeSent) ...[
+
                     Text(
-                      AppLocalizations.of(context, 'enter_email_to_reset') ?? 'أدخل بريدك الإلكتروني لإعادة تعيين كلمة المرور',
+                      'اكتب كود الموظف أو الموبايل أو الإيميل، وهيوصلك كود تحقق على إيميلك المسجّل',
                       style: const TextStyle(fontSize: 16),
                     ),
                     const SizedBox(height: 20),
@@ -141,7 +78,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        labelText: AppLocalizations.of(context, 'email') ?? 'البريد الإلكتروني',
+                        labelText: 'كود الموظف / الموبايل / الإيميل',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         errorText: _emailError,
                       ),
@@ -153,48 +90,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       loading: _loading,
                       onTap: _sendCode,
                     ),
-                  ] else ...[
-                    Text(
-                      AppLocalizations.of(context, 'enter_reset_code') ?? 'أدخل الرمز الذي أرسل إلى بريدك',
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: _codeController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: AppLocalizations.of(context, 'reset_code') ?? 'رمز إعادة التعيين',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        errorText: _codeError,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _newPasswordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        labelText: AppLocalizations.of(context, 'new_password') ?? 'كلمة المرور الجديدة',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _confirmPasswordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        labelText: AppLocalizations.of(context, 'confirm_password') ?? 'تأكيد كلمة المرور',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        errorText: _passwordError,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    PrimaryButton(
-                      label: _loading ? 'جاري التغيير...' : (AppLocalizations.of(context, 'change_password') ?? 'تغيير كلمة المرور'),
-                      color: primaryColor,
-                      loading: _loading,
-                      onTap: _resetPassword,
-                    ),
-                  ],
                 ],
               ),
             ),

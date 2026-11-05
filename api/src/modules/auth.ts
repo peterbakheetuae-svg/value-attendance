@@ -1,5 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { pushEnabled } from '../lib/fcm.ts';
+import { mailEnabled, otpMail, sendMail } from '../lib/mail.ts';
+import { createHash, randomInt } from 'node:crypto';
 import { one } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
@@ -85,6 +87,81 @@ export const authModule: Module = (r, { db }) => {
       ON CONFLICT (token) DO UPDATE SET employee_id = EXCLUDED.employee_id, session_id = EXCLUDED.session_id,
         platform = EXCLUDED.platform, updated_at = now()`, [token, a.id, a.sessionId, platform]);
     return ok({ ok: true, pushEnabled: pushEnabled() });
+  });
+
+  // ---------------------------------------------------------------- forgot password (OTP by email)
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+  const findAccount = (identifier: string) => {
+    const digits = identifier.replace(/\D/g, '');
+    const phoneLike = digits.length >= 10 && digits.length === identifier.replace(/[\s+()-]/g, '').length;
+    return one(db, `SELECT id, full_name, email, status, role_key FROM employees
+       WHERE status = 'active' AND (upper(code) = upper($1) OR lower(email) = lower($1)
+          OR ($2 <> '' AND right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10) = right($2, 10)))
+       ORDER BY (upper(code) = upper($1)) DESC LIMIT 1`, [identifier.trim(), phoneLike ? digits : '']);
+  };
+  const GENERIC = 'If the account has an email, a 6-digit code was sent to it';
+
+  r.post('/auth/forgot', async (req) => {
+    const b = obj(req.body);
+    const identifier = reqStr(b, 'identifier', { max: 120 });
+    if (!mailEnabled()) throw new AppError('unprocessable', 'Email is not set up yet — ask HR to reset your password', { reason: 'mail_off' });
+    const e = await findAccount(identifier);
+    if (e?.email) {
+      const recent = await one(db, `SELECT count(*)::int AS n FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [e.id]);
+      if (recent.n >= 3) throw new AppError('conflict', 'Too many codes requested — wait 15 minutes', { reason: 'otp_rate_limited' });
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      await db.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
+      await db.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
+      const st = await one(db, `SELECT company_name_ar FROM company_settings`);
+      const sent = await sendMail({ to: e.email, toName: e.full_name, ...otpMail({ name: e.full_name, code, company: st.company_name_ar }) });
+      await audit(db, e.id, sent ? 'auth.otp_sent' : 'auth.otp_send_failed', 'employee', e.id);
+    }
+    return ok({ ok: true, message: GENERIC });
+  });
+
+  r.post('/auth/forgot/verify', async (req) => {
+    const b = obj(req.body);
+    const identifier = reqStr(b, 'identifier', { max: 120 });
+    const code = reqStr(b, 'code', { pattern: /^\d{6}$/ });
+    const e = await findAccount(identifier);
+    const bad = () => new AppError('validation_failed', 'The code is wrong or expired', { reason: 'otp_invalid', field: 'code' });
+    if (!e) throw bad();
+    const token = newToken().token;
+    const okRow = await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM password_otps WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()
+                                ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [e.id]);
+      if (!o || o.attempts >= 5) return null;
+      if (o.code_hash !== sha(`${e.id}:${code}`)) {
+        await q.query(`UPDATE password_otps SET attempts = attempts + 1 WHERE id = $1`, [o.id]);
+        return null;
+      }
+      await q.query(`UPDATE password_otps SET verified_at = now(), reset_token_hash = $2, reset_expires_at = now() + interval '15 minutes' WHERE id = $1`,
+        [o.id, sha(token)]);
+      return o;
+    });
+    if (!okRow) throw bad();
+    return ok({ resetToken: token });
+  });
+
+  r.post('/auth/forgot/reset', async (req) => {
+    const b = obj(req.body);
+    const token = reqStr(b, 'resetToken', { max: 200 });
+    const next = b.newPassword;
+    const done = await db.tx(async (q) => {
+      const o = await one(q, `SELECT o.*, e.role_key FROM password_otps o JOIN employees e ON e.id = o.employee_id
+          WHERE o.reset_token_hash = $1 AND o.consumed_at IS NULL AND o.reset_expires_at > now() AND e.status = 'active' FOR UPDATE OF o`, [sha(token)]);
+      if (!o) throw new AppError('validation_failed', 'This reset link expired — request a new code', { reason: 'reset_expired' });
+      const st = await one(q, `SELECT allow_pin FROM company_settings`);
+      const policy = passwordPolicyError(next, { allowPin: st.allow_pin && PIN_ROLES.has(o.role_key) });
+      if (policy) throw invalid(policy, { field: 'newPassword' });
+      const hash = await hashPassword(next as string);
+      await q.query(`UPDATE employees SET password_hash = $2, must_change_password = false, failed_logins = 0, locked_until = NULL, updated_at = now() WHERE id = $1`, [o.employee_id, hash]);
+      await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [o.employee_id]);
+      await q.query(`UPDATE password_otps SET consumed_at = now() WHERE id = $1`, [o.id]);
+      await audit(q, o.employee_id, 'auth.password_reset_by_otp', 'employee', o.employee_id);
+      return true;
+    });
+    return ok({ ok: done });
   });
 
   r.post('/auth/change-password', async (req) => {

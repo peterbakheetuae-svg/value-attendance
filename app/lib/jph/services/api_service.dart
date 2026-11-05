@@ -147,8 +147,14 @@ class JphRouter {
         case 'login':
           return await _login(p);
         case 'forgot_password':
+          await _api.post('/auth/forgot', {'identifier': (p['identifier'] ?? p['email'] ?? '').toString().trim()});
+          return _ok({'message': 'لو الحساب ليه إيميل مسجّل، هيوصلك كود من 6 أرقام'});
+        case 'verify_otp':
+          final v = await _api.post('/auth/forgot/verify', {'identifier': (p['identifier'] ?? '').toString().trim(), 'code': p['code']});
+          return _ok({'resetToken': v['resetToken']});
         case 'reset_password':
-          return _fail('اطلب من الموارد البشرية إعادة تعيين كلمة المرور أو الرقم السري');
+          await _api.post('/auth/forgot/reset', {'resetToken': p['resetToken'], 'newPassword': p['newPassword']});
+          return _ok({'message': 'تم تغيير كلمة المرور ✅ سجّل دخول بالجديدة'});
         case 'register':
           return _fail('إنشاء الحسابات يتم من الإدارة فقط');
         case 'changePassword':
@@ -484,6 +490,10 @@ class JphRouter {
     if (e.details?['reason'] == 'device_mismatch') return 'الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط';
     if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
     if (e.details?['distanceOutsideM'] != null) return 'إنت بعيد عن المكتب بحوالي ${e.details!['distanceOutsideM']} متر';
+    if (e.details?['reason'] == 'otp_invalid') return 'الكود غلط أو انتهت صلاحيته';
+    if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
+    if (e.details?['reason'] == 'reset_expired') return 'الوقت خلص — اطلب كود جديد';
+    if (e.details?['reason'] == 'mail_off') return 'الإرسال بالإيميل مش متفعّل — كلّم الموارد البشرية';
     if (e.status == 403) return 'ليس لديك صلاحية لهذا الإجراء';
     if (e.status == 404) return 'غير موجود';
     return e.message;
