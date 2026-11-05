@@ -1373,8 +1373,8 @@ class JphRouter {
       'lateAmount': amt('late'),
       'attendSalary': pay['attendanceSalary'] ?? pay['baseSalary'] ?? 0,
       'allowance': 0,
-      // "المكافآت والعمولات": bonuses + approved deal commissions of this payroll month
-      'bonus': ((pay['bonuses'] as num?) ?? 0) + ((pay['commissions'] as num?) ?? 0),
+      'bonus': pay['bonuses'] ?? 0,
+      // عمولة المبيعات: approved deal commissions of this payroll month (salesperson / sales manager share)
       'commissions': pay['commissions'] ?? 0,
       'workExpenses': pay['workExpenses'] ?? 0,
       'deduction': amt('late') + amt('early') + ((pay['adminDeductions'] as num?) ?? 0),

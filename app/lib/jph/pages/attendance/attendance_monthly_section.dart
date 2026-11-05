@@ -125,7 +125,6 @@ class MonthlySection extends StatelessWidget {
     final overtimeHoursText = AppLocalizations.of(context, 'late_month');
     final overtimeAmountText = AppLocalizations.of(context, 'late_deduction');
     final attendSalaryText = AppLocalizations.of(context, 'attendance_salary');
-    final allowanceText = AppLocalizations.of(context, 'allowances');
     final bonusText = AppLocalizations.of(context, 'extra_bonus');
     final workExpensesText = AppLocalizations.of(context, 'work_expenses');
     final deductionText = AppLocalizations.of(context, 'deductions');
@@ -143,7 +142,7 @@ class MonthlySection extends StatelessWidget {
     final oh = formatOvertime(monthly["lateHours"]);
     final oa = formatMoney(monthly["lateAmount"]);
     final attendSalary = formatMoney(monthly["attendSalary"]);
-    final allowance = formatMoney(monthly["allowance"]);
+    final commissions = formatMoney(monthly["commissions"]);
     final bonus = formatMoney(monthly["bonus"]);
     final workExpenses = formatMoney(monthly["workExpenses"]);
     final deduction = formatMoney(monthly["deduction"]);
@@ -270,8 +269,8 @@ class MonthlySection extends StatelessWidget {
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
-                  top: "ج.م $allowance",
-                  bottom: allowanceText,
+                  top: "ج.م $commissions",
+                  bottom: 'عمولة المبيعات',
                   bottomColor: const Color(0xFFD0902D),
                   isDark: isDark,
                 ),

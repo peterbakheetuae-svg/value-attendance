@@ -30,8 +30,8 @@ Future<void> printPayslip({
     ['مرضي', txt(monthly['sick'])],
     ['ساعات التأخير', txt(monthly['lateHours'])],
     ['راتب الحضور', money(monthly['attendSalary'])],
-    ['البدلات', money(monthly['allowance'])],
-    ['المكافآت والعمولات', money(monthly['bonus'])],
+    ['عمولة المبيعات', money(monthly['commissions'])],
+    ['المكافآت', money(monthly['bonus'])],
   ];
   final deductions = <List<String>>[
     ['مصاريف العمل', money(monthly['workExpenses'])],
