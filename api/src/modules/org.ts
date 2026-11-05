@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
-import { forbidden, invalid, notFound } from '../http/errors.ts';
+import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, date, num, obj, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, requirePerm } from '../auth/context.ts';
 
@@ -166,9 +166,11 @@ export const orgModule: Module = (r, { db }) => {
   r.post('/work-locations', async (req) => {
     const a = await authenticate(db, req); requirePerm(a, 'attendance.config');
     const b = obj(req.body);
+    // a single office (معلومات الشركة): adding when one exists is not allowed — edit it instead
+    if (await one(db, `SELECT 1 FROM work_locations`)) throw new AppError('conflict', 'The office location already exists — edit it', { reason: 'office_exists' });
     const l = await one(db, `INSERT INTO work_locations (name, lat, lng, radius_m) VALUES ($1,$2,$3,$4) RETURNING *`, [
       reqStr(b, 'name', { min: 2, max: 80 }), num(b, 'lat', { min: -90, max: 90 }), num(b, 'lng', { min: -180, max: 180 }),
-      num(b, 'radiusM', { int: true, min: 50, max: 5000 })]);
+      num(b, 'radiusM', { int: true, min: 5, max: 5000 })]);
     await audit(db, a.id, 'location.create', 'work_location', l.id, undefined, l);
     return ok({ location: l }, 201);
   });
@@ -181,7 +183,7 @@ export const orgModule: Module = (r, { db }) => {
     const l = await one(db, `UPDATE work_locations SET name=$2, lat=$3, lng=$4, radius_m=$5, active=$6 WHERE id = $1 RETURNING *`, [
       before.id, str(b, 'name', { optional: true, min: 2, max: 80 }) ?? before.name,
       num(b, 'lat', { optional: true, min: -90, max: 90 }) ?? before.lat, num(b, 'lng', { optional: true, min: -180, max: 180 }) ?? before.lng,
-      num(b, 'radiusM', { optional: true, int: true, min: 50, max: 5000 }) ?? before.radius_m, bool(b, 'active') ?? before.active]);
+      num(b, 'radiusM', { optional: true, int: true, min: 5, max: 5000 }) ?? before.radius_m, bool(b, 'active') ?? before.active]);
     await audit(db, a.id, 'location.update', 'work_location', l.id, before, l);
     return ok({ location: l });
   });

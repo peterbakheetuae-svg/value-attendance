@@ -79,12 +79,13 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
             IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
           ],
         ),
+        // one office only: add it once, then edit it
         floatingActionButton: _canEdit
             ? FloatingActionButton.extended(
                 backgroundColor: AppColors.primary,
-                onPressed: () => _editOffice(null),
-                icon: const Icon(Icons.add_location_alt_rounded, color: Colors.white),
-                label: const Text('إضافة مكتب', style: TextStyle(color: Colors.white)),
+                onPressed: () => _editOffice(_offices.isEmpty ? null : _offices.first),
+                icon: Icon(_offices.isEmpty ? Icons.add_location_alt_rounded : Icons.edit_location_alt_rounded, color: Colors.white),
+                label: Text(_offices.isEmpty ? 'تحديد موقع المكتب' : 'تعديل موقع المكتب', style: const TextStyle(color: Colors.white)),
               )
             : null,
         body: _buildBody(),
@@ -325,15 +326,15 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
           TextField(
             controller: radius,
             keyboardType: TextInputType.number,
-            decoration: _input('نصف قطر الدايرة (متر) — 50 لـ 5000'),
+            decoration: _input('نصف قطر الدايرة (متر) — من 5 لـ 5000'),
             onChanged: (_) => set(() {}),
           ),
           if (o != null) SwitchListTile(contentPadding: EdgeInsets.zero, value: active, title: const Text('المكتب شغال'), onChanged: (v) => set(() => active = v)),
           const SizedBox(height: 12),
           _saveButton(ctx, () async {
             final rm = int.tryParse(radius.text.trim());
-            if (pick == null || rm == null || rm < 50 || rm > 5000 || name.text.trim().length < 2) {
-              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('حدد المكان على الخريطة واكتب الاسم ونصف القطر (50 لـ 5000 متر)'), backgroundColor: Colors.red));
+            if (pick == null || rm == null || rm < 5 || rm > 5000 || name.text.trim().length < 2) {
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('حدد المكان على الخريطة واكتب الاسم ونصف القطر (من 5 لـ 5000 متر)'), backgroundColor: Colors.red));
               return;
             }
             final res = await ApiService.post({'action': 'save_office', if (o != null) 'id': o['id'], 'name': name.text.trim(),

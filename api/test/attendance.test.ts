@@ -42,6 +42,14 @@ test('geofence: required + configured office → outside refused, inside accepte
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { gpsRequired: true })).status, 200);
   at('2026-03-10T08:00:00Z');
   assert.equal((await h.call(c.t.hr, 'POST', '/work-locations', { name: 'المكتب الرئيسي', lat: 30.0444, lng: 31.2357, radiusM: 150 })).status, 201);
+  // one office only, edited in place; the circle can be as small as 5 m
+  const second = await h.call(c.t.hr, 'POST', '/work-locations', { name: 'موقع عمل', lat: 30.05, lng: 31.24, radiusM: 100 });
+  assert.equal(second.status, 409);
+  assert.equal(second.body.error.details.reason, 'office_exists');
+  const office = (await h.call(c.t.hr, 'GET', '/work-locations')).body.locations[0];
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/work-locations/${office.id}`, { radiusM: 4 })).status, 400);
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/work-locations/${office.id}`, { radiusM: 5 })).status, 200);
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/work-locations/${office.id}`, { radiusM: 150 })).status, 200);
   assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-in', {})).status, 400, 'location required');
   assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-in', { lat: 30.06, lng: 31.25, accuracyM: 10 })).status, 422);
   assert.equal((await h.call(c.t.solo, 'POST', '/attendance/check-in', { lat: 30.0445, lng: 31.2358, accuracyM: 900 })).status, 422);
