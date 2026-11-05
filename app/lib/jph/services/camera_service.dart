@@ -100,6 +100,21 @@ class CameraService {
     }
   }
 
+  /// Location only — check-in without a selfie (the employee's selfie switch is off).
+  Future<String> currentLocation() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return '';
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high)
+          .timeout(const Duration(seconds: 15));
+      return '${position.latitude},${position.longitude}';
+    } catch (_) {
+      final last = await Geolocator.getLastKnownPosition();
+      return last == null ? '' : '${last.latitude},${last.longitude}';
+    }
+  }
+
   /// 🔥 ضغط الصورة باستخدام flutter_image_compress
   Future<Uint8List> _compressImage(Uint8List originalBytes) async {
     try {

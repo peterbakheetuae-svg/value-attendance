@@ -693,19 +693,25 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       Map<String, dynamic> res;
 
       if (mode == DashMode.check) {
-        final capture = await _obtainCapture(currentContext);
-        if (capture == null) {
-          _cameraInUse = false;
-          return;
-        }
+        if (sheetData['selfieRequired'] == true) {
+          final capture = await _obtainCapture(currentContext);
+          if (capture == null) {
+            _cameraInUse = false;
+            return;
+          }
 
-        res = await DashboardApi.checkIn(
-          widget.uid,
-          widget.name,
-          image: capture.base64,
-          location: capture.location,
-          uploadId: capture.uploadId,
-        );
+          res = await DashboardApi.checkIn(
+            widget.uid,
+            widget.name,
+            image: capture.base64,
+            location: capture.location,
+            uploadId: capture.uploadId,
+          );
+        } else {
+          // selfie switch is off for this employee: fingerprint + location only, no camera
+          final loc = await _cameraService.currentLocation();
+          res = await DashboardApi.checkIn(widget.uid, widget.name, image: '', location: loc);
+        }
       } else if (mode == DashMode.breakTime && checkedIn) {
         if (dayFinished) {
           ScaffoldMessenger.of(currentContext).showSnackBar(

@@ -670,14 +670,22 @@ class _DashboardPageState extends State<DashboardPage>
     if (mode == DashMode.check) {
       _cameraInUse = true;
       try {
-        final capture = await _cameraService.captureWithLocation(currentContext);
-        if (!mounted) return;
-        final approved = await Navigator.push(
-          currentContext,
-          MaterialPageRoute(fullscreenDialog: true, builder: (_) => SelfiePreviewPage(imageFile: capture.file)),
-        );
-        if (approved != true || !mounted) return;
-        final res = await DashboardApi.checkIn(widget.uid, widget.name, image: capture.base64, location: capture.location);
+        Map<String, dynamic> res;
+        if (sheetData['selfieRequired'] == true) {
+          final capture = await _cameraService.captureWithLocation(currentContext);
+          if (!mounted) return;
+          final approved = await Navigator.push(
+            currentContext,
+            MaterialPageRoute(fullscreenDialog: true, builder: (_) => SelfiePreviewPage(imageFile: capture.file)),
+          );
+          if (approved != true || !mounted) return;
+          res = await DashboardApi.checkIn(widget.uid, widget.name, image: capture.base64, location: capture.location);
+        } else {
+          // selfie switch is off for this employee: fingerprint + location only, no camera
+          final loc = await _cameraService.currentLocation();
+          if (!mounted) return;
+          res = await DashboardApi.checkIn(widget.uid, widget.name, image: '', location: loc);
+        }
         if (!mounted) return;
         await Future.wait([loadToday(), _loadAdditionalData()]);
         if (!mounted) return;
