@@ -14,3 +14,13 @@ jobs:
       - run: flutter pub get
       - name: Analyze (errors fail)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; grep -E "^\s*error •" analyze.txt | head -200; ! grep -qE "^\s*error •" analyze.txt
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Android build check (throwaway key, nothing published)
+        run: |
+          flutter create --platforms=android,web --org com.jph.valueattendance --project-name jph_real_estate_hr .
+          dart run tool/patch_android.dart
+          P=$(openssl rand -hex 16)
+          keytool -genkeypair -storetype PKCS12 -keystore /tmp/check.p12 -alias valueattendance -keyalg RSA -keysize 2048 -validity 2 -storepass "$P" -keypass "$P" -dname "CN=check"
+          printf 'storeFile=/tmp/check.p12\nstorePassword=%s\nkeyAlias=valueattendance\nkeyPassword=%s\n' "$P" "$P" > android/key.properties
+          flutter build apk --release --build-name=1.0.999 --build-number=999
