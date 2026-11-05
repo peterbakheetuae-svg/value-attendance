@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../core/api.dart';
 import 'jph_bridge.dart';
@@ -182,14 +183,15 @@ class JphRouter {
         case 'outing_today':
           return _ok((await _api.get('/outings/today')).cast<String, dynamic>());
         case 'outing_submit':
-          final r = await _api.post('/outings', {
+          final r = await _api.postOrQueue('/outings', {
             'kind': p['kind'], 'expectedReturn': p['expectedReturn'], 'reason': p['reason'],
             if (p['parentId'] != null) 'parentId': p['parentId'],
-          });
+          }, label: 'طلب إذن / زيارة');
+          if (r['queued'] == true) return _ok({'message': 'الطلب اتحفظ على الموبايل 📴 وهيتبعت للموافقة أول ما النت يرجع'});
           return _ok({'outing': r['outing'], 'message': p['parentId'] != null ? 'تم إرسال طلب التمديد للموافقة' : 'تم إرسال الطلب للموافقة'});
         case 'outing_return':
-          await _api.post('/outings/return', {});
-          return _ok({'message': 'تم تسجيل رجوعك'});
+          final rr = await _api.postOrQueue('/outings/return', {}, label: 'تسجيل الرجوع');
+          return _ok({'message': rr['queued'] == true ? 'اتسجل رجوعك على الموبايل 📴 — هيتبعت أول ما النت يرجع' : 'تم تسجيل رجوعك'});
         case 'outing_cancel':
           await _api.post('/outings/${p['id']}/cancel', {});
           return _ok({'message': 'تم إلغاء الطلب'});
@@ -601,7 +603,7 @@ class JphRouter {
 
   // ------------------------------------------------------------------ attendance (self)
   static Future<Map<String, dynamic>> _today() async {
-    final r = await _api.get('/attendance/today');
+    final r = await _todayMerged();
     var outMinutes = 0;
     try {
       final o = await _api.get('/outings/today');
@@ -661,8 +663,58 @@ class JphRouter {
     return {'lat': parts[0], 'lng': parts[1], 'accuracyM': parts.length > 2 && parts[2] != null ? parts[2] : 50};
   }
 
+  // ---- offline punches: kept on the phone (with the real time) until the internet is back
+  static String _localDate() {
+    final n = DateTime.now();
+    return '${n.year}-${_two(n.month)}-${_two(n.day)}';
+  }
+
+  static Future<Map<String, dynamic>> _offlinePunch() async {
+    try {
+      final s = (await SharedPreferences.getInstance()).getString('offline_punch');
+      return s == null ? {} : (jsonDecode(s) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> _setOfflinePunch(Map<String, dynamic>? v) async {
+    final p = await SharedPreferences.getInstance();
+    v == null ? await p.remove('offline_punch') : await p.setString('offline_punch', jsonEncode(v));
+  }
+
+  /// Today's attendance = the server's (or its offline copy) + any punch still waiting on the phone.
+  static Future<Map<String, dynamic>> _todayMerged() async {
+    final r = Map<String, dynamic>.from(await _api.get('/attendance/today'));
+    final d = _localDate();
+    if (r['date'] != null && r['date'] != d) { r['attendance'] = null; r['date'] = d; } // offline copy from another day
+    final local = await _offlinePunch();
+    if (local['date'] == d) {
+      var a = (r['attendance'] as Map?)?.cast<String, dynamic>();
+      final serverHasIt = r['_offline'] != true && a != null && (local['out'] == null || a['checkOut'] != null);
+      if (serverHasIt) {
+        await _setOfflinePunch(null);
+      } else {
+        a = {...?a};
+        a['checkIn'] ??= local['in'];
+        if (local['out'] != null) a['checkOut'] = local['out'];
+        a['offline'] = true;
+        r['attendance'] = a;
+      }
+    } else if (local.isNotEmpty) {
+      await _setOfflinePunch(null);
+    }
+    return r;
+  }
+
   static Future<Map<String, dynamic>> _checkIn(Map<String, dynamic> p) async {
-    final today = await _api.get('/attendance/today');
+    Map<String, dynamic> today;
+    try {
+      today = await _todayMerged();
+    } on ApiException catch (e) {
+      if (!e.isNetwork) rethrow;
+      today = {'attendance': null}; // first use with no internet and nothing saved yet
+    }
     final a = today['attendance'] as Map?;
     if (a != null && a['checkOut'] != null) return _fail('إنت سجلت انصراف النهارده خلاص');
     if (a != null) return _checkOut(p);
@@ -672,14 +724,25 @@ class JphRouter {
       body['selfie'] = img.replaceFirst(RegExp(r'^data:image/[a-z]+;base64,'), '');
       body['selfieMime'] = 'image/jpeg';
     }
-    final r = await _api.post('/attendance/check-in', body);
+    final r = await _api.postOrQueue('/attendance/check-in', body, label: 'تسجيل حضور');
+    if (r['queued'] == true) {
+      final now = DateTime.now().toUtc().toIso8601String();
+      await _setOfflinePunch({'date': _localDate(), 'in': now});
+      return _ok({'message': 'اتسجل حضورك ${_time(now)} على الموبايل 📴 — هيتبعت للسيستم أول ما النت يرجع'});
+    }
     final at = (r['attendance'] as Map).cast<String, dynamic>();
     final late = (at['lateMinutes'] ?? 0) as num;
     return _ok({'message': late > 0 ? 'اتسجل حضورك ${_time(at['checkIn'])} — متأخر $late دقيقة' : 'تم تسجيل الحضور ${_time(at['checkIn'])} ✅'});
   }
 
   static Future<Map<String, dynamic>> _checkOut(Map<String, dynamic> p) async {
-    final r = await _api.post('/attendance/check-out', _loc(p['location']));
+    final r = await _api.postOrQueue('/attendance/check-out', _loc(p['location']), label: 'تسجيل انصراف');
+    if (r['queued'] == true) {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final local = await _offlinePunch();
+      await _setOfflinePunch({'date': _localDate(), 'in': local['date'] == _localDate() ? local['in'] : null, 'out': now});
+      return _ok({'message': 'اتسجل انصرافك ${_time(now)} على الموبايل 📴 — هيتبعت للسيستم أول ما النت يرجع'});
+    }
     final at = (r['attendance'] as Map).cast<String, dynamic>();
     return _ok({'message': 'تم تسجيل الانصراف ${_time(at['checkOut'])} 👋'});
   }
@@ -734,7 +797,8 @@ class JphRouter {
       'reason': reason.length >= 3 ? reason : 'طلب إجازة',
       if (emp != JphBridge.myId) 'employeeId': emp,
     };
-    await _api.post('/requests', body);
+    final rq = await _api.postOrQueue('/requests', body, label: 'طلب إجازة');
+    if (rq['queued'] == true) return _ok({'message': 'الطلب اتحفظ على الموبايل 📴 وهيتبعت أول ما النت يرجع'});
     return _ok({'message': emp == JphBridge.myId ? 'تم إرسال طلب الإجازة ✅' : 'تمت إضافة الإجازة للموظف ✅'});
   }
 
@@ -752,15 +816,15 @@ class JphRouter {
     final now = DateTime.now();
     final year = month < now.month - 6 ? now.year + 1 : now.year;
     final img = (p['image'] ?? '').toString();
-    await _api.post('/advances', {
+    final ra = await _api.postOrQueue('/advances', {
       'kind': (p['requestType'] ?? '') == 'مصاريف عمل' ? 'work_expense' : 'advance',
       'amount': num.tryParse('${p['amount']}') ?? 0,
       'period': '$year-${_two(month)}-01',
       'note': (p['note'] ?? '').toString(),
       if (emp != JphBridge.myId) 'employeeId': emp,
       if (img.isNotEmpty) 'attachment': img,
-    });
-    return _ok({'message': 'تم إرسال الطلب ✅'});
+    }, label: 'طلب مالي');
+    return _ok({'message': ra['queued'] == true ? 'الطلب اتحفظ على الموبايل 📴 وهيتبعت أول ما النت يرجع' : 'تم إرسال الطلب ✅'});
   }
 
   static Future<Map<String, dynamic>> _advances({bool mineOnly = false, bool pendingOnly = false}) async {

@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { date, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
-import { cairoInstant, local } from '../lib/time.ts';
+import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
 
@@ -81,6 +81,7 @@ export async function applyCorrection(q: Q, p: {
 function shape(a: any, today: string) {
   return { id: a.id, workDate: a.work_date, checkIn: a.check_in_at, checkOut: a.check_out_at,
     corrected: a.corrected, source: a.source, geofence: a.geofence_status,
+    checkInOffline: a.check_in_offline === true, checkOutOffline: a.check_out_offline === true,
     schedule: { start: a.schedule_start, end: a.schedule_end }, ...metrics(a, today) };
 }
 
@@ -106,8 +107,8 @@ function breakShape(b: any, now: Date) {
 export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-in', async (req) => {
     const a = await authenticate(db, req);
-    const now = clock(); const l = local(now);
     const b = obj(req.body ?? {});
+    const { at: now, offline } = actionTime(b, clock()); const l = local(now);
     const row = await db.tx(async (q) => {
       // serialize per employee so two taps cannot both pass the duplicate check
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
@@ -121,17 +122,17 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       const inserted = await one(q, `
         INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
           overtime_enabled, overtime_min_minutes, check_in_at, check_in_lat, check_in_lng, check_in_accuracy_m,
-          geofence_status, original_check_in_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$9) RETURNING *`,
+          geofence_status, original_check_in_at, check_in_offline)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$9,$14) RETURNING *`,
         [a.id, l.date, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes, s.overtime_enabled,
-         s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status]);
+         s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status, offline]);
       if (selfie) {
         await q.query(`INSERT INTO attendance_selfies (attendance_id, employee_id, image, mime, taken_at) VALUES ($1,$2,$3,$4,$5)`,
           [inserted.id, a.id, selfie.buf, selfie.mime, now]);
       }
       // retention: old selfies are removed as part of normal use (no scheduler needed on the free plan)
-      await q.query(`DELETE FROM attendance_selfies WHERE taken_at < $1::timestamptz - make_interval(days => $2)`, [now, cfg.selfie_retention_days]);
-      await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status, selfie: !!selfie });
+      await q.query(`DELETE FROM attendance_selfies WHERE taken_at < $1::timestamptz - make_interval(days => $2)`, [clock(), cfg.selfie_retention_days]);
+      await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status, selfie: !!selfie, offline });
       return inserted;
     });
     return ok({ attendance: shape(row, l.date) }, 201);
@@ -139,8 +140,8 @@ export const attendanceModule: Module = (r, { db, clock }) => {
 
   r.post('/attendance/check-out', async (req) => {
     const a = await authenticate(db, req);
-    const now = clock(); const l = local(now);
     const b = obj(req.body ?? {});
+    const { at: now, offline } = actionTime(b, clock()); const l = local(now);
     const row = await db.tx(async (q) => {
       const open = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
       if (!open) throw conflict('You must check in first');
@@ -150,9 +151,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       if (now <= new Date(open.check_in_at)) throw conflict('Check-out must be after check-in');
       const g = await geofence(q, b);
       const updated = await one(q, `UPDATE attendance SET check_out_at = $2, original_check_out_at = $2,
-          check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5 WHERE id = $1 RETURNING *`,
-        [open.id, now, g.lat, g.lng, g.acc]);
-      await audit(q, a.id, 'attendance.check_out', 'attendance', open.id, undefined, { at: now });
+          check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5, check_out_offline = $6 WHERE id = $1 RETURNING *`,
+        [open.id, now, g.lat, g.lng, g.acc, offline]);
+      await audit(q, a.id, 'attendance.check_out', 'attendance', open.id, undefined, { at: now, offline });
       return updated;
     });
     return ok({ attendance: shape(row, l.date) });

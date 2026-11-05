@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// API base URL is injected at build time:
 ///   flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8095
@@ -55,8 +56,122 @@ class ApiClient {
     return Uri.parse('$baseUrl$path').replace(queryParameters: q.isEmpty ? null : q);
   }
 
-  Future<Map<String, dynamic>> get(String path, [Map<String, String?>? query]) =>
-      _send(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
+  /// Reads work offline: every successful read is kept on the phone and returned (marked
+  /// `_offline: true`) when there is no connection.
+  Future<Map<String, dynamic>> get(String path, [Map<String, String?>? query]) async {
+    final key = 'apicache:${_uri(path, query).replace(scheme: 'x', host: 'x').toString()}';
+    try {
+      final r = await _send(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
+      _cachePut(key, r);
+      return r;
+    } on ApiException catch (e) {
+      if (!e.isNetwork) rethrow;
+      final cached = await _cacheGet(key);
+      if (cached == null) rethrow;
+      return {...cached, '_offline': true};
+    }
+  }
+
+  Future<void> _cachePut(String key, Map<String, dynamic> body) async {
+    try {
+      final s = jsonEncode(body);
+      if (s.length > 300000) return; // big lists/files are not kept
+      final p = await SharedPreferences.getInstance();
+      await p.setString(key, s);
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _cacheGet(String key) async {
+    try {
+      final s = (await SharedPreferences.getInstance()).getString(key);
+      return s == null ? null : jsonDecode(s) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Forget everything kept for offline use (sign-out).
+  static Future<void> clearOffline() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      for (final k in p.getKeys().where((k) => k.startsWith('apicache:') || k == _queueKey || k == _failedKey).toList()) {
+        await p.remove(k);
+      }
+    } catch (_) {}
+  }
+
+  // ------------------------------------------------------------------ offline queue
+  static const _queueKey = 'offline_queue';
+  static const _failedKey = 'offline_failed';
+  bool _flushing = false;
+
+  /// Number of actions waiting on the phone for the internet.
+  static final ValueNotifierLite<int> pending = ValueNotifierLite<int>(0);
+
+  /// A write that must not be lost: sent now when online; with no connection it is saved on the
+  /// phone with the time it happened (`offlineAt`) and sent automatically when the internet is back.
+  /// Returns the server reply, or `{'queued': true}`.
+  Future<Map<String, dynamic>> postOrQueue(String path, Map<String, dynamic> body, {required String label}) async {
+    try {
+      return await post(path, body);
+    } on ApiException catch (e) {
+      if (!e.isNetwork) rethrow;
+      final p = await SharedPreferences.getInstance();
+      final q = _readList(p, _queueKey);
+      q.add({'path': path, 'body': {...body, 'offlineAt': DateTime.now().toUtc().toIso8601String()}, 'label': label,
+        'at': DateTime.now().toIso8601String()});
+      await p.setString(_queueKey, jsonEncode(q));
+      pending.value = q.length;
+      return {'queued': true};
+    }
+  }
+
+  static List<Map<String, dynamic>> _readList(SharedPreferences p, String key) {
+    try {
+      return ((jsonDecode(p.getString(key) ?? '[]') as List).whereType<Map>().map((m) => m.cast<String, dynamic>())).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Send what was saved offline, oldest first. Stops at the first connection failure.
+  /// Items the server refuses (e.g. already done, too old) move to a "failed" list with the reason.
+  Future<({int sent, int important, List<Map<String, dynamic>> failed})> flushQueue() async {
+    if (_flushing || token == null) return (sent: 0, important: 0, failed: const <Map<String, dynamic>>[]);
+    _flushing = true;
+    var sent = 0, important = 0;
+    final failed = <Map<String, dynamic>>[];
+    try {
+      final p = await SharedPreferences.getInstance();
+      var q = _readList(p, _queueKey);
+      pending.value = q.length;
+      while (q.isNotEmpty) {
+        final item = q.first;
+        try {
+          await post(item['path'] as String, (item['body'] as Map).cast<String, dynamic>());
+          sent++;
+          if (item['path'] != '/tracking/ping') important++;
+        } on ApiException catch (e) {
+          if (e.isNetwork) break;
+          // a refused location point (e.g. shift already closed) is just dropped
+          if (item['path'] != '/tracking/ping') failed.add({...item, 'error': e.message});
+        }
+        q = q.sublist(1);
+        await p.setString(_queueKey, jsonEncode(q));
+        pending.value = q.length;
+      }
+      if (failed.isNotEmpty) {
+        final f = _readList(p, _failedKey)..addAll(failed);
+        await p.setString(_failedKey, jsonEncode(f.length > 50 ? f.sublist(f.length - 50) : f));
+      }
+    } catch (_) {
+      // try again next time
+    } finally {
+      _flushing = false;
+    }
+    return (sent: sent, important: important, failed: failed);
+  }
+
   Future<Map<String, dynamic>> post(String path, [Object? body]) =>
       _send(() => _http.post(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})));
   Future<Map<String, dynamic>> put(String path, [Object? body]) =>
@@ -123,4 +238,18 @@ class ApiClient {
       return ApiException(res.statusCode, 'error', 'HTTP ${res.statusCode}');
     }
   }
+}
+
+/// Tiny listenable counter (no Flutter import in the API layer).
+class ValueNotifierLite<T> {
+  ValueNotifierLite(this._value);
+  T _value;
+  final _listeners = <void Function(T)>[];
+  T get value => _value;
+  set value(T v) {
+    if (v == _value) return;
+    _value = v;
+    for (final l in List.of(_listeners)) l(v);
+  }
+  void listen(void Function(T) l) => _listeners.add(l);
 }

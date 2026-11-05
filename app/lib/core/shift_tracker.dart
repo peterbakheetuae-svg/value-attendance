@@ -66,10 +66,13 @@ class ShiftTracker {
     if (_lastSent != null && now.difference(_lastSent!) < Duration(minutes: _intervalMin) - const Duration(seconds: 20)) return;
     _lastSent = now;
     try {
-      await _api?.post('/tracking/ping', {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy});
+      // send anything recorded offline first (e.g. the check-in) so the order is kept
+      await _api?.flushQueue();
+      // no internet: the point is kept with its time and sent later (offline tracking)
+      await _api?.postOrQueue('/tracking/ping', {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy}, label: 'موقع');
     } on ApiException catch (e) {
       // 409 = not in a shift any more (checked out) → stop
-      if (e.status == 409) await stop();
+      if (e.status == 409 && ApiClient.pending.value == 0) await stop();
     } catch (_) {}
   }
 

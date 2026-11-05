@@ -80,7 +80,9 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    try { await api.flushQueue(); } catch (_) {} // send anything recorded offline first
     try { await api.post('/auth/logout'); } catch (_) {}
+    await ApiClient.clearOffline();
     await _clear();
   }
 

@@ -100,3 +100,20 @@ test('monthly calendar: weekend, holiday, missing check-out, unapproved absence,
   assert.equal(m.body.summary.missingCheckouts, 1);
   assert.ok(m.body.summary.unapprovedAbsenceDays >= 7);
 });
+
+test('offline punches: device time within 48 h is accepted and flagged; older or future is refused', async () => {
+  const t0 = h.now.value;
+  try {
+    h.now.value = new Date('2026-03-20T12:00:00Z');
+    // phone checked in at 08:05 Cairo (06:05Z) without internet, sent at 14:00 Cairo
+    const r = await h.call(c.t.e3, 'POST', '/attendance/check-in', { offlineAt: '2026-03-20T06:05:00Z' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.attendance.checkInOffline, true);
+    assert.equal(new Date(r.body.attendance.checkIn).toISOString(), '2026-03-20T06:05:00.000Z');
+    const out = await h.call(c.t.e3, 'POST', '/attendance/check-out', { offlineAt: '2026-03-20T11:30:00Z' });
+    assert.equal(out.status, 200);
+    assert.equal(out.body.attendance.checkOutOffline, true);
+    assert.equal((await h.call(c.t.e2, 'POST', '/attendance/check-in', { offlineAt: '2026-03-17T06:00:00Z' })).status, 400, 'older than 48 h');
+    assert.equal((await h.call(c.t.e2, 'POST', '/attendance/check-in', { offlineAt: '2026-03-20T13:00:00Z' })).status, 400, 'future');
+  } finally { h.now.value = t0; }
+});

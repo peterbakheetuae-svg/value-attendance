@@ -1,3 +1,4 @@
+import { invalid } from '../http/errors.ts';
 export const TZ = 'Africa/Cairo';
 
 const fmt = new Intl.DateTimeFormat('en-CA', {
@@ -55,3 +56,17 @@ export function daysBetween(a: string, b: string): number {
 /** Clock is injectable so tests can pin "now". */
 export type Clock = () => Date;
 export const systemClock: Clock = () => new Date();
+
+/**
+ * When an action was really done: the device time of a punch queued offline (`offlineAt`, ISO),
+ * accepted only within the last 48 hours and not in the future; otherwise the server clock.
+ */
+export function actionTime(body: Record<string, unknown>, now: Date): { at: Date; offline: boolean } {
+  const v = body.offlineAt;
+  if (v === undefined || v === null || v === '') return { at: now, offline: false };
+  const at = typeof v === 'string' ? new Date(v) : new Date(NaN);
+  if (Number.isNaN(at.getTime())) throw invalid('offlineAt must be an ISO time', { field: 'offlineAt' });
+  if (at.getTime() > now.getTime() + 2 * 60_000) throw invalid('offlineAt is in the future', { field: 'offlineAt' });
+  if (at.getTime() < now.getTime() - 48 * 3600_000) throw invalid('Offline records older than 48 hours are not accepted', { field: 'offlineAt', reason: 'offline_too_old' });
+  return { at, offline: true };
+}

@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
-import { cairoInstant, local } from '../lib/time.ts';
+import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { holdersOf, notify } from './notify.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'زيارة' };
@@ -199,7 +199,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
   /** "I'm back" — closes the current permission/visit. */
   r.post('/outings/return', async (req) => {
     const a = await authenticate(db, req);
-    const now = clock(); const l = local(now);
+    const { at: now } = actionTime(obj(req.body ?? {}), clock()); const l = local(now);
     await db.tx(async (q) => {
       const x = await activeOuting(q, a.id, l.date);
       if (!x) throw new AppError('conflict', 'You are not out on a permission or visit');

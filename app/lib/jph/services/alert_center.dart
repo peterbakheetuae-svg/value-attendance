@@ -86,6 +86,7 @@ class AlertCenter with WidgetsBindingObserver {
     if (_busy || !JphBridge.session.signedIn) return;
     _busy = true;
     try {
+      await _flushOffline();
       await Push.sync(JphBridge.api);
       final r = await JphBridge.api.get('/notifications', {'unread': '1'});
       final list = ((r['notifications'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
@@ -109,6 +110,32 @@ class AlertCenter with WidgetsBindingObserver {
       // offline / signed out: try again on the next tick
     } finally {
       _busy = false;
+    }
+  }
+
+  /// Send what was recorded with no internet; tell the user what went through or was refused.
+  Future<void> _flushOffline() async {
+    final r = await JphBridge.api.flushQueue();
+    final ctx = _nav?.currentContext;
+    if (ctx == null || !ctx.mounted) return;
+    if (r.failed.isNotEmpty) {
+      await showDialog<void>(
+        context: ctx,
+        builder: (d) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Text('حاجات اتسجلت أوفلاين ومااتقبلتش'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final f in r.failed) Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text('• ${f['label']}: ${f['error']}'),
+            ),
+          ]),
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('تمام'))],
+        ),
+      );
+    } else if (r.important > 0) {
+      ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(const SnackBar(
+          content: Text('النت رجع ✅ — اتبعت كل اللي اتسجل وإنت أوفلاين'), backgroundColor: Colors.green));
     }
   }
 

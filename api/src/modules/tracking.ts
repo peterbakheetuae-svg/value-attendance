@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
 import { audit, authenticate, readableIds, requirePerm } from '../auth/context.ts';
-import { local, timeToMinutes } from '../lib/time.ts';
+import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { holdersOf, notify } from './notify.ts';
 import { activeOuting, markReturned } from './outings.ts';
@@ -103,7 +103,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const lat = num(b, 'lat', { min: -90, max: 90 })!;
     const lng = num(b, 'lng', { min: -180, max: 180 })!;
     const acc = num(b, 'accuracyM', { optional: true, min: 0, max: 100000 }) ?? null;
-    const now = clock(); const l = local(now);
+    const { at: now, offline } = actionTime(b, clock()); const l = local(now);
     const cfg = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
     if (!cfg.tracking_enabled) return ok({ tracking: false });
     const att = await one(db, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
@@ -114,6 +114,12 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const inside = outside === null ? null : (acc !== null && acc > 200) ? null : outside <= cfg.away_margin_m;
     await db.tx(async (q) => {
       const prev = await one(q, `SELECT * FROM tracking_state WHERE employee_id = $1 FOR UPDATE`, [a.id]);
+      if (offline && prev && new Date(prev.last_ping_at) > now) {
+        // a point recorded offline that is older than what we already know: history only, no alerts
+        await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [a.id, now, lat, lng, acc, inside, offline]);
+        return;
+      }
       const sameDay = prev && prev.work_date === l.date;
       let awaySince: Date | null = sameDay && prev.away_since ? new Date(prev.away_since) : null;
       let awayMinutes = sameDay ? prev.away_minutes : 0;
@@ -151,10 +157,10 @@ export const trackingModule: Module = (r, { db, clock }) => {
           inside = COALESCE(EXCLUDED.inside, tracking_state.inside), distance_m = EXCLUDED.distance_m,
           away_since = EXCLUDED.away_since, away_minutes = EXCLUDED.away_minutes`,
         [a.id, l.date, now, lat, lng, acc, inside ?? (sameDay ? prev.inside : null), outside === null ? null : Math.max(0, Math.round(outside)), awaySince, awayMinutes]);
-      await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside) VALUES ($1,$2,$3,$4,$5,$6)`, [a.id, now, lat, lng, acc, inside]);
+      await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [a.id, now, lat, lng, acc, inside, offline]);
       await q.query(`DELETE FROM tracking_pings WHERE at < $1::timestamptz - interval '14 days'`, [now]);
     });
-    await sweep(db, now);
+    await sweep(db, clock());
     return ok({ tracking: true, inside, intervalMinutes: cfg.tracking_interval_minutes });
   });
 
