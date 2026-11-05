@@ -17,6 +17,7 @@ import { outingsModule } from './modules/outings.ts';
 import { companyModule } from './modules/company.ts';
 import { custodyModule } from './modules/custody.ts';
 import { pushEnabled } from './lib/fcm.ts';
+import { mailEnabled } from './lib/mail.ts';
 
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
@@ -24,7 +25,7 @@ export function buildRouter(ctx: Ctx): Router {
   r.get('/readyz', async () => {
     try {
       const x = await ctx.db.query(`SELECT count(*)::int AS n FROM schema_migrations`);
-      return { json: { ok: true, migrations: x.rows[0].n, push: pushEnabled() } };
+      return { json: { ok: true, migrations: x.rows[0].n, push: pushEnabled(), mail: mailEnabled() } };
     } catch {
       return { status: 503, json: { ok: false } };
     }
