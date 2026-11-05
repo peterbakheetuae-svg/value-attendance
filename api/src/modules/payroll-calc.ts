@@ -40,7 +40,7 @@ export function tierAmount(tiers: Tier[], minutes: number): number {
  */
 export async function computePayroll(q: Q, employeeId: string, period: string, today: string, rules: PayrollRules) {
   const sal = await one(q, `SELECT base_salary FROM employee_salaries WHERE employee_id = $1`, [employeeId]);
-  const sch = await one(q, `SELECT ws.* FROM employees e
+  const sch = await one(q, `SELECT ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default)) WHERE e.id = $1`, [employeeId]);
   const { days, summary } = await computeMonth(q, employeeId, period, today);
   const att = await q.query(`SELECT work_date, check_in_at, check_out_at, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes

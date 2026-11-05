@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 before(async () => {
@@ -9,16 +9,41 @@ before(async () => {
 });
 after(async () => { await h.close(); });
 
-test('advances: employee asks, accountant confirms (not own), payroll deducts advance and adds work expenses', async () => {
+test('advances: the general manager approves first, then HR; nobody decides their own; payroll uses confirmed ones', async () => {
+  const gm = await h.call(c.t.owner, 'POST', '/employees', { code: 'GM1', fullName: 'المدير العام', role: 'manager' });
+  assert.equal(gm.status, 201);
+  await h.db.query(`UPDATE employees SET must_change_password = false, password_hash = (SELECT password_hash FROM employees WHERE code = 'E1') WHERE id = $1`, [gm.body.id]);
+  const tGm = await h.login('GM1', PW);
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/employees/${c.ids.e1}`, { generalManagerId: c.ids.sm1 })).status, 400, 'a sales manager cannot be general manager');
+  assert.equal((await h.call(c.t.hr, 'PATCH', `/employees/${c.ids.e1}`, { generalManagerId: gm.body.id })).status, 200);
+
   const a1 = await h.call(c.t.e1, 'POST', '/advances', { kind: 'advance', amount: 1000, period: '2026-03-01', note: 'ظروف' });
   assert.equal(a1.status, 201);
-  assert.equal(a1.body.advance.status, 'pending');
-  assert.equal((await h.call(c.t.e1, 'POST', `/advances/${a1.body.advance.id}/decision`, { decision: 'confirm' })).status, 403);
-  assert.equal((await h.call(c.t.acc, 'POST', `/advances/${a1.body.advance.id}/decision`, { decision: 'confirm' })).status, 200);
+  const id = a1.body.advance.id;
+  assert.equal((await h.call(c.t.e1, 'POST', `/advances/${id}/decision`, { decision: 'confirm' })).status, 403);
+  assert.equal((await h.call(c.t.hr, 'POST', `/advances/${id}/decision`, { decision: 'confirm' })).status, 403, 'HR cannot approve before the general manager');
+  assert.equal((await h.call(c.t.acc, 'POST', `/advances/${id}/decision`, { decision: 'confirm' })).status, 403);
+  const gmList = (await h.call(tGm, 'GET', '/advances')).body.advances;
+  assert.equal(gmList.find((x: any) => x.id === id).canDecide, true);
+  const n = await h.db.query(`SELECT 1 FROM notifications WHERE recipient_id = $1 AND entity_id = $2`, [gm.body.id, id]);
+  assert.equal(n.rowCount, 1, 'the general manager is asked');
+  const g = await h.call(tGm, 'POST', `/advances/${id}/decision`, { decision: 'confirm' });
+  assert.equal(g.body.status, 'pending', 'now waiting for HR');
+  assert.equal((await h.call(tGm, 'POST', `/advances/${id}/decision`, { decision: 'confirm' })).status, 403, 'the general manager cannot also give the HR stage');
+  assert.equal((await h.call(c.t.hr, 'POST', `/advances/${id}/decision`, { decision: 'confirm' })).body.status, 'confirmed');
+
+  // recorded by finance for an employee: still general manager → HR
   const ex = await h.call(c.t.acc, 'POST', '/advances', { kind: 'work_expense', amount: 250, period: '2026-03-01', employeeId: c.ids.e1 });
-  assert.equal(ex.body.advance.status, 'confirmed', 'finance recording for an employee is confirmed on entry');
-  assert.equal((await h.call(c.t.e2, 'GET', '/advances')).body.advances.length, 0, 'employees see only their own');
-  assert.equal((await h.call(c.t.acc, 'GET', '/advances')).body.advances.length, 2);
+  assert.equal(ex.body.advance.status, 'pending');
+  await h.call(tGm, 'POST', `/advances/${ex.body.advance.id}/decision`, { decision: 'confirm' });
+  await h.call(c.t.hr, 'POST', `/advances/${ex.body.advance.id}/decision`, { decision: 'confirm' });
+  // no general manager set: the owner gives the first stage
+  const a2 = await h.call(c.t.e2, 'POST', '/advances', { kind: 'advance', amount: 300, period: '2026-03-01' });
+  assert.equal((await h.call(c.t.hr, 'POST', `/advances/${a2.body.advance.id}/decision`, { decision: 'confirm' })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'POST', `/advances/${a2.body.advance.id}/decision`, { decision: 'reject' })).body.status, 'rejected');
+
+  assert.equal((await h.call(c.t.e2, 'GET', '/advances')).body.advances.length, 1, 'employees see only their own');
+  assert.equal((await h.call(c.t.acc, 'GET', '/advances')).body.advances.length, 3);
   const p = (await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(p.advances, 1000);
   assert.equal(p.workExpenses, 250);

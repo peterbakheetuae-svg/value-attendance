@@ -831,7 +831,8 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
         setState(() {
           String newStatus = '';
           if (status == 'approved') {
-            newStatus = 'مؤكد';
+            // the general manager's approval moves it to HR; only HR's approval confirms it
+            newStatus = _filteredRequests[index]['stage'] == 'gm' ? 'قيد المراجعة' : 'مؤكد';
           } else if (status == 'rejected') {
             newStatus = 'مرفوض';
           } else {
@@ -1663,7 +1664,12 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
             const SizedBox(height: 12),
 
             // Action Buttons - ALWAYS VISIBLE (لكل المستخدمين عندما يكون الطلب قيد المراجعة)
-            if (isPending) ...[
+            if (isPending && (request['stageLabel'] ?? '').toString().isNotEmpty) ...[
+              Text(request['stageLabel'].toString(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.orange.shade700)),
+              const SizedBox(height: 8),
+            ],
+            // only the person whose turn it is (general manager first, then HR) sees the buttons
+            if (isPending && request['canDecide'] == true) ...[
               Row(
                 children: [
                   Expanded(
@@ -1835,7 +1841,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'المدير: ${request['ceoStatus']?.toString() ?? 'قيد المراجعة'}',
+                              'المدير العام: ${request['ceoStatus']?.toString() ?? 'قيد المراجعة'}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: _getStatusColor(request['ceoStatus']?.toString() ?? 'قيد المراجعة'),

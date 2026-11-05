@@ -15,6 +15,7 @@ import '../dashboard_employers/dashboard_page.dart';
 import '../settings/settings_page.dart';
 import 'edit_profile_page.dart';
 import '../../widgets/employee_files.dart';
+import '../../widgets/performance_avatar.dart';
 
 class ProfilePage extends StatefulWidget {
   final String uid;
@@ -42,6 +43,8 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    PerformanceScore.refresh(force: true);
+    PerformanceScore.value.addListener(_onScore);
     loadProfile();
   }
 
@@ -85,9 +88,22 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  void _onScore() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    PerformanceScore.value.removeListener(_onScore);
+    super.dispose();
+  }
+
+  /// The ring = this month's performance (100% on the 1st, lower with absence / lateness / penalties).
   double _levelPercent() {
-    if (source != 'employee') return 0.0;
-    final rawStr = (data["level"] ?? "0").toString().trim();
+    final sc = PerformanceScore.value.value;
+    if (sc != null) return (sc / 100).clamp(0.0, 1.0);
+    if (source != 'employee') return 1.0;
+    final rawStr = (data["level"] ?? "100").toString().trim();
     final v = double.tryParse(rawStr.replaceAll("%", "")) ?? 0.0;
     if (v > 1.0) return (v / 100.0).clamp(0.0, 1.0);
     return v.clamp(0.0, 1.0);
@@ -376,7 +392,7 @@ class _ProgressRingAvatar extends StatelessWidget {
     final inner = size - (strokeWidth * 2);
     final hasPhoto = imageUrl.trim().isNotEmpty;
     final ringBgColor = isDark ? Colors.white.withOpacity(0.2) : Colors.white.withOpacity(0.9);
-    final progressColor = isDark ? AppColors.primaryLight : AppColors.primaryDark;
+    final progressColor = PerformanceScore.colorFor((percent * 100).round());
     final badgeColor = isDark ? AppColors.surfaceVariantDark : AppColors.primaryDark;
     final initialsColor = isDark ? AppColors.primaryLight : AppColors.primary;
 

@@ -27,6 +27,7 @@ class JphRouter {
   // ------------------------------------------------------------------ labels
   static const roleAr = {
     'owner': 'المالك',
+    'manager': 'المدير',
     'hr_manager': 'مدير الموارد البشرية',
     'accountant': 'محاسب',
     'sales_manager': 'مدير مبيعات',
@@ -117,6 +118,8 @@ class JphRouter {
   static String _ymd(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
   static List<Map<String, dynamic>> _list(Object? v) => ((v as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
   static bool _has(String p) => JphBridge.session.has(p);
+  /// Permission check for screens (e.g. the owner-only "no attendance" switch).
+  static bool can(String p) => _has(p);
 
   /// "uid" in the original screens is the employee code; resolve it to the API id.
   static Future<String> _id(Object? uid) async {
@@ -352,6 +355,9 @@ class JphRouter {
             'lateHourAmount': p['hourAmount'],
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        case 'my_score':
+          final sc = await _api.get('/me/score');
+          return _ok({'score': sc['score'], 'deductions': sc['deductions'], 'evaluation': sc['evaluation']});
         case 'get_settings':
           return _ok({'settings': (await _api.get('/settings'))['settings']});
 
@@ -648,6 +654,7 @@ class JphRouter {
       'photo': photo,
       'selfieRequired': r['selfieRequired'] == true,
       'gpsRequired': r['gpsRequired'] == true,
+      'attendanceExempt': r['attendanceExempt'] == true,
     });
   }
 
@@ -725,6 +732,7 @@ class JphRouter {
       if (!e.isNetwork) rethrow;
       today = {'attendance': null}; // first use with no internet and nothing saved yet
     }
+    if (today['attendanceExempt'] == true) return _fail('حسابك مش محتاج تسجيل حضور وانصراف');
     final a = today['attendance'] as Map?;
     if (a != null && a['checkOut'] != null) return _fail('إنت سجلت انصراف النهارده خلاص');
     if (a != null) return _checkOut(p);
@@ -840,7 +848,7 @@ class JphRouter {
   static Future<Map<String, dynamic>> _advances({bool mineOnly = false, bool pendingOnly = false}) async {
     final r = await _api.get('/advances', mineOnly ? {'scope': 'mine'} : null);
     var rows = _list(r['advances']);
-    if (pendingOnly) rows = rows.where((x) => x['status'] == 'pending' && x['employee_id'] != JphBridge.myId).toList();
+    if (pendingOnly) rows = rows.where((x) => x['status'] == 'pending' && x['canDecide'] == true).toList();
     final items = rows.map((x) {
       final period = _date(x['period']);
       final m = int.tryParse(period.length >= 7 ? period.substring(5, 7) : '') ?? 1;
@@ -855,7 +863,11 @@ class JphRouter {
         'month': _monthsAr[m - 1],
         'note': _s(x['note'], ''),
         'status': status,
-        'ceoStatus': status,
+        'stageLabel': x['status'] != 'pending' ? '' : (x['gm_approved_at'] != null ? 'بانتظار اعتماد الموارد البشرية' : 'بانتظار موافقة المدير العام'),
+        'ceoStatus': x['gm_approved_at'] != null ? 'مؤكد' : (x['status'] == 'rejected' ? 'مرفوض' : 'قيد المراجعة'),
+        'canDecide': x['canDecide'] == true,
+        'stage': _s(x['stage'], ''),
+        'gmName': _s(x['gm_name'], ''),
         'recipientStatus': x['status'] == 'confirmed' ? 'مؤكد' : '--',
         'confirmedBy': _s(x['decided_by_name']),
         'requestDate': _date(x['created_at']),
@@ -922,7 +934,13 @@ class JphRouter {
       'photo': links['photo:${e['id']}'] ?? '',
       'team': _s(e['team_name'], ''),
       'jobTitle': _s(e['job_title'], ''),
-      'managedBy': _s(lf['managedBy'] ?? e['sales_manager_name'], ''),
+      'managedBy': _s(e['sales_manager_name'] ?? lf['managedBy'], ''),
+      'salesManagerId': _s(e['sales_manager_id'], ''),
+      'generalManagerId': _s(e['general_manager_id'], ''),
+      'generalManager': _s(e['general_manager_name'], ''),
+      'attendanceExempt': e['attendance_exempt'] == true,
+      'workStart': _s(e['work_start'], ''),
+      'workEnd': _s(e['work_end'], ''),
       'deviceBound': e['device_bound'] == true,
     };
   }
@@ -957,6 +975,20 @@ class JphRouter {
     await _api.patch('/employees/$id', {'legacyFields': {...lf, ...extra}});
   }
 
+  /// Direct manager / general manager / "no attendance" / personal shift, when the screen sent them.
+  static Map<String, dynamic> _orgFields(Map<String, dynamic> p) {
+    String? idOrNull(Object? v) => (v == null || v.toString().isEmpty) ? null : v.toString();
+    return {
+      if (p.containsKey('salesManagerId')) 'salesManagerId': idOrNull(p['salesManagerId']),
+      if (p.containsKey('generalManagerId')) 'generalManagerId': idOrNull(p['generalManagerId']),
+      if (p.containsKey('attendanceExempt') && _has('employee.attendance_exempt')) 'attendanceExempt': p['attendanceExempt'] == true,
+      if (p.containsKey('workStart'))
+        ...((p['workStart'] ?? '').toString().isEmpty || (p['workEnd'] ?? '').toString().isEmpty
+            ? {'workStart': null, 'workEnd': null}
+            : {'workStart': p['workStart'], 'workEnd': p['workEnd']}),
+    };
+  }
+
   static Future<Map<String, dynamic>> _addEmployee(Map<String, dynamic> p) async {
     final role = roleKeyOf(p['role']?.toString());
     final body = <String, dynamic>{
@@ -968,7 +1000,8 @@ class JphRouter {
       if ((p['password'] ?? '').toString().trim().isNotEmpty) 'password': p['password'].toString().trim(),
       if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch((p['joinDate'] ?? '').toString())) 'joiningDate': p['joinDate'],
       'legacyFields': _legacyOf(p),
-      if (p['documents'] is Map) 'documents': p['documents'],
+      if (p['documents'] is Map && (p['documents'] as Map).values.any((v) => v != null)) 'documents': p['documents'],
+      ..._orgFields(p),
     };
     final sal = num.tryParse('${p['startSalary'] ?? p['salary'] ?? ''}');
     if (sal != null && sal > 0 && _has('employee.salary_manage')) body['baseSalary'] = sal;
@@ -993,6 +1026,7 @@ class JphRouter {
       if (p['email'] != null) 'email': p['email'].toString().trim().isEmpty ? null : p['email'].toString().trim(),
       if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch((p['joinDate'] ?? '').toString())) 'joiningDate': p['joinDate'],
       'legacyFields': {...lf, ..._legacyOf(p)},
+      ..._orgFields(p),
     };
     final role = p['role'] == null ? null : roleKeyOf(p['role'].toString());
     final pos = (p['position'] ?? '').toString();

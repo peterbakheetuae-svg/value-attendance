@@ -55,6 +55,10 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   final Map<String, PickedDoc?> _docs = {for (final k in docTitles.keys) k: null};
   String? _selectedAccounting;
   String? _selectedManagedBy;
+  String? _selectedGeneralManager;
+  bool _noAttendance = false;
+  TimeOfDay? _workStart;
+  TimeOfDay? _workEnd;
   String? _selectedLeaveDay;
   String? _selectedAbsenceMultiplier;
   String? _selectedOvertimeMultiplier;
@@ -62,13 +66,15 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   bool _isActive = true;
 
   // قوائم الخيارات
-  final List<String> _accountingTypes = ['شهرى', 'يومى'];
+  final List<String> _accountingTypes = ['شهرى'];
   final List<String> _leaveDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   final List<String> _workHoursList = ['10 ساعات', '9 ساعات', '8 ساعات', '7 ساعات', '6 ساعات'];
   final List<String> _multipliers = ['1', '1.25', '1.5', '2'];
   final List<String> _statuses = ['على رأس العمل', 'تم التصفيه', 'مغادر', 'إجازة'];
 
+  // يتبع لـ: مدير مبيعات / المدير / المالك — المدير العام: المدير / المالك
   List<Map<String, dynamic>> _ownersList = [];
+  List<Map<String, dynamic>> _gmList = [];
   List<String> _existingUids = [];
 
   @override
@@ -99,12 +105,12 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   void _initializeDefaultValues() {
     // تعيين القيم الافتراضية
     _selectedRole = 'مستشار عقاري';
-    _selectedAccounting = 'يومى';
+    _selectedAccounting = 'شهرى';
     _selectedLeaveDay = 'الجمعة';
     _selectedAbsenceMultiplier = '1';
     _selectedOvertimeMultiplier = '1.25';
     _selectedStatus = 'على رأس العمل';
-    _selectedManagedBy = widget.currentUserName; // صاحب العمل الحالي هو المدير افتراضياً
+    _selectedManagedBy = null;
   }
 
   Future<void> _fetchOwners() async {
@@ -113,6 +119,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
       if (response["success"] == true) {
         List<dynamic> employees = response["employees"] ?? [];
         List<Map<String, dynamic>> owners = [];
+        List<Map<String, dynamic>> gms = [];
         List<String> existingUids = [];
 
         for (var emp in employees) {
@@ -121,15 +128,18 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
             existingUids.add(uid);
           }
 
-          if (emp['role'] == 'المالك') {
-            owners.add({
-              'uid': uid,
-              'name': emp['name']?.toString(),
-            });
+          final rk = emp['roleKey']?.toString() ?? '';
+          final active = emp['active'] != false;
+          if (active && ['sales_manager', 'manager', 'owner'].contains(rk)) {
+            owners.add({'uid': uid, 'id': emp['id']?.toString(), 'name': emp['name']?.toString()});
+          }
+          if (active && ['manager', 'owner'].contains(rk)) {
+            gms.add({'uid': uid, 'id': emp['id']?.toString(), 'name': emp['name']?.toString()});
           }
         }
         setState(() {
           _ownersList = owners;
+          _gmList = gms;
           _existingUids = existingUids;
         });
       } else {
@@ -147,6 +157,38 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
       });
     }
   }
+
+  static int _minutes(TimeOfDay t) => t.hour * 60 + t.minute;
+  static String _hhmm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  static String? _idOf(List<Map<String, dynamic>> list, String? name) {
+    if (name == null) return null;
+    for (final m in list) {
+      if (m['name'] == name) return m['id']?.toString();
+    }
+    return null;
+  }
+
+  Future<void> _pickTime(bool start) async {
+    final t = await showTimePicker(
+      context: context,
+      initialTime: (start ? _workStart : _workEnd) ?? (start ? const TimeOfDay(hour: 10, minute: 0) : const TimeOfDay(hour: 18, minute: 0)),
+    );
+    if (t != null) setState(() => start ? _workStart = t : _workEnd = t);
+  }
+
+  Widget _timeTile(String label, TimeOfDay? v, bool start, bool isDark) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Colors.grey[600]),
+          title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey[700])),
+          trailing: Text(v == null ? 'دوام الشركة' : _hhmm(v), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+          onTap: () => _pickTime(start),
+        ),
+      );
 
   // دالة لتوليد UID فريد مكون من 4 أرقام
   String _generateUniqueUid() {
@@ -199,9 +241,6 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   // التحقق من صحة البيانات
   String? _validateForm() {
-    if (_docs.values.any((d) => d == null)) {
-      return 'لازم ترفع الإقرار (PDF) والوصف الوظيفي (PDF) وصورة إثبات الشخصية';
-    }
     if (_nameController.text.trim().isEmpty) {
       return 'الاسم مطلوب';
     }
@@ -223,8 +262,11 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     if (_selectedAccounting == null) {
       return 'الرجاء اختيار نوع المحاسبة';
     }
-    if (_selectedAccounting == 'يومى' && _dailyRateController.text.trim().isEmpty) {
-      return 'الأجر اليومي مطلوب للمحاسبة اليومية';
+    if (!_noAttendance && (_workStart == null) != (_workEnd == null)) {
+      return 'اختار ساعة بداية العمل وساعة نهايته';
+    }
+    if (!_noAttendance && _workStart != null && _workEnd != null && _minutes(_workEnd!) <= _minutes(_workStart!)) {
+      return 'ساعة نهاية العمل لازم تكون بعد ساعة البداية';
     }
     if (_selectedAccounting == 'شهرى' && _startSalaryController.text.trim().isEmpty) {
       return 'راتب البداية مطلوب للمحاسبة الشهرية';
@@ -263,9 +305,9 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         }
       }
 
-      // upload the three documents first; the server attaches them to the employee atomically
+      // optional documents: upload the ones picked; the server attaches them to the employee atomically
       final docIds = <String, String>{};
-      for (final e in _docs.entries) {
+      for (final e in _docs.entries.where((e) => e.value != null)) {
         final r = await ApiService.post({'action': 'stage_document', 'kind': e.key, 'fileName': e.value!.fileName, 'mime': e.value!.mime, 'data': e.value!.base64});
         if (r['success'] != true) {
           if (mounted) {
@@ -291,7 +333,12 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         'joinDate': _joinDateController.text.trim().isEmpty ? '' : _joinDateController.text.trim(),
         'accounting': _selectedAccounting,
         'managedBy': _selectedManagedBy,
-        'managedByUid': managedByUid ?? widget.currentUserId,
+        'managedByUid': managedByUid ?? '',
+        'salesManagerId': _idOf(_ownersList, _selectedManagedBy) ?? '',
+        'generalManagerId': _idOf(_gmList, _selectedGeneralManager) ?? '',
+        if (ApiService.can('employee.attendance_exempt')) 'attendanceExempt': _noAttendance,
+        'workStart': _noAttendance || _workStart == null ? '' : _hhmm(_workStart!),
+        'workEnd': _noAttendance || _workEnd == null ? '' : _hhmm(_workEnd!),
         'foremanId': widget.currentUserId,
         'startSalary': _startSalaryController.text.trim().isEmpty ? "0" : _startSalaryController.text.trim(),
         'increase': "0.00", // قيمة افتراضية للزيادة
@@ -587,6 +634,15 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                               },
                               isDark: isDark,
                             ),
+                            _buildDropdownField(
+                              label: 'المدير العام',
+                              value: _selectedGeneralManager,
+                              items: _gmList.map<String>((m) => m['name']?.toString() ?? '').toList(),
+                              icon: Icons.account_tree_rounded,
+                              isEditable: true,
+                              onChanged: (value) => setState(() => _selectedGeneralManager = value),
+                              isDark: isDark,
+                            ),
 
                             const SizedBox(height: 24),
 
@@ -648,19 +704,25 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                                 },
                                 isDark: isDark,
                               ),
-                              _buildDropdownField(
-                                label: 'ساعات العمل',
-                                value: _workHoursController.text,
-                                items: _workHoursList,
-                                icon: Icons.access_time,
-                                isEditable: true,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _workHoursController.text = value ?? '';
-                                  });
-                                },
-                                isDark: isDark,
+                            ],
+                            if (ApiService.can('employee.attendance_exempt'))
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: SwitchListTile(
+                                  value: _noAttendance,
+                                  onChanged: (v) => setState(() => _noAttendance = v),
+                                  title: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: const Text('مش هيظهر له زرار البصمة ومش هيتحسب غياب أو تأخير'),
+                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Colors.orange : Colors.green),
+                                ),
                               ),
+                            if (!_noAttendance) ...[
+                              _timeTile('ساعة بداية العمل', _workStart, true, isDark),
+                              _timeTile('ساعة نهاية العمل', _workEnd, false, isDark),
                             ],
                             _buildDropdownField(
                               label: 'مضروب الغياب',
@@ -749,7 +811,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
                             // المستندات المطلوبة
                             Text(
-                              'المستندات المطلوبة *',
+                              'المستندات (اختياري)',
                               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
                             ),
                             const SizedBox(height: 12),

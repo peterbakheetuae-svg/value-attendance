@@ -14,9 +14,11 @@ after(async () => { await h.close(); });
 const at = (iso: string) => { h.now.value = new Date(iso); };
 const types = async (tok: string) => (await h.call(tok, 'GET', '/notifications')).body.notifications.map((n: any) => n.type) as string[];
 
-test('validation: checked-in only, both fields required, return time later today', async () => {
+test('validation: allowed before check-in, both fields required, return time later today', async () => {
   at('2026-03-10T08:00:00Z');
-  assert.equal((await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', expectedReturn: '13:00', reason: 'معاينة شقة' })).status, 409, 'not checked in');
+  const early = await h.call(c.t.e1, 'POST', '/outings', { kind: 'permission', expectedReturn: '13:00', reason: 'مشوار قبل الحضور' });
+  assert.equal(early.status, 201, 'a permission works even before checking in');
+  assert.equal((await h.call(c.t.e1, 'POST', `/outings/${early.body.outing.id}/cancel`, {})).status, 200);
   await h.call(c.t.e1, 'POST', '/attendance/check-in', {});
   assert.equal((await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', reason: 'معاينة شقة' })).status, 400, 'no return time');
   assert.equal((await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', expectedReturn: '13:00' })).status, 400, 'no reason');
@@ -53,7 +55,7 @@ test('geofence: approved visit is not a violation; back inside closes it', async
   await h.call(c.t.e1, 'POST', '/tracking/ping', { lat: OFFICE.lat, lng: OFFICE.lng, accuracyM: 10 });
   const today = await h.call(c.t.e1, 'GET', '/outings/today');
   assert.equal(today.body.active, null);
-  assert.ok(today.body.history[0].returned_at);
+  assert.ok(today.body.history.find((x: any) => x.status === 'approved').returned_at);
 });
 
 test('unauthorized exit alerts HR, the manager and the employee; weak GPS never does', async () => {

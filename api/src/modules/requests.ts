@@ -5,7 +5,7 @@ import { date, obj, oneOf, reqStr, str, time, uuid, isUuid } from '../http/valid
 import { assertCanRead, audit, authenticate, has, readableIds, type Actor } from '../auth/context.ts';
 import { daysBetween, isoDow, local, timeToMinutes } from '../lib/time.ts';
 import { applyCorrection } from './attendance.ts';
-import { holdersOf, notify } from './notify.ts';
+import { gmRecipients, holdersOf, notify } from './notify.ts';
 
 export const REQUEST_TYPES = ['hourly_permission', 'short_leave', 'full_day_absence', 'emergency_permission', 'attendance_correction'] as const;
 const ABSENCE_TYPES = ['annual', 'casual', 'sick', 'unpaid', 'mission'] as const;
@@ -270,6 +270,11 @@ export const requestsModule: Module = (r, { db, clock }) => {
         }
         await notify(q, { to: row.employee_id, type: 'request_approved', title: `تمت الموافقة على طلب ${label}`,
           entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:approved` });
+        // after approval the general manager (or the owner when none is set) is informed
+        for (const gm of (await gmRecipients(q, row.employee_id)).filter((id) => id !== a.id)) {
+          await notify(q, { to: gm, type: 'request_approved_gm', title: `تمت الموافقة على طلب ${label} — ${row.employee_name}`,
+            body: `وافق: ${a.fullName}`, entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:gm` });
+        }
       } else {
         await notify(q, { to: row.employee_id, type: 'request_rejected', title: `تم رفض طلب ${label}`,
           body: comment ?? '', entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:rejected` });

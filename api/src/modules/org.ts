@@ -259,7 +259,7 @@ export const orgModule: Module = (r, { db }) => {
     const a = await authenticate(db, req); requirePerm(a, 'positions.manage', 'roles.manage');
     const b = obj(req.body);
     const baseKey = reqStr(b, 'baseKey', { max: 40 });
-    if (!['hr_manager', 'accountant', 'sales_manager', 'sales_employee'].includes(baseKey)) throw invalid('Choose the system role this position follows', { field: 'baseKey' });
+    if (!['manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'].includes(baseKey)) throw invalid('Choose the system role this position follows', { field: 'baseKey' });
     if (['hr_manager', 'accountant'].includes(baseKey) && !has(a, 'roles.manage')) throw forbidden('Only the owner can create admin positions');
     const nameAr = reqStr(b, 'nameAr', { min: 2, max: 80 });
     const role = await db.tx(async (q) => {

@@ -6,8 +6,20 @@ import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/
 import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
 
-const ROLES = ['owner', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
-const PRIVILEGED = new Set(['owner', 'hr_manager', 'accountant']);
+const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
+const PRIVILEGED = new Set(['owner', 'manager', 'hr_manager', 'accountant']);
+/** Direct manager (يتبع لـ): a sales manager, the manager or the owner. General manager: the manager or the owner. */
+const DIRECT_MANAGER_ROLES = ['sales_manager', 'manager', 'owner'];
+const GENERAL_MANAGER_ROLES = ['manager', 'owner'];
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Salary-like values kept in the original JPH form fields: only salary readers get them. */
+const LEGACY_SALARY_KEYS = ['salary', 'startSalary', 'dailyRate', 'increase'];
+export function scrubSalary<T extends { legacy_fields?: any }>(e: T, canSalary: boolean): T {
+  if (canSalary || !e.legacy_fields || typeof e.legacy_fields !== 'object') return e;
+  const lf = { ...e.legacy_fields };
+  for (const k of LEGACY_SALARY_KEYS) delete lf[k];
+  return { ...e, legacy_fields: lf };
+}
 const CODE = /^[A-Za-z0-9_-]{2,20}$/;
 const PHONE = /^\+?[0-9]{8,15}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,7 +28,8 @@ const MIME_OK = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/p
 const PROFILE_COLS = `
   e.id, e.code, e.full_name, e.phone, e.email, e.address, e.job_title,
   e.department_id, d.name_ar AS department_name, e.team_id, t.name AS team_name,
-  e.sales_manager_id, m.full_name AS sales_manager_name, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
+  e.sales_manager_id, m.full_name AS sales_manager_name, e.general_manager_id, gm.full_name AS general_manager_name,
+  e.attendance_exempt, to_char(e.work_start, 'HH24:MI') AS work_start, to_char(e.work_end, 'HH24:MI') AS work_end, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
   COALESCE(e.position_key, e.role_key) AS position_key, pos.name_ar AS position_name_ar, pos.name_en AS position_name_en,
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
@@ -29,6 +42,7 @@ const PROFILE_FROM = `
   LEFT JOIN departments d ON d.id = e.department_id
   LEFT JOIN teams t ON t.id = e.team_id
   LEFT JOIN employees m ON m.id = e.sales_manager_id
+  LEFT JOIN employees gm ON gm.id = e.general_manager_id
   LEFT JOIN work_schedules ws ON ws.id = e.schedule_id`;
 
 function assertAssignableRole(a: Actor, role: string) {
@@ -48,15 +62,31 @@ async function assertOwnerRemains(q: Q, excludingId: string) {
   if (r.n < 1) throw unprocessable('The company must keep at least one active owner');
 }
 
-async function validateRefs(q: Q, f: { departmentId?: string | null; teamId?: string | null; salesManagerId?: string | null; scheduleId?: string | null }) {
+async function validateRefs(q: Q, f: { departmentId?: string | null; teamId?: string | null; salesManagerId?: string | null; generalManagerId?: string | null; scheduleId?: string | null }) {
   if (f.salesManagerId) {
     const m = await one(q, `SELECT role_key, status FROM employees WHERE id = $1`, [f.salesManagerId]);
-    if (!m || m.status !== 'active') throw invalid('Sales manager not found', { field: 'salesManagerId' });
-    if (!['sales_manager', 'owner'].includes(m.role_key)) throw invalid('Assigned sales manager must have the Sales Manager role', { field: 'salesManagerId' });
+    if (!m || m.status !== 'active') throw invalid('Direct manager not found', { field: 'salesManagerId' });
+    if (!DIRECT_MANAGER_ROLES.includes(m.role_key)) throw invalid('The direct manager must be a sales manager, the manager or the owner', { field: 'salesManagerId' });
+  }
+  if (f.generalManagerId) {
+    const m = await one(q, `SELECT role_key, status FROM employees WHERE id = $1`, [f.generalManagerId]);
+    if (!m || m.status !== 'active') throw invalid('General manager not found', { field: 'generalManagerId' });
+    if (!GENERAL_MANAGER_ROLES.includes(m.role_key)) throw invalid('The general manager must be the manager or the owner', { field: 'generalManagerId' });
   }
   if (f.teamId && !(await one(q, `SELECT 1 FROM teams WHERE id = $1 AND active`, [f.teamId]))) throw invalid('Team not found', { field: 'teamId' });
   if (f.departmentId && !(await one(q, `SELECT 1 FROM departments WHERE id = $1 AND active`, [f.departmentId]))) throw invalid('Department not found', { field: 'departmentId' });
   if (f.scheduleId && !(await one(q, `SELECT 1 FROM work_schedules WHERE id = $1`, [f.scheduleId]))) throw invalid('Schedule not found', { field: 'scheduleId' });
+}
+
+/** Personal shift (HH:MM–HH:MM) or none (company schedule applies). */
+function workHours(b: Record<string, unknown>): { start: string | null; end: string | null } | undefined {
+  if (!('workStart' in b) && !('workEnd' in b)) return undefined;
+  const s = b.workStart, e = b.workEnd;
+  if ((s === null || s === '') && (e === null || e === '')) return { start: null, end: null };
+  if (typeof s !== 'string' || !HHMM.test(s)) throw invalid('Work start must be HH:MM', { field: 'workStart' });
+  if (typeof e !== 'string' || !HHMM.test(e)) throw invalid('Work end must be HH:MM', { field: 'workEnd' });
+  if (e <= s) throw invalid('Work end must be after work start', { field: 'workEnd' });
+  return { start: s, end: e };
 }
 
 function decodeBase64(s: unknown, field: string): Buffer {
@@ -132,7 +162,8 @@ export const employeesModule: Module = (r, { db, clock }) => {
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.full_name LIMIT 500`, vals);
     // Team-scoped readers get a reduced card, never contact/emergency/notes of others
     const full = has(a, 'employee.read_all');
-    const out = rows.rows.map((e) => full || e.id === a.id ? e : teamCard(e));
+    const canSal = has(a, 'employee.salary_read');
+    const out = rows.rows.map((e) => scrubSalary(full || e.id === a.id ? e : teamCard(e), canSal || e.id === a.id));
     if (has(a, 'employee.salary_read') && out.length) {
       const sal = await db.query(`SELECT employee_id, base_salary FROM employee_salaries WHERE employee_id = ANY($1::uuid[])`, [out.map((e: any) => e.id)]);
       const by = new Map(sal.rows.map((x) => [x.employee_id, x.base_salary]));
@@ -147,7 +178,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const scope = await assertCanRead(db, a, req.params.id, 'employee');
     const e = await one(db, `SELECT ${PROFILE_COLS} ${PROFILE_FROM} WHERE e.id = $1`, [req.params.id]);
     if (!e) throw notFound();
-    const out: any = scope === 'team' ? teamCard(e) : e;
+    const out: any = scrubSalary(scope === 'team' ? teamCard(e) : e, has(a, 'employee.salary_read') || e.id === a.id);
     if (has(a, 'employee.salary_read')) {
       out.salary = (await one(db, `SELECT base_salary, currency, updated_at FROM employee_salaries WHERE employee_id = $1`, [e.id])) ?? null;
     }
@@ -172,6 +203,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       departmentId: uuid(b, 'departmentId', true) ?? null,
       teamId: uuid(b, 'teamId', true) ?? null,
       salesManagerId: uuid(b, 'salesManagerId', true) ?? null,
+      generalManagerId: uuid(b, 'generalManagerId', true) ?? null,
       scheduleId: uuid(b, 'scheduleId', true) ?? null,
       joiningDate: date(b, 'joiningDate', true) ?? null,
       ecName: str(b, 'emergencyContactName', { optional: true, max: 120 }) ?? null,
@@ -180,6 +212,11 @@ export const employeesModule: Module = (r, { db, clock }) => {
     };
     const salary = num(b, 'baseSalary', { optional: true, min: 0, max: 10_000_000 });
     if (salary !== undefined && !has(a, 'employee.salary_manage')) throw forbidden('You cannot set salary information');
+    const exempt = b.attendanceExempt === undefined ? role === 'owner' : bool(b, 'attendanceExempt')!;
+    if (b.attendanceExempt !== undefined && exempt !== (role === 'owner') && !has(a, 'employee.attendance_exempt')) {
+      throw forbidden('Only the owner can change "no attendance"');
+    }
+    const hours = workHours(b) ?? { start: null, end: null };
     await validateRefs(db, f);
     // required documents (uploaded first via POST /documents/staged) — checked before anything is created
     const docIn = b.documents === undefined || b.documents === null ? {} : obj(b.documents);
@@ -207,12 +244,14 @@ export const employeesModule: Module = (r, { db, clock }) => {
       const e = await one(q, `
         INSERT INTO employees (code, full_name, phone, email, address, job_title, department_id, team_id,
           sales_manager_id, role_key, joining_date, schedule_id, emergency_contact_name, emergency_contact_phone,
-          notes, password_hash, must_change_password, legacy_fields, position_key)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19)
+          notes, password_hash, must_change_password, legacy_fields, position_key,
+          general_manager_id, attendance_exempt, work_start, work_end)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::date, (now() AT TIME ZONE 'Africa/Cairo')::date),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
         RETURNING id, code`,
         [f.code, f.fullName, f.phone, f.email, f.address, f.jobTitle, f.departmentId, f.teamId, f.salesManagerId,
          role, f.joiningDate, f.scheduleId, f.ecName, f.ecPhone, f.notes, hash, !usePin,
-         JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields)), pos.positionKey]);
+         JSON.stringify(b.legacyFields === undefined ? {} : legacyFields(b.legacyFields)), pos.positionKey,
+         f.generalManagerId, exempt, hours.start, hours.end]);
       if (salary !== undefined) {
         await q.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1,$2,$3)`, [e.id, salary, a.id]);
       }
@@ -255,7 +294,16 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (opt('emergencyContactPhone')) put('emergency_contact_phone', str(b, 'emergencyContactPhone', { optional: true, pattern: PHONE }) ?? null);
     if (opt('notes')) put('notes', str(b, 'notes', { optional: true, max: 2000 }) ?? null);
     if (opt('joiningDate')) put('joining_date', date(b, 'joiningDate'));
-    if (opt('legacyFields')) put('legacy_fields', JSON.stringify(legacyFields(b.legacyFields)));
+    if (opt('legacyFields')) {
+      const lf = legacyFields(b.legacyFields);
+      // someone who cannot see salaries never changes (or wipes) the salary values kept in the old form fields
+      if (!has(a, 'employee.salary_read')) {
+        for (const k of LEGACY_SALARY_KEYS) delete lf[k];
+        const prev = (before.legacy_fields ?? {}) as Record<string, any>;
+        for (const k of LEGACY_SALARY_KEYS) if (k in prev) lf[k] = prev[k];
+      }
+      put('legacy_fields', JSON.stringify(lf));
+    }
     const refs: any = {};
     if (opt('departmentId')) { refs.departmentId = uuid(b, 'departmentId', true) ?? null; put('department_id', refs.departmentId); }
     if (opt('teamId')) { refs.teamId = uuid(b, 'teamId', true) ?? null; put('team_id', refs.teamId); }
@@ -264,6 +312,17 @@ export const employeesModule: Module = (r, { db, clock }) => {
       if (refs.salesManagerId === req.params.id) throw invalid('An employee cannot be their own sales manager', { field: 'salesManagerId' });
       put('sales_manager_id', refs.salesManagerId);
     }
+    if (opt('generalManagerId')) {
+      refs.generalManagerId = uuid(b, 'generalManagerId', true) ?? null;
+      if (refs.generalManagerId === req.params.id) throw invalid('An employee cannot be their own general manager', { field: 'generalManagerId' });
+      put('general_manager_id', refs.generalManagerId);
+    }
+    if (opt('attendanceExempt')) {
+      if (!has(a, 'employee.attendance_exempt')) throw forbidden('Only the owner can change "no attendance"');
+      put('attendance_exempt', bool(b, 'attendanceExempt', false));
+    }
+    const hours = workHours(b);
+    if (hours) { put('work_start', hours.start); put('work_end', hours.end); }
     if (opt('scheduleId')) { refs.scheduleId = uuid(b, 'scheduleId', true) ?? null; put('schedule_id', refs.scheduleId); }
     if (opt('role') || opt('position')) {
       const pos = opt('position') ? await resolvePosition(db, b.position) : { role: oneOf(b, 'role', ROLES)!, positionKey: null, nameAr: '' };

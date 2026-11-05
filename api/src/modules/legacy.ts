@@ -4,7 +4,7 @@ import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
 import { daysBetween, local } from '../lib/time.ts';
-import { holdersOf, notify } from './notify.ts';
+import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
 import { randomUUID } from 'node:crypto';
 import { signedMediaPath, verifyMedia } from '../lib/media.ts';
 
@@ -14,16 +14,33 @@ import { signedMediaPath, verifyMedia } from '../lib/media.ts';
  */
 export const legacyModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ advances (سلفة / مصاريف عمل)
-  const ADV = `SELECT x.*, e.full_name AS employee_name, e.code AS employee_code, d.full_name AS decided_by_name
-                 FROM advance_requests x JOIN employees e ON e.id = x.employee_id LEFT JOIN employees d ON d.id = x.decided_by`;
-  const canDecideAdvances = (a: any) => has(a, 'finance.approve');
+  const ADV = `SELECT x.*, e.full_name AS employee_name, e.code AS employee_code, d.full_name AS decided_by_name,
+                      g.full_name AS gm_name, ga.full_name AS gm_approved_by_name
+                 FROM advance_requests x JOIN employees e ON e.id = x.employee_id LEFT JOIN employees d ON d.id = x.decided_by
+                 LEFT JOIN employees g ON g.id = x.gm_id LEFT JOIN employees ga ON ga.id = x.gm_approved_by`;
+  /**
+   * Financial requests: the general manager approves first (the owner when none is set, or always as a fallback),
+   * then HR confirms. HR can never confirm before the general manager, and nobody decides on their own request.
+   */
+  const isOwner = (a: any) => a.role === 'owner';
+  const gmStageBy = (a: any, x: any) => x.gm_id ? (x.gm_id === a.id || isOwner(a)) : isOwner(a);
+  const stageOf = (a: any, x: any): 'gm' | 'hr' | null => {
+    if (x.status !== 'pending' || x.employee_id === a.id) return null;
+    if (!x.gm_approved_at) return gmStageBy(a, x) ? 'gm' : null;
+    return has(a, 'request.approve_hr') && x.gm_approved_by !== a.id ? 'hr' : null;
+  };
+  const shapeAdv = (a: any, x: any) => {
+    const stage = stageOf(a, x);
+    return { ...x, attachment: undefined, has_attachment: x.attachment !== null, stage: x.status !== 'pending' ? 'done' : x.gm_approved_at ? 'hr' : 'gm',
+      canDecide: stage !== null, myStage: stage };
+  };
 
   r.get('/advances', async (req) => {
     const a = await authenticate(db, req);
     const all = req.query.get('scope') !== 'mine' && (has(a, 'finance.read') || has(a, 'request.approve_hr'));
-    const rows = await db.query(`${ADV} ${all ? '' : 'WHERE x.employee_id = $1'} ORDER BY x.created_at DESC LIMIT 500`, all ? [] : [a.id]);
-    return ok({ advances: rows.rows.map((x) => ({ ...x, attachment: undefined, has_attachment: x.attachment !== null })),
-      canDecide: canDecideAdvances(a) });
+    const rows = await db.query(`${ADV} ${all ? '' : 'WHERE x.employee_id = $1 OR x.gm_id = $1'} ORDER BY x.created_at DESC LIMIT 500`, all ? [] : [a.id]);
+    const list = rows.rows.filter((x) => all || req.query.get('scope') !== 'mine' || x.employee_id === a.id).map((x) => shapeAdv(a, x));
+    return ok({ advances: list, canDecide: list.some((x) => x.canDecide) });
   });
 
   r.post('/advances', async (req) => {
@@ -37,7 +54,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const employeeId = typeof b.employeeId === 'string' && b.employeeId ? b.employeeId : a.id;
     if (!isUuid(employeeId)) throw invalid('employeeId is invalid', { field: 'employeeId' });
     const onBehalf = employeeId !== a.id;
-    // HR / finance may record one for someone else; finance approvers confirm it on the spot
+    // HR / finance may record one for someone else; it still needs the general manager, then HR
     if (onBehalf && !has(a, 'finance.manage') && !has(a, 'employee.manage')) throw forbidden();
     if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1 AND status = 'active'`, [employeeId]))) throw notFound('Employee not found');
     let attachment: Buffer | null = null;
@@ -46,17 +63,30 @@ export const legacyModule: Module = (r, { db, clock }) => {
       attachment = Buffer.from(raw, 'base64');
       if (attachment.length > 600_000) throw invalid('Attachment is too large', { field: 'attachment' });
     }
-    const confirmNow = onBehalf && canDecideAdvances(a);
     const row = await db.tx(async (q) => {
-      const x = await one(q, `INSERT INTO advance_requests (employee_id, kind, period, amount_egp, note, attachment, status, created_by, decided_by, decided_at)
-                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, status`,
-        [employeeId, kind, period, amount, note, attachment, confirmNow ? 'confirmed' : 'pending', a.id,
-         confirmNow ? a.id : null, confirmNow ? clock() : null]);
-      await audit(q, a.id, 'advance.create', 'advance', x.id, undefined, { employeeId, kind, period, amount, status: x.status });
-      if (!confirmNow) {
-        for (const to of await holdersOf(q, 'finance.approve', [employeeId])) {
-          await notify(q, { to, type: 'advance_awaiting', title: kind === 'advance' ? 'طلب سلفة جديد' : 'طلب مصاريف عمل جديد',
-            body: `${amount} جنيه`, entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:awaiting` });
+      const gmId = await generalManagerOf(q, employeeId);
+      // recorded on someone's behalf by their own general manager (or an owner): the first stage is already given
+      const gmDone = onBehalf && gmStageBy(a, { gm_id: gmId });
+      const x = await one(q, `INSERT INTO advance_requests (employee_id, kind, period, amount_egp, note, attachment, status, created_by, gm_id, gm_approved_by, gm_approved_at)
+                              VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10) RETURNING id, status`,
+        [employeeId, kind, period, amount, note, attachment, a.id, gmId, gmDone ? a.id : null, gmDone ? clock() : null]);
+      await audit(q, a.id, 'advance.create', 'advance', x.id, undefined, { employeeId, kind, period, amount, gmId, gmDone });
+      const title = kind === 'advance' ? 'طلب سلفة جديد' : 'طلب مصاريف عمل جديد';
+      const emp = await one(q, `SELECT full_name FROM employees WHERE id = $1`, [employeeId]);
+      const hr = (await holdersOf(q, 'request.approve_hr', [employeeId])).filter((id) => id !== a.id);
+      if (!gmDone) {
+        for (const to of (await gmRecipients(q, employeeId)).filter((id) => id !== a.id)) {
+          await notify(q, { to, type: 'advance_awaiting', title: `${title} بانتظار موافقتك`, body: `${emp.full_name} — ${amount} جنيه`,
+            entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:awaiting_gm` });
+        }
+        for (const to of hr) {
+          await notify(q, { to, type: 'advance_submitted', title: `${title} — بانتظار المدير العام`, body: `${emp.full_name} — ${amount} جنيه`,
+            entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:info_hr` });
+        }
+      } else {
+        for (const to of hr) {
+          await notify(q, { to, type: 'advance_awaiting', title: `${title} بانتظار اعتماد الموارد البشرية`, body: `${emp.full_name} — ${amount} جنيه`,
+            entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:awaiting_hr` });
         }
       }
       return x;
@@ -66,20 +96,43 @@ export const legacyModule: Module = (r, { db, clock }) => {
 
   r.post('/advances/:id/decision', async (req) => {
     const a = await authenticate(db, req);
-    if (!canDecideAdvances(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
     const decision = oneOf(obj(req.body), 'decision', ['confirm', 'reject'] as const)!;
     const out = await db.tx(async (q) => {
-      const x = await one(q, `SELECT * FROM advance_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      const x = await one(q, `SELECT x.*, e.full_name AS employee_name FROM advance_requests x JOIN employees e ON e.id = x.employee_id
+                               WHERE x.id = $1 FOR UPDATE OF x`, [req.params.id]);
       if (!x) throw notFound();
       if (x.employee_id === a.id) throw forbidden('You cannot decide on your own request');
       if (x.status !== 'pending') throw conflict('This request is already closed');
-      const status = decision === 'confirm' ? 'confirmed' : 'rejected';
-      await q.query(`UPDATE advance_requests SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1`, [x.id, status, a.id]);
-      await audit(q, a.id, `advance.${decision}`, 'advance', x.id, { status: x.status }, { status });
-      await notify(q, { to: x.employee_id, type: `advance_${status}`, title: status === 'confirmed' ? 'تم تأكيد طلبك المالي' : 'تم رفض طلبك المالي',
-        body: `${x.amount_egp} جنيه`, entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:${status}` });
-      return status;
+      const stage = stageOf(a, x);
+      if (!stage) {
+        if (!x.gm_approved_at && has(a, 'request.approve_hr')) throw forbidden('The general manager must approve this request first');
+        throw forbidden('You cannot decide on this request');
+      }
+      const label = x.kind === 'advance' ? 'السلفة' : 'مصاريف العمل';
+      if (decision === 'reject') {
+        await q.query(`UPDATE advance_requests SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1`, [x.id, a.id]);
+        await audit(q, a.id, 'advance.reject', 'advance', x.id, { status: x.status }, { status: 'rejected', stage });
+        await notify(q, { to: x.employee_id, type: 'advance_rejected', title: `تم رفض طلب ${label}`,
+          body: `${x.amount_egp} جنيه`, entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:rejected` });
+        return 'rejected';
+      }
+      if (stage === 'gm') {
+        await q.query(`UPDATE advance_requests SET gm_approved_by = $2, gm_approved_at = now() WHERE id = $1`, [x.id, a.id]);
+        await audit(q, a.id, 'advance.gm_approve', 'advance', x.id, undefined, { stage });
+        for (const to of (await holdersOf(q, 'request.approve_hr', [x.employee_id])).filter((id) => id !== a.id)) {
+          await notify(q, { to, type: 'advance_awaiting', title: `طلب ${label} بانتظار اعتماد الموارد البشرية`,
+            body: `${x.employee_name} — ${x.amount_egp} جنيه — وافق المدير العام`, entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:awaiting_hr` });
+        }
+        await notify(q, { to: x.employee_id, type: 'advance_progress', title: `وافق المدير العام على طلب ${label}`,
+          body: 'الطلب الآن عند الموارد البشرية', entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:gm_ok` });
+        return 'pending';
+      }
+      await q.query(`UPDATE advance_requests SET status = 'confirmed', decided_by = $2, decided_at = now() WHERE id = $1`, [x.id, a.id]);
+      await audit(q, a.id, 'advance.confirm', 'advance', x.id, { status: x.status }, { status: 'confirmed' });
+      await notify(q, { to: x.employee_id, type: 'advance_confirmed', title: `تم اعتماد طلب ${label}`,
+        body: `${x.amount_egp} جنيه`, entity: 'advance', entityId: x.id, dedupeKey: `adv:${x.id}:confirmed` });
+      return 'confirmed';
     });
     return ok({ status: out });
   });
@@ -89,7 +142,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM advance_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
-      if (!x || (x.employee_id !== a.id && x.created_by !== a.id && !canDecideAdvances(a))) throw notFound();
+      if (!x || (x.employee_id !== a.id && x.created_by !== a.id && !stageOf(a, x))) throw notFound();
       if (x.status !== 'pending') throw conflict('This request can no longer be cancelled');
       await q.query(`UPDATE advance_requests SET status = 'cancelled', decided_at = now() WHERE id = $1`, [x.id]);
       await audit(q, a.id, 'advance.cancel', 'advance', x.id);

@@ -57,6 +57,7 @@ const Map<String, List<String>> _permLabels = {
   'finance.manage': ['المالية', 'إنشاء تسويات مالية'],
   'finance.approve': ['المالية', 'اعتماد التسويات المالية'],
   'notification.send': ['الإشعارات', 'إرسال إشعارات للموظفين'],
+  'employee.attendance_exempt': ['الموظفين', 'تفعيل "ليس لديه حضور وانصراف"'],
 };
 
 const _baseRoles = {
@@ -64,6 +65,7 @@ const _baseRoles = {
   'sales_manager': 'مدير مبيعات',
   'hr_manager': 'موارد بشرية',
   'accountant': 'محاسب',
+  'manager': 'المدير',
 };
 
 class _PositionsPageState extends State<PositionsPage> {

@@ -29,6 +29,7 @@ import 'top_tabs_team.dart';
 import 'dash_mode_team.dart';
 import '../notifications/notifications_page.dart';
 import '../../services/api_service.dart';
+import '../../widgets/performance_avatar.dart';
 import '../../services/jph_bridge.dart';
 import '../../widgets/outing_dialogs.dart';
 import '../../../core/shift_tracker.dart';
@@ -560,6 +561,15 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
     switch (mode) {
       case DashMode.check:
+        if (sheetData['attendanceExempt'] == true) {
+          return FingerUiConfig(
+            title: 'ليس لديه حضور وانصراف',
+            subtitle: 'حسابك مش محتاج بصمة',
+            disabled: true,
+            color: Colors.grey,
+            iconBg: Colors.grey,
+          );
+        }
         if (dayFinished) {
           return FingerUiConfig(
             title: AppLocalizations.of(context, 'work_day_ended'),
@@ -612,15 +622,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
             iconBg: getPrimaryColor(),
           );
         }
-        if (state.checkInTime == "--:--") {
-          return FingerUiConfig(
-            title: AppLocalizations.of(context, 'check_in_first'),
-            subtitle: "سجل الحضور أولاً",
-            disabled: true,
-            color: Colors.grey,
-            iconBg: Colors.grey,
-          );
-        }
+        // a permission works even before checking in (e.g. coming late with permission)
         if (_outingPending != null) {
           return FingerUiConfig(
             title: 'بانتظار الموافقة',
@@ -946,6 +948,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   }
 
   Future<void> _handleRefresh() async {
+    PerformanceScore.refresh(force: true);
     await Future.wait([loadToday(), loadMonth()]);
   }
 
@@ -1213,7 +1216,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   ),
                 );
               },
-              child: Container(
+              child: PerformanceAvatar(child: Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
@@ -1259,7 +1262,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   )
                       : _buildDefaultAvatar(isDark),
                 ),
-              ),
+              )),
             ),
           ],
         );

@@ -150,7 +150,7 @@ test('payroll summary for accountant: EGP only, money separated, salary only wit
   assert.equal(row.money.baseSalary, 12000);
   assert.equal(row.kpi, undefined, 'no KPI mixed into payroll');
   const hr = await h.call(c.t.hr, 'GET', '/reports/payroll?month=2026-03');
-  assert.equal(hr.body.rows.find((r: any) => r.employee.id === c.ids.e1).money.baseSalary, undefined);
+  assert.equal(hr.body.rows.find((r: any) => r.employee.id === c.ids.e1).money.baseSalary, 12000, 'HR manager sees salaries');
   assert.equal((await h.call(c.t.sm1, 'GET', '/reports/payroll?month=2026-03')).status, 403);
   const xl = await h.call(c.t.acc, 'GET', '/reports/payroll.xlsx?month=2026-03');
   assert.equal(xl.status, 200);

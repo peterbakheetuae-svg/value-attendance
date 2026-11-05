@@ -4,7 +4,7 @@ import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors
 import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
-import { holdersOf, notify } from './notify.ts';
+import { gmRecipients, holdersOf, notify } from './notify.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'زيارة' };
 
@@ -83,8 +83,8 @@ export const outingsModule: Module = (r, { db, clock }) => {
     const row = await db.tx(async (q) => {
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
       const att = await one(q, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
-      if (!att) throw conflict('You must check in first');
-      if (att.check_out_at) throw conflict('Your work day has ended');
+      // a permission can be requested before checking in (e.g. coming late with permission)
+      if (att?.check_out_at) throw conflict('Your work day has ended');
       const pending = await one(q, `SELECT id FROM outing_requests WHERE employee_id = $1 AND work_date = $2 AND status = 'pending'`, [a.id, l.date]);
       if (pending) throw conflict('You already have a request waiting for approval');
       const active = await activeOuting(q, a.id, l.date);
@@ -170,10 +170,9 @@ export const outingsModule: Module = (r, { db, clock }) => {
         title: status === 'approved' ? `تمت الموافقة على طلب ${label}` : `تم رفض طلب ${label}`,
         body: note ?? '', entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:${status}` });
       if (status === 'approved') {
-        // the owner hears only about approved requests, with the kind spelled out
-        const owners = (await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'owner' AND status = 'active' AND id <> $1`, [x.employee_id])).rows;
-        for (const o of owners) {
-          await notify(q, { to: o.id, type: x.parent_id ? 'outing_extension_approved_owner' : `outing_${x.kind}_approved_owner`,
+        // the general manager (or the owner when none is set) hears only about approved requests
+        for (const gm of (await gmRecipients(q, x.employee_id)).filter((id) => id !== a.id)) {
+          await notify(q, { to: gm, type: x.parent_id ? 'outing_extension_approved_owner' : `outing_${x.kind}_approved_owner`,
             title: x.parent_id ? `تمت الموافقة على تمديد ${KIND_AR[x.kind]} — ${x.employee_name}` : `تمت الموافقة على ${KIND_AR[x.kind]} — ${x.employee_name}`,
             body: `وافق: ${a.fullName}`, entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:owner` });
         }

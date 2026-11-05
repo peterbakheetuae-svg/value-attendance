@@ -26,13 +26,22 @@ test('private profile: other employees get 404; unassigned team is invisible to 
 });
 
 test('salary: set only by salary managers, visible only to salary readers, never on employee screens', async () => {
-  const create = await h.call(c.t.hr, 'POST', '/employees', { code: 'SAL1', fullName: 'صاحب مرتب', role: 'sales_employee', baseSalary: 9000 });
-  assert.equal(create.status, 403, 'HR has no salary_manage');
-  const ok = await h.call(c.t.owner, 'POST', '/employees', { code: 'SAL1', fullName: 'صاحب مرتب', role: 'sales_employee', baseSalary: 9000, jobTitle: 'مستشار عقاري' });
-  assert.equal(ok.status, 201);
+  const create = await h.call(c.t.sm1, 'POST', '/employees', { code: 'SAL1', fullName: 'صاحب مرتب', role: 'sales_employee', baseSalary: 9000 });
+  assert.equal(create.status, 403, 'a sales manager cannot create or set salaries');
+  const ok = await h.call(c.t.hr, 'POST', '/employees', { code: 'SAL1', fullName: 'صاحب مرتب', role: 'sales_employee', baseSalary: 9000, jobTitle: 'مستشار عقاري',
+    legacyFields: { salary: '9000', startSalary: '9000', leaveDay: 'الجمعة' } });
+  assert.equal(ok.status, 201, 'HR manages salaries');
   const id = ok.body.id;
+  await h.call(c.t.hr, 'PATCH', `/employees/${id}`, { salesManagerId: c.ids.sm1 });
+  const smView = await h.call(c.t.sm1, 'GET', `/employees/${id}`);
+  assert.equal(smView.body.employee.salary, undefined, 'a sales manager sees no salary');
+  const smList = await h.call(c.t.sm1, 'GET', '/employees');
+  const row = smList.body.employees.find((e: any) => e.id === id);
+  assert.ok(row && (!row.legacy_fields || row.legacy_fields.salary === undefined), 'no salary through the old form fields either');
   const hrView = await h.call(c.t.hr, 'GET', `/employees/${id}`);
-  assert.equal(hrView.body.employee.salary, undefined, 'HR without salary_read sees no salary');
+  assert.equal(hrView.body.employee.salary.base_salary, 9000, 'HR sees salaries');
+  assert.equal(hrView.body.employee.legacy_fields.salary, '9000');
+  await h.call(c.t.hr, 'PATCH', `/employees/${id}`, { salesManagerId: null });
   const ownerView = await h.call(c.t.owner, 'GET', `/employees/${id}`);
   assert.equal(ownerView.body.employee.salary.base_salary, 9000);
   assert.equal(ownerView.body.employee.salary.currency, 'EGP');

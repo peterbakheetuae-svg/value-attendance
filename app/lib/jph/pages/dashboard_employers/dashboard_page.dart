@@ -33,6 +33,8 @@ import '../notifications/notifications_page.dart';
 import 'attendance_today_page.dart';
 import 'break_page.dart';
 import '../notifications/notification_settings.dart'; // ✅ إضافة صفحة إعدادات الإشعارات
+import '../../widgets/outing_dialogs.dart';
+import '../../widgets/performance_avatar.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -93,6 +95,21 @@ class _DashboardPageState extends State<DashboardPage>
   late Animation<double> _loadingScaleAnimation;
 
   bool get onActiveBreak => state.onBreak && state.breakEndTime == "--:--";
+  bool get _exempt => sheetData['attendanceExempt'] == true;
+
+  // own permission / visit (the admin punches in like everyone unless "no attendance" is on)
+  Map<String, dynamic>? _outingPending;
+  Map<String, dynamic>? _outingActive;
+  Future<void> _loadOuting() async {
+    try {
+      final r = await ApiService.post({'action': 'outing_today'});
+      if (!mounted || r['success'] != true) return;
+      setState(() {
+        _outingPending = (r['pending'] as Map?)?.cast<String, dynamic>();
+        _outingActive = (r['active'] as Map?)?.cast<String, dynamic>();
+      });
+    } catch (_) {}
+  }
 
   @override
   void initState() {
@@ -288,6 +305,7 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> loadToday() async {
+    _loadOuting();
     try {
       _isRefreshing = true;
       if (mounted) setState(() {});
@@ -440,21 +458,72 @@ class _DashboardPageState extends State<DashboardPage>
     Color getAccentColor() => isDark ? AppColors.accentLight : AppColors.accent;
     Color getErrorColor() => AppColors.error;
 
+    // the fingerprint punches the signed-in person; the lists open from the "today" boxes
+    if (_exempt && mode != DashMode.leave) {
+      return const FingerUiConfig(
+        title: 'ليس لديه حضور وانصراف',
+        subtitle: 'الحساب ده مش محتاج بصمة',
+        disabled: true,
+        color: Colors.grey,
+        iconBg: Colors.grey,
+      );
+    }
     switch (mode) {
       case DashMode.check:
-      // ✅ تغيير الزر ليعرض الموظفين الحاضرين
+        if (dayFinished) {
+          return FingerUiConfig(
+            title: AppLocalizations.of(context, 'work_day_ended'),
+            subtitle: "تم انتهاء يوم العمل",
+            disabled: true,
+            color: getPrimaryColor(),
+            iconBg: getPrimaryColor(),
+          );
+        }
+        if (checkedIn) {
+          return FingerUiConfig(
+            title: AppLocalizations.of(context, 'check_out'),
+            subtitle: "تسجيل انتهاء العمل",
+            color: getErrorColor(),
+            iconBg: getErrorColor(),
+          );
+        }
         return FingerUiConfig(
-          title: AppLocalizations.of(context, 'show_today_attendance'),
-          subtitle: "عرض الموظفين الحاضرين اليوم",
+          title: AppLocalizations.of(context, 'check_in'),
+          subtitle: "تسجيل بداية العمل",
           color: getPrimaryColor(),
           iconBg: getPrimaryColor(),
         );
 
       case DashMode.breakTime:
-      // ✅ تغيير الزر ليعرض الموظفين في الاستراحة
+        if (dayFinished) {
+          return FingerUiConfig(
+            title: AppLocalizations.of(context, 'work_day_ended'),
+            subtitle: "تم انتهاء يوم العمل",
+            disabled: true,
+            color: getPrimaryColor(),
+            iconBg: getPrimaryColor(),
+          );
+        }
+        if (_outingPending != null) {
+          return FingerUiConfig(
+            title: 'بانتظار الموافقة',
+            subtitle: 'الطلب عند المدير / الموارد البشرية',
+            disabled: true,
+            color: getAccentColor(),
+            iconBg: getAccentColor(),
+          );
+        }
+        if (_outingActive != null) {
+          return FingerUiConfig(
+            title: 'تسجيل الرجوع',
+            subtitle: 'اضغط مطولاً لما ترجع المكتب',
+            color: getSecondaryColor(),
+            iconBg: getSecondaryColor(),
+          );
+        }
         return FingerUiConfig(
-          title: AppLocalizations.of(context, 'show_break_employees'),
-          subtitle: "عرض الموظفين في الاستراحة",
+          title: 'إذن ساعات / زيارة',
+          subtitle: "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
         );
@@ -505,20 +574,29 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   /// Same mini boxes as the employee home ("today" / "this month"), with totals.
-  Widget _adminBoxes(List<List<String>> rows) {
+  Widget _adminBoxes(List<List<String>> rows, {Map<String, VoidCallback> taps = const {}}) {
     final isDark = Provider.of<AppController>(context).isDark;
-    Widget box(String title, String value) => Container(
+    Widget box(String title, String value) {
+      final tap = taps[title];
+      return InkWell(
+        onTap: tap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
             borderRadius: BorderRadius.circular(12),
+            border: tap == null ? null : Border.all(color: AppColors.primary.withOpacity(0.35)),
           ),
           child: Column(children: [
             Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
             const SizedBox(height: 4),
             Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+            if (tap != null) Icon(Icons.chevron_left_rounded, size: 16, color: isDark ? Colors.white54 : Colors.grey.shade600),
           ]),
-        );
+        ),
+      );
+    }
     final out = <Widget>[];
     for (var i = 0; i < rows.length; i += 3) {
       final chunk = rows.sublist(i, math.min(i + 3, rows.length));
@@ -572,36 +650,67 @@ class _DashboardPageState extends State<DashboardPage>
       return;
     }
 
-    if (mode == DashMode.check) {
-      // ✅ الانتقال لصفحة عرض الموظفين الحاضرين
-      await Navigator.push(
-        currentContext,
-        MaterialPageRoute(
-          builder: (_) => AttendanceTodayPage(
-            uid: widget.uid,
-            name: widget.name,
-            role: widget.role,
-          ),
-        ),
-      );
+    if (config.disabled) return;
+
+    if (mode == DashMode.breakTime) {
+      await _handleOuting();
       return;
     }
 
-    if (mode == DashMode.breakTime) {
-      // ✅ الانتقال لصفحة عرض الموظفين في الاستراحة
-      await Navigator.push(
-        currentContext,
-        MaterialPageRoute(
-          builder: (_) => BreakPage(
-            uid: widget.uid,
-            name: widget.name,
-            role: widget.role,
-          ),
-        ),
-      );
-      return;
+    if (mode == DashMode.check) {
+      _cameraInUse = true;
+      try {
+        final capture = await _cameraService.captureWithLocation(currentContext);
+        if (!mounted) return;
+        final approved = await Navigator.push(
+          currentContext,
+          MaterialPageRoute(fullscreenDialog: true, builder: (_) => SelfiePreviewPage(imageFile: capture.file)),
+        );
+        if (approved != true || !mounted) return;
+        final res = await DashboardApi.checkIn(widget.uid, widget.name, image: capture.base64, location: capture.location);
+        if (!mounted) return;
+        await Future.wait([loadToday(), _loadAdditionalData()]);
+        if (!mounted) return;
+        ScaffoldMessenger.of(currentContext).showSnackBar(SnackBar(
+          content: Text(res["message"] ?? (res["success"] == true ? 'تم' : 'حصل خطأ')),
+          backgroundColor: res["success"] == true ? Colors.green : Colors.red,
+        ));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(currentContext).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
+      } finally {
+        _cameraInUse = false;
+      }
     }
   }
+
+  Future<void> _handleOuting() async {
+    if (_outingActive != null) {
+      final r = await ApiService.post({'action': 'outing_return'});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+      await _loadOuting();
+      return;
+    }
+    if (_outingPending != null) return;
+    final kind = await showOutingKindPicker(context);
+    if (kind == null || !mounted) return;
+    final form = await showOutingForm(context, kind: kind);
+    if (form == null || !mounted) return;
+    final r = await ApiService.post({'action': 'outing_submit', 'kind': kind, ...form});
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${r['message'] ?? ''}'),
+      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+    ));
+    await _loadOuting();
+  }
+
+  void _openToday() => Navigator.push(context, MaterialPageRoute(
+      builder: (_) => AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role)));
+  void _openOut() => Navigator.push(context, MaterialPageRoute(
+      builder: (_) => BreakPage(uid: widget.uid, name: widget.name, role: widget.role)));
 
   void _forceCloseCamera() {
     if (_cameraService.isInitialized) {
@@ -610,6 +719,7 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Future<void> _handleRefresh() async {
+    PerformanceScore.refresh(force: true);
     await Future.wait([loadToday(), _loadAdditionalData()]);
   }
 
@@ -1527,7 +1637,10 @@ class _DashboardPageState extends State<DashboardPage>
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: StatRightCard(model: _getRightCard(context)),
+                            child: GestureDetector(
+                              onTap: mode == DashMode.check ? _openToday : (mode == DashMode.breakTime ? _openOut : null),
+                              child: StatRightCard(model: _getRightCard(context)),
+                            ),
                           ),
                         ],
                       ),
@@ -1545,7 +1658,12 @@ class _DashboardPageState extends State<DashboardPage>
                         ['في إجازة', _n(_ovToday['onLeave'])],
                         ['برّه بإذن / زيارة', _n(_ovToday['outNow'])],
                         ['ساعات الشغل', _hm(_ovToday['workMinutes'])],
-                      ]),
+                      ], taps: {
+                        'الحاضرين': _openToday,
+                        'المتأخرين': _openToday,
+                        'الغايبين': _openToday,
+                        'برّه بإذن / زيارة': _openOut,
+                      }),
 
                       const SizedBox(height: 16),
                       Text(
@@ -1670,7 +1788,7 @@ class _DashboardPageState extends State<DashboardPage>
                   ),
                 );
               },
-              child: Container(
+              child: PerformanceAvatar(child: Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
@@ -1716,7 +1834,7 @@ class _DashboardPageState extends State<DashboardPage>
                   )
                       : _buildDefaultAvatar(isDark),
                 ),
-              ),
+              )),
             ),
           ],
         );

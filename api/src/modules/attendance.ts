@@ -33,7 +33,9 @@ async function geofence(q: Q, body: Record<string, unknown>) {
 
 async function scheduleFor(q: Q, employeeId: string) {
   return one(q, `
-    SELECT ws.* FROM employees e
+    SELECT ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time,
+           e.attendance_exempt
+      FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
      WHERE e.id = $1`, [employeeId]);
 }
@@ -114,8 +116,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
       const dup = await one(q, `SELECT id FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
       if (dup) throw conflict('You already checked in today');
-      const g = await geofence(q, b);
       const s = await scheduleFor(q, a.id);
+      if (s.attendance_exempt) throw new AppError('unprocessable', 'This account does not use check-in / check-out', { reason: 'attendance_exempt' });
+      const g = await geofence(q, b);
       const cfg = await one(q, `SELECT selfie_required, selfie_retention_days FROM company_settings`);
       const selfie = selfieFrom(b);
       if (cfg.selfie_required && !selfie) throw new AppError('unprocessable', 'A selfie is required to check in', { reason: 'selfie_required' });
@@ -192,7 +195,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       break: br ? breakShape(br, clock()) : null, breakAllowedMinutes: settings.break_minutes,
       schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
       isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required,
-      selfieRequired: settings.selfie_required });
+      selfieRequired: settings.selfie_required, attendanceExempt: s.attendance_exempt === true });
   });
 
   /** Today's board for managers/HR/owner. */
@@ -205,7 +208,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       SELECT at.*, e.id AS employee_id, e.full_name, e.code, e.job_title, t.name AS team_name
         FROM employees e LEFT JOIN teams t ON t.id = e.team_id
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
-       WHERE e.status = 'active' AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
        ORDER BY e.full_name`, [l.date, ids]);
     const brs = await db.query(`SELECT b.* FROM attendance_breaks b JOIN attendance t ON t.id = b.attendance_id WHERE t.work_date = $1`, [l.date]);
     const brBy = new Map(brs.rows.map((b) => [b.attendance_id, b]));

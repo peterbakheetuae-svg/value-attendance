@@ -42,7 +42,7 @@ export async function sweep(q: Q, now: Date) {
   const l = local(now);
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`
-    SELECT e.id, e.full_name, ws.start_time, ws.end_time, ws.weekend_days,
+    SELECT e.id, e.full_name, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time, ws.weekend_days,
            a.id AS att_id, a.check_out_at,
            EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved'
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
@@ -52,7 +52,7 @@ export async function sweep(q: Q, now: Date) {
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
       LEFT JOIN tracking_state ts ON ts.employee_id = e.id AND ts.work_date = $1
-     WHERE e.status = 'active' AND e.role_key <> 'owner' AND e.joining_date <= $1`, [l.date]);
+     WHERE e.status = 'active' AND NOT e.attendance_exempt AND e.joining_date <= $1`, [l.date]);
   // approved permission / visit whose return time passed: ring the employee and the approvers once
   const overdue = await q.query(`
     SELECT o.*, e.full_name FROM outing_requests o JOIN employees e ON e.id = o.employee_id

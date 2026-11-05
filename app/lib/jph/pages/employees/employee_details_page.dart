@@ -62,13 +62,54 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   bool _isActive = true;
 
   // قوائم الخيارات
-  final List<String> _accountingTypes = ['شهرى', 'يومى'];
+  final List<String> _accountingTypes = ['شهرى'];
   final List<String> _leaveDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   final List<String> _workHoursList = ['10 ساعات', '9 ساعات', '8 ساعات', '7 ساعات', '6 ساعات'];
   final List<String> _multipliers = ['1', '1.25', '1.5', '2'];
   final List<String> _statuses = ['على رأس العمل', 'تم التصفيه', 'مغادر', 'إجازة'];
 
   List<Map<String, dynamic>> _ownersList = [];
+  List<Map<String, dynamic>> _gmList = [];
+  String? _selectedGeneralManager;
+  bool _noAttendance = false;
+  TimeOfDay? _workStart;
+  TimeOfDay? _workEnd;
+
+  static TimeOfDay? _parseTime(Object? v) {
+    final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch((v ?? '').toString());
+    return m == null ? null : TimeOfDay(hour: int.parse(m.group(1)!), minute: int.parse(m.group(2)!));
+  }
+  static int _minutes(TimeOfDay t) => t.hour * 60 + t.minute;
+  static String _hhmm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  static String? _idOf(List<Map<String, dynamic>> list, String? name) {
+    if (name == null) return null;
+    for (final m in list) {
+      if (m['name'] == name) return m['id']?.toString();
+    }
+    return null;
+  }
+
+  Future<void> _pickTime(bool start) async {
+    final t = await showTimePicker(
+      context: context,
+      initialTime: (start ? _workStart : _workEnd) ?? (start ? const TimeOfDay(hour: 10, minute: 0) : const TimeOfDay(hour: 18, minute: 0)),
+    );
+    if (t != null) setState(() => start ? _workStart = t : _workEnd = t);
+  }
+
+  Widget _timeTile(String label, TimeOfDay? v, bool start, bool isDark, bool editable) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Colors.grey[600]),
+          title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey[700])),
+          trailing: Text(v == null ? 'دوام الشركة' : _hhmm(v), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+          onTap: editable ? () => _pickTime(start) : null,
+        ),
+      );
 
   @override
   void initState() {
@@ -115,8 +156,12 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   void _initializeDropdownValues() {
     _selectedRole = _employeeData['role']?.toString();
     _selectedPosition = _employeeData['position']?.toString() ?? _selectedRole;
-    _selectedAccounting = _employeeData['accounting']?.toString();
-    _selectedManagedBy = _employeeData['managedBy']?.toString();
+    _selectedAccounting = 'شهرى';
+    _selectedManagedBy = (_employeeData['managedBy']?.toString() ?? '').isEmpty ? null : _employeeData['managedBy'].toString();
+    _selectedGeneralManager = (_employeeData['generalManager']?.toString() ?? '').isEmpty ? null : _employeeData['generalManager'].toString();
+    _noAttendance = _employeeData['attendanceExempt'] == true;
+    _workStart = _parseTime(_employeeData['workStart']);
+    _workEnd = _parseTime(_employeeData['workEnd']);
     _selectedLeaveDay = _employeeData['leaveDay']?.toString();
     _selectedAbsenceMultiplier = _employeeData['absenceMultiplier']?.toString();
     _selectedOvertimeMultiplier = _employeeData['overtimeMultiplier']?.toString();
@@ -129,16 +174,20 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       if (response["success"] == true) {
         List<dynamic> employees = response["employees"] ?? [];
         List<Map<String, dynamic>> owners = [];
+        List<Map<String, dynamic>> gms = [];
         for (var emp in employees) {
-          if (emp['role'] == 'المالك') {
-            owners.add({
-              'uid': emp['uid']?.toString(),
-              'name': emp['name']?.toString(),
-            });
+          final rk = emp['roleKey']?.toString() ?? '';
+          if (emp['uid']?.toString() == _employeeData['uid']?.toString() || emp['active'] == false) continue;
+          if (['sales_manager', 'manager', 'owner'].contains(rk)) {
+            owners.add({'uid': emp['uid']?.toString(), 'id': emp['id']?.toString(), 'name': emp['name']?.toString()});
+          }
+          if (['manager', 'owner'].contains(rk)) {
+            gms.add({'uid': emp['uid']?.toString(), 'id': emp['id']?.toString(), 'name': emp['name']?.toString()});
           }
         }
         setState(() {
           _ownersList = owners;
+          _gmList = gms;
         });
       } else {
         print('Failed to fetch employees: ${response["message"]}');
@@ -202,12 +251,25 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       return;
     }
 
+    if (!_noAttendance && (_workStart == null) != (_workEnd == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختار ساعة بداية العمل وساعة نهايته'), backgroundColor: Colors.red));
+      return;
+    }
+    if (!_noAttendance && _workStart != null && _workEnd != null && _minutes(_workEnd!) <= _minutes(_workStart!)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ساعة نهاية العمل لازم تكون بعد ساعة البداية'), backgroundColor: Colors.red));
+      return;
+    }
     try {
       setState(() {
         _isLoading = true;
       });
 
       final updateData = {
+        'salesManagerId': _idOf(_ownersList, _selectedManagedBy) ?? '',
+        'generalManagerId': _idOf(_gmList, _selectedGeneralManager) ?? '',
+        if (ApiService.can('employee.attendance_exempt')) 'attendanceExempt': _noAttendance,
+        'workStart': _noAttendance || _workStart == null ? '' : _hhmm(_workStart!),
+        'workEnd': _noAttendance || _workEnd == null ? '' : _hhmm(_workEnd!),
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim(),
@@ -606,10 +668,20 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               },
                               isDark: isDark,
                             ),
+                            _buildDropdownField(
+                              label: 'المدير العام',
+                              value: _selectedGeneralManager,
+                              items: _gmList.map<String>((m) => m['name']?.toString() ?? '').toList(),
+                              icon: Icons.account_tree_rounded,
+                              isEditable: _isEditing && canToggleEdit,
+                              onChanged: (value) => setState(() => _selectedGeneralManager = value),
+                              isDark: isDark,
+                            ),
 
                             const SizedBox(height: 24),
 
-                            // المعلومات المالية
+                            // المعلومات المالية — only HR manager, the manager, the accountant (and the owner)
+                            if (ApiService.can('employee.salary_read')) ...[
                             Text(
                               'المعلومات المالية',
                               style: TextStyle(
@@ -651,6 +723,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 keyboardType: TextInputType.number,
                               ),
                             ],
+                            ],
 
                             const SizedBox(height: 24),
 
@@ -680,19 +753,30 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 },
                                 isDark: isDark,
                               ),
-                              _buildDropdownField(
-                                label: 'ساعات العمل',
-                                value: _workHoursController.text,
-                                items: _workHoursList,
-                                icon: Icons.access_time,
-                                isEditable: _isEditing && canToggleEdit,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _workHoursController.text = value ?? '';
-                                  });
-                                },
-                                isDark: isDark,
+                            ],
+                            if (ApiService.can('employee.attendance_exempt'))
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: SwitchListTile(
+                                  value: _noAttendance,
+                                  onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _noAttendance = v) : null,
+                                  title: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: const Text('مش هيظهر له زرار البصمة ومش هيتحسب غياب أو تأخير'),
+                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Colors.orange : Colors.green),
+                                ),
+                              )
+                            else if (_noAttendance)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Colors.orange.shade700, fontWeight: FontWeight.w600)),
                               ),
+                            if (!_noAttendance) ...[
+                              _timeTile('ساعة بداية العمل', _workStart, true, isDark, _isEditing && canToggleEdit),
+                              _timeTile('ساعة نهاية العمل', _workEnd, false, isDark, _isEditing && canToggleEdit),
                             ],
                             _buildDropdownField(
                               label: 'مضروب الغياب',

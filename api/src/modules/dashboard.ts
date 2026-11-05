@@ -25,18 +25,18 @@ export const dashboardModule: Module = (r, { db, clock }) => {
     const lateExpr = `((at.check_in_at AT TIME ZONE 'Africa/Cairo')::time > at.schedule_start + make_interval(mins => at.late_grace_minutes))`;
     const lateMin = `GREATEST(0, EXTRACT(EPOCH FROM ((at.check_in_at AT TIME ZONE 'Africa/Cairo')::time - at.schedule_start)) / 60)`;
     const t = await one(db, `
-      SELECT count(*) FILTER (WHERE e.status = 'active' AND e.role_key <> 'owner')::int AS active,
+      SELECT count(*) FILTER (WHERE e.status = 'active' AND NOT e.attendance_exempt)::int AS active,
              count(at.id)::int AS present,
              count(at.id) FILTER (WHERE ${lateExpr})::int AS late,
              count(at.id) FILTER (WHERE at.check_out_at IS NOT NULL)::int AS checked_out,
-             count(*) FILTER (WHERE e.status = 'active' AND e.role_key <> 'owner' AND at.id IS NULL AND ab.id IS NOT NULL)::int AS on_leave,
+             count(*) FILTER (WHERE e.status = 'active' AND NOT e.attendance_exempt AND at.id IS NULL AND ab.id IS NOT NULL)::int AS on_leave,
              COALESCE(sum(EXTRACT(EPOCH FROM (COALESCE(at.check_out_at, now()) - at.check_in_at)) / 60)
                FILTER (WHERE at.id IS NOT NULL), 0)::int AS work_minutes
         FROM employees e
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
         LEFT JOIN LATERAL (SELECT r.id FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence'
                   AND r.status = 'approved' AND $1 BETWEEN r.start_date AND r.end_date LIMIT 1) ab ON true
-       WHERE e.status = 'active' AND e.role_key <> 'owner' AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scope]);
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scope]);
     const out = await one(db, `SELECT count(*)::int AS n FROM outing_requests o
         WHERE o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM outing_requests c WHERE c.parent_id = o.id AND c.status = 'approved')
@@ -49,7 +49,7 @@ export const dashboardModule: Module = (r, { db, clock }) => {
              count(at.id) FILTER (WHERE ${lateExpr})::int AS late_days,
              COALESCE(sum(${lateMin}) FILTER (WHERE ${lateExpr}), 0)::int AS late_minutes
         FROM attendance at JOIN employees e ON e.id = at.employee_id
-       WHERE at.work_date >= $1 AND at.work_date <= $2 AND e.role_key <> 'owner'
+       WHERE at.work_date >= $1 AND at.work_date <= $2 AND NOT e.attendance_exempt
          AND ($3::uuid[] IS NULL OR at.employee_id = ANY($3::uuid[]))`, [period, l.date, scope]);
     const lv = await one(db, `
       SELECT COALESCE(sum(days_count) FILTER (WHERE absence_type <> 'sick'), 0)::int AS leave_days,
@@ -185,5 +185,33 @@ export const dashboardModule: Module = (r, { db, clock }) => {
     const unread = await one(db, `SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND read_at IS NULL`, [a.id]);
     out.unreadNotifications = unread.n;
     return ok(out);
+  });
+
+  /**
+   * Monthly performance ring (حلقة الأداء): starts at 100% on the 1st and only goes down —
+   * unexcused absence −5 per day, late arrival −2 per day, early leave −1 per day, approved penalty (خصم) −5 each.
+   * A published evaluation for the month is averaged in. Accounts without attendance lose nothing for attendance.
+   */
+  r.get('/me/score', async (req) => {
+    const a = await authenticate(db, req);
+    const l = local(clock());
+    const period = l.date.slice(0, 7) + '-01';
+    const emp = await one(db, `SELECT attendance_exempt FROM employees WHERE id = $1`, [a.id]);
+    const parts = { absence: 0, late: 0, early: 0, penalties: 0 };
+    if (!emp.attendance_exempt) {
+      const { summary } = await computeMonth(db, a.id, period, l.date);
+      parts.absence = summary.unapprovedAbsenceDays * 5;
+      parts.late = summary.lateArrivals * 2;
+      parts.early = summary.earlyDepartures;
+    }
+    const pen = await one(db, `SELECT count(*)::int AS n FROM salary_adjustments
+                                WHERE employee_id = $1 AND period = $2 AND kind = 'deduction' AND status = 'approved'`, [a.id, period]);
+    parts.penalties = pen.n * 5;
+    let score = Math.max(0, 100 - parts.absence - parts.late - parts.early - parts.penalties);
+    const evs = await db.query(`SELECT * FROM evaluations WHERE employee_id = $1 AND period = $2 AND status = 'published'`, [a.id, period]);
+    const evPcts = evs.rows.map(overall).filter((v): v is number => v !== null);
+    const evaluation = evPcts.length ? Math.round(evPcts.reduce((x, y) => x + y, 0) / evPcts.length) : null;
+    if (evaluation !== null) score = Math.round((score + evaluation) / 2);
+    return ok({ period, score: Math.min(100, Math.max(0, Math.round(score))), deductions: parts, evaluation });
   });
 };
