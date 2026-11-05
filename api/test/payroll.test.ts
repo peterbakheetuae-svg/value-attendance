@@ -75,3 +75,14 @@ test('payroll: validation and access', async () => {
   const x = await h.call(c.t.owner, 'GET', '/reports/payroll.xlsx?month=2026-03');
   assert.equal(x.status, 200);
 });
+
+test('late rule with empty amounts still deducts the late minutes from the salary', async () => {
+  const { hourlyLateAmount } = await import('../src/modules/payroll-calc.ts');
+  const r = { lateFixedAfterMinutes: 30, lateFixedAmount: 0, lateHourAmount: 0 };
+  assert.equal(hourlyLateAmount(r, 20, 1), 0, 'under the limit: nothing');
+  assert.equal(hourlyLateAmount(r, 45, 1), 45, 'over half an hour: 45 minutes of pay');
+  assert.equal(hourlyLateAmount(r, 90, 1), 90);
+  assert.equal(hourlyLateAmount({ ...r, lateFixedAmount: 50 }, 45, 1), 50, 'a set amount wins');
+  assert.equal(hourlyLateAmount({ ...r, lateHourAmount: 120 }, 90, 1), 180);
+  assert.equal(hourlyLateAmount(r, 45, null), 0, 'no salary, no amount: nothing to deduct');
+});

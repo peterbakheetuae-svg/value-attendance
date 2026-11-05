@@ -3,7 +3,7 @@ on:
   push: { branches: [main], paths: ['app/**', '.github/workflows/app.yml'] }
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write   # publishes each APK as the latest release (automatic in-app update)
   pages: write
   id-token: write
 concurrency: { group: pages, cancel-in-progress: true }
@@ -49,8 +49,29 @@ jobs:
           fi
       - name: Build Web
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+      - name: Release signing key (one fixed key, so each update installs over the previous app)
+        env: { KEY_PASS: '${{ secrets.ANDROID_KEY_PASS }}' }
+        run: |
+          if [ -z "$KEY_PASS" ]; then echo "::warning::ANDROID_KEY_PASS secret not set — APK stays debug-signed and no update is published"; exit 0; fi
+          mkdir -p signing
+          if [ ! -f signing/release.p12 ]; then
+            # made once; the file is useless without the password, which lives only in the repository secret
+            keytool -genkeypair -storetype PKCS12 -keystore signing/release.p12 -alias valueattendance -keyalg RSA -keysize 4096 \
+              -validity 36500 -storepass "$KEY_PASS" -keypass "$KEY_PASS" -dname "CN=Value Attendance, O=Value Aqar, C=EG"
+            git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add signing/release.p12 && git commit -m "Android release signing key (password only in the repository secret)" && git push
+          fi
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=valueattendance\nkeyPassword=%s\n' "$PWD/signing/release.p12" "$KEY_PASS" "$KEY_PASS" > android/key.properties
+          echo "SIGNED=1" >> "$GITHUB_ENV"
       - name: Build Android APK
-        run: flutter build apk --release --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
+        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
+      - name: Publish the update (the app downloads the newest release by itself)
+        if: env.SIGNED == '1' && github.ref == 'refs/heads/main'
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          V=1.0.${{ github.run_number }}
+          cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
+          gh release create "v$V" value-attendance.apk --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
       - uses: actions/upload-artifact@v4
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-pages-artifact@v3

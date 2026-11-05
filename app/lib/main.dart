@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'core/app_updater.dart';
 import 'core/push.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -94,6 +95,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     JphBridge.session.addListener(_onSession);
     // in-app alerts with sound (polls while signed in)
     AlertCenter.instance.start(navigatorKey);
+    // automatic update of the Android app (newest GitHub release)
+    AppUpdater.instance.start(navigatorKey);
   }
 
   Future<void> _onSession() async {

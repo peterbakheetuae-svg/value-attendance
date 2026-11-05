@@ -23,6 +23,8 @@ void main() {
     // ringing alerts over the lock screen (permission / visit requests, overdue return)
     'android.permission.USE_FULL_SCREEN_INTENT',
     'android.permission.VIBRATE',
+    // automatic update: the new APK is downloaded and handed to the Android installer
+    'android.permission.REQUEST_INSTALL_PACKAGES',
   ];
   for (final p in perms) {
     if (!xml.contains('"$p"')) {
@@ -38,6 +40,26 @@ void main() {
   if (!xml.contains('android:showWhenLocked')) {
     xml = xml.replaceFirst('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"');
   }
+  // automatic update (ota_update): file provider for the downloaded APK + install result receiver
+  if (!xml.contains('OtaUpdateFileProvider')) {
+    xml = xml.replaceFirst('</application>', '''
+        <provider
+            android:name="sk.fourq.otaupdate.OtaUpdateFileProvider"
+            android:authorities="\${applicationId}.ota_update_provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/ota_filepaths"/>
+        </provider>
+        <receiver android:name="sk.fourq.otaupdate.InstallResultReceiver" android:exported="false">
+            <intent-filter><action android:name="\${applicationId}.ACTION_INSTALL_COMPLETE"/></intent-filter>
+        </receiver>
+    </application>''');
+  }
+  Directory('android/app/src/main/res/xml').createSync(recursive: true);
+  File('android/app/src/main/res/xml/ota_filepaths.xml').writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n'
+      '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
+      '    <files-path name="internal_apk_storage" path="ota_update/"/>\n'
+      '</paths>\n');
   f.writeAsStringSync(xml);
   stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, cleartext (dev).');
 
@@ -58,6 +80,27 @@ void main() {
       } else {
         t += '\ndependencies {\n    $dep\n}\n';
       }
+    }
+    // one fixed release key (android/key.properties, written by CI from the repository secret) so every
+    // update installs over the previous app; without it the build stays debug-signed as before
+    if (kts && !t.contains('key.properties')) {
+      t = 'import java.util.Properties\n' + t;
+      t = t.replaceFirst(RegExp(r'^android\s*\{', multiLine: true),
+          'val keyProps = Properties().apply { val kf = rootProject.file("key.properties"); if (kf.exists()) kf.inputStream().use { load(it) } }\n\n'
+          'android {\n'
+          '    signingConfigs {\n'
+          '        create("release") {\n'
+          '            if (keyProps.isNotEmpty()) {\n'
+          '                storeFile = file(keyProps.getProperty("storeFile"))\n'
+          '                storePassword = keyProps.getProperty("storePassword")\n'
+          '                keyAlias = keyProps.getProperty("keyAlias")\n'
+          '                keyPassword = keyProps.getProperty("keyPassword")\n'
+          '                storeType = "pkcs12"\n'
+          '            }\n'
+          '        }\n'
+          '    }');
+      t = t.replaceFirst('signingConfig = signingConfigs.getByName("debug")',
+          'signingConfig = if (keyProps.isNotEmpty()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")');
     }
     // app id registered in Firebase (push notifications)
     t = t.replaceFirst(RegExp(r'applicationId\s*=?\s*"[^"]*"'), kts ? 'applicationId = "com.jph.valueattendance"' : 'applicationId "com.jph.valueattendance"');

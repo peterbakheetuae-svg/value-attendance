@@ -117,7 +117,8 @@ class _LateRulesPageState extends State<LateRulesPage> {
                       TextField(controller: _fixed, keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: _input('يتخصم من مرتبه', suffix: 'جنيه')),
                       const SizedBox(height: 8),
-                      Text('مثال: اتأخر ${int.tryParse(after) != null ? int.parse(after) + 10 : 40} دقيقة → يتخصم ${_fixed.text} جنيه (مرة واحدة في اليوم)', style: sub),
+                      Text('مثال: اتأخر ${int.tryParse(after) != null ? int.parse(after) + 10 : 40} دقيقة → يتخصم '
+                          '${(num.tryParse(_fixed.text) ?? 0) > 0 ? '${_fixed.text} جنيه (مرة واحدة في اليوم)' : 'قيمة دقايق التأخير من مرتبه (لو سبت المبلغ فاضي)'}', style: sub),
                     ]),
                   ),
                   const SizedBox(height: 14),
@@ -132,7 +133,9 @@ class _LateRulesPageState extends State<LateRulesPage> {
                       TextField(controller: _hour, keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}),
                           decoration: _input('خصم الساعة', suffix: 'جنيه / ساعة')),
                       const SizedBox(height: 8),
-                      Text('بيتحسب بالتناسب: ساعة ونص تأخير → ${(num.tryParse(_hour.text) ?? 0) * 1.5} جنيه. '
+                      Text((num.tryParse(_hour.text) ?? 0) > 0
+                          ? 'بيتحسب بالتناسب: ساعة ونص تأخير → ${(num.tryParse(_hour.text) ?? 0) * 1.5} جنيه. '
+                          : 'لو سبت المبلغ فاضي: يتخصم أجر ساعات التأخير من مرتبه بالتناسب. '
                           'إذن الساعات والزيارة المتوافق عليهم مش بيتحسبوا تأخير.', style: sub),
                     ]),
                   ),

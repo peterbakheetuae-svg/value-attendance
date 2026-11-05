@@ -20,11 +20,20 @@ export async function loadRules(q: Q): Promise<PayrollRules> {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Simple rule: late ≥ 60 min → per hour (proportional); late > N min → fixed amount; else nothing. */
-export function hourlyLateAmount(r: Pick<PayrollRules, 'lateFixedAfterMinutes' | 'lateFixedAmount' | 'lateHourAmount'>, minutes: number): number {
-  if (minutes >= 60 && r.lateHourAmount > 0) return r2((minutes / 60) * r.lateHourAmount);
-  if (minutes > r.lateFixedAfterMinutes) return r.lateFixedAmount;
-  return 0;
+/**
+ * Simple rule: late ≥ 60 min → per hour (proportional); late > N min → fixed amount; else nothing.
+ * An amount left empty (0) falls back to the employee's own pay for the late minutes, so a late
+ * employee is never left without a deduction just because a box was not filled.
+ */
+export function hourlyLateAmount(r: Pick<PayrollRules, 'lateFixedAfterMinutes' | 'lateFixedAmount' | 'lateHourAmount'>, minutes: number,
+  minuteWage: number | null = null): number {
+  if (minutes <= r.lateFixedAfterMinutes) return 0;
+  if (minutes >= 60) {
+    if (r.lateHourAmount > 0) return r2((minutes / 60) * r.lateHourAmount);
+    if (minuteWage !== null) return r2(minutes * minuteWage);
+  }
+  if (r.lateFixedAmount > 0) return r.lateFixedAmount;
+  return minuteWage === null ? 0 : r2(minutes * minuteWage);
 }
 
 /** Amount of the highest tier the raw minutes passed (0 when below every tier). */
@@ -84,7 +93,7 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
       if (l) { lateDays++; lateMin += l; }
       if (e) { earlyDays++; earlyMin += e; }
     } else if (rules.mode === 'hourly') {
-      const la = hourlyLateAmount(rules, late);
+      const la = hourlyLateAmount(rules, late, minuteWage);
       if (la) { lateDays++; lateMin += late; lateAmt += la; }
     } else {
       const la = tierAmount(rules.lateTiers, late), ea = tierAmount(rules.earlyTiers, early);
