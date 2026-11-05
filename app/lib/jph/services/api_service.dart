@@ -515,7 +515,7 @@ class JphRouter {
         case 'get_attendance_by_project':
           return await _byTeam();
         case 'get_today_attendance':
-          return await _board(onBreakOnly: false);
+          return await _board(onBreakOnly: false, filter: (p['filter'] ?? 'present').toString());
         case 'get_break_employees':
           return await _outNow();
 
@@ -1117,7 +1117,10 @@ class JphRouter {
       body['role'] = role;
     }
     await _api.patch('/employees/$id', body);
-    final sal = num.tryParse('${p['salary'] ?? ''}');
+    // monthly salary = starting salary + increase (the form's "salary" box is read-only)
+    final start = num.tryParse('${p['startSalary'] ?? ''}');
+    final inc = num.tryParse('${p['increase'] ?? ''}') ?? 0;
+    final sal = (start != null && start > 0) ? start + inc : num.tryParse('${p['salary'] ?? ''}');
     final curSal = num.tryParse('${(cur['salary'] as Map?)?['base_salary'] ?? ''}');
     if (sal != null && sal > 0 && sal != curSal && _has('employee.salary_manage') && id != JphBridge.myId) {
       await _api.put('/employees/$id/salary', {'baseSalary': sal});
@@ -1364,13 +1367,21 @@ class JphRouter {
     return _ok({'employees': out, 'count': out.length});
   }
 
-  static Future<Map<String, dynamic>> _board({required bool onBreakOnly}) async {
+  /// filter: present (checked in) · late · absent (no check-in yet).
+  static Future<Map<String, dynamic>> _board({required bool onBreakOnly, String filter = 'present'}) async {
     final rows = await _boardRows();
     final out = <Map<String, dynamic>>[];
     for (final x in rows) {
       final a = (x['attendance'] as Map?)?.cast<String, dynamic>();
       final b = (x['break'] as Map?)?.cast<String, dynamic>();
+      if (filter == 'absent') {
+        if (a != null) continue;
+        out.add({'id': x['employeeId'], 'name': _s(x['fullName']), 'project': _s(x['teamName'], 'بدون فريق'),
+          'checkIn': '--:--', 'checkOut': '--:--', 'status': 'absent', 'breakStart': '--:--', 'breakDuration': '--', 'breakExceeded': false});
+        continue;
+      }
       if (a == null) continue;
+      if (filter == 'late' && a['isLate'] != true) continue;
       if (onBreakOnly && b?['onBreak'] != true) continue;
       out.add({
         'id': x['employeeId'],

@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,11 +6,11 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_background.dart';
-import '../widgets/glass_ui_widgets.dart';
 import '../widgets/payouts_widgets.dart';
 
-/// صرف مالية — HR pays salary (القبض) / advances / commissions / work expenses from the cash in hand;
-/// the manager / owner hands cash to HR (صرف أموال). Every payout waits for "تم الاستلام".
+/// صرف مالية — same look as "طلب سلفة / مصاريف": HR pays salary (القبض) / advances / commissions /
+/// work expenses from the cash in hand; the manager / owner hands cash to HR (صرف أموال).
+/// Every payout waits for the receiver's "تم الاستلام".
 class DisbursementsPage extends StatefulWidget {
   const DisbursementsPage({super.key});
 
@@ -18,15 +19,32 @@ class DisbursementsPage extends StatefulWidget {
 }
 
 class _DisbursementsPageState extends State<DisbursementsPage> {
+  static const _monthsAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  static const _kinds = {
+    'salary': ('القبض (الراتب)', Icons.payments_rounded, Colors.green),
+    'advance': ('سلفة', Icons.account_balance_wallet_rounded, Colors.orange),
+    'commission': ('عمولة', Icons.trending_up_rounded, Colors.purple),
+    'work_expense': ('مستحقات مصاريف عمل', Icons.receipt_long_rounded, Colors.blue),
+  };
+
   bool _loading = true;
+  bool _saving = false;
   List<Map<String, dynamic>> _all = [];
+  List<Map<String, dynamic>> _people = [];
   num? _balance;
   bool _canDisburse = false, _canFund = false;
-  String _filter = 'all';
+  bool _fundMode = false; // false = صرف لموظف, true = صرف أموال للموارد البشرية
+  String? _who;
+  String _kind = 'salary';
+  late DateTime _month;
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    final n = DateTime.now();
+    _month = DateTime(n.year, n.month);
     _load();
   }
 
@@ -40,169 +58,345 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
         _balance = r['balance'] as num?;
         _canDisburse = r['canDisburse'] == true;
         _canFund = r['canFund'] == true;
+        if (!_canDisburse && _canFund) _fundMode = true;
       }
     });
+    await _loadPeople();
   }
 
-  List<Map<String, dynamic>> get _shown => switch (_filter) {
-        'pending' => _all.where((p) => p['status'] == 'pending').toList(),
-        'received' => _all.where((p) => p['status'] == 'received').toList(),
-        'fund' => _all.where((p) => p['kind'] == 'fund').toList(),
-        _ => _all,
-      };
-
-  Future<void> _create({required bool fund}) async {
-    // people to pay: employees (HR payout) or cashiers (cash to HR)
+  Future<void> _loadPeople() async {
     List<Map<String, dynamic>> people;
-    if (fund) {
+    if (_fundMode) {
       final r = await ApiService.post({'action': 'payout_cashiers'});
       people = ((r['cashiers'] as List?) ?? const []).whereType<Map>()
-          .map((m) => {'id': '${m['id']}', 'name': '${m['full_name']}'}).toList();
+          .map((m) => <String, dynamic>{'id': '${m['id']}', 'name': '${m['full_name']}', 'code': '${m['code'] ?? ''}'}).toList();
     } else {
       final r = await ApiService.post({'action': 'getActiveEmployees'});
       people = ((r['employees'] as List?) ?? const []).whereType<Map>()
-          .map((m) => {'id': '${m['id']}', 'name': '${m['name']}'}).toList();
+          .map((m) => <String, dynamic>{'id': '${m['id']}', 'name': '${m['name']}', 'code': '${m['uid'] ?? ''}'}).toList();
     }
     if (!mounted) return;
-    final now = DateTime.now();
-    final month = TextEditingController(text: '${now.year}-${now.month.toString().padLeft(2, '0')}');
-    final amount = TextEditingController();
-    final note = TextEditingController();
-    String? who;
-    String kind = fund ? 'fund' : 'salary';
-    String? err;
-    final done = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
-        InputDecoration dec(String l) => InputDecoration(labelText: l, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)));
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: Text(fund ? 'صرف أموال للموارد البشرية' : 'صرف لموظف'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              DropdownButtonFormField<String>(
-                value: who,
-                isExpanded: true,
-                decoration: dec(fund ? 'يستلمها' : 'الموظف'),
-                items: [for (final p in people) DropdownMenuItem(value: p['id'] as String, child: Text('${p['name']}'))],
-                onChanged: (v) => set(() => who = v),
-              ),
-              if (!fund) ...[
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: kind,
-                  decoration: dec('نوع الصرف'),
-                  items: const [
-                    DropdownMenuItem(value: 'salary', child: Text('القبض (الراتب)')),
-                    DropdownMenuItem(value: 'advance', child: Text('سلفة')),
-                    DropdownMenuItem(value: 'commission', child: Text('عمولة')),
-                    DropdownMenuItem(value: 'work_expense', child: Text('مستحقات مصاريف عمل')),
-                  ],
-                  onChanged: (v) => set(() => kind = v ?? 'salary'),
-                ),
-              ],
-              const SizedBox(height: 12),
-              TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: dec('المبلغ (جنيه)')),
-              if (!fund) ...[
-                const SizedBox(height: 12),
-                TextField(controller: month, decoration: dec('عن شهر (YYYY-MM)')),
-              ],
-              const SizedBox(height: 12),
-              TextField(controller: note, maxLines: 2, decoration: dec('ملاحظة')),
-              if (err != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(err!, style: const TextStyle(color: Colors.red))),
+    setState(() {
+      _people = people;
+      if (!_people.any((p) => p['id'] == _who)) _who = null;
+    });
+  }
+
+  Future<void> _submit() async {
+    final a = num.tryParse(_amount.text.trim());
+    if (_who == null || a == null || a <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختار الشخص واكتب المبلغ'), backgroundColor: Colors.red));
+      return;
+    }
+    setState(() => _saving = true);
+    final r = await ApiService.post({
+      'action': 'payout_create', 'employeeId': _who, 'kind': _fundMode ? 'fund' : _kind, 'amount': a,
+      if (!_fundMode) 'month': '${_month.year}-${_month.month.toString().padLeft(2, '0')}',
+      'note': _note.text.trim(),
+    });
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+    if (r['success'] == true) {
+      _amount.clear();
+      _note.clear();
+      await _load();
+    }
+  }
+
+  // ---------------------------------------------------------------- the same building blocks as the request page
+  BoxDecoration _box(bool isDark, {bool border = true}) => BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
+        border: border ? Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300, width: 1) : null,
+      );
+
+  Widget _pickerTile({required bool isDark, required IconData icon, required Color iconColor, required String label,
+      required String value, required Color text, required Color sub, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: _box(isDark),
+        child: Row(children: [
+          Container(
+            width: 44, height: 44,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: iconColor.withOpacity(isDark ? 0.2 : 0.1)),
+            child: Icon(icon, color: iconColor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: sub)),
+              const SizedBox(height: 4),
+              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: text)),
             ]),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
-              onPressed: () async {
-                final a = num.tryParse(amount.text.trim());
-                if (who == null || a == null || a <= 0) {
-                  set(() => err = 'اختار الشخص واكتب المبلغ');
-                  return;
-                }
-                final r = await ApiService.post({'action': 'payout_create', 'employeeId': who, 'kind': kind, 'amount': a,
-                  if (!fund) 'month': month.text.trim(), 'note': note.text.trim()});
-                if (r['success'] == true) {
-                  if (ctx.mounted) Navigator.pop(ctx, true);
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message']}'), backgroundColor: Colors.green));
-                  }
-                } else {
-                  set(() => err = '${r['message'] ?? 'حصل خطأ'}');
-                }
-              },
-              child: const Text('صرف'),
-            ),
-          ],
-        );
-      }),
+          const SizedBox(width: 10),
+          Icon(Icons.arrow_drop_down_rounded, color: AppColors.primary, size: 28),
+        ]),
+      ),
     );
-    if (done == true) await _load();
+  }
+
+  Future<T?> _sheet<T>(bool isDark, String title, List<(T, String, IconData?)> options) {
+    return showModalBottomSheet<T>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4))),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView(shrinkWrap: true, children: [
+              for (final o in options)
+                ListTile(
+                  leading: o.$3 == null ? null : Icon(o.$3, color: AppColors.primary),
+                  title: Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () => Navigator.pop(ctx, o.$1),
+                ),
+            ]),
+          ),
+        ]),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Provider.of<AppController>(context).isDark;
-    final text = isDark ? Colors.white : Colors.black;
-    return AppBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, title: const Text('صرف مالية')),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _load,
-                child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 40), children: [
-                  if (_canDisburse)
-                    GlassCard(
-                      radius: 22,
-                      child: Row(children: [
-                        const Icon(Icons.account_balance_wallet_rounded, size: 36, color: AppColors.primary),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('الرصيد اللي معاك', style: TextStyle(color: isDark ? Colors.white70 : Colors.black54)),
-                            Text(egp(_balance), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: text)),
+    return Consumer<AppController>(builder: (context, app, _) {
+      final isDark = app.isDark;
+      final isRTL = app.isRTL;
+      final primary = isDark ? AppColors.primaryLight : AppColors.primary;
+      final text = isDark ? AppColors.onSurfaceDark : AppColors.onSurfaceLight;
+      final sub = isDark ? AppColors.onSurfaceVariantDark : AppColors.onSurfaceVariantLight;
+      final whoName = _people.where((p) => p['id'] == _who).map((p) => '${p['name']}').firstOrNull;
+      final kind = _kinds[_kind]!;
+
+      return AppBackground(
+        child: Directionality(
+          textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: SafeArea(
+              child: Column(children: [
+                // Header — same as the request page
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: Row(children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 46, height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 8))],
+                        ),
+                        child: Icon(isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded, color: text, size: 22),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text('صرف مالية', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: text)),
+                    const Spacer(),
+                    const SizedBox(width: 46),
+                  ]),
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView(padding: const EdgeInsets.all(16), children: [
+                            // طلب | صرف
+                            Row(children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const Icon(Icons.request_page_rounded),
+                                  label: const Text('طلب'),
+                                  style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: null,
+                                  icon: const Icon(Icons.payments_rounded),
+                                  label: const Text('صرف'),
+                                  style: ElevatedButton.styleFrom(
+                                      disabledBackgroundColor: AppColors.primary, disabledForegroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                                ),
+                              ),
+                            ]),
+                            const SizedBox(height: 16),
+
+                            if (_canDisburse)
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: isDark ? Colors.green.shade700 : Colors.green.shade200, width: 1.5),
+                                ),
+                                child: Row(children: [
+                                  Container(
+                                    width: 44, height: 44,
+                                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: isDark ? Colors.green.shade800 : Colors.green.shade100),
+                                    child: Icon(Icons.account_balance_wallet_rounded, color: isDark ? Colors.green.shade300 : Colors.green.shade800),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                      Text('الرصيد اللي معاك', style: TextStyle(fontSize: 13, color: isDark ? Colors.green.shade200 : Colors.green.shade700)),
+                                      Text(egp(_balance), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: isDark ? Colors.green.shade300 : Colors.green.shade800)),
+                                    ]),
+                                  ),
+                                ]),
+                              ),
+
+                            if (_canDisburse && _canFund) ...[
+                              _pickerTile(
+                                isDark: isDark, icon: _fundMode ? Icons.account_balance_rounded : Icons.person_rounded,
+                                iconColor: primary, label: 'نوع العملية *',
+                                value: _fundMode ? 'صرف أموال للموارد البشرية' : 'صرف لموظف', text: text, sub: sub,
+                                onTap: () async {
+                                  final v = await _sheet<bool>(isDark, 'نوع العملية', [
+                                    (false, 'صرف لموظف', Icons.person_rounded),
+                                    (true, 'صرف أموال للموارد البشرية', Icons.account_balance_rounded),
+                                  ]);
+                                  if (v != null && v != _fundMode) {
+                                    setState(() => _fundMode = v);
+                                    await _loadPeople();
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            if (_canDisburse || _canFund) ...[
+                              _pickerTile(
+                                isDark: isDark, icon: Icons.badge_rounded, iconColor: Colors.teal,
+                                label: _fundMode ? 'يستلمها (الموارد البشرية) *' : 'الموظف *',
+                                value: whoName ?? 'اختار', text: text, sub: sub,
+                                onTap: () async {
+                                  final v = await _sheet<String>(isDark, _fundMode ? 'اختار المستلم' : 'اختار الموظف',
+                                      [for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)]);
+                                  if (v != null) setState(() => _who = v);
+                                },
+                              ),
+                              const SizedBox(height: 16),
+                              if (!_fundMode) ...[
+                                _pickerTile(
+                                  isDark: isDark, icon: kind.$2, iconColor: kind.$3, label: 'نوع الصرف *', value: kind.$1, text: text, sub: sub,
+                                  onTap: () async {
+                                    final v = await _sheet<String>(isDark, 'نوع الصرف',
+                                        [for (final e in _kinds.entries) (e.key, e.value.$1, e.value.$2)]);
+                                    if (v != null) setState(() => _kind = v);
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+                                _pickerTile(
+                                  isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: primary, label: 'الشهر *',
+                                  value: '${_monthsAr[_month.month - 1]} ${_month.year}', text: text, sub: sub,
+                                  onTap: () async {
+                                    final now = DateTime.now();
+                                    final months = [for (var i = -3; i <= 1; i++) DateTime(now.year, now.month + i)];
+                                    final v = await _sheet<DateTime>(isDark, 'الشهر',
+                                        [for (final m in months) (m, '${_monthsAr[m.month - 1]} ${m.year}', Icons.event_rounded)]);
+                                    if (v != null) setState(() => _month = v);
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+
+                              // المبلغ
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                decoration: _box(isDark),
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                  Text('المبلغ *', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: sub)),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _amount,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: InputDecoration(
+                                      hintText: 'أدخل المبلغ بالجنيه',
+                                      hintStyle: TextStyle(color: sub, fontSize: 16),
+                                      border: InputBorder.none,
+                                      prefixIcon: Icon(Icons.payments_outlined, color: primary, size: 22),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: text),
+                                  ),
+                                ]),
+                              ),
+                              const SizedBox(height: 16),
+
+                              Text('ملاحظة (اختياري)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: text)),
+                              const SizedBox(height: 8),
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: _box(isDark, border: false),
+                                child: TextField(
+                                  controller: _note,
+                                  maxLines: 4, minLines: 3,
+                                  decoration: InputDecoration(
+                                    hintText: 'اكتب ملاحظة توضيحية هنا...',
+                                    hintStyle: TextStyle(color: sub, fontSize: 16),
+                                    border: InputBorder.none,
+                                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: text),
+                                ),
+                              ),
+
+                              SizedBox(
+                                height: 56,
+                                child: ElevatedButton(
+                                  onPressed: _saving ? null : _submit,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: primary,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                  ),
+                                  child: _saving
+                                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                      : Text(_fundMode ? 'صرف الأموال' : 'صرف', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+
+                            Text('سجل الصرف', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: text)),
+                            const SizedBox(height: 8),
+                            PayoutsList(items: _all, reload: _load, showEmployee: true),
                           ]),
                         ),
-                      ]),
-                    ),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    if (_canDisburse)
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _create(fund: false),
-                          icon: const Icon(Icons.payments_rounded),
-                          label: const Text('صرف لموظف'),
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                        ),
-                      ),
-                    if (_canDisburse && _canFund) const SizedBox(width: 10),
-                    if (_canFund)
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _create(fund: true),
-                          icon: const Icon(Icons.account_balance_rounded),
-                          label: const Text('صرف أموال'),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                        ),
-                      ),
-                  ]),
-                  const SizedBox(height: 14),
-                  Wrap(spacing: 8, children: [
-                    for (final f in const [('all', 'الكل'), ('pending', 'مستني الاستلام'), ('received', 'تم الاستلام'), ('fund', 'صرف أموال')])
-                      ChoiceChip(label: Text(f.$2), selected: _filter == f.$1, onSelected: (_) => setState(() => _filter = f.$1)),
-                  ]),
-                  const SizedBox(height: 12),
-                  PayoutsList(items: _shown, reload: _load, showEmployee: true),
-                ]),
-              ),
-      ),
-    );
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+    });
   }
 }

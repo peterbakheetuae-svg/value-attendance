@@ -30,8 +30,6 @@ import 'top_tabs.dart';
 import '../../services/api_service.dart';
 import 'dash_mode.dart';
 import '../notifications/notifications_page.dart';
-import 'attendance_today_page.dart';
-import 'break_page.dart';
 import '../notifications/notification_settings.dart'; // ✅ إضافة صفحة إعدادات الإشعارات
 import '../../widgets/outing_dialogs.dart';
 import '../../widgets/performance_avatar.dart';
@@ -525,15 +523,6 @@ class _DashboardPageState extends State<DashboardPage>
             iconBg: getPrimaryColor(),
           );
         }
-        if (_outingPending != null) {
-          return FingerUiConfig(
-            title: 'بانتظار الموافقة',
-            subtitle: 'الطلب عند المدير / الموارد البشرية',
-            disabled: true,
-            color: getAccentColor(),
-            iconBg: getAccentColor(),
-          );
-        }
         if (_outingActive != null) {
           return FingerUiConfig(
             title: 'تم العودة',
@@ -544,7 +533,7 @@ class _DashboardPageState extends State<DashboardPage>
         }
         return FingerUiConfig(
           title: 'إذن ساعات / زيارة',
-          subtitle: "اضغط مطولاً للاختيار",
+          subtitle: _outingPending != null ? 'فيه طلب مستني الموافقة — تقدر تطلب غيره' : "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
         );
@@ -714,7 +703,6 @@ class _DashboardPageState extends State<DashboardPage>
       await _loadOuting();
       return;
     }
-    if (_outingPending != null) return;
     final kind = await showOutingKindPicker(context);
     if (kind == null || !mounted) return;
     final form = await showOutingForm(context, kind: kind);
@@ -728,8 +716,8 @@ class _DashboardPageState extends State<DashboardPage>
     await _loadOuting();
   }
 
-  void _openToday() => Navigator.push(context, MaterialPageRoute(
-      builder: (_) => AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role)));
+  void _openToday([String filter = 'present']) => Navigator.push(context, MaterialPageRoute(
+      builder: (_) => AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role, filter: filter)));
   void _openOut() => Navigator.push(context, MaterialPageRoute(
       builder: (_) => BreakPage(uid: widget.uid, name: widget.name, role: widget.role)));
 
@@ -1685,9 +1673,9 @@ class _DashboardPageState extends State<DashboardPage>
                         ['برّه بإذن / زيارة', _n(_ovToday['outNow'])],
                         ['ساعات الشغل', _hm(_ovToday['workMinutes'])],
                       ], taps: {
-                        'الحاضرين': _openToday,
-                        'المتأخرين': _openToday,
-                        'الغايبين': _openToday,
+                        'الحاضرين': () => _openToday('present'),
+                        'المتأخرين': () => _openToday('late'),
+                        'الغايبين': () => _openToday('absent'),
                         'برّه بإذن / زيارة': _openOut,
                       }),
 

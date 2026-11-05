@@ -591,15 +591,6 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           );
         }
         // a permission works even before checking in (e.g. coming late with permission)
-        if (_outingPending != null) {
-          return FingerUiConfig(
-            title: 'بانتظار الموافقة',
-            subtitle: _outingPending!['parent_id'] != null ? 'طلب التمديد عند المدير / الموارد البشرية' : 'الطلب عند المدير / الموارد البشرية',
-            disabled: true,
-            color: getAccentColor(),
-            iconBg: getAccentColor(),
-          );
-        }
         if (_outingActive != null) {
           return FingerUiConfig(
             title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تم العودة',
@@ -610,7 +601,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         }
         return FingerUiConfig(
           title: 'إذن ساعات / زيارة',
-          subtitle: "اضغط مطولاً للاختيار",
+          subtitle: _outingPending != null ? 'فيه طلب مستني الموافقة — تقدر تطلب غيره' : "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
         );
@@ -799,7 +790,6 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       await _openOutingActions(overdue: _outingOverdue);
       return;
     }
-    if (_outingPending != null) return;
     final kind = await showOutingKindPicker(context);
     if (kind == null || !mounted) return;
     await _submitOuting(kind);

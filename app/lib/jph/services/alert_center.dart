@@ -20,7 +20,7 @@ class AlertCenter with WidgetsBindingObserver {
   /// Only these ring (full-screen + sound). Everything else is a normal notification.
   static const _ringing = {
     'outing_awaiting', 'outing_extension_awaiting', 'outing_overdue', 'outing_overdue_watch',
-    'unauthorized_exit', 'unauthorized_exit_self',
+    'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self',
   };
 
   /// notification id → related record id (filled when the notifications list loads)

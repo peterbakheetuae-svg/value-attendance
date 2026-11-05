@@ -36,9 +36,11 @@ const FROM = `FROM outing_requests o JOIN employees e ON e.id = o.employee_id
   LEFT JOIN employees d ON d.id = o.decided_by LEFT JOIN employees m ON m.id = o.manager_id`;
 
 /** The approved, not-yet-returned outing of an employee right now (latest in its extension chain). */
-export async function activeOuting(q: Q, employeeId: string, date: string) {
+export async function activeOuting(q: Q, employeeId: string, date: string, now: Date = new Date()) {
+  // an approved permission that starts later today is not "out" yet
   return one(q, `SELECT * FROM outing_requests WHERE employee_id = $1 AND work_date = $2
-                  AND status = 'approved' AND returned_at IS NULL ORDER BY requested_at DESC LIMIT 1`, [employeeId, date]);
+                  AND status = 'approved' AND returned_at IS NULL AND COALESCE(starts_at, requested_at) <= $3
+                ORDER BY requested_at DESC LIMIT 1`, [employeeId, date, now]);
 }
 
 /** Close the whole chain when the employee is back (button or back inside the office geofence). */
@@ -93,14 +95,22 @@ export const outingsModule: Module = (r, { db, clock }) => {
       const att = await one(q, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
       // a permission can be requested before checking in (e.g. coming late with permission)
       if (att?.check_out_at) throw conflict('Your work day has ended');
-      const pending = await one(q, `SELECT id FROM outing_requests WHERE employee_id = $1 AND work_date = $2 AND status = 'pending'`, [a.id, l.date]);
-      if (pending) throw conflict('You already have a request waiting for approval');
-      const active = await activeOuting(q, a.id, l.date);
+      const active = await activeOuting(q, a.id, l.date, now);
       if (parentId) {
         if (!active || active.id !== parentId) throw conflict('Only the current approved permission/visit can be extended');
         if (expected <= new Date(active.expected_return_at)) throw invalid('The new return time must be after the current one', { field: 'expectedReturn' });
-      } else if (active) {
-        throw conflict('You are already out on an approved permission/visit — request an extension instead');
+        if (await one(q, `SELECT 1 FROM outing_requests WHERE parent_id = $1 AND status = 'pending'`, [parentId])) {
+          throw conflict('An extension is already waiting for approval');
+        }
+      } else {
+        // several permissions / visits a day are fine — they just cannot overlap
+        const from = startsAt ?? now;
+        const clash = await one(q, `
+          SELECT 1 FROM outing_requests
+           WHERE employee_id = $1 AND work_date = $2 AND parent_id IS NULL
+             AND (status = 'pending' OR (status = 'approved' AND returned_at IS NULL))
+             AND COALESCE(starts_at, requested_at) < $4 AND expected_return_at > $3`, [a.id, l.date, from, expected]);
+        if (clash) throw conflict('This time overlaps another permission / visit of yours');
       }
       const managerId = await resolveManager(q, a.id);
       const x = await one(q, `INSERT INTO outing_requests (employee_id, kind, parent_id, work_date, requested_at, expected_return_at, reason, manager_id, starts_at)
@@ -148,8 +158,10 @@ export const outingsModule: Module = (r, { db, clock }) => {
     const rows = await db.query(`SELECT ${COLS} ${FROM} WHERE o.employee_id = $1 AND o.work_date = $2 ORDER BY o.requested_at`, [a.id, l.date]);
     const list = rows.rows.map((x) => shape(x, a, now));
     const pending = list.find((x) => x.status === 'pending') ?? null;
-    const active = [...list].reverse().find((x) => x.status === 'approved' && !x.returned_at) ?? null;
-    return ok({ date: l.date, pending, active, history: list });
+    const started = (x: any) => new Date(x.starts_at ?? x.requested_at) <= now;
+    const active = [...list].reverse().find((x) => x.status === 'approved' && !x.returned_at && started(x)) ?? null;
+    const upcoming = list.filter((x) => (x.status === 'approved' && !x.returned_at && !started(x)) || x.status === 'pending');
+    return ok({ date: l.date, pending, active, upcoming, history: list });
   });
 
   r.post('/outings/:id/decision', async (req) => {
@@ -209,7 +221,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
     const body = obj(req.body ?? {});
     const { at: now, offline } = actionTime(body, clock()); const l = local(now);
     await db.tx(async (q) => {
-      const x = await activeOuting(q, a.id, l.date);
+      const x = await activeOuting(q, a.id, l.date, now);
       if (!x) throw new AppError('conflict', 'You are not out on a permission or visit');
       // "I'm back" counts only from inside the office (when the company uses GPS); offline returns are checked later by tracking
       if (!offline) await geofence(q, body);

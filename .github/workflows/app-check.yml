@@ -1,0 +1,16 @@
+name: App — analyze only (waiting branch, no build / no deploy)
+on:
+  push: { branches: [pending-build], paths: ['app/**', '.github/workflows/app-check.yml'] }
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.38.10', channel: stable, cache: true }
+      - run: flutter pub get
+      - name: Analyze (errors fail)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; grep -E "^\s*error •" analyze.txt | head -200; ! grep -qE "^\s*error •" analyze.txt

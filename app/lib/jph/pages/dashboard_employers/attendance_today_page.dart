@@ -10,12 +10,15 @@ class AttendanceTodayPage extends StatefulWidget {
   final String uid;
   final String name;
   final String role;
+  /// present · late · absent
+  final String filter;
 
   const AttendanceTodayPage({
     super.key,
     required this.uid,
     required this.name,
     required this.role,
+    this.filter = 'present',
   });
 
   @override
@@ -34,7 +37,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
 
   Future<void> _loadAttendanceData() async {
     try {
-      final res = await ApiService.post({'action': 'get_today_attendance'});
+      final res = await ApiService.post({'action': 'get_today_attendance', 'filter': widget.filter});
       if (!mounted) return;
       setState(() {
         _attendanceList = List<Map<String, dynamic>>.from(res['employees'] ?? const []);
@@ -69,7 +72,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                   onPressed: () => Navigator.pop(context),
                 ),
                 title: Text(
-                  AppLocalizations.of(context, 'today_attendance'),
+                  switch (widget.filter) { 'absent' => 'الغايبين النهارده', 'late' => 'المتأخرين النهارده', _ => AppLocalizations.of(context, 'today_attendance') },
                   style: TextStyle(
                     color: isDark ? Colors.white : Colors.black,
                   ),

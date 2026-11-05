@@ -124,7 +124,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
       let awaySince: Date | null = sameDay && prev.away_since ? new Date(prev.away_since) : null;
       let awayMinutes = sameDay ? prev.away_minutes : 0;
       const wasInside = sameDay ? prev.inside : true;
-      const outing = await activeOuting(q, a.id, l.date);
+      const outing = await activeOuting(q, a.id, l.date, now);
       const authorized = !!outing && new Date(outing.expected_return_at) > now;
       const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       if (inside === false && wasInside !== false) {
@@ -167,8 +167,11 @@ export const trackingModule: Module = (r, { db, clock }) => {
   /** Tracking settings the app needs (any signed-in user). */
   r.get('/tracking/config', async (req) => {
     await authenticate(db, req);
-    const s = await one(db, `SELECT tracking_enabled, tracking_interval_minutes FROM company_settings`);
-    return ok({ enabled: s.tracking_enabled, intervalMinutes: s.tracking_interval_minutes });
+    const s = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
+    // office areas so the phone can ring by itself when it leaves them, even with no internet
+    const locs = (await db.query(`SELECT lat, lng, radius_m FROM work_locations WHERE active`)).rows;
+    return ok({ enabled: s.tracking_enabled, intervalMinutes: s.tracking_interval_minutes,
+      awayMarginM: s.away_margin_m ?? 0, offices: locs.map((l) => ({ lat: l.lat, lng: l.lng, radiusM: l.radius_m })) });
   });
 
   /** In-shift follow-up board for HR / owner / sales managers (their team only). */
