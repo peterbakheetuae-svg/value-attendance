@@ -19,6 +19,8 @@ class ApiService {
       post({'action': 'changePassword', 'oldPass': oldPass, 'newPass': newPass});
 
   static Future<void> signOut() => JphBridge.session.logout();
+  /// Permission check for screens (e.g. the owner-only "no attendance" switch).
+  static bool can(String p) => JphRouter.can(p);
 }
 
 class JphRouter {
