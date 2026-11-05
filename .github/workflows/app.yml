@@ -11,7 +11,7 @@ env:
   FLUTTER_VERSION: '3.38.10'
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
   API_BASE_URL: ${{ vars.API_BASE_URL }}
-  # Mirror (Cloudflare Worker forwarding to the API) tried first: some mobile networks cannot reach netlify.app
+  # Mirror (Cloudflare Worker forwarding to the API) tried first: some mobile networks block or throttle host domains
   API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
   # Firebase client config for phone push — public by design (it ships inside every app; not a secret).
   # The server-side key (FCM_SERVICE_ACCOUNT) lives only in Netlify's environment.
@@ -45,7 +45,7 @@ jobs:
         run: |
           if [ -z "$API_BASE_URL" ]; then
             # Public API URL (not a secret). Override with the repository variable API_BASE_URL if it moves.
-            echo "API_BASE_URL=https://value-attendance-api.netlify.app" >> "$GITHUB_ENV"
+            echo "API_BASE_URL=https://value-attendance.vercel.app" >> "$GITHUB_ENV"
           fi
       - name: Build Web
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS

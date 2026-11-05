@@ -1,7 +1,7 @@
 // Cloudflare Worker (free plan, no card): a mirror address for the Value Attendance API.
-// Some mobile networks cannot reach *.netlify.app; the app tries this address first and the
-// Netlify one second. It only forwards requests — no secrets, no data stored here.
-const UPSTREAM = 'https://value-attendance-api.netlify.app';
+// Some mobile networks block or throttle host domains; the app tries this address first and the
+// API host (Vercel) second. It only forwards requests — no secrets, no data stored here.
+const UPSTREAM = 'https://value-attendance.vercel.app';
 
 export default {
   async fetch(request) {
