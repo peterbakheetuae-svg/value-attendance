@@ -43,13 +43,13 @@ export function passwordResetMail(p: { name: string; code: string; password: str
   return { subject: `${what} — ${p.company}`, html, text };
 }
 
-/** Arabic RTL email with the 6-digit "forgot password" code. */
+/** Arabic RTL email with the 4-digit "forgot password" code. */
 export function otpMail(p: { name: string; code: string; company: string }) {
   const text = `أهلاً ${p.name}\n\nكود استعادة كلمة المرور لتطبيق الحضور (${p.company}): ${p.code}\n` +
     'الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، تجاهل الرسالة.\n\nللدعم: 01080660100 — info@valueaqar.com';
   const html = `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;line-height:1.8;color:#111">
     <p>أهلاً ${esc(p.name)}،</p><p>كود استعادة كلمة المرور لتطبيق الحضور (${esc(p.company)}):</p>
-    <p style="font-size:30px;font-weight:bold;letter-spacing:8px;color:#4F46E5">${esc(p.code)}</p>
+    <p style="font-size:30px;font-weight:bold;letter-spacing:10px;color:#4F46E5">${esc(p.code)}</p>
     <p>الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، تجاهل الرسالة.</p>
     <p style="color:#666;font-size:13px">للدعم: 01080660100 — info@valueaqar.com</p></div>`;
   return { subject: `كود استعادة كلمة المرور — ${p.company}`, html, text };

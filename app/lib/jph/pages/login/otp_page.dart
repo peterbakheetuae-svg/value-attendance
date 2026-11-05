@@ -21,7 +21,7 @@ class OtpPage extends StatefulWidget {
 enum _Stage { input, loading, success }
 
 class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
-  static const _len = 6;
+  static const _len = 4;
   final _ctrls = List.generate(_len, (_) => TextEditingController());
   final _nodes = List.generate(_len, (_) => FocusNode());
   _Stage _stage = _Stage.input;
@@ -155,7 +155,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text('اكتب كود التحقق', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: textMain)),
                   const SizedBox(height: 8),
-                  Text('لو الحساب ليه إيميل مسجّل، اتبعتله كود من 6 أرقام صالح 10 دقايق.',
+                  Text('لو الحساب ليه إيميل مسجّل، اتبعتله كود من 4 أرقام صالح 10 دقايق.',
                       textAlign: TextAlign.center, style: TextStyle(fontSize: 14, height: 1.5, color: muted)),
                   const SizedBox(height: 28),
                   SizedBox(
@@ -206,10 +206,10 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
       child: Center(
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           for (var i = 0; i < _len; i++) ...[
-            if (i > 0) const SizedBox(width: 8),
+            if (i > 0) const SizedBox(width: 12),
             SizedBox(
-              width: 46,
-              height: 60,
+              width: 56,
+              height: 64,
               child: AnimatedBuilder(
                 animation: _nodes[i],
                 builder: (_, __) {

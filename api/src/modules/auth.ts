@@ -99,7 +99,7 @@ export const authModule: Module = (r, { db }) => {
           OR ($2 <> '' AND right(regexp_replace(coalesce(phone, ''), '\D', '', 'g'), 10) = right($2, 10)))
        ORDER BY (upper(code) = upper($1)) DESC LIMIT 1`, [identifier.trim(), phoneLike ? digits : '']);
   };
-  const GENERIC = 'If the account has an email, a 6-digit code was sent to it';
+  const GENERIC = 'If the account has an email, a 4-digit code was sent to it';
 
   r.post('/auth/forgot', async (req) => {
     const b = obj(req.body);
@@ -109,7 +109,7 @@ export const authModule: Module = (r, { db }) => {
     if (e?.email) {
       const recent = await one(db, `SELECT count(*)::int AS n FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [e.id]);
       if (recent.n >= 3) throw new AppError('conflict', 'Too many codes requested — wait 15 minutes', { reason: 'otp_rate_limited' });
-      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      const code = String(randomInt(0, 10_000)).padStart(4, '0');
       await db.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
       await db.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
       const st = await one(db, `SELECT company_name_ar FROM company_settings`);
@@ -122,7 +122,7 @@ export const authModule: Module = (r, { db }) => {
   r.post('/auth/forgot/verify', async (req) => {
     const b = obj(req.body);
     const identifier = reqStr(b, 'identifier', { max: 120 });
-    const code = reqStr(b, 'code', { pattern: /^\d{6}$/ });
+    const code = reqStr(b, 'code', { pattern: /^\d{4}$/ });
     const e = await findAccount(identifier);
     const bad = () => new AppError('validation_failed', 'The code is wrong or expired', { reason: 'otp_invalid', field: 'code' });
     if (!e) throw bad();

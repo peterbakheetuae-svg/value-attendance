@@ -16,7 +16,7 @@ before(async () => {
 });
 after(async () => { globalThis.fetch = realFetch; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM; await h.close(); });
 
-const codeOf = () => /(\d{6})/.exec(sent.at(-1).textContent)![1];
+const codeOf = () => /(\d{4})/.exec(sent.at(-1).textContent)![1];
 
 test('forgot password: OTP by email → reset token → new password; wrong codes burn after 5 tries', async () => {
   const unknown = await h.call(null, 'POST', '/auth/forgot', { identifier: 'NOBODY' });
@@ -26,7 +26,7 @@ test('forgot password: OTP by email → reset token → new password; wrong code
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to[0].email, 'e1@value.test');
   const code = codeOf();
-  const wrong = code === '000000' ? '111111' : '000000';
+  const wrong = code === '0000' ? '1111' : '0000';
   assert.equal((await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code: wrong })).status, 400);
   const v = await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code });
   assert.equal(v.status, 200);
@@ -39,7 +39,7 @@ test('forgot password: OTP by email → reset token → new password; wrong code
   // brute force: 5 wrong tries burn the code
   await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' });
   const good = codeOf();
-  for (let i = 0; i < 5; i++) await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code: good === '222222' ? '333333' : '222222' });
+  for (let i = 0; i < 5; i++) await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code: good === '2222' ? '3333' : '2222' });
   assert.equal((await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code: good })).status, 400, 'burned');
   // rate limit: 3 codes per 15 minutes
   assert.equal((await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' })).status, 200);

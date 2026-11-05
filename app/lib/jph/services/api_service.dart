@@ -148,7 +148,7 @@ class JphRouter {
           return await _login(p);
         case 'forgot_password':
           await _api.post('/auth/forgot', {'identifier': (p['identifier'] ?? p['email'] ?? '').toString().trim()});
-          return _ok({'message': 'لو الحساب ليه إيميل مسجّل، هيوصلك كود من 6 أرقام'});
+          return _ok({'message': 'لو الحساب ليه إيميل مسجّل، هيوصلك كود من 4 أرقام'});
         case 'verify_otp':
           final v = await _api.post('/auth/forgot/verify', {'identifier': (p['identifier'] ?? '').toString().trim(), 'code': p['code']});
           return _ok({'resetToken': v['resetToken']});
