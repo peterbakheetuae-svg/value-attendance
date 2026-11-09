@@ -23,8 +23,8 @@ class AppBackground extends StatelessWidget {
         // 🔥 safe mode: إذا فشلت الصور، استخدم لون
         try {
           final img = isDark
-              ? 'assets/bg/dark_bg.png'
-              : 'assets/bg/light_bg.png';
+              ? 'assets/bg/dark_bg.webp'
+              : 'assets/bg/light_bg.webp';
 
           return RepaintBoundary(
             child: Stack(

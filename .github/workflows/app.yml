@@ -49,6 +49,20 @@ jobs:
           fi
       - name: Build Web
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+      - name: Hostinger copy of the web build (+ its own folder-only .htaccess) and validation
+        run: |
+          rm -rf build/hostinger && cp -r build/web build/hostinger
+          cp deploy/hostinger/.htaccess build/hostinger/.htaccess
+          # the build must be complete and point at /value-attendance/ before anything is uploaded
+          for f in index.html flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp; do
+            test -s "build/hostinger/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          grep -q '<base href="/value-attendance/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }
+          # nothing secret may ship in the public folder
+          if find build/hostinger -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in build"; exit 1; fi
+          du -sh build/hostinger; find build/hostinger -type f -size +300k -exec ls -la {} \;
+      - uses: actions/upload-artifact@v4
+        with: { name: hostinger-web, path: app/build/hostinger, include-hidden-files: true, retention-days: 14 }
       - name: Release signing key (one fixed key, so each update installs over the previous app)
         env: { KEY_PASS: '${{ secrets.ANDROID_KEY_PASS }}' }
         run: |
@@ -83,3 +97,57 @@ jobs:
     steps:
       - id: d
         uses: actions/deploy-pages@v4
+
+  # Copy of the web app on Hostinger: https://jaurea.com/value-attendance/ (GitHub Pages stays as the fallback).
+  # Uploads ONLY into the FTP account's own folder (an FTP account restricted to public_html/value-attendance);
+  # it refuses to run if that folder looks like the WordPress root. Credentials live only in repository secrets,
+  # and the connection is encrypted (FTPS) with full certificate checks.
+  hostinger:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      FTP_HOST: ${{ secrets.HOSTINGER_FTP_HOST }}
+      FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
+      FTP_PASS: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+    steps:
+      - name: Secrets present?
+        id: s
+        run: |
+          if [ -z "$FTP_HOST" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASS" ]; then
+            echo "::warning::HOSTINGER_FTP_* secrets not set — Hostinger upload skipped"; echo "go=0" >> "$GITHUB_OUTPUT"
+          else echo "go=1" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/download-artifact@v4
+        if: steps.s.outputs.go == '1'
+        with: { name: hostinger-web, path: web }
+      - name: Upload to public_html/value-attendance/ only
+        if: steps.s.outputs.go == '1'
+        run: |
+          sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y lftp >/dev/null
+          test -s web/index.html && test -s web/.htaccess
+          printf 'set ftp:ssl-force yes\nset ftp:ssl-protect-data yes\nset net:max-retries 3\nset net:timeout 30\nset cmd:fail-exit yes\n' > ~/.lftprc
+          # 1) safety: this account's folder must not be the WordPress / hosting root
+          lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" -e "cls -1a; bye" > listing.txt
+          if grep -qxE '(\./)?(wp-config\.php|wp-admin/?|wp-content/?|wp-includes/?|public_html/?|domains/?)' listing.txt; then
+            echo "::error::The FTP account opens the WordPress / hosting root, not public_html/value-attendance. Nothing was uploaded."; exit 1
+          fi
+          # 2) everything except the two entry files (the running app keeps working meanwhile), 3) the entry files last
+          lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" -e "
+            mirror -R --delete --parallel=4 --exclude-glob index.html --exclude-glob flutter_bootstrap.js web/ ./;
+            put -O ./ web/flutter_bootstrap.js;
+            put -O ./ web/index.html;
+            bye"
+      - name: Check jaurea.com (WordPress unchanged) and the app
+        if: steps.s.outputs.go == '1'
+        run: |
+          sleep 5
+          code() { curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$1"; }
+          for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ] || { echo "::error::$u -> $c"; exit 1; }; done
+          curl -sL --max-time 30 https://jaurea.com/ | grep -q 'wp-content' || { echo "::error::WordPress home page looks different"; exit 1; }
+          curl -s --max-time 30 https://jaurea.com/value-attendance/ | grep -q '<base href="/value-attendance/">' || { echo "::error::app index not served"; exit 1; }
+          for f in flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp assets/assets/sounds/notification.mp3; do
+            c=$(code "https://jaurea.com/value-attendance/$f"); echo "$f -> $c"; [ "$c" = 200 ] || { echo "::error::$f -> $c"; exit 1; }
+          done
+          echo "--- headers"; curl -sI --max-time 30 https://jaurea.com/value-attendance/main.dart.js | grep -iE 'cache-control|content-encoding|content-type' || true
+          curl -sI --max-time 30 https://jaurea.com/value-attendance/assets/assets/bg/dark_bg.webp | grep -iE 'cache-control|content-type' || true
+          echo "--- deep link"; c=$(code "https://jaurea.com/value-attendance/some/inner/page"); echo "$c"; [ "$c" = 200 ] || exit 1

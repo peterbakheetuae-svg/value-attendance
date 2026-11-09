@@ -1,0 +1,37 @@
+name: Performance — Lighthouse (GitHub Pages vs Hostinger)
+on:
+  push: { branches: [pending-build], paths: ['.github/workflows/perf.yml'] }
+  workflow_dispatch:
+  workflow_run: { workflows: ['App — test, Web (GitHub Pages), Android APK'], types: [completed], branches: [main] }
+permissions: { contents: read }
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Lighthouse, mobile profile, 3 runs per URL (median reported)
+        run: |
+          npm i -g lighthouse@12.2.1 >/dev/null 2>&1
+          for name in pages hostinger; do
+            [ $name = pages ] && url=https://peterbakheetuae-svg.github.io/value-attendance/ || url=https://jaurea.com/value-attendance/
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")
+            if [ "$code" != 200 ]; then echo "$name: $url -> HTTP $code (skipped)"; continue; fi
+            for i in 1 2 3; do
+              lighthouse "$url" --quiet --only-categories=performance --chrome-flags="--headless=new --no-sandbox" \
+                --max-wait-for-load=60000 --output=json --output-path="$name-$i.json" || true
+            done
+            node -e '
+              const fs=require("fs"); const name=process.argv[1];
+              const runs=[1,2,3].map(i=>`${name}-${i}.json`).filter(f=>fs.existsSync(f)).map(f=>JSON.parse(fs.readFileSync(f)));
+              const med=a=>{a=a.filter(x=>x!=null).sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:null};
+              const a=k=>med(runs.map(r=>r.audits[k]?.numericValue));
+              const items=runs[0]?.audits["network-requests"]?.details?.items||[];
+              const big=items.slice().sort((x,y)=>y.transferSize-x.transferSize).slice(0,6).map(x=>`${Math.round(x.transferSize/1024)}KB ${x.url.replace(/^https?:\/\/[^/]+/,"")}`);
+              console.log(JSON.stringify({site:name,runs:runs.length,score:med(runs.map(r=>r.categories.performance.score*100)),
+                FCP_ms:Math.round(a("first-contentful-paint")),LCP_ms:Math.round(a("largest-contentful-paint")),SpeedIndex_ms:Math.round(a("speed-index")),
+                TBT_ms:Math.round(a("total-blocking-time")),totalKB:Math.round(a("total-byte-weight")/1024),requests:items.length,
+                failed:items.filter(x=>x.statusCode>=400).length,largest:big},null,1));
+            ' "$name" | tee -a summary.txt
+          done
+          { echo '```'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

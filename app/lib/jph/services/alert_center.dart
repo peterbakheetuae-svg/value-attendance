@@ -182,7 +182,7 @@ class AlertCenter with WidgetsBindingObserver {
     if (s['soundEnabled'] == false) return;
     try {
       await _player.stop();
-      await _player.play(AssetSource('sounds/notification.WAV'));
+      await _player.play(AssetSource('sounds/notification.mp3'));
     } catch (_) {}
   }
 

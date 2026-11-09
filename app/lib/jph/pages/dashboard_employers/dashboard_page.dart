@@ -1900,8 +1900,8 @@ class _DashboardPageState extends State<DashboardPage>
           Widget _buildBackground(bool isDark) {
             try {
               final bgImage = isDark
-                  ? 'assets/bg/dark_bg.png'
-                  : 'assets/bg/light_bg.png';
+                  ? 'assets/bg/dark_bg.webp'
+                  : 'assets/bg/light_bg.webp';
 
               return Stack(
                 children: [

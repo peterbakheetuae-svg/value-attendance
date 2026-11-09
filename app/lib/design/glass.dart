@@ -20,7 +20,7 @@ class AppBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = isDarkOf(context);
-    final img = isDark ? 'assets/bg/dark_bg.png' : 'assets/bg/light_bg.png';
+    final img = isDark ? 'assets/bg/dark_bg.webp' : 'assets/bg/light_bg.webp';
     return RepaintBoundary(
       child: Stack(children: [
         Positioned.fill(

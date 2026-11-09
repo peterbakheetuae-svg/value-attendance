@@ -407,15 +407,15 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
   Future<void> _playBellSound() async {
     try {
-      await _audioPlayer.play(AssetSource('sounds/bell_sound.WAV'));
+      await _audioPlayer.play(AssetSource('sounds/bell_sound.mp3'));
 
       for (int i = 0; i < 2; i++) {
         await Future.delayed(const Duration(milliseconds: 500));
-        await _audioPlayer.play(AssetSource('sounds/bell_sound.WAV'));
+        await _audioPlayer.play(AssetSource('sounds/bell_sound.mp3'));
       }
     } catch (e) {
       print('Error playing sound: $e');
-      await _audioPlayer.play(AssetSource('sounds/notification.WAV'));
+      await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
     }
   }
 
@@ -1285,8 +1285,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           Widget _buildBackground(bool isDark) {
             try {
               final bgImage = isDark
-                  ? 'assets/bg/dark_bg.png'
-                  : 'assets/bg/light_bg.png';
+                  ? 'assets/bg/dark_bg.webp'
+                  : 'assets/bg/light_bg.webp';
 
               return Stack(
                 children: [

@@ -46,8 +46,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/bg/light_bg.png
-    - assets/bg/dark_bg.png
+    - assets/bg/light_bg.webp
+    - assets/bg/dark_bg.webp
     - assets/images/logo.png
     - assets/avatar.png
     - assets/l10n/ar.json
@@ -56,8 +56,8 @@ flutter:
     - assets/jph_l10n/en.json
     - assets/jph_l10n/hi.json
     - assets/jph_l10n/ur.json
-    - assets/sounds/bell_sound.WAV
-    - assets/sounds/notification.WAV
+    - assets/sounds/bell_sound.mp3
+    - assets/sounds/notification.mp3
     - assets/fonts/Cairo-Regular.ttf
     - assets/fonts/Cairo-Bold.ttf
   fonts:

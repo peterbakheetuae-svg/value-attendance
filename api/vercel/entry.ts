@@ -9,7 +9,12 @@ import { createHandler } from '../src/http/router.ts';
 import { systemClock } from '../src/lib/time.ts';
 
 const url = process.env.DATABASE_URL;
-const corsOrigins = (process.env.CORS_ORIGINS ?? 'https://peterbakheetuae-svg.github.io').split(',').map((s) => s.trim()).filter(Boolean);
+// browser origins allowed to call the API: GitHub Pages (fallback) and the Hostinger copy at jaurea.com/value-attendance/,
+// plus anything listed in CORS_ORIGINS
+const corsOrigins = [...new Set([
+  'https://peterbakheetuae-svg.github.io', 'https://jaurea.com', 'https://www.jaurea.com',
+  ...(process.env.CORS_ORIGINS ?? '').split(','),
+].map((s) => s.trim()).filter(Boolean))];
 const log = (o: object) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
 
 const handler = url

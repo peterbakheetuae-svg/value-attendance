@@ -1,0 +1,49 @@
+# Value Attendance (Flutter Web) — https://jaurea.com/value-attendance/
+# This file lives ONLY in public_html/value-attendance/ and applies to this folder only.
+# The WordPress site and its root .htaccess are not touched.
+
+Options -Indexes
+DirectoryIndex index.html
+
+# --- routing: real files are served as they are; any other path inside this folder opens the app
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /value-attendance/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# --- file types
+<IfModule mod_mime.c>
+  AddType application/wasm .wasm
+  AddType image/webp .webp
+  AddType audio/mpeg .mp3
+  AddType font/otf .otf
+  AddType font/ttf .ttf
+  AddType application/json .json
+</IfModule>
+
+# --- compression (text files; images / audio are already compressed)
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript text/javascript application/json application/wasm font/otf font/ttf image/svg+xml
+</IfModule>
+
+# --- caching
+# App code and the page itself: always re-checked (cheap 304 when unchanged) so a new deploy shows at once.
+# Images, fonts, sounds: kept 7 days (their names change whenever their content does).
+# No API data is served from here — the API lives on its own host and is never cached by this file.
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  <FilesMatch "\.(html|js|json|webmanifest)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.(webp|png|jpg|jpeg|gif|ico|svg|ttf|otf|woff|woff2|mp3|wav|wasm)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+</IfModule>
+
+# never serve hidden / leftover files
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>

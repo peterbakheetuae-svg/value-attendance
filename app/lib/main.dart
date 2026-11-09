@@ -25,12 +25,12 @@ import 'pages/change_password_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // strings used by the few added screens (payroll rules, tracking, PIN)
-  await I18n.load();
-
   final session = Session(ApiClient());
   JphBridge.session = session;
-  await session.restore();
+  final appController = AppController();
+  // startup steps don't depend on each other: load them together instead of one after another
+  // (strings for the added screens, the saved session, theme / language)
+  await Future.wait([I18n.load(), session.restore(), appController.initialize()]);
 
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -42,8 +42,6 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.dark,
   ));
 
-  final appController = AppController();
-  await appController.initialize();
 
   runApp(MultiProvider(
     providers: [

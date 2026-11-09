@@ -10,10 +10,11 @@ class I18n {
   static String lang = 'ar';
 
   static Future<void> load() async {
-    for (final l in const ['ar', 'en']) {
+    // both languages at once (on the web each file is a network request)
+    await Future.wait(const ['ar', 'en'].map((l) async {
       final raw = await rootBundle.loadString('assets/l10n/$l.json');
       _tables[l] = (json.decode(raw) as Map<String, dynamic>).map((k, v) => MapEntry(k, v.toString()));
-    }
+    }));
   }
 
   /// For tests: inject tables directly.
