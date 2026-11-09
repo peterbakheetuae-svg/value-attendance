@@ -36,7 +36,7 @@ jobs:
           sub = subset.Subsetter(opt); sub.populate(glyphs=keep); sub.subset(src)
           src.save('app/assets/fonts/NotoFlags.ttf')
           PY
-          sed -i 's/^          //' /tmp/sub.py && python3 /tmp/sub.py
+          python3 /tmp/sub.py
           ls -la app/assets/fonts/NotoFlags.ttf
           git add -A app/assets/fonts; git status --short
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
