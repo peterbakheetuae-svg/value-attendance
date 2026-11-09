@@ -85,7 +85,9 @@ jobs:
         run: |
           V=1.0.${{ github.run_number }}
           cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
-          gh release create "v$V" value-attendance.apk --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
+          # the same web build for jaurea.com/value-attendance/ (public files only: the app that already ships to every browser)
+          (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
+          gh release create "v$V" value-attendance.apk value-attendance-web.zip --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
       - uses: actions/upload-artifact@v4
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-pages-artifact@v3
