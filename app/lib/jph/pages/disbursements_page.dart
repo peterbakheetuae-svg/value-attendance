@@ -394,7 +394,7 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                             const SizedBox(height: 8),
                             PayoutsList(items: _all, reload: _load, showEmployee: true),
                           ]),
-                        ),;
+                        );
       if (widget.embedded) return content;
 
       return AppBackground(
