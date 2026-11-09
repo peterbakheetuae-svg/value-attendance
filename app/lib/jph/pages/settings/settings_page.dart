@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../payroll/payroll_batches_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
@@ -407,6 +408,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
+                    if (ApiService.can('payroll.prepare') || ApiService.can('payroll.approve')) ...[
+                      SettingsTile(
+                        title: 'دفعات المرتبات',
+                        icon: Icons.payments_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayrollBatchesPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     if (ApiService.can('sales.view')) ...[
                       SettingsTile(
                         title: 'المبيعات والأقساط',

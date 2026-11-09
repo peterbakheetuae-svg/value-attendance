@@ -25,8 +25,9 @@ const FROM = `FROM payouts p JOIN employees e ON e.id = p.employee_id JOIN emplo
 
 function shape(p: any, a: Actor) {
   return { ...p, kindAr: PAYOUT_AR[p.kind] ?? p.kind,
-    canReceive: p.status === 'pending' && p.employee_id === a.id,
-    canCancel: p.status === 'pending' && p.created_by === a.id };
+    canReceive: (p.status === 'pending' || p.status === 'disputed') && p.employee_id === a.id,
+    canDispute: p.status === 'pending' && p.employee_id === a.id,
+    canCancel: (p.status === 'pending' || p.status === 'disputed') && p.created_by === a.id };
 }
 
 /**
@@ -119,7 +120,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const p = await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x || x.employee_id !== a.id) throw notFound();
-      if (x.status !== 'pending') throw conflict('Already confirmed or cancelled');
+      // a disputed payment can still be confirmed once the problem is settled
+      if (x.status !== 'pending' && x.status !== 'disputed') throw conflict('Already confirmed or cancelled');
       const y = await one(q, `UPDATE payouts SET status = 'received', received_at = $2 WHERE id = $1 RETURNING *`, [x.id, now]);
       await audit(q, a.id, 'payout.received', 'payout', x.id);
       await notify(q, { to: x.created_by, type: 'payout_received', title: `${a.fullName} استلم ${PAYOUT_AR[x.kind]} (${x.amount_egp} جنيه)`,
@@ -135,7 +137,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x || x.created_by !== a.id) throw notFound();
-      if (x.status !== 'pending') throw conflict('Only a payout that was not received yet can be cancelled');
+      // a disputed payment may be cancelled by whoever paid it (the money is back in the HR cashbox)
+      if (x.status !== 'pending' && x.status !== 'disputed') throw conflict('Only a payout that was not received yet can be cancelled');
       await q.query(`UPDATE payouts SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [x.id]);
       await audit(q, a.id, 'payout.cancel', 'payout', x.id);
     });

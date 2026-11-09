@@ -59,9 +59,16 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'bonus'),0) AS bonuses
                               FROM salary_adjustments WHERE employee_id = $1 AND period = $2 AND status = 'approved'`, [employeeId, period]);
 
-  const adv = await one(q, `SELECT COALESCE(sum(amount_egp) FILTER (WHERE kind = 'advance'),0) AS advances,
-                                   COALESCE(sum(amount_egp) FILTER (WHERE kind = 'work_expense'),0) AS expenses
-                              FROM advance_requests WHERE employee_id = $1 AND period = $2 AND status = 'confirmed'`, [employeeId, period]);
+  // advances: an advance with hand-set deductions (advance_deductions) is deducted only by those, in their months;
+  // an advance without any keeps the old rule — deducted in full in its own month (historic payroll unchanged)
+  const adv = await one(q, `SELECT
+      COALESCE((SELECT sum(ar.amount_egp) FROM advance_requests ar
+                 WHERE ar.employee_id = $1 AND ar.period = $2 AND ar.status = 'confirmed' AND ar.kind = 'advance'
+                   AND NOT EXISTS (SELECT 1 FROM advance_deductions d WHERE d.advance_id = ar.id AND d.status = 'active')), 0)
+    + COALESCE((SELECT sum(d.amount_egp) FROM advance_deductions d
+                 WHERE d.employee_id = $1 AND d.period = $2 AND d.status = 'active'), 0) AS advances,
+      COALESCE((SELECT sum(amount_egp) FROM advance_requests
+                 WHERE employee_id = $1 AND period = $2 AND status = 'confirmed' AND kind = 'work_expense'), 0) AS expenses`, [employeeId, period]);
   const advances = Number(adv.advances), workExpenses = Number(adv.expenses);
   const paid = await one(q, `SELECT COALESCE(sum(amount_egp) FILTER (WHERE kind = 'salary'), 0) AS salary,
                                     COALESCE(sum(amount_egp) FILTER (WHERE kind = 'commission'), 0) AS commission

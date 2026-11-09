@@ -372,12 +372,12 @@ class JphRouter {
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!cg.startsWith('/cash/') && !cg.startsWith('/sales')) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!cp.startsWith('/cash/') && !cp.startsWith('/sales')) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
@@ -604,6 +604,11 @@ class JphRouter {
       return 'عندك $what لسه مستني الموافقة — استنى الرد عليه أو الغيه الأول وبعدين اطلب تاني';
     }
     if (e.details?['reason'] == 'duplicate_receipt') return 'رقم الإيصال ده اتسجل قبل كده';
+    if (e.details?['reason'] == 'batch_exists') return 'الشهر ده ليه دفعة مرتبات بالفعل';
+    if (e.details?['reason'] == 'already_deducted') return 'السلفة دي ليها خصم في الشهر ده بالفعل';
+    if (e.details?['reason'] == 'max_stages') return 'السلفة بتتخصم على مرحلتين بالكتير';
+    if (e.details?['reason'] == 'over_deduct') return 'المبلغ أكبر من الباقي من السلفة (${e.details?['remaining']} جنيه)';
+    if (e.details?['reason'] == 'over_pay') return 'المبلغ أكبر من الباقي من المرتب (${e.details?['remaining']} جنيه)';
     if (e.details?['reason'] == 'unit_has_buyer') return 'الوحدة دي عليها بيع شغال لمشتري تاني في نفس المشروع';
     if (e.details?['reason'] == 'over_collect') return 'المبلغ أكبر من الباقي على القسط ده (الباقي ${e.details?['remaining']} جنيه)';
     if (e.details?['reason'] == 'over_refund') return 'المبلغ أكبر من الباقي للاسترداد (${e.details?['remaining']} جنيه)';

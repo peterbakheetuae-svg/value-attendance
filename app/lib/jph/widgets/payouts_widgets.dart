@@ -119,8 +119,8 @@ class PayoutsList extends StatelessWidget {
         child: Text('مفيش مبالغ مصروفة لسه', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.white60 : Colors.black54)),
       );
     }
-    Color statusColor(String s) => s == 'received' ? Colors.green : (s == 'cancelled' ? Colors.grey : Colors.orange);
-    String statusAr(String s) => s == 'received' ? 'تم الاستلام' : (s == 'cancelled' ? 'ملغي' : 'مستني الاستلام');
+    Color statusColor(String s) => s == 'received' ? Colors.green : (s == 'cancelled' ? Colors.grey : (s == 'disputed' ? Colors.red : Colors.orange));
+    String statusAr(String s) => s == 'received' ? 'تم الاستلام' : (s == 'cancelled' ? 'ملغي' : (s == 'disputed' ? 'فيه بلاغ مشكلة' : 'مستني الاستلام'));
     return Column(children: [
       for (final p in items)
         Container(
@@ -150,10 +150,36 @@ class PayoutsList extends StatelessWidget {
               ].join(' • '),
               style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54),
             ),
-            if (p['canReceive'] == true || p['canCancel'] == true)
+            if (p['canReceive'] == true || p['canCancel'] == true || p['canDispute'] == true)
               Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: Wrap(spacing: 8, children: [
+                  if (p['canDispute'] == true)
+                    TextButton(
+                      onPressed: () async {
+                        final reason = TextEditingController();
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text('بلاغ عن مشكلة في المبلغ'),
+                            content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(hintText: 'إيه المشكلة؟ (مثلاً: استلمت مبلغ أقل)')),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
+                              ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('إرسال')),
+                            ],
+                          ),
+                        );
+                        if (ok != true) return;
+                        final r = await ApiService.post({'action': 'cash_post', 'path': '/payouts/${p['id']}/dispute',
+                          'body': {'reason': reason.text.trim()}, 'ok': 'اتبعت البلاغ'});
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'),
+                              backgroundColor: r['success'] == true ? Colors.orange : Colors.red));
+                        }
+                        await reload();
+                      },
+                      child: const Text('بلاغ مشكلة', style: TextStyle(color: Colors.orange)),
+                    ),
                   if (p['canCancel'] == true)
                     TextButton(
                       onPressed: () async {
