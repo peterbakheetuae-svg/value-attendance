@@ -1,4 +1,5 @@
 name: Performance — Lighthouse (GitHub Pages vs Hostinger)
+# (re-run: measure after the Hostinger copy went live)
 on:
   push: { branches: [pending-build], paths: ['.github/workflows/perf.yml'] }
   workflow_dispatch:

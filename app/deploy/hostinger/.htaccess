@@ -26,7 +26,7 @@ DirectoryIndex index.html
 
 # --- compression (text files; images / audio are already compressed)
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/css application/javascript text/javascript application/json application/wasm font/otf font/ttf image/svg+xml
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/x-javascript text/javascript application/json application/wasm font/otf font/ttf image/svg+xml
 </IfModule>
 
 # --- caching
