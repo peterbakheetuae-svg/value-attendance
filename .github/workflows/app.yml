@@ -115,8 +115,12 @@ jobs:
           EXTRA=""; [ -f value-attendance-web-wasm-test.zip ] && EXTRA=value-attendance-web-wasm-test.zip
           # Phones update themselves from the *latest* release. A new Android version is published only when the commit
           # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
-          if printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]'; then
-            [ "$SIGNED" = "1" ] || { echo "::error::[apk] needs the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets"; exit 1; }
+          WANT_APK=0; printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && WANT_APK=1
+          # without the signing key an Android update is never published (phones would refuse it); the web still goes out
+          if [ "$WANT_APK" = "1" ] && [ "$SIGNED" != "1" ]; then
+            echo "::warning::[apk] asked but the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets are not set — web only, no Android update"; WANT_APK=0
+          fi
+          if [ "$WANT_APK" = "1" ]; then
             gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
           else
             gh release create "web-$V" value-attendance-web.zip $EXTRA --title "Web build $V (no Android update)" --notes "نسخة الويب فقط" --prerelease
