@@ -65,7 +65,7 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     final w = b[1] - b[0];
     return pw.Positioned(
       left: b[0],
-      top: b[3] - 12.2,
+      top: b[3] - 15.0, // baseline ~3.5pt above the dots, like writing on the line
       child: pw.SizedBox(
         width: w,
         height: 11.5,
