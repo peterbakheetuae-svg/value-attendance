@@ -2,6 +2,7 @@
 import 'dart:ui' as ui;
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../widgets/jph_form_ui.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +20,8 @@ class FinancialSummaryPage extends StatefulWidget {
   final String role;
   /// true = shown as the "الطلبات" tab of the cashbox page (no own header / page)
   final bool embedded;
+  /// the cashbox page's month filter (its filter button sits in that page's header)
+  final ValueListenable<DateTime>? month;
 
   const FinancialSummaryPage({
     super.key,
@@ -26,6 +29,7 @@ class FinancialSummaryPage extends StatefulWidget {
     required this.name,
     required this.role,
     this.embedded = false,
+    this.month,
   });
 
   @override
@@ -64,11 +68,27 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
   @override
   void initState() {
     super.initState();
+    final m = widget.month;
+    if (m != null) {
+      _filterMonth = m.value.month;
+      _filterYear = m.value.year;
+      m.addListener(_onMonth);
+    }
     _loadFinancialRequests();
+  }
+
+  void _onMonth() {
+    final v = widget.month!.value;
+    setState(() {
+      _filterMonth = v.month;
+      _filterYear = v.year;
+    });
+    _applyFilters();
   }
 
   @override
   void dispose() {
+    widget.month?.removeListener(_onMonth);
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -1048,8 +1068,6 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                       ),
                     ),
 
-                    if (widget.embedded)
-                      JphUi.filterButton(isDark, '${_monthNameAr(_filterMonth)} $_filterYear', _showFilterSheet),
 
                     // Search Bar
                     _buildSearchBar(isDark, textColor),

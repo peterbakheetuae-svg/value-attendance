@@ -14,7 +14,8 @@ export interface Actor {
   mustChangePassword: boolean;
 }
 
-export const SESSION_TTL_HOURS = 12;
+// stays signed in until the person signs out: 180 days, renewed on every use (sign-out / password change revoke it)
+export const SESSION_TTL_HOURS = 24 * 180;
 
 export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?: boolean } = {}): Promise<Actor> {
   const h = req.headers.authorization;

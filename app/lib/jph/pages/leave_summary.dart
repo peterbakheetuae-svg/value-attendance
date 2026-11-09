@@ -1465,8 +1465,22 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
 
     const SizedBox(height: 12),
 
-    // Action Buttons - ALWAYS VISIBLE (في الجزء الظاهر)
-    if (isPending) ...[
+    // مين وافق لحد دلوقتي
+    if ('${request['approvedBy'] ?? ''}'.isNotEmpty) ...[
+    Row(children: [
+    const Icon(Icons.verified_rounded, size: 18, color: Colors.green),
+    const SizedBox(width: 8),
+    Expanded(child: Text('وافق: ${request['approvedBy']}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.green))),
+    ]),
+    const SizedBox(height: 6),
+    ],
+    if (isPending && '${request['notes'] ?? ''}'.isNotEmpty) ...[
+    Text('${request['notes']}', style: TextStyle(fontSize: 12.5, color: subduedTextColor)),
+    const SizedBox(height: 8),
+    ],
+
+    // Action Buttons — only for the direct manager / general manager / HR at their stage (never the employee)
+    if (isPending && request['canDecide'] == true) ...[
     Row(
     children: [
     Expanded(

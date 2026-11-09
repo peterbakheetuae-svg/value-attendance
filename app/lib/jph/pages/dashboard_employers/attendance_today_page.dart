@@ -163,8 +163,8 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                     color: isDark ? Colors.white70 : Colors.grey[700],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
+                if (widget.filter != 'absent') const SizedBox(height: 8),
+                if (widget.filter != 'absent') Row(
                   children: [
                     _buildTimeChip(
                       'الحضور: ${employee['checkIn']}',
@@ -180,20 +180,22 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: isDark ? Colors.green.withOpacity(0.2) : Colors.green[100],
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              'حاضر',
-              style: TextStyle(
-                color: isDark ? Colors.green[300] : Colors.green[800],
-                fontWeight: FontWeight.bold,
+          // the chip follows the list that was opened (حاضر / متأخر / غائب)
+          Builder(builder: (_) {
+            final (label, MaterialColor c) = switch (widget.filter) {
+              'absent' => ('غائب', Colors.red),
+              'late' => ('متأخر', Colors.orange),
+              _ => ('حاضر', Colors.green),
+            };
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: isDark ? c.withOpacity(0.2) : c[100],
+                borderRadius: BorderRadius.circular(20),
               ),
-            ),
-          ),
+              child: Text(label, style: TextStyle(color: isDark ? c[300] : c[800], fontWeight: FontWeight.bold)),
+            );
+          }),
         ],
       ),
     );

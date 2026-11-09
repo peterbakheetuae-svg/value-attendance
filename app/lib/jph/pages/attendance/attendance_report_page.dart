@@ -13,6 +13,8 @@ import 'attendance_filters.dart';
 import 'attendance_monthly_section.dart';
 import 'attendance_expandable_cards.dart'; // 🔥 استيراد البطاقات القابلة للطي
 import 'attendance_widgets.dart';
+import '../../widgets/app_nav.dart';
+import '../../widgets/glass_bottom_nav.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   final String uid;
@@ -66,6 +68,10 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       });
     });
   }
+
+  /// Managers / HR choose whose report to see; a plain employee only ever sees his own.
+  bool get _picksEmployee =>
+      ApiService.can('attendance.read_all') || ApiService.can('attendance.read_team') || ApiService.can('report.read_all') || ApiService.can('report.read_team');
 
   // 🔥 دالة تحميل قائمة الموظفين
   Future<void> loadEmployees() async {
@@ -412,8 +418,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                       title: attendanceReportTitle,
                     ),
 
-                    // 🔥 إضافة قائمة الموظفين المنسدلة
-                    EmployeeDropdown(
+                    // اختيار الموظف — للمديرين والـ HR بس؛ الموظف بيشوف تقريره هو من غير الخانة
+                    if (_picksEmployee) EmployeeDropdown(
                       employees: employees,
                       selectedUid: selectedUid,
                       selectedEmployeeName: selectedEmployeeName,
@@ -433,7 +439,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                       selectEmployeeText: selectEmployeeText,
                     ),
 
-                    const SizedBox(height: 14),
+                    if (_picksEmployee) const SizedBox(height: 14),
 
                     // 🔥 تم إزالة PeriodBar و TopStats بناءً على طلبك
 
@@ -469,18 +475,16 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         context: context,
                       ),
                     ),
+                    const SizedBox(height: 84), // room for the bottom bar
                   ],
                 ),
               ),
-              floatingActionButton: Padding(
-                padding: const EdgeInsets.all(18.0),
-                child: FilterFab(
-                  isDark: appController.isDark,
-                  onPressed: () => _openFilter(context, appController.isDark),
-                  text: filterText,
-                ),
+              // الفلتر فوق في الهيدر؛ وتحت شريط التنقل زي الإعدادات والملف الشخصي
+              extendBody: true,
+              bottomNavigationBar: GlassBottomNav(
+                currentIndex: 1,
+                onTap: (index) => AppNav.go(context, index, current: 1, uid: widget.uid, name: widget.name, role: widget.role),
               ),
-              floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
             ),
           ),
         );

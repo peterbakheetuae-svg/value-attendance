@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,7 +16,9 @@ import '../../widgets/jph_form_ui.dart';
 class CashPage extends StatefulWidget {
   /// true = the "الخزنة" tab of the cashbox page: no own header, and the movements live in the "السجل" tab
   final bool embedded;
-  const CashPage({super.key, this.embedded = false});
+  /// the cashbox page's month filter (the figures of الأرصدة follow it)
+  final ValueListenable<DateTime>? month;
+  const CashPage({super.key, this.embedded = false, this.month});
 
   @override
   State<CashPage> createState() => _CashPageState();
@@ -100,7 +103,7 @@ class _CashPageState extends State<CashPage> {
                       'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
                       'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
                       'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
-                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load),
+                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month),
                     },
                   ),
                 );
@@ -139,13 +142,56 @@ class _CashPageState extends State<CashPage> {
 }
 
 // ==================================================================== الأرصدة
-class _SummaryTab extends StatelessWidget {
+String _ym(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
+
+/// الأرصدة: الخزنتين + كل أرقام الشهر (كانت في لوحة المالية). كل مربع بيتفتح على تفاصيله.
+class _SummaryTab extends StatefulWidget {
   final bool isDark;
   final Map<String, dynamic> summary;
   final Future<void> Function() onChanged;
-  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged});
+  final ValueListenable<DateTime>? month;
+  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged, this.month});
+
+  @override
+  State<_SummaryTab> createState() => _SummaryTabState();
+}
+
+class _SummaryTabState extends State<_SummaryTab> {
+  Map<String, dynamic> _d = {};
+  bool _loading = true;
+
+  DateTime get _month => widget.month?.value ?? DateTime(DateTime.now().year, DateTime.now().month);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.month?.addListener(_load);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    widget.month?.removeListener(_load);
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final r = await _get('/finance/dashboard', {'month': _ym(_month)});
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _d = r;
+    });
+  }
+
+  Future<void> _refresh() async {
+    await widget.onChanged();
+    await _load();
+  }
 
   Widget _box(BuildContext context, String key, Map<String, dynamic> b) {
+    final isDark = widget.isDark;
     final bal = (b['bookBalance'] as num?) ?? 0;
     final neg = bal < 0;
     final inT = ((b['incomingTransfers'] as Map?) ?? const {});
@@ -182,20 +228,139 @@ class _SummaryTab extends StatelessWidget {
     );
   }
 
+  /// tap a box → what is behind it
+  Future<void> _details(String key, String title) async {
+    final isDark = widget.isDark;
+    final future = _get('/finance/dashboard/details', {'key': key, 'month': _ym(_month)});
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: Container(
+          margin: const EdgeInsets.all(16),
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(26)),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: future,
+            builder: (_, snap) {
+              final r = snap.data ?? const {};
+              final rows = _list(r, 'rows');
+              return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Icon(Icons.filter_alt_rounded, color: JphUi.primary(isDark), size: 26),
+                  Expanded(child: Text('$title — ${JphUi.monthsAr[_month.month - 1]}', textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+                  GestureDetector(onTap: () => Navigator.pop(ctx), child: Icon(Icons.close_rounded, color: JphUi.sub(isDark), size: 26)),
+                ]),
+                const SizedBox(height: 12),
+                if (snap.connectionState != ConnectionState.done)
+                  const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()))
+                else if (r['success'] == false)
+                  Padding(padding: const EdgeInsets.all(20), child: Text('${r['message'] ?? 'مش متاح'}', textAlign: TextAlign.center))
+                else ...[
+                  JphUi.stat(isDark, 'الإجمالي (${rows.length})', JphUi.money(r['total']), Icons.summarize_rounded, Colors.indigo),
+                  const SizedBox(height: 10),
+                  if (rows.isEmpty)
+                    Padding(padding: const EdgeInsets.all(20), child: Text('مفيش حاجة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+                  Flexible(
+                    child: ListView(shrinkWrap: true, children: [
+                      for (final x in rows)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                          ),
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('${x['title']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                                if ('${x['sub'] ?? ''}'.isNotEmpty) Text('${x['sub']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                              ]),
+                            ),
+                            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                              Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                              if ('${x['tag'] ?? ''}'.isNotEmpty) JphUi.chip('${x['tag']}', Colors.blueGrey),
+                            ]),
+                          ]),
+                        ),
+                    ]),
+                  ),
+                ],
+              ]);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tile(String label, Object? value, IconData icon, Color color, String? key, {bool money = true}) {
+    final box = JphUi.stat(widget.isDark, label, money ? JphUi.money(value) : '${value ?? 0}', icon, color);
+    if (key == null) return box;
+    return GestureDetector(onTap: () => _details(key, label), child: box);
+  }
+
+  Widget _section(String title) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+        child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: JphUi.text(widget.isDark))),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final summary = widget.summary;
     final can = ((summary['can'] as Map?) ?? const {}).cast<String, dynamic>();
+    final hr = ((_d['hr'] as Map?) ?? const {});
+    final mg = _d['management'] as Map?;
+    final week = ((hr['installmentsDueThisWeek'] as Map?) ?? const {});
+    final overdue = ((hr['overdueInstallments'] as Map?) ?? const {});
     return RefreshIndicator(
-      onRefresh: onChanged,
+      onRefresh: _refresh,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (summary['office'] is Map) _box(context, 'office', (summary['office'] as Map).cast<String, dynamic>()),
         if (summary['hr'] is Map) _box(context, 'hr', (summary['hr'] as Map).cast<String, dynamic>()),
         if (summary['total'] != null)
           JphUi.stat(isDark, 'إجمالي الفلوس في الخزنتين', JphUi.money(summary['total']), Icons.savings_rounded, Colors.green),
+        if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+        if (!_loading && _d['success'] == true) ...[
+          _section('الشهر ده — دوس على أي مربع تشوف تفاصيله'),
+          JphUi.statGrid([
+            _tile('المرتبات المستحقة', hr['salariesDue'], Icons.payments_rounded, Colors.teal, 'salaries'),
+            _tile('مرتبات اتصرفت', hr['salariesPaid'], Icons.price_check_rounded, Colors.green, 'salaries_paid'),
+            _tile('باقي من المرتبات', hr['salariesRemaining'], Icons.hourglass_bottom_rounded, Colors.orange, 'salaries'),
+            _tile('التحصيلات', hr['collections'], Icons.savings_rounded, Colors.green, 'collections'),
+            _tile('مصروفات الـ HR', hr['expenses'], Icons.receipt_long_rounded, Colors.deepOrange, 'hr_expenses'),
+            _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Colors.purple, 'advances'),
+            _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Colors.amber, 'commissions_unpaid'),
+            _tile('دفعات مرتبات مفتوحة', hr['payrollBatchesOpen'], Icons.fact_check_rounded, Colors.blueGrey, 'batches_open', money: false),
+          ]),
+          _section('الأقساط'),
+          JphUi.statGrid([
+            _tile('مستحق خلال أسبوع (${week['count'] ?? 0})', week['amount'], Icons.event_available_rounded, Colors.blue, 'installments_week'),
+            _tile('متأخر (${overdue['count'] ?? 0})', overdue['amount'], Icons.warning_amber_rounded, Colors.red, 'installments_overdue'),
+          ]),
+          if (mg != null) ...[
+            _section('الإدارة'),
+            JphUi.statGrid([
+              _tile('مصروفات المكتب', mg['officeExpenses'], Icons.receipt_rounded, Colors.orange, 'office_expenses'),
+              _tile('عمولات الشهر', mg['commissions'], Icons.workspace_premium_rounded, Colors.amber, 'commissions'),
+              _tile('حجز ومقدمات', mg['downPayments'], Icons.key_rounded, Colors.green, 'down_payments'),
+              _tile('أقساط اتحصلت', mg['installmentsCollected'], Icons.check_circle_rounded, Colors.green, 'installments_collected'),
+              _tile('باقي على الوحدات', mg['unitsRemaining'], Icons.home_work_rounded, Colors.indigo, 'units_remaining'),
+              _tile('تحويلات مفتوحة', mg['transfersOpen'], Icons.swap_horiz_rounded, Colors.blueGrey, 'transfers_open', money: false),
+            ]),
+          ],
+        ],
         if (can['settings'] == true) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           OutlinedButton.icon(
-            onPressed: () => _adjustSheet(context, isDark, onChanged),
+            onPressed: () => _adjustSheet(context, isDark, _refresh),
             icon: const Icon(Icons.tune_rounded),
             label: const Text('رصيد افتتاحي / تسوية جرد'),
             style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50),
@@ -203,7 +368,7 @@ class _SummaryTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
-            onPressed: () => _thresholdSheet(context, isDark, summary['expenseApprovalThreshold'], onChanged),
+            onPressed: () => _thresholdSheet(context, isDark, summary['expenseApprovalThreshold'], _refresh),
             icon: const Icon(Icons.rule_rounded),
             label: Text('حد موافقة المصروفات: ${JphUi.money(summary['expenseApprovalThreshold'])}'),
             style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50),
@@ -214,6 +379,38 @@ class _SummaryTab extends StatelessWidget {
     );
   }
 }
+
+/// A form that is always shown on its tab (like طلبات المالية), not hidden behind a button.
+Widget _inlineForm(bool isDark,
+        {required String title, required IconData icon, required List<Widget> children, required String button,
+        required bool saving, required VoidCallback onSubmit}) =>
+    Container(
+      margin: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.all(16),
+      decoration: JphUi.box(isDark),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          JphUi.iconTile(isDark, icon, JphUi.primary(isDark)),
+          const SizedBox(width: 10),
+          Expanded(child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+        ]),
+        const SizedBox(height: 14),
+        ...children,
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 56,
+          child: ElevatedButton.icon(
+            onPressed: saving ? null : onSubmit,
+            icon: saving
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.send_rounded),
+            label: Text(button, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+          ),
+        ),
+      ]),
+    );
 
 Future<void> _adjustSheet(BuildContext context, bool isDark, Future<void> Function() done) async {
   String box = 'office', kind = 'opening';
@@ -337,7 +534,9 @@ Future<void> _formSheet(BuildContext context, bool isDark, String title, List<Wi
 class CashLedgerView extends StatefulWidget {
   final bool isDark;
   final Map<String, dynamic> can;
-  const CashLedgerView({super.key, required this.isDark, required this.can});
+  /// the cashbox page's month filter (then this view has no filter button of its own)
+  final ValueListenable<DateTime>? month;
+  const CashLedgerView({super.key, required this.isDark, required this.can, this.month});
 
   @override
   State<CashLedgerView> createState() => _LedgerTabState();
@@ -345,14 +544,26 @@ class CashLedgerView extends StatefulWidget {
 
 class _LedgerTabState extends State<CashLedgerView> {
   late String _box = widget.can['office'] == true ? 'office' : 'hr';
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month = widget.month?.value ?? DateTime(DateTime.now().year, DateTime.now().month);
   Map<String, dynamic> _r = {};
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    widget.month?.addListener(_onMonth);
     _load();
+  }
+
+  void _onMonth() {
+    _month = widget.month!.value;
+    _load();
+  }
+
+  @override
+  void dispose() {
+    widget.month?.removeListener(_onMonth);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -380,7 +591,7 @@ class _LedgerTabState extends State<CashLedgerView> {
             _box = v;
             _load();
           }),
-        JphUi.filterButton(isDark, '${JphUi.monthsAr[_month.month - 1]} ${_month.year}', () async {
+        if (widget.month == null) JphUi.filterButton(isDark, '${JphUi.monthsAr[_month.month - 1]} ${_month.year}', () async {
           final m = await JphUi.pickMonth(context, isDark, _month);
           if (m != null) {
             _month = m;
@@ -443,6 +654,30 @@ class _TransfersTab extends StatefulWidget {
 class _TransfersTabState extends State<_TransfersTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  // طلب تحويل (HR يطلب من المكتب) / طلب توريد (المدير يطلب من الـ HR)
+  late String _dir = widget.can['hrDesk'] == true ? 'office_to_hr' : 'hr_to_office';
+  final _amount = TextEditingController(), _reason = TextEditingController();
+  bool _saving = false;
+
+  Map<String, (String, IconData)> get _kinds => {
+        if (widget.can['hrDesk'] == true) 'office_to_hr': ('طلب تحويل', Icons.call_received_rounded),
+        if (widget.can['office'] == true) 'hr_to_office': ('طلب توريد', Icons.call_made_rounded),
+      };
+
+  Future<void> _send() async {
+    setState(() => _saving = true);
+    final r = await _post('/cash/transfers', {'direction': _dir, 'amount': num.tryParse(_amount.text.trim()), 'reason': _reason.text.trim()},
+        ok: 'اتبعت الطلب ✅');
+    if (!mounted) return;
+    setState(() => _saving = false);
+    JphUi.toast(context, r);
+    if (r['success'] == true) {
+      _amount.clear();
+      _reason.clear();
+      await _load();
+      await widget.onChanged();
+    }
+  }
 
   @override
   void initState() {
@@ -467,27 +702,31 @@ class _TransfersTabState extends State<_TransfersTab> {
     await widget.onChanged();
   }
 
-  Future<void> _request(String direction) async {
-    final amount = TextEditingController(), reason = TextEditingController();
-    await _formSheet(context, widget.isDark, direction == 'office_to_hr' ? 'طلب تحويل من خزينة المكتب' : 'طلب توريد من خزينة HR', (s) => [
-          JphUi.input(isDark: widget.isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه'),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: widget.isDark, label: 'السبب', controller: reason, big: false),
-        ], () => _post('/cash/transfers', {'direction': direction, 'amount': num.tryParse(amount.text.trim()), 'reason': reason.text.trim()}, ok: 'اتبعت الطلب ✅'));
-    await _load();
-    await widget.onChanged();
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        if (widget.can['hrOperate'] == true)
-          _bigButton(isDark, 'طلب تحويل من خزينة المكتب لـ HR', Icons.call_received_rounded, () => _request('office_to_hr')),
-        if (widget.can['office'] == true)
-          _bigButton(isDark, 'طلب توريد من خزينة HR للمكتب', Icons.call_made_rounded, () => _request('hr_to_office')),
+        if (_kinds.isNotEmpty)
+          _inlineForm(isDark,
+              title: _dir == 'office_to_hr' ? 'طلب تحويل من خزنة المكتب للـ HR' : 'طلب توريد من خزنة الـ HR للمكتب',
+              icon: _kinds[_dir]?.$2 ?? Icons.swap_horiz_rounded,
+              button: 'إرسال الطلب',
+              saving: _saving,
+              onSubmit: _send,
+              children: [
+                if (_kinds.length > 1) ...[
+                  JphUi.tabs(isDark, [for (final k in _kinds.values) k], _kinds.keys.toList().indexOf(_dir),
+                      (i) => setState(() => _dir = _kinds.keys.elementAt(i))),
+                  const SizedBox(height: 14),
+                ],
+                JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'السبب *', controller: _reason, icon: Icons.notes_rounded, big: false),
+              ]),
+        Text('التحويلات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
         if (!_loading && _items.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('مفيش تحويلات', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -609,37 +848,31 @@ class _ExpensesTabState extends State<_ExpensesTab> {
     });
   }
 
+  // HR records the HR cashbox only; المدير / المالك record the office cashbox only
+  String get _box => widget.can['hrDesk'] == true ? 'hr' : 'office';
+  bool get _canRecord => widget.can['hrDesk'] == true || widget.can['office'] == true;
+  final _amount = TextEditingController(), _category = TextEditingController(), _reason = TextEditingController(),
+      _beneficiary = TextEditingController(), _notes = TextEditingController();
+  String _ref = newClientRef();
+  bool _saving = false;
+
   Future<void> _add() async {
-    final isDark = widget.isDark;
-    String box = widget.can['hrOperate'] == true ? 'hr' : 'office';
-    final amount = TextEditingController(), category = TextEditingController(), reason = TextEditingController(),
-        beneficiary = TextEditingController(), notes = TextEditingController();
-    final ref = newClientRef();
-    await _formSheet(context, isDark, 'تسجيل مصروف', (s) => [
-          if (widget.can['office'] == true && widget.can['hrOperate'] == true)
-            _segmented(isDark, {'hr': 'خزينة HR', 'office': 'خزينة المكتب'}, box, (v) => s(() => box = v)),
-          if (widget.can['office'] == true && widget.can['hrOperate'] != true) Text('من خزينة المكتب', style: TextStyle(color: JphUi.sub(isDark))),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه'),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'البند (إيجار، كهرباء، ضيافة...)', controller: category, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'سبب الصرف', controller: reason, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'المستفيد', controller: beneficiary, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: notes, big: false),
-          if (box == 'hr' && widget.can['office'] != true)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text('المصروف أكبر من ${JphUi.money(widget.threshold)} بيستنى موافقة المدير قبل ما يتخصم.', style: TextStyle(color: JphUi.sub(isDark))),
-            ),
-        ], () => _post('/cash/expenses', {
-          'cashbox': box, 'amount': num.tryParse(amount.text.trim()), 'category': category.text.trim(), 'reason': reason.text.trim(),
-          'beneficiary': beneficiary.text.trim(), 'notes': notes.text.trim(), 'clientRef': ref,
-        }, ok: 'اتسجل المصروف ✅'));
-    await _load();
-    await widget.onChanged();
+    setState(() => _saving = true);
+    final r = await _post('/cash/expenses', {
+      'cashbox': _box, 'amount': num.tryParse(_amount.text.trim()), 'category': _category.text.trim(), 'reason': _reason.text.trim(),
+      'beneficiary': _beneficiary.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref,
+    }, ok: 'اتسجل المصروف ✅');
+    if (!mounted) return;
+    setState(() => _saving = false);
+    JphUi.toast(context, r);
+    if (r['success'] == true) {
+      for (final c in [_amount, _category, _reason, _beneficiary, _notes]) {
+        c.clear();
+      }
+      _ref = newClientRef();
+      await _load();
+      await widget.onChanged();
+    }
   }
 
   Future<void> _act(String path, Map<String, dynamic> body, String ok) async {
@@ -665,7 +898,31 @@ class _ExpensesTabState extends State<_ExpensesTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        if (widget.can['hrOperate'] == true || office) _bigButton(isDark, 'تسجيل مصروف', Icons.add_rounded, _add),
+        if (_canRecord)
+          _inlineForm(isDark,
+              title: 'تسجيل مصروف', icon: Icons.shopping_bag_rounded, button: 'تسجيل المصروف', saving: _saving, onSubmit: _add,
+              children: [
+                JphUi.readOnly(isDark: isDark, label: 'من', value: _boxAr[_box]!, icon: Icons.account_balance_wallet_rounded,
+                    color: _box == 'hr' ? Colors.teal : Colors.indigo),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'البند * (إيجار، كهرباء، ضيافة...)', controller: _category, icon: Icons.category_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'سبب الصرف *', controller: _reason, icon: Icons.notes_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'المستفيد *', controller: _beneficiary, icon: Icons.person_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: _notes, icon: Icons.edit_note_rounded, big: false),
+                if (_box == 'hr')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text('المصروف أكبر من ${JphUi.money(widget.threshold)} بيستنى موافقة المدير قبل ما يتخصم.',
+                        style: TextStyle(color: JphUi.sub(isDark))),
+                  ),
+              ]),
+        Text('المصروفات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
         if (!_loading && _items.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مصروفات', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -746,44 +1003,41 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
     });
   }
 
+  // HR: into the HR cashbox, or typing in what المدير received himself; المدير / المالك: the office cashbox only
+  late String _recipient = widget.can['hrDesk'] == true ? 'hr' : 'manager';
+  String _kind = 'reservation', _method = 'cash';
+  final _amount = TextEditingController(), _payer = TextEditingController(), _phone = TextEditingController(),
+      _purpose = TextEditingController(), _extNo = TextEditingController(), _notes = TextEditingController();
+  String _ref = newClientRef();
+  bool _saving = false;
+
   Future<void> _add() async {
-    final isDark = widget.isDark;
-    String recipient = widget.can['hrOperate'] == true ? 'hr' : 'manager';
-    String kind = 'reservation', method = 'cash';
-    final amount = TextEditingController(), payer = TextEditingController(), phone = TextEditingController(),
-        purpose = TextEditingController(), extNo = TextEditingController(), notes = TextEditingController();
-    final ref = newClientRef();
-    await _formSheet(context, isDark, 'تسجيل تحصيل', (s) => [
-          Text('مين استلم الفلوس فعلاً؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-          const SizedBox(height: 6),
-          _segmented(isDark, {
-            if (widget.can['hrOperate'] == true) 'hr': 'HR (خزينة HR)',
-            'manager': 'المدير بنفسه (خزينة المكتب)',
-          }, recipient, (v) => s(() => recipient = v)),
-          const SizedBox(height: 10),
-          _segmented(isDark, _receiptKinds, kind, (v) => s(() => kind = v)),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه'),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'اسم الدافع', controller: payer, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'موبايل الدافع (اختياري)', controller: phone, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'الغرض (المشروع / الوحدة / التفاصيل)', controller: purpose, big: false),
-          const SizedBox(height: 10),
-          _segmented(isDark, _methods, method, (v) => s(() => method = v)),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'رقم الإيصال الورقي (اختياري)', controller: extNo, big: false),
-          const SizedBox(height: 10),
-          JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: notes, big: false),
-        ], () async => _post('/cash/receipts', {
-          'recipient': recipient, 'kind': kind, 'amount': num.tryParse(amount.text.trim()), 'payerName': payer.text.trim(),
-          'payerPhone': phone.text.trim(), 'purpose': purpose.text.trim(), 'paymentMethod': method,
-          if (extNo.text.trim().isNotEmpty) 'externalNo': extNo.text.trim(), 'notes': notes.text.trim(), 'clientRef': ref,
-          if (recipient == 'manager' && widget.can['office'] != true) 'recipientId': await _pickManager(),
-        }, ok: 'اتسجل التحصيل ✅'));
-    await _load();
-    await widget.onChanged();
+    setState(() => _saving = true);
+    String? managerId;
+    if (_recipient == 'manager' && widget.can['office'] != true) {
+      managerId = await _pickManager();
+      if (managerId == null) {
+        setState(() => _saving = false);
+        return;
+      }
+    }
+    final r = await _post('/cash/receipts', {
+      'recipient': _recipient, 'kind': _kind, 'amount': num.tryParse(_amount.text.trim()), 'payerName': _payer.text.trim(),
+      'payerPhone': _phone.text.trim(), 'purpose': _purpose.text.trim(), 'paymentMethod': _method,
+      if (_extNo.text.trim().isNotEmpty) 'externalNo': _extNo.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref,
+      if (managerId != null) 'recipientId': managerId,
+    }, ok: 'اتسجل التحصيل ✅');
+    if (!mounted) return;
+    setState(() => _saving = false);
+    JphUi.toast(context, r);
+    if (r['success'] == true) {
+      for (final c in [_amount, _payer, _phone, _purpose, _extNo, _notes]) {
+        c.clear();
+      }
+      _ref = newClientRef();
+      await _load();
+      await widget.onChanged();
+    }
   }
 
   /// HR typing in a collection the manager received: pick that manager.
@@ -801,7 +1055,36 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        _bigButton(isDark, 'تسجيل تحصيل (إيصال)', Icons.add_rounded, _add),
+        if (widget.can['hrDesk'] == true || widget.can['office'] == true)
+          _inlineForm(isDark,
+              title: 'تسجيل تحصيل (إيصال)', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
+              children: [
+                Text('مين استلم الفلوس فعلاً؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                const SizedBox(height: 6),
+                if (widget.can['hrDesk'] == true)
+                  _segmented(isDark, {'hr': 'HR (خزنة الـ HR)', 'manager': 'المدير بنفسه (المكتب)'}, _recipient,
+                      (v) => setState(() => _recipient = v))
+                else
+                  JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
+                const SizedBox(height: 14),
+                _segmented(isDark, _receiptKinds, _kind, (v) => setState(() => _kind = v)),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'اسم الدافع *', controller: _payer, icon: Icons.person_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'موبايل الدافع (اختياري)', controller: _phone, icon: Icons.phone_iphone_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'الغرض * (المشروع / الوحدة / التفاصيل)', controller: _purpose, icon: Icons.notes_rounded, big: false),
+                const SizedBox(height: 14),
+                _segmented(isDark, _methods, _method, (v) => setState(() => _method = v)),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'رقم الإيصال الورقي (اختياري)', controller: _extNo, icon: Icons.tag_rounded, big: false),
+                const SizedBox(height: 14),
+                JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: _notes, icon: Icons.edit_note_rounded, big: false),
+              ]),
+        Text('التحصيلات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: JphUi.box(isDark),

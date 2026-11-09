@@ -943,7 +943,10 @@ class JphRouter {
       'days': r['days_count'] ?? 0,
       'daysCount': r['days_count'] ?? 0,
       'reason': _s(r['reason'], 'لا يوجد سبب'),
-      'notes': r['status'] == 'pending_hr' ? 'وافق المدير — بانتظار الموارد البشرية' : '',
+      'notes': r['status'] == 'pending_hr' ? 'وافق المدير — بانتظار الموارد البشرية' : (r['status'] == 'pending_manager' ? 'بانتظار المدير المباشر / المدير العام' : ''),
+      'approvedBy': _s(r['approved_by_names'], ''),
+      // approve / reject only for whoever may decide now (never the employee himself)
+      'canDecide': (r['can'] is Map) && ((r['can'] as Map)['managerDecide'] == true || (r['can'] as Map)['hrDecide'] == true),
       'status': status,
       'requestDate': _date(r['created_at']),
       'submittedDate': _date(r['created_at']),

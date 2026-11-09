@@ -40,7 +40,9 @@ async function resolveManager(q: Q, employeeId: string): Promise<string | null> 
 }
 
 const SELECT = `
-  SELECT r.*, e.full_name AS employee_name, e.code AS employee_code, m.full_name AS manager_name
+  SELECT r.*, e.full_name AS employee_name, e.code AS employee_code, m.full_name AS manager_name,
+         (SELECT string_agg(x.full_name, '، ' ORDER BY ra.id) FROM request_actions ra JOIN employees x ON x.id = ra.actor_id
+           WHERE ra.request_id = r.id AND ra.action = 'approve') AS approved_by_names
     FROM requests r JOIN employees e ON e.id = r.employee_id LEFT JOIN employees m ON m.id = r.manager_id`;
 
 async function loadActions(q: Q, id: string) {
@@ -49,12 +51,16 @@ async function loadActions(q: Q, id: string) {
                           WHERE a.request_id = $1 ORDER BY a.id`, [id])).rows;
 }
 
+/** المدير العام (and the owner): may take the first-stage decision on anyone's request, in place of the direct manager. */
+const isGm = (a: Actor) => has(a, 'request.approve_manager') && has(a, 'request.read_all');
+
 /** What may this actor do with this request right now? Drives the UI and is re-checked server-side. */
 function allowed(a: Actor, r: any) {
   const own = r.employee_id === a.id;
   return {
     cancel: own && (r.status === 'pending_manager' || r.status === 'pending_hr'),
-    managerDecide: !own && r.status === 'pending_manager' && r.manager_id === a.id && has(a, 'request.approve_manager'),
+    // first stage: the direct manager OR the general manager; HR only after one of them approved
+    managerDecide: !own && r.status === 'pending_manager' && ((r.manager_id === a.id && has(a, 'request.approve_manager')) || isGm(a)),
     hrDecide: !own && r.status === 'pending_hr' && has(a, 'request.approve_hr'),
   };
 }
@@ -148,7 +154,9 @@ export const requestsModule: Module = (r, { db, clock }) => {
             AND status = 'approved' AND start_date <= $3 AND end_date >= $2`, [a.id, f.start_date, f.end_date]);
         if (overlap) throw conflict('These dates overlap an approved absence');
       }
-      const managerId = await resolveManager(q, a.id);
+      let managerId = await resolveManager(q, a.id);
+      // a leave always goes to the management first: no direct manager → the general manager takes that stage
+      if (!managerId && type === 'full_day_absence') managerId = (await gmRecipients(q, a.id))[0] ?? null;
       const route = managerId ? 'manager_then_hr' : 'hr_only';
       const status = managerId ? 'pending_manager' : 'pending_hr';
       const cols = Object.keys(f);
@@ -158,7 +166,9 @@ export const requestsModule: Module = (r, { db, clock }) => {
         [a.id, type, reason, attachmentId, route, managerId, status, ...cols.map((c) => f[c])]);
       await q.query(`INSERT INTO request_actions (request_id, actor_id, stage, action) VALUES ($1,$2,'employee','submit')`, [row.id, a.id]);
       await audit(q, a.id, 'request.submit', 'request', row.id, undefined, { type, route });
-      const recipients = managerId ? [managerId] : await holdersOf(q, 'request.approve_hr', [a.id]);
+      const recipients = managerId
+        ? [...new Set([managerId, ...(type === 'full_day_absence' ? await gmRecipients(q, a.id) : [])])].filter((id) => id !== a.id)
+        : await holdersOf(q, 'request.approve_hr', [a.id]);
       for (const to of recipients) {
         await notify(q, { to, type: 'request_awaiting', title: `طلب ${TYPE_AR[type]} بانتظار موافقتك`,
           body: `${a.fullName}: ${reason}`, entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:awaiting:${status}` });
@@ -176,6 +186,8 @@ export const requestsModule: Module = (r, { db, clock }) => {
     const mine = req.query.get('scope') === 'mine';
     const ids = mine ? [a.id] : await readableIds(db, a, 'request');
     if (ids) { vals.push(ids); where.push(`r.employee_id = ANY($${vals.length}::uuid[])`); }
+    // a request waiting for the direct manager / general manager is not shown to HR yet
+    if (!mine && !isGm(a)) { vals.push(a.id); where.push(`NOT (r.status = 'pending_manager' AND r.employee_id <> $${vals.length} AND r.manager_id IS DISTINCT FROM $${vals.length})`); }
     const status = req.query.get('status');
     if (status === 'pending') where.push(`r.status IN ('pending_manager','pending_hr')`);
     else if (status) { vals.push(status); where.push(`r.status = $${vals.length}`); }
@@ -185,7 +197,8 @@ export const requestsModule: Module = (r, { db, clock }) => {
     if (emp) { if (!isUuid(emp)) throw notFound(); vals.push(emp); where.push(`r.employee_id = $${vals.length}`); }
     if (req.query.get('awaitingMe') === '1') {
       const conds = [];
-      if (has(a, 'request.approve_manager')) { vals.push(a.id); conds.push(`(r.status = 'pending_manager' AND r.manager_id = $${vals.length})`); }
+      if (isGm(a)) conds.push(`r.status = 'pending_manager'`);
+      else if (has(a, 'request.approve_manager')) { vals.push(a.id); conds.push(`(r.status = 'pending_manager' AND r.manager_id = $${vals.length})`); }
       if (has(a, 'request.approve_hr')) conds.push(`r.status = 'pending_hr'`);
       vals.push(a.id);
       where.push(conds.length ? `(${conds.join(' OR ')}) AND r.employee_id <> $${vals.length}` : 'false');

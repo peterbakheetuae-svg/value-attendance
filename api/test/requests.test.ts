@@ -136,3 +136,24 @@ test('leave balances: HR manages, employee reads own, used days derive from appr
   assert.equal((await h.call(c.t.hr, 'PUT', `/leave-balances/${c.ids.e1}`, { year: 2026, annualDays: 25, casualDays: 7, sickDays: 5 })).status, 200);
   assert.equal((await h.call(c.t.e2, 'GET', `/leave-balances/${c.ids.e1}`)).status, 404);
 });
+
+test('leave: direct manager OR the general manager first, HR sees it only after; who approved is shown', async () => {
+  const r = await h.call(c.t.e2, 'POST', '/requests', { type: 'full_day_absence', startDate: '2026-04-20', endDate: '2026-04-21', absenceType: 'annual', reason: 'سفر' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const id = r.body.request.id;
+  assert.equal(r.body.request.status, 'pending_manager');
+  // HR does not see it yet; the owner (general manager) does and may decide in place of the direct manager
+  const hrList = (await h.call(c.t.hr, 'GET', '/requests?type=full_day_absence')).body.requests;
+  assert.ok(!hrList.some((x: any) => x.id === id), 'waiting for the manager → hidden from HR');
+  const own = (await h.call(c.t.e2, 'GET', '/requests?scope=mine')).body.requests.find((x: any) => x.id === id);
+  assert.equal(own.can.managerDecide || own.can.hrDecide, false, 'the employee never gets approve / reject');
+  const gm = (await h.call(c.t.owner, 'GET', '/requests?awaitingMe=1')).body.requests.find((x: any) => x.id === id);
+  assert.ok(gm && gm.can.managerDecide);
+  assert.equal((await h.call(c.t.owner, 'POST', `/requests/${id}/decision`, { decision: 'approve' })).status, 200);
+  const now = (await h.call(c.t.hr, 'GET', '/requests?type=full_day_absence')).body.requests.find((x: any) => x.id === id);
+  assert.ok(now && now.status === 'pending_hr' && now.can.hrDecide);
+  assert.equal(now.approved_by_names, 'المالك');
+  // a leave of someone without a direct manager goes to the general manager first, not straight to HR
+  const s = await h.call(c.t.solo, 'POST', '/requests', { type: 'full_day_absence', startDate: '2026-04-22', endDate: '2026-04-22', absenceType: 'casual', reason: 'ظرف' });
+  assert.equal(s.body.request.status, 'pending_manager');
+});

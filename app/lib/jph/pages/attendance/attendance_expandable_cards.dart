@@ -457,9 +457,9 @@ class AttendanceExpandableCard extends StatelessWidget {
                     _buildSection(
                       title: 'أذونات الخروج والزيارات',
                       items: [
-                        if (((dayData['outings'] as List?) ?? const []).isEmpty)
+                        if ((dayData['outings'] is List ? dayData['outings'] as List : const []).isEmpty)
                           _buildDetailItem(icon: Icons.directions_walk_rounded, label: 'لا يوجد', value: '--'),
-                        for (final o in ((dayData['outings'] as List?) ?? const []).whereType<Map>())
+                        for (final o in (dayData['outings'] is List ? dayData['outings'] as List : const []).whereType<Map>())
                           _buildDetailItem(
                             icon: o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded,
                             label: '${o['label']}',

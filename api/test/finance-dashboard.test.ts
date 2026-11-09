@@ -46,3 +46,22 @@ test('indicators: compare with last month, alerts are advice only', async () => 
   assert.ok(e1 && 'lateCount' in e1.current && 'lateCount' in e1.previous);
   assert.ok(Array.isArray(e1.alerts) && Array.isArray(e1.suggestions));
 });
+
+test('each cashbox box opens its list; office lists stay with the management; HR records the HR cashbox only', async () => {
+  for (const key of ['collections', 'hr_expenses', 'salaries', 'salaries_paid', 'advances', 'commissions_unpaid', 'commissions',
+    'installments_week', 'installments_overdue', 'batches_open', 'down_payments', 'installments_collected']) {
+    const r = await h.call(c.t.hr, 'GET', `/finance/dashboard/details?key=${key}&month=2026-03`);
+    assert.equal(r.status, 200, `${key}: ${JSON.stringify(r.body)}`);
+    assert.ok(Array.isArray(r.body.rows) && typeof r.body.total === 'number');
+  }
+  assert.equal((await h.call(c.t.hr, 'GET', '/finance/dashboard/details?key=office_expenses')).status, 403);
+  assert.equal((await h.call(tGm, 'GET', '/finance/dashboard/details?key=units_remaining')).status, 200);
+  assert.equal((await h.call(tGm, 'GET', '/finance/dashboard/details?key=transfers_open')).status, 200);
+  const adv = (await h.call(c.t.hr, 'GET', '/finance/dashboard/details?key=advances&month=2026-03')).body;
+  assert.equal(adv.total, 3000);
+  const d = (await h.call(c.t.hr, 'GET', '/finance/dashboard?month=2026-03')).body;
+  assert.ok(typeof d.hr.salariesDue === 'number');
+  // the owner / manager never record money in the HR cashbox
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/expenses', { cashbox: 'hr', amount: 50, category: 'بوفيه', reason: 'شاي', beneficiary: 'البوفيه' })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/receipts', { recipient: 'hr', kind: 'other', amount: 50, payerName: 'عميل', purpose: 'دفعة' })).status, 403);
+});

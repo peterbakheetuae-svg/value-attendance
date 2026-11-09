@@ -47,6 +47,9 @@ class AttendanceReportDailyExpandedApi {
           // التحويل الآمن للقيم
           if (value == null) {
             convertedDay[key] = '--';
+          } else if (value is List || value is Map) {
+            // lists (outings) stay lists — turning them into text crashed the opened day (white screen)
+            convertedDay[key] = value;
           } else if (key == 'startImage' || key == 'endImage') {
             // الحفاظ على رابط الصورة
             convertedDay[key] = value.toString();

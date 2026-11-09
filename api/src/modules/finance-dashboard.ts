@@ -15,6 +15,8 @@ import { computePayroll, loadRules } from './payroll-calc.ts';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const n = (v: unknown) => Number(v ?? 0);
+/** a date / timestamp as YYYY-MM-DD (pg gives dates as text, timestamps as Date) */
+const ds = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v ?? '')).slice(0, 10);
 
 function prevMonth(period: string) {
   const [y, m] = period.split('-').map(Number);
@@ -22,8 +24,25 @@ function prevMonth(period: string) {
   return d.toISOString().slice(0, 10);
 }
 
+const IN_MONTH = (col: string, p = '$1') =>
+  `${col} >= (${p}::date AT TIME ZONE 'Africa/Cairo') AND ${col} < ((${p}::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')`;
+
 export const financeDashboardModule: Module = (r, { db, clock }) => {
   const today = () => local(clock()).date;
+
+  /** Every active employee with a salary: what the month's payroll says he is due, and what was paid of it. */
+  async function salaries(period: string) {
+    const rules = await loadRules(db);
+    const emps = await db.query(`SELECT e.id, e.full_name FROM employees e JOIN employee_salaries s ON s.employee_id = e.id
+                                  WHERE e.status = 'active' ORDER BY e.full_name`);
+    const rows = [];
+    for (const e of emps.rows) {
+      const p: any = await computePayroll(db, e.id, period, today(), rules);
+      if (p?.net == null) continue;
+      rows.push({ id: e.id, name: e.full_name, net: r2(n(p.net)), paid: r2(n(p.salaryPaid)), remaining: r2(n(p.net) - n(p.salaryPaid)) });
+    }
+    return rows;
+  }
 
   r.get('/finance/dashboard', async (req) => {
     const a = await authenticate(db, req);
@@ -68,9 +87,12 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
              count(*) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp) AS week_n,
              COALESCE(sum(amount_egp - paid) FILTER (WHERE paid < amount_egp), 0) AS units_remaining
         FROM lines`, [t]);
+    const sal = await salaries(period);
     const out: Record<string, unknown> = {
       currency: 'EGP', month: period.slice(0, 7), cash,
       hr: {
+        salariesDue: r2(sal.reduce((x, y) => x + y.net, 0)), salariesPaid: r2(n(m.salaries_paid)),
+        salariesRemaining: r2(sal.reduce((x, y) => x + Math.max(y.remaining, 0), 0)),
         collections: r2(n(m.collections)), expenses: r2(n(m.hr_expenses)),
         requiredFromOffice: (cash as any).hr ? r2(n((cash as any).hr.deficit)) : 0,
         payrollBatchesOpen: Number(m.batches_open), outstandingAdvances: r2(n(adv.outstanding)),
@@ -88,6 +110,113 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
       };
     }
     return ok(out);
+  });
+
+  /**
+   * What is behind one box of the cashbox page (tap a box → its list). Same visibility as the dashboard:
+   * office lists only for المدير / المالك.
+   */
+  r.get('/finance/dashboard/details', async (req) => {
+    const a = await authenticate(db, req);
+    const hr = canHrView(a), office = canOffice(a);
+    if (!hr && !office) throw forbidden();
+    const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
+    const key = req.query.get('key') ?? '';
+    const boxes = office ? ['hr', 'office'] : ['hr'];
+    type Row = { title: string; sub: string; amount: number; tag?: string };
+    let title = ''; let rows: Row[] = [];
+    const q = async (sql: string, vals: unknown[]) => (await db.query(sql, vals)).rows;
+    const officeOnly = ['office_expenses', 'transfers_open', 'units_remaining'];
+    if (officeOnly.includes(key) && !office) throw forbidden();
+    switch (key) {
+      case 'collections': case 'down_payments': case 'installments_collected': {
+        title = key === 'collections' ? 'تحصيلات الشهر' : key === 'down_payments' ? 'الحجز والمقدمات' : 'الأقساط المحصّلة';
+        const kinds = key === 'collections' ? null : key === 'down_payments' ? ['reservation', 'down_payment'] : ['installment'];
+        rows = (await q(`SELECT ref_no, payer_name, purpose, amount_egp, cashbox, occurred_at FROM cash_receipts
+                          WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND ${IN_MONTH('occurred_at')}
+                            AND ($3::text[] IS NULL OR kind = ANY($3::text[])) ORDER BY occurred_at DESC`, [period, boxes, kinds]))
+          .map((x) => ({ title: x.payer_name, sub: `#${x.ref_no} — ${x.purpose} — ${ds(x.occurred_at).slice(0, 10)}`,
+            amount: n(x.amount_egp), tag: x.cashbox === 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب' }));
+        break;
+      }
+      case 'hr_expenses': case 'office_expenses': {
+        title = key === 'hr_expenses' ? 'مصروفات الـ HR' : 'مصروفات المكتب';
+        rows = (await q(`SELECT ref_no, category, reason, beneficiary, amount_egp, occurred_at FROM cash_expenses
+                          WHERE status = 'posted' AND cashbox = $2 AND ${IN_MONTH('occurred_at')} ORDER BY occurred_at DESC`,
+          [period, key === 'hr_expenses' ? 'hr' : 'office']))
+          .map((x) => ({ title: `${x.category} — ${x.beneficiary}`, sub: `#${x.ref_no} — ${x.reason}`, amount: n(x.amount_egp) }));
+        break;
+      }
+      case 'salaries': {
+        title = 'مرتبات الشهر';
+        rows = (await salaries(period)).map((x) => ({ title: x.name, sub: `الصافي ${x.net} — اتصرف ${x.paid}`, amount: x.remaining,
+          tag: x.remaining <= 0 ? 'اتصرف' : x.paid > 0 ? 'جزء' : 'مستحق' }));
+        break;
+      }
+      case 'salaries_paid': {
+        title = 'مرتبات اتصرفت';
+        rows = (await q(`SELECT e.full_name, p.amount_egp, p.status, p.created_at FROM payouts p JOIN employees e ON e.id = p.employee_id
+                          WHERE p.kind = 'salary' AND p.status <> 'cancelled' AND p.period = $1 ORDER BY p.created_at DESC`, [period]))
+          .map((x) => ({ title: x.full_name, sub: ds(x.created_at).slice(0, 10), amount: n(x.amount_egp),
+            tag: x.status === 'received' ? 'استلم' : x.status === 'disputed' ? 'بلاغ مشكلة' : 'مستني تأكيد' }));
+        break;
+      }
+      case 'advances': {
+        title = 'سلف لسه هتتخصم';
+        rows = (await q(`SELECT e.full_name, ar.period, GREATEST(ar.amount_egp - COALESCE(d.done, 0), 0) AS left_amount, ar.amount_egp
+            FROM advance_requests ar JOIN employees e ON e.id = ar.employee_id
+            LEFT JOIN LATERAL (SELECT sum(x.amount_egp) AS done FROM advance_deductions x
+                                WHERE x.advance_id = ar.id AND x.status = 'active' AND x.period < $1) d ON true
+           WHERE ar.kind = 'advance' AND ar.status = 'confirmed'
+             AND (EXISTS (SELECT 1 FROM advance_deductions y WHERE y.advance_id = ar.id AND y.status = 'active') OR ar.period >= $1)
+           ORDER BY e.full_name`, [period]))
+          .filter((x) => n(x.left_amount) > 0)
+          .map((x) => ({ title: x.full_name, sub: `سلفة ${ds(x.period).slice(0, 7)} — أصلها ${n(x.amount_egp)}`, amount: n(x.left_amount) }));
+        break;
+      }
+      case 'commissions_unpaid': case 'commissions': {
+        title = key === 'commissions' ? 'عمولات الشهر' : 'عمولات مستنية الصرف';
+        rows = (await q(`SELECT e.full_name, ce.amount_egp, ce.period, p.name AS project, cr.unit_no FROM commission_entitlements ce
+            JOIN employees e ON e.id = ce.employee_id JOIN commission_requests cr ON cr.id = ce.request_id JOIN commission_projects p ON p.id = cr.project_id
+           WHERE ce.status = 'active' AND ${key === 'commissions' ? 'ce.period = $1' : `NOT EXISTS (SELECT 1 FROM payouts py WHERE py.commission_entitlement_id = ce.id AND py.status <> 'cancelled') AND $1::date IS NOT NULL`}
+           ORDER BY ce.period DESC, e.full_name`, [period]))
+          .map((x) => ({ title: x.full_name, sub: `${x.project} — وحدة ${x.unit_no} — ${ds(x.period).slice(0, 7)}`, amount: n(x.amount_egp) }));
+        break;
+      }
+      case 'installments_week': case 'installments_overdue': case 'units_remaining': {
+        title = key === 'installments_week' ? 'أقساط مستحقة خلال أسبوع' : key === 'installments_overdue' ? 'أقساط متأخرة' : 'الباقي على الوحدات';
+        const t = today();
+        const cond = key === 'installments_week' ? `i.due_date >= $1 AND i.due_date <= ($1::date + 7)` : key === 'installments_overdue' ? `i.due_date < $1` : `$1::date IS NOT NULL`;
+        rows = (await q(`SELECT s.buyer_name, s.buyer_phone, s.unit_no, p.name AS project, i.seq, i.due_date,
+               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS left_amount
+            FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id
+           WHERE s.status = 'active' AND ${cond} ORDER BY i.due_date`, [t]))
+          .filter((x) => n(x.left_amount) > 0)
+          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`,
+            sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone ? ` — ${x.buyer_phone}` : ''}`,
+            amount: n(x.left_amount) }));
+        break;
+      }
+      case 'transfers_open': {
+        title = 'تحويلات مفتوحة';
+        rows = (await q(`SELECT t.ref_no, t.direction, t.amount_requested, t.status, t.reason FROM cash_transfers t
+                          WHERE t.status IN ('requested','approved','executed') ORDER BY t.requested_at DESC`, []))
+          .map((x) => ({ title: x.direction === 'office_to_hr' ? 'تحويل للـ HR' : 'توريد للمكتب', sub: `#${x.ref_no} — ${x.reason}`,
+            amount: n(x.amount_requested), tag: x.status === 'requested' ? 'مطلوب' : x.status === 'approved' ? 'اتوافق عليه' : 'اتسلّم — مستني تأكيد' }));
+        break;
+      }
+      case 'batches_open': {
+        title = 'دفعات مرتبات مفتوحة';
+        rows = (await q(`SELECT b.ref_no, b.period, b.status, COALESCE(sum(l.net_egp), 0) AS total FROM payroll_batches b
+                          LEFT JOIN payroll_batch_lines l ON l.batch_id = b.id
+                          WHERE b.status IN ('draft','returned','pending_approval') GROUP BY b.id ORDER BY b.period DESC`, []))
+          .map((x) => ({ title: `مرتبات ${ds(x.period).slice(0, 7)}`, sub: `#${x.ref_no}`, amount: n(x.total),
+            tag: x.status === 'pending_approval' ? 'مستنية الاعتماد' : x.status === 'returned' ? 'راجعة للتعديل' : 'مسودة' }));
+        break;
+      }
+      default: throw notFound();
+    }
+    return ok({ key, title, month: period.slice(0, 7), rows, total: r2(rows.reduce((x, y) => x + y.amount, 0)) });
   });
 
   /** One employee's money: payroll per month, payments (with confirmation), advances and commissions. */

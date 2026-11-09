@@ -27,6 +27,8 @@ export const RECEIPT_KIND_AR: Record<string, string> = {
 export const canOffice = (a: Actor) => has(a, 'cash.office');
 export const canHrView = (a: Actor) => has(a, 'cash.hr_view') || has(a, 'cash.office');
 export const canHrOperate = (a: Actor) => has(a, 'cash.hr_operate');
+/** Recording money in / out of the HR cashbox (collections, expenses) is HR's desk only — never المدير / المالك. */
+export const hrDesk = (a: Actor) => canHrOperate(a) && !canOffice(a);
 const canSee = (a: Actor, box: Box) => (box === 'office' ? canOffice(a) : canHrView(a));
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -96,7 +98,7 @@ export async function cashSummary(q: Q, a: Actor) {
   }
   const s = await one(q, `SELECT expense_approval_threshold FROM company_settings LIMIT 1`);
   out.expenseApprovalThreshold = Number(s?.expense_approval_threshold ?? 1000);
-  out.can = { office: canOffice(a), hrView: canHrView(a), hrOperate: canHrOperate(a), settings: has(a, 'cash.settings') };
+  out.can = { office: canOffice(a), hrView: canHrView(a), hrOperate: canHrOperate(a), hrDesk: hrDesk(a), settings: has(a, 'cash.settings') };
   return out;
 }
 
@@ -144,7 +146,7 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
   const occurred = when(b, 'occurredAt', now);
   let box: Box, recipientId: string;
   if (recipient === 'hr') {
-    if (!canHrOperate(a)) throw forbidden();
+    if (!hrDesk(a)) throw forbidden('Only HR records collections into the HR cashbox');
     box = 'hr';
     recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : a.id;
   } else {
@@ -356,7 +358,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
     const box = boxOf(b);
-    if (box === 'office' ? !canOffice(a) : !canHrOperate(a)) throw forbidden();
+    if (box === 'office' ? !canOffice(a) : !hrDesk(a)) throw forbidden('Only HR records HR cashbox expenses');
     const amount = money(b);
     const category = str(b, 'category', { min: 2, max: 80 })!.trim();
     const reason = str(b, 'reason', { min: 2, max: 500 })!.trim();

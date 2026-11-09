@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../core/app_updater.dart';
 import '../payroll/payroll_batches_page.dart';
 import '../cash/cashbox_hub_page.dart';
-import '../finance/finance_dashboard_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
@@ -62,6 +62,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool expandPassword = false;
   bool expandLanguage = false;
   bool _companyOpen = false;
+  bool _financeOpen = false;
   bool _isCheckingUpdate = false;
   PackageInfo? _packageInfo;
 
@@ -78,51 +79,15 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  /// One press: up to date → says so; newer build → downloads it once and offers "تثبيت"
+  /// (already downloaded → straight to "تثبيت", never a second download).
   Future<void> _checkForUpdates() async {
     if (_isCheckingUpdate) return;
-
-    setState(() {
-      _isCheckingUpdate = true;
-    });
-
+    setState(() => _isCheckingUpdate = true);
     try {
-      final result = await UpdateService.checkForUpdate();
-
-      if (!mounted) return;
-
-      if (result['success'] == true) {
-        if (result['update_available'] == true) {
-          UpdateDialog.show(
-            context: context,
-            updateInfo: result,
-            onUpdate: () {
-              UpdateService.downloadAndInstallWithProgress(
-                result['latest_version']['update_url'] ?? '',
-                context,
-                result,
-              );
-            },
-            onLater: () {
-              Navigator.of(context).pop();
-            },
-            forceUpdate: result['force_update'] == true,
-          );
-        } else {
-          _showNoUpdateDialog();
-        }
-      } else {
-        _showUpdateCheckFailedDialog();
-      }
-    } catch (e) {
-      if (mounted) {
-        _showUpdateCheckErrorDialog(e.toString());
-      }
+      await AppUpdater.instance.check(context: context, manual: true);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isCheckingUpdate = false;
-        });
-      }
+      if (mounted) setState(() => _isCheckingUpdate = false);
     }
   }
 
@@ -354,25 +319,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 20),
 
                     SettingsTile(
-                      title: AppLocalizations.of(context, 'attendance') ?? 'تقرير الحضور',
-                      icon: Icons.receipt_long,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AttendanceReportPage(
-                              uid: widget.uid,
-                              name: widget.name,
-                              role: widget.role,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    SettingsTile(
                       title: AppLocalizations.of(context, 'leave_requests') ?? 'طلبات الإجازة',
                       icon: Icons.beach_access,
                       onTap: () {
@@ -391,62 +337,21 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
-                    SettingsTile(
+                    // ─── المالية: قائمة منسدلة (طلبات ومبيعات / الخزنة …) ───
+                    SettingsExpandableTile(
                       title: AppLocalizations.of(context, 'finance') ?? 'المالية',
                       icon: Icons.account_balance_wallet,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AdvanceRequestPage(
-                              uid: widget.uid,
-                              name: widget.name,
-                              role: widget.role,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    if (ApiService.can('cash.hr_view') || ApiService.can('cash.office')) ...[
-                      SettingsTile(
-                        title: 'لوحة المالية والمؤشرات',
-                        icon: Icons.insights_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FinanceDashboardPage())),
+                      expanded: _financeOpen,
+                      onToggle: () => setState(() => _financeOpen = !_financeOpen),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        child: Column(children: [
+                          for (final (i, it) in _financeItems().indexed) ...[
+                            if (i > 0) const SizedBox(height: 12),
+                            _companyOption(appController, it.$1, it.$2, it.$3),
+                          ],
+                        ]),
                       ),
-                      const SizedBox(height: 14),
-                    ],
-                    if (ApiService.can('payroll.prepare') || ApiService.can('payroll.approve')) ...[
-                      SettingsTile(
-                        title: 'دفعات المرتبات',
-                        icon: Icons.payments_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayrollBatchesPage())),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    if (ApiService.can('sales.view')) ...[
-                      SettingsTile(
-                        title: 'المبيعات والأقساط',
-                        icon: Icons.home_work_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesPage())),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    if (ApiService.can('cash.hr_view') || ApiService.can('cash.office')) ...[
-                      SettingsTile(
-                        title: 'الخزينة',
-                        icon: Icons.account_balance_wallet_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1))),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    SettingsTile(
-                      title: 'عمولات المشاريع',
-                      icon: Icons.handshake_rounded,
-                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CommissionsPage())),
                     ),
 
                     const SizedBox(height: 14),
@@ -778,6 +683,17 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// Company settings shown only to the people who can change them (an employee sees none).
+  /// المالية: طلبات ومبيعات + الخزنة؛ والأقساط ودفعات المرتبات لأصحاب الصلاحية، وعمولات المشاريع (كانوا بنود لوحدهم).
+  List<(String, IconData, Widget Function())> _financeItems() => [
+        ('طلبات ومبيعات', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
+        (CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
+            () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
+        if (ApiService.can('sales.view')) ('الأقساط والمبيعات', Icons.home_work_rounded, () => const SalesPage()),
+        if (ApiService.can('payroll.prepare') || ApiService.can('payroll.approve'))
+          ('دفعات المرتبات', Icons.payments_rounded, () => const PayrollBatchesPage()),
+        ('عمولات المشاريع', Icons.handshake_rounded, () => const CommissionsPage()),
+      ];
+
   List<(String, IconData, Widget Function())> _companyItems() => [
         if (ApiService.can('settings.manage')) ('معلومات الشركة', Icons.business, () => const CompanyInfoPage()),
         if (ApiService.can('positions.manage') || ApiService.can('roles.manage'))

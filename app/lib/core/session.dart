@@ -56,8 +56,9 @@ class Session extends ChangeNotifier {
         }
         await refreshMe();
       }
-    } catch (_) {
-      api.token = null;
+    } catch (e) {
+      // only a refused session signs out; no internet / server hiccup keeps the person signed in
+      if (e is ApiException && e.status == 401) api.token = null;
     } finally {
       restoring = false;
       notifyListeners();
