@@ -106,14 +106,20 @@ jobs:
         run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
       - name: Publish the update (the app downloads the newest release by itself)
         if: env.SIGNED == '1' && github.ref == 'refs/heads/main'
-        env: { GH_TOKEN: '${{ github.token }}' }
+        env: { GH_TOKEN: '${{ github.token }}', COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
           V=1.0.${{ github.run_number }}
           cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
           # the same web build for jaurea.com/value-attendance/ (public files only: the app that already ships to every browser)
           (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
           EXTRA=""; [ -f value-attendance-web-wasm-test.zip ] && EXTRA=value-attendance-web-wasm-test.zip
-          gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
+          # Phones update themselves from the *latest* release. A new Android version is published only when the commit
+          # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
+          if printf '%s' "$COMMIT_MSG" | grep -q '\[apk\]'; then
+            gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
+          else
+            gh release create "web-$V" value-attendance-web.zip $EXTRA --title "Web build $V (no Android update)" --notes "نسخة الويب فقط" --prerelease
+          fi
       - uses: actions/upload-artifact@v4
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-pages-artifact@v3
