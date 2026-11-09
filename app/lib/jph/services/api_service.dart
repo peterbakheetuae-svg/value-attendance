@@ -354,12 +354,12 @@ class JphRouter {
         case 'admin_overview':
           return _ok((await _api.get('/dashboard/overview')).cast<String, dynamic>());
         case 'save_late_rules':
+          // tiers: late arrival and early leave use the same fixed-amount tiers (approved policy)
           await _api.patch('/settings', {
             'payrollAutoDeductions': p['enabled'] == true,
-            'deductionMode': 'hourly',
-            'lateFixedAfterMinutes': p['afterMinutes'],
-            'lateFixedAmount': p['fixedAmount'],
-            'lateHourAmount': p['hourAmount'],
+            'deductionMode': 'tiers',
+            'lateTiers': p['tiers'],
+            'earlyTiers': p['tiers'],
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
         // ---- صرف مالية: salary / advance / commission / work-expense payouts and cash handed to HR

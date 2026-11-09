@@ -86,3 +86,9 @@ test('late rule with empty amounts still deducts the late minutes from the salar
   assert.equal(hourlyLateAmount({ ...r, lateHourAmount: 120 }, 90, 1), 180);
   assert.equal(hourlyLateAmount(r, 45, null), 0, 'no salary, no amount: nothing to deduct');
 });
+
+test('approved tier policy: up to 15 min nothing, then 25 / 50 / 100 once per day (late and early leave alike)', async () => {
+  const { tierAmount } = await import('../src/modules/payroll-calc.ts');
+  const policy = [{ afterMinutes: 15, amount: 25 }, { afterMinutes: 30, amount: 50 }, { afterMinutes: 60, amount: 100 }];
+  assert.deepEqual([0, 15, 16, 30, 31, 60, 61, 240].map((m) => tierAmount(policy, m)), [0, 0, 25, 25, 50, 50, 100, 100]);
+});
