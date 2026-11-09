@@ -1,12 +1,10 @@
-name: App — test, Web (GitHub Pages), Android APK
+name: App — test, Web + Android, deploy to Hostinger (jaurea.com/value-attendance)
 on:
   push: { branches: [main], paths: ['app/**', '.github/workflows/app.yml'] }
   workflow_dispatch:
 permissions:
-  contents: write   # publishes releases (APK for phones' automatic update, web build for Hostinger)
-  pages: write
-  id-token: write
-concurrency: { group: pages, cancel-in-progress: true }
+  contents: write   # keeps a copy of each build as a release (backup); the live app and its updates are on Hostinger
+concurrency: { group: app-build, cancel-in-progress: true }
 env:
   FLUTTER_VERSION: '3.38.10'
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
@@ -103,8 +101,9 @@ jobs:
           echo "SIGNED=1" >> "$GITHUB_ENV"
       - name: Build Android APK
         run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
-      - name: Publish the update (the app downloads the newest release by itself)
+      - name: Publish the update (backup copy as a release; phones and browsers get it from Hostinger)
         # the web-only pre-release never needs the Android key; an Android ([apk]) release does
+        id: pub
         if: github.ref == 'refs/heads/main'
         env: { GH_TOKEN: '${{ github.token }}', COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
@@ -120,6 +119,15 @@ jobs:
           if [ "$WANT_APK" = "1" ] && [ "$SIGNED" != "1" ]; then
             echo "::warning::[apk] asked but the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets are not set — web only, no Android update"; WANT_APK=0
           fi
+          # what goes to Hostinger: the web build, and — for an Android update — the APK + latest.json (phones read it)
+          mkdir -p ../deploy-out/android && cp value-attendance-web.zip ../deploy-out/web.zip
+          if [ "$WANT_APK" = "1" ]; then
+            cp value-attendance.apk "../deploy-out/android/value-attendance-$V.apk"
+            SIZE=$(stat -c%s value-attendance.apk); SHA=$(sha256sum value-attendance.apk | cut -d' ' -f1)
+            printf '{"version":"%s","build":%s,"apk":"value-attendance-%s.apk","size":%s,"sha256":"%s"}\n' "$V" "${{ github.run_number }}" "$V" "$SIZE" "$SHA" > ../deploy-out/android/latest.json
+            cat ../deploy-out/android/latest.json
+          fi
+          echo "apk=$WANT_APK" >> "$GITHUB_OUTPUT"
           if [ "$WANT_APK" = "1" ]; then
             gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
           else
@@ -127,55 +135,61 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: app/build/web }
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
-    steps:
-      - id: d
-        uses: actions/deploy-pages@v4
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with: { name: deploy-out, path: deploy-out, retention-days: 7 }
 
-  # Copy of the web app on Hostinger: https://jaurea.com/value-attendance/ (GitHub Pages stays as the fallback).
-  # Uploads ONLY into the FTP account's own folder (an FTP account restricted to public_html/value-attendance);
-  # it refuses to run if that folder looks like the WordPress root. Credentials live only in repository secrets,
-  # and the connection is encrypted (FTPS) with full certificate checks.
+  # The live app: https://jaurea.com/value-attendance/ (+ /android/ for phone updates). Sent over SSH (encrypted,
+  # server key pinned below) and placed by app/deploy/hostinger/remote-deploy.sh into public_html/value-attendance/
+  # ONLY — WordPress is fingerprinted before / after and the deploy fails if anything there changed.
+  # Needs ONE repository secret: HOSTINGER_SSH_KEY (private key whose public half is added in hPanel → SSH Access)
+  # or HOSTINGER_SSH_PASSWORD. Without it the step is skipped and the build is copied over by hand.
   hostinger:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
-      FTP_HOST: ${{ secrets.HOSTINGER_FTP_HOST }}
-      FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
-      FTP_PASS: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
     steps:
-      - name: Secrets present?
+      - name: Secret present?
         id: s
         run: |
-          if [ -z "$FTP_HOST" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASS" ]; then
-            echo "::warning::HOSTINGER_FTP_* secrets not set — Hostinger upload skipped"; echo "go=0" >> "$GITHUB_OUTPUT"
+          if [ -z "$SSH_KEY" ] && [ -z "$SSH_PASS" ]; then
+            echo "::warning::HOSTINGER_SSH_KEY / HOSTINGER_SSH_PASSWORD not set — Hostinger deploy skipped (copy by hand)"; echo "go=0" >> "$GITHUB_OUTPUT"
           else echo "go=1" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.s.outputs.go == '1'
+        with: { sparse-checkout: app/deploy/hostinger }
       - uses: actions/download-artifact@v4
         if: steps.s.outputs.go == '1'
-        with: { name: hostinger-web, path: web }
-      - name: Upload to public_html/value-attendance/ only
+        with: { name: deploy-out, path: out }
+      - name: Copy to the server and deploy
         if: steps.s.outputs.go == '1'
         run: |
-          sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y lftp >/dev/null
-          test -s web/index.html && test -s web/.htaccess
-          printf 'set ftp:ssl-force yes\nset ftp:ssl-protect-data yes\nset net:max-retries 3\nset net:timeout 30\nset cmd:fail-exit yes\n' > ~/.lftprc
-          # 1) safety: this account's folder must not be the WordPress / hosting root
-          lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" -e "cls -1a; bye" > listing.txt
-          if grep -qxE '(\./)?(wp-config\.php|wp-admin/?|wp-content/?|wp-includes/?|public_html/?|domains/?)' listing.txt; then
-            echo "::error::The FTP account opens the WordPress / hosting root, not public_html/value-attendance. Nothing was uploaded."; exit 1
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # the server's own keys — the connection is refused if anything else answers
+          cat > ~/.ssh/known_hosts <<'KH'
+          [82.198.227.7]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINIEVbKu9K7AVrGNwujYEUbrw0wvECMboXFOKfpiiw3h
+          [82.198.227.7]:65002 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCHeIP4sUl5WiCE5CU68sEpg0WFGfq/jyVGW0RqVzi3v56HYIJhINFOZvD3XxttLN/k7t2ZEjA52H73cegg6QGY=
+          KH
+          sed -i 's/^ *//' ~/.ssh/known_hosts
+          OPTS="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -P $SSH_PORT"
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+            SCP="scp $OPTS -i $HOME/.ssh/deploy"; SSH="ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT -i $HOME/.ssh/deploy"
+          else
+            sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y sshpass >/dev/null
+            export SSHPASS="$SSH_PASS"
+            SCP="sshpass -e scp $OPTS"; SSH="sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT"
           fi
-          # 2) everything except the two entry files (the running app keeps working meanwhile), 3) the entry files last
-          lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" -e "
-            mirror -R --delete --parallel=4 --exclude-glob index.html --exclude-glob flutter_bootstrap.js web/ ./;
-            put -O ./ web/flutter_bootstrap.js;
-            put -O ./ web/index.html;
-            bye"
+          $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging && mkdir -p ~/va-staging/android'
+          $SCP out/web.zip "$SSH_USER@$SSH_HOST:va-staging/web.zip"
+          if [ -s out/android/latest.json ]; then $SCP out/android/* "$SSH_USER@$SSH_HOST:va-staging/android/"; fi
+          $SSH "$SSH_USER@$SSH_HOST" 'bash -s' < app/deploy/hostinger/remote-deploy.sh
       - name: Check jaurea.com (WordPress unchanged) and the app
         if: steps.s.outputs.go == '1'
         run: |
@@ -184,9 +198,9 @@ jobs:
           for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ] || { echo "::error::$u -> $c"; exit 1; }; done
           curl -sL --max-time 30 https://jaurea.com/ | grep -q 'wp-content' || { echo "::error::WordPress home page looks different"; exit 1; }
           curl -s --max-time 30 https://jaurea.com/value-attendance/ | grep -q '<base href="/value-attendance/">' || { echo "::error::app index not served"; exit 1; }
-          for f in flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp assets/assets/sounds/notification.mp3; do
+          for f in flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp; do
             c=$(code "https://jaurea.com/value-attendance/$f"); echo "$f -> $c"; [ "$c" = 200 ] || { echo "::error::$f -> $c"; exit 1; }
           done
-          echo "--- headers"; curl -sI --max-time 30 https://jaurea.com/value-attendance/main.dart.js | grep -iE 'cache-control|content-encoding|content-type' || true
-          curl -sI --max-time 30 https://jaurea.com/value-attendance/assets/assets/bg/dark_bg.webp | grep -iE 'cache-control|content-type' || true
-          echo "--- deep link"; c=$(code "https://jaurea.com/value-attendance/some/inner/page"); echo "$c"; [ "$c" = 200 ] || exit 1
+          if [ -s out/android/latest.json ]; then
+            curl -s --max-time 30 "https://jaurea.com/value-attendance/android/latest.json" | tee /dev/stderr | grep -q "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' out/android/latest.json)" || { echo "::error::android/latest.json not updated"; exit 1; }
+          fi

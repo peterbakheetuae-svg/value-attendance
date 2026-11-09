@@ -23,6 +23,7 @@ DirectoryIndex index.html
   AddType font/otf .otf
   AddType font/ttf .ttf
   AddType application/json .json
+  AddType application/vnd.android.package-archive .apk
 </IfModule>
 
 # --- compression (text files; images / audio are already compressed)
@@ -31,12 +32,12 @@ DirectoryIndex index.html
 </IfModule>
 
 # --- caching
-# App code (.js / .mjs / .wasm) and the page itself: always re-checked (cheap 304 when unchanged) so a new deploy shows at once.
+# App code (.js / .mjs / .wasm), the page itself and the Android update (android/latest.json + .apk): always re-checked (cheap 304 when unchanged) so a new deploy shows at once.
 # Images, fonts, sounds: kept 7 days (their names change whenever their content does).
 # No API data is served from here — the API lives on its own host and is never cached by this file.
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
-  <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm)$">
+  <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm|apk)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
   <FilesMatch "\.(webp|png|jpg|jpeg|gif|ico|svg|ttf|otf|woff|woff2|mp3|wav)$">

@@ -9,7 +9,8 @@ import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// App update (Android): every Android build is the latest GitHub release ("v1.0.<build>" + value-attendance.apk).
+/// App update (Android): every Android build is published on the app's own site —
+/// https://jaurea.com/value-attendance/android/latest.json names the newest version and its APK next to it.
 ///  - On start / when the app comes back, and when "التحقق من التحديثات" is pressed, a newer build is looked up.
 ///  - The APK is downloaded ONCE and kept; pressing again never downloads it a second time — it just offers "تثبيت".
 ///  - Only one download at a time. Old APK files are removed once the app is on a newer build.
@@ -18,7 +19,7 @@ class AppUpdater with WidgetsBindingObserver {
   AppUpdater._();
   static final AppUpdater instance = AppUpdater._();
 
-  static const _latest = 'https://api.github.com/repos/peterbakheetuae-svg/value-attendance/releases/latest';
+  static const _base = 'https://jaurea.com/value-attendance/android/';
 
   GlobalKey<NavigatorState>? _nav;
   DateTime? _lastCheck;
@@ -60,24 +61,22 @@ class AppUpdater with WidgetsBindingObserver {
     try {
       final info = await PackageInfo.fromPlatform();
       final mine = int.tryParse(info.buildNumber) ?? 0;
-      final r = await http.get(Uri.parse(_latest), headers: {'Accept': 'application/vnd.github+json'})
+      // {"version":"1.0.N","build":N,"apk":"value-attendance-1.0.N.apk","size":…,"sha256":…}
+      final r = await http.get(Uri.parse('${_base}latest.json?t=${now.millisecondsSinceEpoch}'))
           .timeout(const Duration(seconds: 15));
-      if (r.statusCode != 200) throw Exception('github ${r.statusCode}');
+      if (r.statusCode != 200) throw Exception('update info ${r.statusCode}');
       final j = jsonDecode(r.body) as Map<String, dynamic>;
-      final tag = '${j['tag_name'] ?? ''}'; // v1.0.<build>
-      final build = int.tryParse(tag.split('.').last) ?? 0;
-      final version = tag.replaceFirst('v', '');
+      final build = (j['build'] as num?)?.toInt() ?? 0;
+      final version = '${j['version'] ?? ''}';
       await _cleanup(mine);
       if (build <= mine) {
         if (manual && context != null && context.mounted) _say(context, 'إنت على أحدث نسخة ✅ (${info.version}+${info.buildNumber})');
         return;
       }
-      final asset = ((j['assets'] as List?) ?? const [])
-          .whereType<Map>()
-          .firstWhere((a) => '${a['name']}'.endsWith('.apk'), orElse: () => const {});
-      final url = '${asset['browser_download_url'] ?? ''}';
-      final size = (asset['size'] as num?)?.toInt() ?? 0;
-      if (url.isEmpty) throw Exception('no apk');
+      final apk = '${j['apk'] ?? ''}';
+      if (!RegExp(r'^[\w.-]+\.apk$').hasMatch(apk)) throw Exception('no apk');
+      final url = '$_base$apk';
+      final size = (j['size'] as num?)?.toInt() ?? 0;
       await _offer(url, version, size);
     } catch (_) {
       _lastCheck = null; // try again next time
