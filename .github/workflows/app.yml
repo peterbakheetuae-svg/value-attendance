@@ -104,7 +104,8 @@ jobs:
       - name: Build Android APK
         run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
       - name: Publish the update (the app downloads the newest release by itself)
-        if: env.SIGNED == '1' && github.ref == 'refs/heads/main'
+        # the web-only pre-release never needs the Android key; an Android ([apk]) release does
+        if: github.ref == 'refs/heads/main'
         env: { GH_TOKEN: '${{ github.token }}', COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
           V=1.0.${{ github.run_number }}
@@ -115,6 +116,7 @@ jobs:
           # Phones update themselves from the *latest* release. A new Android version is published only when the commit
           # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
           if printf '%s' "$COMMIT_MSG" | grep -q '\[apk\]'; then
+            [ "$SIGNED" = "1" ] || { echo "::error::[apk] needs the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets"; exit 1; }
             gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
           else
             gh release create "web-$V" value-attendance-web.zip $EXTRA --title "Web build $V (no Android update)" --notes "نسخة الويب فقط" --prerelease
