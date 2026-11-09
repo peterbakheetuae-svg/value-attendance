@@ -1,0 +1,39 @@
+{
+  "template": "custody_receipt",
+  "version": 1,
+  "title": "استمارة استلام عهدة",
+  "source": "استلام العهدة للموظف.docx (approved original, kept next to this file as original.docx)",
+  "page": { "size": "letter", "widthPt": 612, "heightPt": 792, "background": "assets/forms/custody_receipt/v1/template.png" },
+  "font": { "sizePt": 10, "arabic": "assets/fonts/forms/ValueFormNaskh-Regular.ttf", "latin": "assets/fonts/forms/ArimoLatin-Regular.ttf" },
+  "note": "Boxes are the dotted lines / check boxes of the original, in points from the page's top-left corner: [x0, x1, top, bottom].",
+  "text": {
+    "employeeName":     [344.8, 482.0, 137.7, 147.7],
+    "employeeCode":     [432.2, 476.3, 149.2, 159.2],
+    "jobTitle":         [201.4, 324.0, 149.2, 159.2],
+    "department":       [350.6, 475.6, 160.7, 170.7],
+    "directManager":    [351.9, 479.4, 172.2, 182.2],
+    "phoneBrand":       [384.1, 482.2, 208.6, 218.6],
+    "imei":             [154.8, 283.3, 208.6, 218.6],
+    "lineNumber":       [348.4, 493.0, 220.7, 230.7],
+    "conditionOther":   [249.7, 288.8, 232.2, 242.2],
+    "accessoriesOther": [351.4, 493.6, 278.9, 288.9],
+    "signEmployeeName": [355.9, 488.3, 563.6, 573.6],
+    "custodianName":    [338.1, 466.6, 598.2, 608.2],
+    "hrName":           [340.7, 522.7, 621.9, 631.9]
+  },
+  "dates": {
+    "receiptDate": { "day": [441.5, 456.2, 183.7, 193.7], "month": [423.2, 437.9, 183.7, 193.7], "year": [399.9, 419.5, 183.7, 193.7] },
+    "signDate":    { "day": [494.5, 509.2, 586.6, 596.6], "month": [476.2, 490.9, 586.6, 596.6], "year": [452.9, 472.5, 586.6, 596.6] }
+  },
+  "checks": {
+    "condition:new":       [434.7, 443.7, 232.4, 242.4],
+    "condition:used_good": [401.8, 410.7, 232.4, 242.4],
+    "condition:other":     [315.6, 324.6, 232.4, 242.4],
+    "accessory:charger":   [520.4, 529.3, 255.6, 265.6],
+    "accessory:cable":     [376.4, 385.3, 255.6, 265.6],
+    "accessory:case":      [520.4, 529.3, 267.4, 277.4],
+    "accessory:headset":   [376.4, 385.3, 267.4, 277.4],
+    "accessory:other":     [520.4, 529.3, 279.1, 289.2]
+  },
+  "handSigned": ["توقيع الموظف", "توقيع مسؤول العهدة / IT", "توقيع HR"]
+}

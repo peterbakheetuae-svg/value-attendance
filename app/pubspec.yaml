@@ -61,6 +61,11 @@ flutter:
     - assets/sounds/notification.mp3
     - assets/fonts/Cairo-Regular.ttf
     - assets/fonts/Cairo-Bold.ttf
+    # استمارات: custody receipt template v1 (page drawn from the approved original + field map) and its fonts
+    - assets/forms/custody_receipt/v1/fields.json
+    - assets/forms/custody_receipt/v1/template.png
+    - assets/fonts/forms/ValueFormNaskh-Regular.ttf
+    - assets/fonts/forms/ArimoLatin-Regular.ttf
   fonts:
     - family: Cairo
       fonts:

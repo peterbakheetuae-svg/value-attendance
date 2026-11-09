@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/app_updater.dart';
 import '../payroll/payroll_batches_page.dart';
 import '../cash/cashbox_hub_page.dart';
+import '../../forms/custody_receipt_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
@@ -63,6 +64,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool expandLanguage = false;
   bool _companyOpen = false;
   bool _financeOpen = false;
+  bool _formsOpen = false;
   bool _isCheckingUpdate = false;
   PackageInfo? _packageInfo;
 
@@ -355,6 +357,21 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+
+                    // ─── استمارات: pilot — استمارة استلام عهدة only ───
+                    if (CustodyReceiptPage.canUse || ApiService.can('documents.read') || ApiService.can('employee.read_all')) ...[
+                      SettingsExpandableTile(
+                        title: 'استمارات',
+                        icon: Icons.description_rounded,
+                        expanded: _formsOpen,
+                        onToggle: () => setState(() => _formsOpen = !_formsOpen),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: _companyOption(appController, 'استمارة استلام عهدة', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
 
                     // ─── إعدادات الشركة: expands in place like "change password" / "language"; admins only ───
                     if (_companyItems().isNotEmpty) ...[

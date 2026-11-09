@@ -372,12 +372,12 @@ class JphRouter {
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/finance/', '/insights/', '/payroll/employee/'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/finance/', '/insights/', '/payroll/employee/', '/forms/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/'].any(cp.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());

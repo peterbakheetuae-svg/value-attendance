@@ -1,0 +1,54 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { harness, cast, type Harness } from './helpers.ts';
+
+/** استمارات pilot: custody receipt — prefill from the employee record, permanent numbered records, never overwritten. */
+let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
+before(async () => { h = await harness('2026-03-10T08:00:00Z'); c = await cast(h); });
+after(async () => { await h.close(); });
+
+const data = (x: Record<string, unknown> = {}) => ({
+  employeeName: 'موظف ١', employeeCode: 'E1', jobTitle: 'مستشار عقاري', department: '', directManager: 'مدير فريق أ',
+  receiptDate: '2026-03-10', phoneBrand: 'Samsung A15', imei: '356789012345678', lineNumber: '01001234567',
+  condition: 'new', conditionOther: '', accessories: ['charger', 'cable'], accessoriesOther: '',
+  signEmployeeName: '', signDate: '2026-03-10', custodianName: 'قسم IT', hrName: 'مديرة الموارد البشرية', ...x,
+});
+
+test('prefill comes from the employee record; only HR / documents managers use the form', async () => {
+  const p = await h.call(c.t.hr, 'GET', `/forms/custody-receipt/prefill/${c.ids.e1}`);
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  assert.equal(p.body.prefill.employeeName, 'موظف ١');
+  assert.equal(p.body.prefill.employeeCode, 'E1');
+  assert.equal(p.body.prefill.directManager, 'مدير فريق أ');
+  assert.equal(p.body.templateVersion, 1);
+  assert.equal((await h.call(c.t.e1, 'GET', `/forms/custody-receipt/prefill/${c.ids.e1}`)).status, 403);
+  assert.equal((await h.call(c.t.e1, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data() })).status, 403);
+});
+
+test('validation: required fields, condition / accessories "other" need their text', async () => {
+  assert.equal((await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data({ imei: '' }) })).status, 400);
+  assert.equal((await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data({ condition: 'other' }) })).status, 400);
+  assert.equal((await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data({ accessories: ['other'] }) })).status, 400);
+  assert.equal((await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data({ receiptDate: '10/3/2026' }) })).status, 400);
+});
+
+test('each save is a new numbered record with its template version; earlier ones reopen unchanged', async () => {
+  const r1 = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data() });
+  assert.equal(r1.status, 201, JSON.stringify(r1.body));
+  assert.equal(r1.body.receipt.number, 1);
+  assert.equal(r1.body.receipt.templateVersion, 1);
+  assert.equal(r1.body.receipt.data.signEmployeeName, 'موظف ١', 'signature name defaults to the employee');
+  const r2 = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data({ phoneBrand: 'iPhone 13' }) });
+  assert.equal(r2.body.receipt.number, 2);
+  const again = await h.call(c.t.hr, 'GET', `/forms/custody-receipts/${r1.body.receipt.id}`);
+  assert.equal(again.body.receipt.data.phoneBrand, 'Samsung A15', 'not overwritten by the second one');
+  const list = (await h.call(c.t.hr, 'GET', '/forms/custody-receipts')).body.receipts;
+  assert.equal(list.length, 2);
+  // the employee sees his own; others get nothing / 404
+  assert.equal((await h.call(c.t.e1, 'GET', '/forms/custody-receipts')).body.receipts.length, 2);
+  assert.equal((await h.call(c.t.e2, 'GET', '/forms/custody-receipts')).body.receipts.length, 0);
+  assert.equal((await h.call(c.t.e2, 'GET', `/forms/custody-receipts/${r1.body.receipt.id}`)).status, 404);
+  // stored in the immutable documents table: the database refuses edits and deletes
+  await assert.rejects(h.db.query(`DELETE FROM employee_documents WHERE id = $1`, [r1.body.receipt.id]));
+  await assert.rejects(h.db.query(`UPDATE employee_documents SET content = 'x' WHERE id = $1`, [r1.body.receipt.id]));
+});

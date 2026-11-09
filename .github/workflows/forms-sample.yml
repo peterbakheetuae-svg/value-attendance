@@ -1,0 +1,22 @@
+name: Forms — sample PDFs from the app's own code (custody receipt)
+# Builds a blank and a filled custody receipt with the app code (flutter test) and publishes them on the
+# "form-samples" branch, to compare the printed result with the approved original. Nothing is deployed.
+on:
+  push: { branches: [pending-build], paths: ['app/lib/jph/forms/**', 'app/assets/forms/**', 'app/test/custody_receipt_pdf_test.dart', '.github/workflows/forms-sample.yml'] }
+permissions: { contents: write }
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.38.10', channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter test test/custody_receipt_pdf_test.dart
+      - name: Publish the samples on the form-samples branch
+        run: |
+          mkdir -p /tmp/s && cp build/form-samples/*.pdf /tmp/s/
+          cd /tmp/s && git init -q && git checkout -q -b form-samples && git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "custody receipt samples ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" form-samples
