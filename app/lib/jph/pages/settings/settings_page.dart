@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
 import '../../services/session_service.dart';
@@ -406,6 +407,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
+                    if (ApiService.can('sales.view')) ...[
+                      SettingsTile(
+                        title: 'المبيعات والأقساط',
+                        icon: Icons.home_work_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     if (ApiService.can('cash.hr_view') || ApiService.can('cash.office')) ...[
                       SettingsTile(
                         title: 'الخزينة',

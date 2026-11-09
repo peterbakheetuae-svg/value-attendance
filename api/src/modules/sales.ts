@@ -1,0 +1,324 @@
+import { ok, type Module } from '../ctx.ts';
+import { one, type Q } from '../db.ts';
+import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { local } from '../lib/time.ts';
+import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
+import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+
+/**
+ * Financial system, phase 2 — unit sales: reservation → down payment → installments.
+ *  - A sale uses an existing project and the unit number as the commissions system writes it (the link key).
+ *  - One live sale per unit (database index). The schedule is generated once and never edited.
+ *  - Money is always a numbered receipt (cash.ts) tied to the sale and to one schedule line; a line can never be
+ *    collected beyond what is left on it.
+ *  - Cancelling (approved policy: full refund) stops the remaining lines; refunds are expenses linked to the sale.
+ */
+
+const FREQ_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
+const cents = (n: number) => Math.round(n * 100);
+const egp = (c: number) => c / 100;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+const canView = (a: Actor) => has(a, 'sales.view');
+const canManage = (a: Actor) => has(a, 'sales.manage');
+
+function dateParam(b: Record<string, unknown>, field: string, optional = false): string | null {
+  const v = b[field];
+  if ((v === undefined || v === null || v === '') && optional) return null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v + 'T00:00:00Z'))) {
+    throw invalid(`${field} must be a date (YYYY-MM-DD)`, { field });
+  }
+  return v;
+}
+
+function addMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, last)); // 31 Jan + 1 month → 28/29 Feb
+  return target.toISOString().slice(0, 10);
+}
+
+/**
+ * The schedule: down payment (seq 0) + installments whose total is exactly price − down payment;
+ * any rounding difference goes to the last installment.
+ */
+export function buildSchedule(p: { total: number; down: number; downDue: string; frequency: string | null; count: number | null;
+  installmentAmount: number | null; firstDue: string | null }) {
+  const restC = cents(p.total) - cents(p.down);
+  const lines: { seq: number; due: string; amount: number }[] = [{ seq: 0, due: p.downDue, amount: egp(cents(p.down)) }];
+  if (restC <= 0) return lines;
+  if (!p.frequency || !p.firstDue) throw invalid('Choose the installment frequency and the first due date', { field: 'frequency' });
+  let count: number, eachC: number;
+  if (p.installmentAmount && p.installmentAmount > 0) {
+    eachC = cents(p.installmentAmount);
+    count = Math.ceil(restC / eachC);
+  } else if (p.count && p.count > 0) {
+    count = p.count;
+    eachC = Math.floor(restC / count);
+  } else {
+    throw invalid('Give the number of installments or the installment amount', { field: 'installmentsCount' });
+  }
+  if (count > 600) throw invalid('Too many installments', { field: 'installmentsCount' });
+  const months = FREQ_MONTHS[p.frequency];
+  let used = 0;
+  for (let i = 1; i <= count; i++) {
+    const amt = i === count ? restC - used : eachC;
+    used += amt;
+    lines.push({ seq: i, due: addMonths(p.firstDue, months * (i - 1)), amount: egp(amt) });
+  }
+  return lines;
+}
+
+/** Status of one schedule line on a given day. */
+function lineStatus(saleStatus: string, amount: number, paid: number, due: string, today: string) {
+  if (cents(paid) >= cents(amount)) return 'paid';
+  if (saleStatus === 'cancelled') return 'cancelled';
+  if (due < today) return 'overdue';
+  if (paid > 0) return 'partial';
+  if (due === today) return 'due';
+  return 'not_due';
+}
+
+const SALE_SELECT = `SELECT s.*, p.name AS project_name, e.full_name AS created_by_name,
+  COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.sale_id = s.id AND r.status = 'posted'), 0) AS collected,
+  COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.sale_id = s.id AND x.status = 'posted'), 0) AS refunded
+  FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id JOIN employees e ON e.id = s.created_by`;
+
+function shapeSale(s: any) {
+  const collected = Number(s.collected), total = Number(s.total_price), down = Number(s.down_payment);
+  const downPaid = Number(s.down_paid ?? 0);
+  return {
+    id: s.id, refNo: Number(s.ref_no), projectId: s.project_id, projectName: s.project_name, unitNo: s.unit_no,
+    buyerName: s.buyer_name, buyerPhone: s.buyer_phone, buyerContact: s.buyer_contact,
+    totalPrice: total, downPayment: down, downPaid: r2(downPaid), saleDate: String(s.sale_date).slice(0, 10),
+    downPaymentDueDate: String(s.down_payment_due_date).slice(0, 10), frequency: s.frequency, installmentsCount: s.installments_count,
+    firstDueDate: s.first_due_date ? String(s.first_due_date).slice(0, 10) : null, notes: s.notes,
+    status: s.status, stage: s.status === 'cancelled' ? 'cancelled' : collected >= total ? 'completed' : downPaid >= down ? 'installments' : 'reserved',
+    collected: r2(collected), remaining: s.status === 'cancelled' ? 0 : r2(total - collected), refunded: r2(Number(s.refunded)),
+    refundDue: s.status === 'cancelled' ? r2(collected - Number(s.refunded)) : 0,
+    createdByName: s.created_by_name, createdAt: s.created_at, cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason,
+  };
+}
+
+async function loadSale(q: Q, id: string, lock = false) {
+  if (!isUuid(id)) throw notFound();
+  const s = await one(q, `SELECT * FROM unit_sales WHERE id = $1${lock ? ' FOR UPDATE' : ''}`, [id]);
+  if (!s) throw notFound();
+  return s;
+}
+
+export const salesModule: Module = (r, { db, clock }) => {
+  const today = () => local(clock()).date;
+
+  r.post('/sales', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const b = obj(req.body);
+    const projectId = typeof b.projectId === 'string' ? b.projectId : '';
+    if (!isUuid(projectId)) throw invalid('Choose the project', { field: 'projectId' });
+    const unitNo = str(b, 'unitNo', { min: 1, max: 60 })!.trim();
+    const buyerName = str(b, 'buyerName', { min: 2, max: 120 })!.trim();
+    const buyerPhone = (str(b, 'buyerPhone', { optional: true, max: 30 }) ?? '').trim();
+    const buyerContact = (str(b, 'buyerContact', { optional: true, max: 300 }) ?? '').trim();
+    const total = num(b, 'totalPrice', { min: 1, max: 10_000_000_000 })!;
+    const down = num(b, 'downPayment', { min: 0, max: 10_000_000_000 })!;
+    if (cents(down) > cents(total)) throw invalid('The down payment is more than the price', { field: 'downPayment' });
+    const saleDate = dateParam(b, 'saleDate')!;
+    const downDue = dateParam(b, 'downPaymentDueDate')!;
+    const frequency = oneOf(b, 'frequency', ['monthly', 'quarterly', 'semiannual', 'annual'] as const, true) ?? null;
+    const count = num(b, 'installmentsCount', { optional: true, int: true, min: 1, max: 600 }) ?? null;
+    const instAmount = num(b, 'installmentAmount', { optional: true, min: 1, max: 10_000_000_000 }) ?? null;
+    const firstDue = dateParam(b, 'firstDueDate', true);
+    const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
+    const lines = buildSchedule({ total, down, downDue, frequency, count, installmentAmount: instAmount, firstDue });
+    const id = await db.tx(async (q) => {
+      const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1`, [projectId]);
+      if (!p) throw invalid('Choose the project', { field: 'projectId' });
+      const live = await one(q, `SELECT ref_no FROM unit_sales WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status = 'active'`,
+        [projectId, unitNo]);
+      if (live) throw new AppError('conflict', 'This unit already has an active sale', { reason: 'unit_has_buyer', refNo: Number(live.ref_no) });
+      const s = await one(q, `
+        INSERT INTO unit_sales (project_id, unit_no, buyer_name, buyer_phone, buyer_contact, total_price, down_payment, sale_date,
+               down_payment_due_date, frequency, installments_count, first_due_date, notes, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+        [projectId, unitNo, buyerName, buyerPhone, buyerContact, total, down, saleDate, downDue,
+          lines.length > 1 ? frequency : null, lines.length - 1, lines.length > 1 ? firstDue : null, notes, a.id]);
+      for (const l of lines) {
+        await q.query(`INSERT INTO sale_installments (sale_id, seq, due_date, amount_egp) VALUES ($1,$2,$3,$4)`, [s.id, l.seq, l.due, l.amount]);
+      }
+      await audit(q, a.id, 'sales.create', 'unit_sale', s.id, undefined,
+        { projectId, unitNo, buyerName, total, down, frequency, installments: lines.length - 1 });
+      return s.id;
+    });
+    return ok(await saleDetails(db, id, a), 201);
+  });
+
+  async function saleDetails(q: Q, id: string, a: Actor) {
+    const s = await one(q, `${SALE_SELECT} WHERE s.id = $1`, [id]);
+    if (!s) throw notFound();
+    const lines = await q.query(`
+      SELECT i.*, COALESCE(sum(r.amount_egp) FILTER (WHERE r.status = 'posted'), 0) AS paid
+        FROM sale_installments i LEFT JOIN cash_receipts r ON r.installment_id = i.id
+       WHERE i.sale_id = $1 GROUP BY i.id ORDER BY i.seq`, [id]);
+    s.down_paid = Number(lines.rows.find((x) => x.seq === 0)?.paid ?? 0);
+    const t = today();
+    const receipts = await q.query(`${RECEIPT_SELECT} WHERE r.sale_id = $1 ORDER BY r.occurred_at`, [id]);
+    const refunds = await q.query(`SELECT id, ref_no, amount_egp, cashbox, occurred_at, reason, status FROM cash_expenses WHERE sale_id = $1 ORDER BY occurred_at`, [id]);
+    return {
+      currency: 'EGP',
+      sale: shapeSale(s),
+      schedule: lines.rows.map((l) => {
+        const amount = Number(l.amount_egp), paid = Number(l.paid);
+        return { id: l.id, seq: l.seq, kind: l.seq === 0 ? 'down_payment' : 'installment', dueDate: String(l.due_date).slice(0, 10),
+          amount, paid: r2(paid), remaining: r2(Math.max(0, amount - paid)), status: lineStatus(s.status, amount, paid, String(l.due_date).slice(0, 10), t) };
+      }),
+      receipts: receipts.rows.map(shapeReceipt),
+      refunds: refunds.rows.map((x) => ({ id: x.id, refNo: Number(x.ref_no), amount: Number(x.amount_egp), cashbox: x.cashbox,
+        at: x.occurred_at, reason: x.reason, status: x.status })),
+      can: { collect: canManage(a) && s.status === 'active', cancel: has(a, 'sales.cancel') && s.status === 'active',
+        refund: s.status === 'cancelled' && (canOffice(a) || canHrOperate(a)) && has(a, 'sales.cancel') },
+    };
+  }
+
+  r.get('/sales/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canView(a)) throw forbidden();
+    await loadSale(db, req.params.id);
+    return ok(await saleDetails(db, req.params.id, a));
+  });
+
+  r.get('/sales', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canView(a)) throw forbidden();
+    const vals: unknown[] = []; const where: string[] = [];
+    const s = req.query.get('q');
+    if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(s.buyer_name) LIKE $${vals.length} OR lower(s.unit_no) LIKE $${vals.length} OR s.buyer_phone LIKE $${vals.length})`); }
+    const pid = req.query.get('projectId');
+    if (pid && isUuid(pid)) { vals.push(pid); where.push(`s.project_id = $${vals.length}`); }
+    const st = req.query.get('status');
+    if (st === 'active' || st === 'cancelled') { vals.push(st); where.push(`s.status = $${vals.length}`); }
+    const rows = await db.query(`
+      ${SALE_SELECT.replace('FROM unit_sales s', `, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r JOIN sale_installments i ON i.id = r.installment_id
+          WHERE i.sale_id = s.id AND i.seq = 0 AND r.status = 'posted'), 0) AS down_paid FROM unit_sales s`)}
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.created_at DESC LIMIT 500`, vals);
+    return ok({ currency: 'EGP', sales: rows.rows.map(shapeSale) });
+  });
+
+  /**
+   * الأقساط المستحقة: every open schedule line with its paid / remaining amount and status.
+   * Filters: from / to (due date), projectId, unit, buyer, status, overdue=1, today=1.
+   */
+  r.get('/sales/installments/due', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canView(a)) throw forbidden();
+    const t = today();
+    const vals: unknown[] = []; const where: string[] = [];
+    const from = req.query.get('from'), to = req.query.get('to');
+    if (req.query.get('today') === '1') { vals.push(t); where.push(`i.due_date = $${vals.length}`); }
+    if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { vals.push(from); where.push(`i.due_date >= $${vals.length}`); }
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { vals.push(to); where.push(`i.due_date <= $${vals.length}`); }
+    const pid = req.query.get('projectId');
+    if (pid && isUuid(pid)) { vals.push(pid); where.push(`s.project_id = $${vals.length}`); }
+    const unit = req.query.get('unit');
+    if (unit) { vals.push(`%${unit.trim().toLowerCase()}%`); where.push(`lower(s.unit_no) LIKE $${vals.length}`); }
+    const buyer = req.query.get('buyer');
+    if (buyer) { vals.push(`%${buyer.trim().toLowerCase()}%`); where.push(`lower(s.buyer_name) LIKE $${vals.length}`); }
+    if (req.query.get('includeCancelled') !== '1') where.push(`s.status = 'active'`);
+    const rows = await db.query(`
+      SELECT i.id, i.seq, i.due_date, i.amount_egp, s.id AS sale_id, s.unit_no, s.buyer_name, s.buyer_phone, s.status AS sale_status,
+             s.total_price, p.name AS project_name,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.sale_id = s.id AND r.status = 'posted'), 0) AS sale_collected
+        FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY i.due_date, s.buyer_name LIMIT 2000`, vals);
+    let list = rows.rows.map((x) => {
+      const amount = Number(x.amount_egp), paid = Number(x.paid), due = String(x.due_date).slice(0, 10);
+      return { id: x.id, saleId: x.sale_id, seq: x.seq, kind: x.seq === 0 ? 'down_payment' : 'installment', projectName: x.project_name,
+        unitNo: x.unit_no, buyerName: x.buyer_name, buyerPhone: x.buyer_phone, dueDate: due, amount, paid: r2(paid),
+        remaining: r2(Math.max(0, amount - paid)), saleRemaining: x.sale_status === 'cancelled' ? 0 : r2(Number(x.total_price) - Number(x.sale_collected)),
+        status: lineStatus(x.sale_status, amount, paid, due, t) };
+    });
+    const st = req.query.get('status');
+    if (req.query.get('overdue') === '1') list = list.filter((x) => x.status === 'overdue');
+    else if (st) list = list.filter((x) => x.status === st);
+    else if (req.query.get('all') !== '1') list = list.filter((x) => x.status !== 'paid');
+    const sum = (k: 'amount' | 'paid' | 'remaining') => r2(list.reduce((s, x) => s + x[k], 0));
+    return ok({ currency: 'EGP', today: t, installments: list,
+      totals: { amount: sum('amount'), paid: sum('paid'), remaining: sum('remaining'), overdue: r2(list.filter((x) => x.status === 'overdue').reduce((s, x) => s + x.remaining, 0)) } });
+  });
+
+  /** Collect money on one schedule line (reservation / down payment on line 0, installment on the others); partial is fine. */
+  r.post('/sales/:id/collect', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const b = obj(req.body);
+    const lineId = typeof b.installmentId === 'string' ? b.installmentId : '';
+    if (!isUuid(lineId)) throw invalid('Choose the installment', { field: 'installmentId' });
+    const res = await db.tx(async (q) => {
+      const s = await loadSale(q, req.params.id, true);
+      if (s.status !== 'active') throw conflict('This sale was cancelled');
+      const line = await one(q, `SELECT * FROM sale_installments WHERE id = $1 AND sale_id = $2`, [lineId, s.id]);
+      if (!line) throw invalid('Choose an installment of this sale', { field: 'installmentId' });
+      const kind = line.seq === 0 ? (b.kind === 'reservation' ? 'reservation' : 'down_payment') : 'installment';
+      const p = await one(q, `SELECT name FROM commission_projects WHERE id = $1`, [s.project_id]);
+      const input = parseReceipt({ ...b, kind, payerName: b.payerName ?? s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
+        purpose: `${p.name} — وحدة ${s.unit_no} — ${line.seq === 0 ? (kind === 'reservation' ? 'حجز' : 'مقدم') : `قسط ${line.seq}`}` }, a, clock());
+      if (input.ref) {
+        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [input.ref]);
+        if (dup) return { id: dup.id, duplicate: true };
+      }
+      const paid = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE installment_id = $1 AND status = 'posted'`, [line.id]);
+      const left = cents(Number(line.amount_egp)) - cents(Number(paid.s));
+      if (cents(input.amount) > left) {
+        throw new AppError('unprocessable', `Only ${egp(Math.max(0, left))} is left on this installment`, { reason: 'over_collect', remaining: egp(Math.max(0, left)) });
+      }
+      return recordReceipt(q, a, { ...input, saleId: s.id, installmentId: line.id });
+    });
+    const receipt = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [res.id]);
+    return ok({ receipt: shapeReceipt(receipt), duplicate: res.duplicate, ...(await saleDetails(db, req.params.id, a)) }, res.duplicate ? 200 : 201);
+  });
+
+  /** Cancel a sale (approved policy: full refund). Collections stay recorded; the remaining lines stop. */
+  r.post('/sales/:id/cancel', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'sales.cancel')) throw forbidden();
+    const reason = str(obj(req.body), 'reason', { min: 3, max: 500 })!;
+    await db.tx(async (q) => {
+      const s = await loadSale(q, req.params.id, true);
+      if (s.status !== 'active') throw conflict('Already cancelled');
+      await q.query(`UPDATE unit_sales SET status = 'cancelled', cancelled_by = $2, cancelled_at = now(), cancel_reason = $3 WHERE id = $1`, [s.id, a.id, reason]);
+      const c = await one(q, `SELECT COALESCE(sum(amount_egp),0) AS s FROM cash_receipts WHERE sale_id = $1 AND status = 'posted'`, [s.id]);
+      await audit(q, a.id, 'sales.cancel', 'unit_sale', s.id, { status: 'active' }, { status: 'cancelled', reason, refundDue: Number(c.s) });
+    });
+    return ok(await saleDetails(db, req.params.id, a));
+  });
+
+  /** Pay back (part of) what was collected on a cancelled sale — a posted expense linked to the sale. */
+  r.post('/sales/:id/refund', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'sales.cancel')) throw forbidden();
+    const b = obj(req.body);
+    const box = oneOf(b, 'cashbox', ['office', 'hr'] as const)!;
+    if (box === 'office' ? !canOffice(a) : !canHrOperate(a)) throw forbidden();
+    const amount = num(b, 'amount', { min: 0.01, max: 10_000_000_000 })!;
+    const note = str(b, 'reason', { optional: true, max: 500 }) ?? '';
+    await db.tx(async (q) => {
+      const s = await loadSale(q, req.params.id, true);
+      if (s.status !== 'cancelled') throw conflict('Cancel the sale first');
+      const c = await one(q, `SELECT
+          COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE sale_id = $1 AND status = 'posted'),0) AS col,
+          COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE sale_id = $1 AND status = 'posted'),0) AS ref`, [s.id]);
+      const left = cents(Number(c.col)) - cents(Number(c.ref));
+      if (cents(amount) > left) throw new AppError('unprocessable', `Only ${egp(left)} is left to refund`, { reason: 'over_refund', remaining: egp(left) });
+      const x = await one(q, `
+        INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, occurred_at, recorded_by, status, approved_by, approved_at, sale_id)
+        VALUES ($1,$2,'استرداد وحدة',$3,$4,$5,now(),$6,'posted',$6,now(),$7) RETURNING id`,
+        [box, amount, `استرداد بيع وحدة ${s.unit_no}`, s.buyer_name, note, a.id, s.id]);
+      await audit(q, a.id, 'sales.refund', 'unit_sale', s.id, undefined, { amount, cashbox: box, expenseId: x.id });
+    });
+    return ok(await saleDetails(db, req.params.id, a));
+  });
+};

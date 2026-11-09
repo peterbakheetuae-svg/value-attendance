@@ -372,12 +372,12 @@ class JphRouter {
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!cg.startsWith('/cash/')) return _fail('bad path');
+          if (!cg.startsWith('/cash/') && !cg.startsWith('/sales')) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!cp.startsWith('/cash/')) return _fail('bad path');
+          if (!cp.startsWith('/cash/') && !cp.startsWith('/sales')) return _fail('bad path');
           final cr2 = p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
@@ -584,7 +584,7 @@ class JphRouter {
       final msg = _message(e);
       // a repeated request while another one is still waiting / overlapping: a popup, not only a small bar
       final reason = e.details?['reason'];
-      if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold' || reason == 'duplicate_receipt') {
+      if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold' || reason == 'duplicate_receipt' || reason == 'unit_has_buyer') {
         AlertCenter.instance.popupError('مينفعش تكرر الطلب', msg);
       }
       return {'success': false, 'code': e.code, 'status': e.status, 'message': msg};
@@ -604,6 +604,9 @@ class JphRouter {
       return 'عندك $what لسه مستني الموافقة — استنى الرد عليه أو الغيه الأول وبعدين اطلب تاني';
     }
     if (e.details?['reason'] == 'duplicate_receipt') return 'رقم الإيصال ده اتسجل قبل كده';
+    if (e.details?['reason'] == 'unit_has_buyer') return 'الوحدة دي عليها بيع شغال لمشتري تاني في نفس المشروع';
+    if (e.details?['reason'] == 'over_collect') return 'المبلغ أكبر من الباقي على القسط ده (الباقي ${e.details?['remaining']} جنيه)';
+    if (e.details?['reason'] == 'over_refund') return 'المبلغ أكبر من الباقي للاسترداد (${e.details?['remaining']} جنيه)';
     if (e.details?['reason'] == 'split_mismatch') {
       return 'مجموع النسب (${e.details?['sum']}%) لازم يساوي إجمالي العمولة (${e.details?['total']}%)';
     }

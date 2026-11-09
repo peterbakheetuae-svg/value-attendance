@@ -838,3 +838,14 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
     );
   }
 }
+
+// shared with the sales / installments pages
+Future<Map<String, dynamic>> cashGet(String path, [Map<String, dynamic> query = const {}]) => _get(path, query);
+Future<Map<String, dynamic>> cashPost(String path, Map<String, dynamic> body, {String? ok}) => _post(path, body, ok: ok);
+List<Map<String, dynamic>> cashList(Map<String, dynamic> r, String k) => _list(r, k);
+Future<void> cashFormSheet(BuildContext context, bool isDark, String title, List<Widget> Function(StateSetter setS) fields,
+        Future<Map<String, dynamic>> Function() submit) =>
+    _formSheet(context, isDark, title, fields, submit);
+Widget cashSegmented(bool isDark, Map<String, String> options, String value, ValueChanged<String> onChanged) =>
+    _segmented(isDark, options, value, onChanged);
+Widget cashBigButton(bool isDark, String label, IconData icon, VoidCallback onTap) => _bigButton(isDark, label, icon, onTap);

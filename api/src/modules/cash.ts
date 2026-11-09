@@ -16,7 +16,7 @@ import { notify } from './notify.ts';
  * corrections are reversals. Every step is in the audit log.
  */
 
-type Box = 'office' | 'hr';
+export type Box = 'office' | 'hr';
 const BOXES = ['office', 'hr'] as const;
 const RECEIPT_KINDS = ['reservation', 'down_payment', 'installment', 'settlement', 'other'] as const;
 const METHODS = ['cash', 'bank_transfer', 'cheque', 'card', 'wallet'] as const;
@@ -24,9 +24,9 @@ export const RECEIPT_KIND_AR: Record<string, string> = {
   reservation: 'مبلغ حجز', down_payment: 'مقدم وحدة', installment: 'قسط', settlement: 'تسوية', other: 'تحصيل آخر',
 };
 
-const canOffice = (a: Actor) => has(a, 'cash.office');
-const canHrView = (a: Actor) => has(a, 'cash.hr_view') || has(a, 'cash.office');
-const canHrOperate = (a: Actor) => has(a, 'cash.hr_operate');
+export const canOffice = (a: Actor) => has(a, 'cash.office');
+export const canHrView = (a: Actor) => has(a, 'cash.hr_view') || has(a, 'cash.office');
+export const canHrOperate = (a: Actor) => has(a, 'cash.hr_operate');
 const canSee = (a: Actor, box: Box) => (box === 'office' ? canOffice(a) : canHrView(a));
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -118,7 +118,77 @@ async function hrOperators(q: Q, exceptId?: string) {
 
 const fmt = (n: number) => `${r2(n)} جنيه`;
 
-function shapeReceipt(x: any) {
+export interface ReceiptInput {
+  box: Box; recipientId: string; kind: string; amount: number; payerName: string; payerPhone: string; purpose: string;
+  method: string; externalNo: string | null; notes: string; ref: string | null; att: Buffer | null; occurred: Date;
+  saleId?: string | null; installmentId?: string | null;
+}
+
+/**
+ * recipient 'hr' → HR physically got it → HR cashbox, recipient = HR person.
+ * recipient 'manager' → the manager got it himself → office cashbox, recipient = that manager
+ * (HR may type it in for him, but the money is recorded as the manager's, never as HR's).
+ */
+export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): ReceiptInput {
+  const recipient = oneOf(b, 'recipient', ['hr', 'manager'] as const)!;
+  const kind = oneOf(b, 'kind', RECEIPT_KINDS)!;
+  const amount = money(b);
+  const payerName = str(b, 'payerName', { min: 2, max: 120 })!.trim();
+  const payerPhone = (str(b, 'payerPhone', { optional: true, max: 30 }) ?? '').trim();
+  const purpose = str(b, 'purpose', { min: 2, max: 300 })!.trim();
+  const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
+  const externalNo = (str(b, 'externalNo', { optional: true, max: 40 }) ?? '').trim() || null;
+  const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
+  const ref = clientRef(b);
+  const att = attachment(b);
+  const occurred = when(b, 'occurredAt', now);
+  let box: Box, recipientId: string;
+  if (recipient === 'hr') {
+    if (!canHrOperate(a)) throw forbidden();
+    box = 'hr';
+    recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : a.id;
+  } else {
+    if (!canOffice(a) && !canHrOperate(a)) throw forbidden();
+    box = 'office';
+    recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : (canOffice(a) ? a.id : '');
+    if (!recipientId) throw invalid('Choose the manager who received the money', { field: 'recipientId' });
+  }
+  if (!isUuid(recipientId)) throw invalid('recipientId is invalid', { field: 'recipientId' });
+  const saleId = typeof b.saleId === 'string' && b.saleId ? b.saleId : null;
+  const installmentId = typeof b.installmentId === 'string' && b.installmentId ? b.installmentId : null;
+  return { box, recipientId, kind, amount, payerName, payerPhone, purpose, method, externalNo, notes, ref, att, occurred, saleId, installmentId };
+}
+
+/** Writes one numbered receipt (inside the caller's transaction); the same form sent twice gives the same receipt. */
+export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ id: string; duplicate: boolean }> {
+  if (x.ref) {
+    const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [x.ref]);
+    if (dup) return { id: dup.id, duplicate: true };
+  }
+  const perm = x.box === 'hr' ? 'cash.hr_operate' : 'cash.office';
+  const ok2 = await one(q, `SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
+                             WHERE e.id = $1 AND e.status = 'active' AND rp.perm_key = $2`, [x.recipientId, perm]);
+  if (!ok2) throw invalid(x.box === 'hr' ? 'The recipient must be from HR' : 'The recipient must be the manager or the owner', { field: 'recipientId' });
+  if (x.externalNo && await one(q, `SELECT 1 FROM cash_receipts WHERE lower(trim(external_no)) = lower(trim($1))`, [x.externalNo])) {
+    throw new AppError('conflict', 'This receipt number was already recorded', { reason: 'duplicate_receipt' });
+  }
+  const row = await one(q, `
+    INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
+           external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, ref_no`,
+    [x.kind, x.amount, x.box, x.recipientId, x.payerName, x.payerPhone, x.purpose, x.method, x.externalNo, x.ref, x.notes, x.att,
+      x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null]);
+  await audit(q, a.id, 'cash.receipt', 'cash_receipt', row.id, undefined,
+    { kind: x.kind, amount: x.amount, cashbox: x.box, recipientId: x.recipientId, payerName: x.payerName, purpose: x.purpose,
+      externalNo: x.externalNo, saleId: x.saleId ?? null, installmentId: x.installmentId ?? null });
+  if (x.box === 'office' && x.recipientId !== a.id) {
+    await notify(q, { to: x.recipientId, type: 'cash_receipt', title: `تحصيل باسمك: ${fmt(x.amount)}`,
+      body: `${RECEIPT_KIND_AR[x.kind]} — ${x.payerName}`, entity: 'cash_receipt', entityId: row.id, dedupeKey: `cash:receipt:${row.id}` });
+  }
+  return { id: row.id, duplicate: false };
+}
+
+export function shapeReceipt(x: any) {
   return {
     id: x.id, refNo: Number(x.ref_no), receiptNo: `R-${String(x.ref_no).padStart(6, '0')}`, kind: x.kind, kindAr: RECEIPT_KIND_AR[x.kind],
     amount: Number(x.amount_egp), cashbox: x.cashbox, actualRecipientId: x.actual_recipient_id, actualRecipientName: x.recipient_name,
@@ -157,7 +227,7 @@ function shapeTransfer(x: any, a: Actor) {
   };
 }
 
-const RECEIPT_SELECT = `SELECT r.*, (r.attachment IS NOT NULL) AS has_attachment, rc.full_name AS recipient_name, rb.full_name AS recorded_by_name
+export const RECEIPT_SELECT = `SELECT r.*, (r.attachment IS NOT NULL) AS has_attachment, rc.full_name AS recipient_name, rb.full_name AS recorded_by_name
   FROM cash_receipts r JOIN employees rc ON rc.id = r.actual_recipient_id JOIN employees rb ON rb.id = r.recorded_by`;
 const EXPENSE_SELECT = `SELECT x.*, (x.attachment IS NOT NULL) AS has_attachment, rb.full_name AS recorded_by_name,
   ap.full_name AS approved_by_name, rv.full_name AS reviewed_by_name
@@ -242,56 +312,9 @@ export const cashModule: Module = (r, { db, clock }) => {
    */
   r.post('/cash/receipts', async (req) => {
     const a = await authenticate(db, req);
-    const b = obj(req.body);
-    const recipient = oneOf(b, 'recipient', ['hr', 'manager'] as const)!;
-    const kind = oneOf(b, 'kind', RECEIPT_KINDS)!;
-    const amount = money(b);
-    const payerName = str(b, 'payerName', { min: 2, max: 120 })!.trim();
-    const payerPhone = (str(b, 'payerPhone', { optional: true, max: 30 }) ?? '').trim();
-    const purpose = str(b, 'purpose', { min: 2, max: 300 })!.trim();
-    const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
-    const externalNo = (str(b, 'externalNo', { optional: true, max: 40 }) ?? '').trim() || null;
-    const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
-    const ref = clientRef(b);
-    const att = attachment(b);
-    const occurred = when(b, 'occurredAt', clock());
-    let box: Box, recipientId: string;
-    if (recipient === 'hr') {
-      if (!canHrOperate(a)) throw forbidden();
-      box = 'hr';
-      recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : a.id;
-    } else {
-      if (!canOffice(a) && !canHrOperate(a)) throw forbidden();
-      box = 'office';
-      recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : (canOffice(a) ? a.id : '');
-      if (!recipientId) throw invalid('Choose the manager who received the money', { field: 'recipientId' });
-    }
-    if (!isUuid(recipientId)) throw invalid('recipientId is invalid', { field: 'recipientId' });
-    const row = await db.tx(async (q) => {
-      if (ref) {
-        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [ref]);
-        if (dup) return { id: dup.id, duplicate: true };
-      }
-      const perm = box === 'hr' ? 'cash.hr_operate' : 'cash.office';
-      const ok2 = await one(q, `SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-                                 WHERE e.id = $1 AND e.status = 'active' AND rp.perm_key = $2`, [recipientId, perm]);
-      if (!ok2) throw invalid(box === 'hr' ? 'The recipient must be from HR' : 'The recipient must be the manager or the owner', { field: 'recipientId' });
-      if (externalNo && await one(q, `SELECT 1 FROM cash_receipts WHERE lower(trim(external_no)) = lower(trim($1))`, [externalNo])) {
-        throw new AppError('conflict', 'This receipt number was already recorded', { reason: 'duplicate_receipt' });
-      }
-      const x = await one(q, `
-        INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
-               external_no, client_ref, notes, attachment, occurred_at, recorded_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, ref_no`,
-        [kind, amount, box, recipientId, payerName, payerPhone, purpose, method, externalNo, ref, notes, att, occurred, a.id]);
-      await audit(q, a.id, 'cash.receipt', 'cash_receipt', x.id, undefined,
-        { kind, amount, cashbox: box, recipientId, payerName, purpose, externalNo });
-      if (box === 'office' && recipientId !== a.id) {
-        await notify(q, { to: recipientId, type: 'cash_receipt', title: `تحصيل باسمك: ${fmt(amount)}`,
-          body: `${RECEIPT_KIND_AR[kind]} — ${payerName}`, entity: 'cash_receipt', entityId: x.id, dedupeKey: `cash:receipt:${x.id}` });
-      }
-      return { id: x.id, duplicate: false };
-    });
+    const input = parseReceipt(obj(req.body), a, clock());
+    if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
+    const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
     return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
   });
