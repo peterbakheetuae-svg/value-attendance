@@ -1,4 +1,5 @@
 #!/bin/bash
+# Android updates are served from jaurea.com/value-attendance/android/ (latest.json + the APK); signed with the key in the repository secrets.
 # Runs ON the Hostinger server (sent over SSH by the build). Puts the new web build — and, when there is one,
 # the new Android update — into public_html/value-attendance/ ONLY. WordPress (the rest of public_html) is never
 # touched: its key files are fingerprinted before and after, and the deploy fails if anything there changed.
