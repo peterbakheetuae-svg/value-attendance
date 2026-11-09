@@ -391,7 +391,6 @@ class CustodyReceiptPreview extends StatelessWidget {
                   allowPrinting: true,
                   pdfFileName: '$name.pdf',
                   dynamicLayout: false,
-                  usePrinterSettings: false,
                   actionBarTheme: PdfActionBarTheme(backgroundColor: JphUi.primary(isDark), iconColor: Colors.white),
                 ),
               ),
