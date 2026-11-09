@@ -65,14 +65,17 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     final w = b[1] - b[0];
     return pw.Positioned(
       left: b[0],
-      top: b[3] - 15.0, // baseline ~3.5pt above the dots, like writing on the line
+      top: b[3] - 13.6, // baseline just above the dots, like writing on the line
       child: pw.SizedBox(
         width: w,
         height: 11.5,
         child: pw.FittedBox(
           fit: pw.BoxFit.scaleDown,
           alignment: pw.Alignment.bottomCenter,
-          child: pw.Text(v, style: style, textDirection: _arabic.hasMatch(v) ? pw.TextDirection.rtl : pw.TextDirection.ltr),
+          // Latin letters / digits are taller than the Arabic ones at the same size: one point smaller keeps the row even
+          child: _arabic.hasMatch(v)
+              ? pw.Text(v, style: style, textDirection: pw.TextDirection.rtl)
+              : pw.Text(v, style: style.copyWith(fontSize: t.fontSize - 1), textDirection: pw.TextDirection.ltr),
         ),
       ),
     );
