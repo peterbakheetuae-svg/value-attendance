@@ -129,7 +129,7 @@ export interface ReceiptInput {
 /**
  * recipient 'hr' → HR physically got it → HR cashbox, recipient = HR person.
  * recipient 'manager' → the manager got it himself → office cashbox, recipient = that manager
- * (HR may type it in for him, but the money is recorded as the manager's, never as HR's).
+ * (recorded by the manager / owner only — HR never collects into the office cashbox).
  */
 export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): ReceiptInput {
   const recipient = oneOf(b, 'recipient', ['hr', 'manager'] as const)!;
@@ -150,9 +150,11 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
     box = 'hr';
     recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : a.id;
   } else {
-    if (!canOffice(a) && !canHrOperate(a)) throw forbidden();
+    // the office cashbox is the manager's / owner's own: HR never records a collection into it (and the manager
+    // never records one into the HR cashbox — see above)
+    if (!canOffice(a)) throw forbidden('Only the manager or the owner records collections into the office cashbox');
     box = 'office';
-    recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : (canOffice(a) ? a.id : '');
+    recipientId = typeof b.recipientId === 'string' && b.recipientId ? b.recipientId : a.id;
     if (!recipientId) throw invalid('Choose the manager who received the money', { field: 'recipientId' });
   }
   if (!isUuid(recipientId)) throw invalid('recipientId is invalid', { field: 'recipientId' });

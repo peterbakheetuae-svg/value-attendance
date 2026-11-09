@@ -33,14 +33,16 @@ class IdCardPage extends StatelessWidget {
           child: Directionality(
             textDirection: isRTL ? TextDirection.rtl : TextDirection.ltr,
             child: Scaffold(
+              extendBody: true,
               backgroundColor: Colors.transparent,
               bottomNavigationBar: GlassBottomNav(
                 currentIndex: 1, // لأن IdCard هو الفهرس 1
                 onTap: (index) => AppNav.go(context, index, current: -1, uid: uid, name: name, role: role),
               ),
               body: SafeArea(
+                bottom: false,
                 child: ListView(
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
                   children: [
                     PageHeader(title: AppLocalizations.of(context, 'id_card')), // ✅ ترجمة
                     const SizedBox(height: 20),

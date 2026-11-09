@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../core/app_updater.dart';
-import '../payroll/payroll_batches_page.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../../forms/custody_receipt_page.dart';
 import '../sales/sales_page.dart';
@@ -308,8 +307,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 onTap: (index) => AppNav.go(context, index, current: 3, uid: widget.uid, name: widget.name, role: widget.role),
               ),
               body: SafeArea(
+                bottom: false,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 110),
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
                   children: [
                     Text(
                       AppLocalizations.of(context, 'settings') ?? 'الإعدادات',
@@ -700,14 +700,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// Company settings shown only to the people who can change them (an employee sees none).
-  /// المالية: طلبات ومبيعات + الخزنة؛ والأقساط ودفعات المرتبات لأصحاب الصلاحية، وعمولات المشاريع (كانوا بنود لوحدهم).
+  /// المالية: طلبات ومبيعات + الخزنة (فيها صرف السلف والمرتبات والعمولات)؛ والأقساط لأصحاب الصلاحية، وعمولات المشاريع.
   List<(String, IconData, Widget Function())> _financeItems() => [
         ('طلبات ومبيعات', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
         (CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
         if (ApiService.can('sales.view')) ('الأقساط والمبيعات', Icons.home_work_rounded, () => const SalesPage()),
-        if (ApiService.can('payroll.prepare') || ApiService.can('payroll.approve'))
-          ('دفعات المرتبات', Icons.payments_rounded, () => const PayrollBatchesPage()),
         ('عمولات المشاريع', Icons.handshake_rounded, () => const CommissionsPage()),
       ];
 

@@ -8,6 +8,8 @@ import '../widgets/jph_form_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/FinancialRequestApi.dart';
+import '../services/api_service.dart';
+import 'cash/cash_page.dart' show cashGet, cashPost, cashList, cashFormSheet, cashSegmented;
 import '../services/app_controller.dart';
 import '../widgets/app_background.dart';
 import '../theme/app_colors.dart';
@@ -1507,6 +1509,124 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     );
   }
 
+  Widget _payoutButton(String label, IconData icon, Color color, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _busyPayout ? null : onTap,
+            icon: Icon(icon, size: 18),
+            label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+      );
+
+  bool _busyPayout = false;
+
+  Future<bool> _confirm(String title, String body) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => Directionality(
+          textDirection: ui.TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+            title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
+            content: Text(body, textAlign: TextAlign.center),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
+              FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('تأكيد')),
+            ],
+          ),
+        ),
+      ) ==
+      true;
+
+  Future<void> _runPayout(Map<String, dynamic> body) async {
+    setState(() => _busyPayout = true);
+    try {
+      final r = await ApiService.post(body);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${r['message'] ?? (r['success'] == true ? 'تم ✅' : 'حصلت مشكلة')}'),
+        backgroundColor: r['success'] == true ? Colors.green : const Color(0xFFD04545),
+      ));
+      if (r['success'] == true) await _loadFinancialRequests();
+    } finally {
+      if (mounted) setState(() => _busyPayout = false);
+    }
+  }
+
+  Future<void> _pay(Map<String, dynamic> r) async {
+    final amount = (r['amount'] as num?) ?? 0;
+    if (!await _confirm('صرف ${r['requestType'] ?? ''}', '${r['employeeName'] ?? ''} — ${_fmtAmount(amount)} جنيه\n'
+        'هيظهر عنده "تم الاستلام"، والمبلغ بيتخصم من الخزنة لما يأكد.')) return;
+    await _runPayout({
+      'action': 'payout_create', 'employeeId': r['employeeUuid'], 'kind': r['kind'], 'amount': amount,
+      'month': r['periodMonth'], 'advanceId': r['id'],
+    });
+  }
+
+  Future<void> _receive(Map<String, dynamic> r) async {
+    if (!await _confirm('تأكيد الاستلام', 'استلمت ${_fmtAmount((r['amount'] as num?) ?? 0)} جنيه؟')) return;
+    await _runPayout({'action': 'payout_receive', 'id': r['payoutId']});
+  }
+
+  /// The advance's repayment plan: by default the whole advance comes off its own month's salary;
+  /// HR can split it (two months at most) — never more than the advance, never in a month already paid.
+  Future<void> _deductions(Map<String, dynamic> req) async {
+    final isDark = Provider.of<AppController>(context, listen: false).isDark;
+    final r = await cashGet('/advances/open');
+    if (!mounted) return;
+    final a = cashList(r, 'advances').where((x) => '${x['id']}' == '${req['id']}').firstOrNull;
+    if (a == null) {
+      JphUi.toast(context, {'success': false, 'message': '${r['message'] ?? 'مش لاقي السلفة'}'});
+      return;
+    }
+    final now = DateTime.now();
+    String month = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final left = a['mode'] == 'manual' ? a['remaining'] : a['amount'];
+    final amount = TextEditingController(text: '$left');
+    final months = [
+      for (var i = -1; i <= 3; i++)
+        (() {
+          final d = DateTime(now.year, now.month + i);
+          return '${d.year}-${d.month.toString().padLeft(2, '0')}';
+        })()
+    ];
+    final plan = ((a['deductions'] as List?) ?? const []).whereType<Map>().where((d) => d['status'] == 'active').toList();
+    await cashFormSheet(context, isDark, 'خصم سلفة ${a['employeeName']}', (s) => [
+          Text(
+              a['mode'] == 'manual'
+                  ? 'الباقي من السلفة: ${JphUi.money(a['remaining'])}'
+                  : 'من غير جدول: السلفة كلها بتتخصم من مرتب شهرها. تقدر تقسمها على شهرين بالكتير.',
+              style: TextStyle(color: JphUi.sub(isDark))),
+          for (final d in plan)
+            Row(children: [
+              Expanded(child: Text('• ${JphUi.monthAr('${d['month']}')}: ${JphUi.money(d['amount'])}', style: TextStyle(color: JphUi.text(isDark)))),
+              TextButton(
+                onPressed: () async {
+                  final x = await cashPost('/advances/deductions/${d['id']}/cancel', {}, ok: 'اتلغى الخصم');
+                  if (mounted) JphUi.toast(context, x);
+                  if (x['success'] == true && mounted) Navigator.pop(context);
+                },
+                child: const Text('إلغاء', style: TextStyle(color: Colors.red)),
+              ),
+            ]),
+          const SizedBox(height: 10),
+          cashSegmented(isDark, {for (final m in months) m: JphUi.monthAr(m)}, month, (v) => s(() => month = v)),
+          const SizedBox(height: 10),
+          JphUi.input(isDark: isDark, label: 'المبلغ اللي يتخصم', controller: amount, number: true, suffix: 'جنيه'),
+        ], () => cashPost('/advances/${a['id']}/deductions', {'month': month, 'amount': num.tryParse(amount.text.trim())}, ok: 'اتسجل الخصم ✅'));
+  }
+
+  String _fmtAmount(num v) => v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(2);
+
   Widget _buildFinancialRequestCard({
     required Map<String, dynamic> request,
     required int index,
@@ -1759,6 +1879,28 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
               ),
               const SizedBox(height: 12),
             ],
+
+            // after approval: HR pays (صرف) → the employee confirms (تم الاستلام) → only then it leaves the HR cashbox
+            if (!isPending && (request['stageLabel'] ?? '').toString().isNotEmpty) ...[
+              Text(request['stageLabel'].toString(),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                      color: request['payment'] == 'received' ? Colors.green.shade700 : Colors.orange.shade700)),
+              const SizedBox(height: 8),
+            ],
+            if (request['canPay'] == true)
+              _payoutButton('صرف', Icons.payments_rounded, AppColors.primary, () => _pay(request)),
+            if (request['canReceive'] == true)
+              _payoutButton('تم الاستلام', Icons.check_circle_rounded, Colors.green, () => _receive(request)),
+            // خصم السلفة من المرتب: بيتحدد هنا من الطلبات المالية (الطريقة الوحيدة)
+            if (rawStatus == 'مؤكد' && request['kind'] == 'advance' && ApiService.can('payroll.prepare'))
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  onPressed: () => _deductions(request),
+                  icon: const Icon(Icons.event_repeat_rounded),
+                  label: const Text('خصم السلفة من المرتب'),
+                ),
+              ),
 
             // EXPANDABLE CONTENT
             if (isExpanded) ...[

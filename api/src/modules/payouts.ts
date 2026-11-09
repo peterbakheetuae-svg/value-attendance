@@ -5,6 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 import { notify } from './notify.ts';
+import { computePayroll, loadRules } from './payroll-calc.ts';
 
 const KINDS = ['salary', 'advance', 'commission', 'work_expense'] as const;
 export const PAYOUT_AR: Record<string, string> = {
@@ -88,8 +89,11 @@ export const payoutsModule: Module = (r, { db, clock }) => {
         if (!has(a, 'finance.disburse')) throw forbidden('Only HR pays employees');
         // the HR cashbox may go below zero (approved policy): the deficit shows to the manager as money to transfer
         if (advanceId) {
-          const adv = await one(q, `SELECT * FROM advance_requests WHERE id = $1`, [advanceId]);
+          // paying an approved financial request (سلفة / مصاريف عمل): the amount is the approved one
+          const adv = await one(q, `SELECT * FROM advance_requests WHERE id = $1 FOR UPDATE`, [advanceId]);
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });
+          if (adv.kind !== kind) throw invalid('The payment kind does not match the request', { field: 'kind' });
+          if (Math.round(Number(adv.amount_egp) * 100) !== Math.round(amount * 100)) throw invalid(`The approved amount is ${Number(adv.amount_egp)}`, { field: 'amount' });
           if (await one(q, `SELECT 1 FROM payouts WHERE advance_id = $1 AND status <> 'cancelled'`, [advanceId])) throw conflict('This advance was already paid');
         }
         if (entitlementId) {
@@ -108,6 +112,72 @@ export const payoutsModule: Module = (r, { db, clock }) => {
       await audit(q, a.id, 'payout.create', 'payout', p.id, undefined, { kind, amount, employeeId, period });
       await notify(q, { to: employeeId, type: 'payout_pending', title: `${PAYOUT_AR[kind]}: ${amount} جنيه — أكّد الاستلام`,
         body: `من ${a.fullName}${note ? ' — ' + note : ''}`, entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}:pending` });
+      return p;
+    });
+    return ok({ payout: shape(row, a) }, 201);
+  });
+
+  // ------------------------------------------------------------------ salaries (one month at a time)
+  /**
+   * The month's salary of every active employee who has one: what is due in cash — the payroll's net without the
+   * commissions and the work expenses (those are paid on their own: صرف العمولة / صرف الطلب) — and what was paid.
+   */
+  async function salaryRow(q: Q, e: { id: string; full_name: string; code?: string }, period: string, rules: any, t: string) {
+    const p: any = await computePayroll(q, e.id, period, t, rules);
+    if (p?.net == null) return null;
+    const due = Math.round((Number(p.net) - Number(p.commissions) - Number(p.workExpenses)) * 100) / 100;
+    const pays = await q.query(`SELECT id, amount_egp, status, created_at, received_at FROM payouts
+                                 WHERE employee_id = $1 AND period = $2 AND kind = 'salary' AND status <> 'cancelled'
+                                 ORDER BY created_at`, [e.id, period]);
+    const paid = Math.round(pays.rows.reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
+    const received = Math.round(pays.rows.filter((x) => x.status === 'received').reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
+    const remaining = Math.round((due - paid) * 100) / 100;
+    const waiting = pays.rows.some((x) => x.status === 'pending' || x.status === 'disputed');
+    return { employeeId: e.id, employeeName: e.full_name, employeeCode: e.code ?? null, month: period.slice(0, 7), due, paid, received, remaining,
+      complete: !!p.complete,
+      status: remaining > 0.009 ? (paid > 0 ? 'partly_paid' : 'unpaid') : waiting ? 'awaiting_receipt' : paid > 0 ? 'received' : 'nothing_due',
+      payments: pays.rows.map((x) => ({ id: x.id, amount: Number(x.amount_egp), status: x.status, createdAt: x.created_at, receivedAt: x.received_at })) };
+  }
+
+  r.get('/payouts/salaries', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'finance.disburse') && !has(a, 'finance.read')) throw forbidden();
+    const period = monthParam(req.query.get('month') ?? local(clock()).date.slice(0, 7));
+    const rules = await loadRules(db);
+    const t = local(clock()).date;
+    const emps = await db.query(`SELECT e.id, e.full_name, e.code FROM employees e JOIN employee_salaries s ON s.employee_id = e.id
+                                  WHERE e.status = 'active' ORDER BY e.full_name`);
+    const rows: any[] = [];
+    for (const e of emps.rows) {
+      const x = await salaryRow(db, e, period, rules, t);
+      if (x) rows.push({ ...x, canPay: x.remaining > 0.009 && has(a, 'finance.disburse') && e.id !== a.id });
+    }
+    const sum = (k: 'due' | 'paid' | 'remaining') => Math.round(rows.reduce((s, x) => s + Math.max(0, x[k]), 0) * 100) / 100;
+    return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, totals: { due: sum('due'), paid: sum('paid'), remaining: sum('remaining') } });
+  });
+
+  /** صرف الراتب: hands the employee what is left of the month's salary; it leaves the HR cashbox once he confirms. */
+  r.post('/payouts/salary', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'finance.disburse')) throw forbidden('Only HR pays employees');
+    const b = obj(req.body);
+    const employeeId = typeof b.employeeId === 'string' ? b.employeeId : '';
+    if (!isUuid(employeeId)) throw invalid('Choose the employee', { field: 'employeeId' });
+    if (employeeId === a.id) throw forbidden('You cannot pay yourself');
+    const period = monthParam(typeof b.month === 'string' && b.month ? b.month : local(clock()).date.slice(0, 7));
+    const rules = await loadRules(db);
+    const row = await db.tx(async (q) => {
+      const emp = await one(q, `SELECT id, full_name, code, status FROM employees WHERE id = $1 FOR UPDATE`, [employeeId]);
+      if (!emp || emp.status !== 'active') throw notFound('Employee not found');
+      const x = await salaryRow(q, emp, period, rules, local(clock()).date);
+      if (!x) throw invalid('This employee has no salary set', { field: 'employeeId' });
+      if (x.remaining <= 0.009) throw new AppError('conflict', 'This salary was already paid', { reason: 'already_paid' });
+      const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, created_by)
+                              VALUES ($1,'salary',$2,$3,$4,$5) RETURNING *`,
+        [employeeId, x.remaining, period, `مرتب ${period.slice(0, 7)}`, a.id]);
+      await audit(q, a.id, 'payout.salary', 'payout', p.id, undefined, { employeeId, period, amount: x.remaining, due: x.due });
+      await notify(q, { to: employeeId, type: 'payout_pending', title: `مرتب ${period.slice(0, 7)}: ${x.remaining} جنيه — أكّد الاستلام`,
+        body: `من ${a.fullName}`, entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}:pending` });
       return p;
     });
     return ok({ payout: shape(row, a) }, 201);

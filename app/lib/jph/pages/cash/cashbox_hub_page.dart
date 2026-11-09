@@ -8,12 +8,12 @@ import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
-import '../advance_summary.dart';
 import '../attendance/attendance_widgets.dart';
 import 'cash_page.dart';
+import 'payout_tabs.dart';
 
 /// الخزنة (كانت "ملخص المالية"): صفحة واحدة بشريط زي الصفحة الرئيسية — اسحب يمين وشمال:
-///   الطلبات | الخزنة (الأرصدة وكل أرقام الشهر، التحويلات، المصروفات، التحصيلات) | السجل (كل حركات الفلوس).
+///   الطلبات (وتحتها: سلف | مرتبات | عمولات) | الخزنة (الأرصدة وكل أرقام الشهر، التحويلات، المصروفات، التحصيلات) | السجل.
 /// فلتر الشهر فوق على الشمال زي تقرير الحضور، وبيطبق على التبويبات كلها.
 /// اللي ملوش صلاحية خزنة بيشوف الطلبات بس.
 class CashboxHubPage extends StatefulWidget {
@@ -78,7 +78,8 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
                       if (cash) ('السجل', Icons.receipt_long_rounded),
                     ],
                     pages: [
-                      FinancialSummaryPage(uid: widget.uid, name: widget.name, role: widget.role, embedded: true, month: _month),
+                      // الطلبات: سلف | مرتبات | عمولات (صرف ← تم الاستلام ← يتخصم من الخزنة)
+                      FinanceRequestsTabs(uid: widget.uid, name: widget.name, role: widget.role, isDark: isDark, month: _month),
                       if (cash) CashPage(embedded: true, month: _month),
                       if (cash)
                         Center(

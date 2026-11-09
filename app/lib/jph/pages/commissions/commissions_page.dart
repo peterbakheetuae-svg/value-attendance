@@ -7,11 +7,13 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/swipe_tabs.dart';
 import 'commission_project_page.dart';
 import 'project_form_page.dart';
 
 /// إدارة عمولات المشاريع — one place, tabs by permission:
-///  المشاريع (owner / المدير / HR / sales manager) • للاعتماد (المدير / owner) • الاستحقاقات (HR / payroll) • عمولاتي (everyone).
+///  مشاريع (owner / المدير / HR / sales manager) • الاعتماد (المدير / owner) • عمولات (عمولاتي — everyone).
+/// Same bar as the home page; swipe right / left. Paying commissions is in الخزنة ← الطلبات ← عمولات only.
 /// What each tab shows comes from the API already filtered by role; nothing is only hidden here.
 class CommissionsPage extends StatefulWidget {
   final String? initialTab;
@@ -27,13 +29,11 @@ class _CommissionsPageState extends State<CommissionsPage> {
 
   bool get _seeProjects => ApiService.can('commission.project_manage') || ApiService.can('commission.read_all') || ApiService.can('commission.read_team');
   bool get _approve => ApiService.can('commission.approve');
-  bool get _payroll => ApiService.can('commission.read_all');
 
   List<(String, String, IconData)> get _tabs => [
-        if (_seeProjects) ('projects', 'المشاريع', Icons.apartment_rounded),
-        if (_approve) ('approve', 'للاعتماد', Icons.fact_check_rounded),
-        if (_payroll) ('payroll', 'الاستحقاقات', Icons.receipt_long_rounded),
-        ('mine', 'عمولاتي', Icons.person_rounded),
+        if (_seeProjects) ('projects', 'مشاريع', Icons.apartment_rounded),
+        if (_approve) ('approve', 'الاعتماد', Icons.fact_check_rounded),
+        ('mine', 'عمولات', Icons.workspace_premium_rounded),
       ];
 
   @override
@@ -57,42 +57,23 @@ class _CommissionsPageState extends State<CommissionsPage> {
               child: Column(children: [
                 JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'عمولات المشاريع'),
                 const SizedBox(height: 6),
-                if (_tabs.length > 1)
-                  SizedBox(
-                    height: 46,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      children: [
-                        for (final t in _tabs)
-                          Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 8),
-                            child: ChoiceChip(
-                              selected: _tab == t.$1,
-                              onSelected: (_) => setState(() => _tab = t.$1),
-                              avatar: Icon(t.$3, size: 18, color: _tab == t.$1 ? Colors.white : JphUi.primary(isDark)),
-                              label: Text(t.$2, style: TextStyle(fontWeight: FontWeight.w800,
-                                  color: _tab == t.$1 ? Colors.white : JphUi.text(isDark))),
-                              selectedColor: JphUi.primary(isDark),
-                              backgroundColor: isDark ? Colors.white.withOpacity(0.12) : Colors.white,
-                              showCheckmark: false,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 8),
                 Expanded(
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1000),
-                      child: switch (_tab) {
-                        'projects' => _ProjectsTab(isDark: isDark, onCan: (c) => _can = c, can: _can),
-                        'approve' => _ApproveTab(isDark: isDark),
-                        'payroll' => _PayrollTab(isDark: isDark),
-                        _ => _MineTab(isDark: isDark),
-                      },
+                      child: SwipeTabs(
+                        isDark: isDark,
+                        initial: _tabs.indexWhere((t) => t.$1 == _tab).clamp(0, _tabs.length - 1),
+                        tabs: [for (final t in _tabs) (t.$2, t.$3)],
+                        pages: [
+                          for (final t in _tabs)
+                            switch (t.$1) {
+                              'projects' => _ProjectsTab(isDark: isDark, onCan: (c) => _can = c, can: _can),
+                              'approve' => _ApproveTab(isDark: isDark),
+                              _ => _MineTab(isDark: isDark),
+                            },
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -497,137 +478,6 @@ Widget _detailsGrid(bool isDark, Map<String, dynamic> x) {
   });
 }
 
-// ==================================================================== الاستحقاقات (HR)
-class _PayrollTab extends StatefulWidget {
-  final bool isDark;
-  const _PayrollTab({required this.isDark});
-
-  @override
-  State<_PayrollTab> createState() => _PayrollTabState();
-}
-
-class _PayrollTabState extends State<_PayrollTab> {
-  bool _loading = true;
-  List<Map<String, dynamic>> _items = [];
-  Map<String, dynamic> _totals = {};
-  String _month = '';
-  final Set<String> _busy = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final r = await ApiService.post({'action': 'commission_entitlements', 'scope': 'all', 'month': _month});
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _items = ((r['entitlements'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
-      _totals = ((r['totals'] as Map?) ?? const {}).cast<String, dynamic>();
-    });
-  }
-
-  Future<void> _pay(Map<String, dynamic> e) async {
-    setState(() => _busy.add('${e['id']}'));
-    final r = await ApiService.post({
-      'action': 'payout_create', 'employeeId': e['employeeId'], 'kind': 'commission', 'amount': e['amount'],
-      'month': e['period'], 'entitlementId': e['id'], 'note': '${e['projectName']} — وحدة ${e['unitNo']}',
-    });
-    if (!mounted) return;
-    _busy.remove('${e['id']}');
-    JphUi.toast(context, r);
-    await _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = widget.isDark;
-    final canPay = ApiService.can('finance.disburse');
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        JphUi.picker(
-          isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: JphUi.primary(isDark), label: 'شهر المرتب',
-          value: _month.isEmpty ? 'كل الشهور' : JphUi.monthAr(_month),
-          onTap: () async {
-            final now = DateTime.now();
-            final v = await JphUi.sheet<String>(context, isDark, 'شهر المرتب', [
-              ('', 'كل الشهور', Icons.all_inclusive_rounded),
-              for (var i = -6; i <= 6; i++)
-                (() {
-                  final d = DateTime(now.year, now.month + i);
-                  final k = '${d.year}-${d.month.toString().padLeft(2, '0')}';
-                  return (k, JphUi.monthAr(k), Icons.event_rounded);
-                })(),
-            ]);
-            if (v != null) {
-              setState(() => _month = v);
-              _load();
-            }
-          },
-        ),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: JphUi.stat(isDark, 'إجمالي العمولات في المرتبات', JphUi.money(_totals['amount']), Icons.payments_rounded, Colors.teal)),
-          const SizedBox(width: 10),
-          Expanded(child: JphUi.stat(isDark, 'لسه ماتصرفتش', JphUi.money(_totals['unpaid']), Icons.hourglass_bottom_rounded, Colors.orange)),
-        ]),
-        const SizedBox(height: 14),
-        if (_loading)
-          const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
-        else if (_items.isEmpty)
-          Padding(padding: const EdgeInsets.all(30), child: Text('مفيش عمولات معتمدة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))
-        else
-          for (final e in _items)
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: JphUi.box(isDark),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [
-                  JphUi.iconTile(isDark, e['role'] == 'manager' ? Icons.groups_rounded : Icons.person_rounded,
-                      e['role'] == 'manager' ? Colors.purple : Colors.teal),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${e['employeeName']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                      Text('${e['role'] == 'manager' ? 'عمولة مدير مبيعات' : 'عمولة بائع'} • ${e['projectName']} • وحدة ${e['unitNo']}',
-                          style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-                    ]),
-                  ),
-                  Text(JphUi.money(e['amount']), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                ]),
-                const SizedBox(height: 10),
-                Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  JphUi.chip('مرتب ${JphUi.monthAr('${e['period']}')}', Colors.blue),
-                  JphUi.chip(e['payrollIncluded'] == true ? 'داخلة في المرتب' : 'خارج المرتب', e['payrollIncluded'] == true ? Colors.indigo : Colors.grey),
-                  JphUi.chip(paymentStatus('${e['payment']}').$1, paymentStatus('${e['payment']}').$2),
-                  Text('اعتماد ${JphUi.date(e['approvedAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-                ]),
-                if (canPay && e['payment'] == 'unpaid' && e['status'] == 'active')
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: ElevatedButton.icon(
-                        onPressed: _busy.contains('${e['id']}') ? null : () => _pay(e),
-                        icon: const Icon(Icons.payments_rounded),
-                        label: const Text('صرف العمولة'),
-                        style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                      ),
-                    ),
-                  ),
-              ]),
-            ),
-      ]),
-    );
-  }
-}
-
-// ==================================================================== عمولاتي
 class _MineTab extends StatefulWidget {
   final bool isDark;
   const _MineTab({required this.isDark});

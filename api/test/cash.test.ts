@@ -52,19 +52,21 @@ test('opening balances (once), office collection by the manager, HR collection b
   assert.equal(dupNo.status, 409, 'paper receipt number used once');
   assert.equal(dupNo.body.error.details.reason, 'duplicate_receipt');
 
-  // the manager received cash himself: office cashbox, recipient = manager even when HR types it in
-  const m = await h.call(c.t.hr, 'POST', '/cash/receipts', { recipient: 'manager', recipientId: gmId, kind: 'down_payment', amount: 30000, payerName: 'سارة', purpose: 'مقدم' });
+  // HR never collects into the office cashbox, the manager never into the HR one
+  assert.equal((await h.call(c.t.hr, 'POST', '/cash/receipts', { recipient: 'manager', recipientId: gmId, kind: 'down_payment', amount: 30000, payerName: 'سارة', purpose: 'مقدم' })).status, 403);
+  assert.equal((await h.call(tGm, 'POST', '/cash/receipts', { ...body, clientRef: randomUUID(), externalNo: null })).status, 403);
+  // the manager received cash himself: office cashbox, recorded by him
+  const m = await h.call(tGm, 'POST', '/cash/receipts', { recipient: 'manager', kind: 'down_payment', amount: 30000, payerName: 'سارة', purpose: 'مقدم' });
   assert.equal(m.status, 201);
   assert.equal(m.body.receipt.cashbox, 'office');
   assert.equal(m.body.receipt.actualRecipientId, gmId);
-  assert.equal((await h.call(c.t.hr, 'POST', '/cash/receipts', { recipient: 'manager', recipientId: c.ids.hr, kind: 'other', amount: 5, payerName: 'xx', purpose: 'xx' })).status, 400, 'HR is not a manager');
   assert.equal((await h.call(c.t.e1, 'POST', '/cash/receipts', body)).status, 403);
 
   assert.equal((await sum(c.t.hr)).hr.bookBalance, 30000);
   assert.equal((await sum(tGm)).office.bookBalance, 80000);
-  // HR sees the office receipt it typed in, but still no office balance
+  // HR sees only its own (HR cashbox) receipts and no office balance
   const hrList = (await h.call(c.t.hr, 'GET', '/cash/receipts')).body.receipts;
-  assert.equal(hrList.length, 2);
+  assert.equal(hrList.length, 1);
 });
 
 test('HR expenses: direct below 1,000, manager approval above; the HR cashbox may go negative and shows the deficit', async () => {
@@ -134,6 +136,8 @@ test('the existing صرف مالية payments count against the HR cashbox', asy
   const before = (await sum(c.t.hr)).hr.bookBalance;
   const p = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
   assert.equal(p.status, 201);
+  assert.equal((await sum(c.t.hr)).hr.bookBalance, before, 'not out of the cashbox until the employee confirms');
+  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${p.body.payout.id}/receive`, {})).status, 200);
   assert.equal((await sum(c.t.hr)).hr.bookBalance, before - 3000);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, before - 3000);
 });

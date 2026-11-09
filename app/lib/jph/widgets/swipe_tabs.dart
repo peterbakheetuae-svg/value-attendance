@@ -10,8 +10,11 @@ class SwipeTabs extends StatefulWidget {
   final List<Widget> pages;
   final int initial;
   final ValueChanged<int>? onChanged;
+  /// false = tap the bar only (for a bar inside another swipeable page, so the two swipes never fight)
+  final bool swipe;
 
-  const SwipeTabs({super.key, required this.isDark, required this.tabs, required this.pages, this.initial = 0, this.onChanged})
+  const SwipeTabs({super.key, required this.isDark, required this.tabs, required this.pages, this.initial = 0, this.onChanged,
+      this.swipe = true})
       : assert(tabs.length == pages.length);
 
   @override
@@ -31,6 +34,10 @@ class _SwipeTabsState extends State<SwipeTabs> {
   void _go(int i) {
     if (i == _i) return;
     setState(() => _i = i);
+    if (!widget.swipe) {
+      widget.onChanged?.call(i);
+      return;
+    }
     _pc.animateToPage(i, duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic);
   }
 
@@ -42,6 +49,9 @@ class _SwipeTabsState extends State<SwipeTabs> {
           padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
           child: JphUi.tabs(widget.isDark, widget.tabs, _i, _go),
         ),
+      if (!widget.swipe)
+        Expanded(child: IndexedStack(index: _i, children: widget.pages))
+      else
       Expanded(
         child: PageView(
           controller: _pc,

@@ -245,8 +245,9 @@ class _ProfilePageState extends State<ProfilePage> {
               body: loading
                   ? Center(child: CircularProgressIndicator(color: primaryColor))
                   : SafeArea(
+                bottom: false,
                 child: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                   children: [
                     const SizedBox(height: 25),
                     Padding(

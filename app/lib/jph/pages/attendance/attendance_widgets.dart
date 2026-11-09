@@ -11,6 +11,8 @@ class Header extends StatelessWidget {
   final bool isRTL;
   final bool isDark;
   final String title;
+  /// optional print icon, shown next to the filter icon
+  final VoidCallback? onPrint;
 
   const Header({
     super.key,
@@ -19,6 +21,7 @@ class Header extends StatelessWidget {
     required this.isRTL,
     required this.isDark,
     required this.title,
+    this.onPrint,
   });
 
   @override
@@ -43,6 +46,14 @@ class Header extends StatelessWidget {
               ),
             ),
             const Spacer(),
+            if (onPrint != null) ...[
+              SquareIconButton(
+                icon: Icons.print_rounded,
+                onTap: onPrint!,
+                isDark: isDark,
+              ),
+              const SizedBox(width: 8),
+            ],
             SquareIconButton(
               icon: Icons.filter_list_rounded,
               onTap: onFilter,

@@ -7,7 +7,9 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import 'employee_details_page.dart';
-import 'add_employee_page.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
+import 'add_employee_page.dart';
+import '../../widgets/app_nav.dart';
+import '../../widgets/glass_bottom_nav.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
 
 class EmployeesPage extends StatefulWidget {
   final String currentUserId;
@@ -272,6 +274,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
             child: Scaffold(
               backgroundColor: Colors.transparent,
               body: SafeArea(
+                bottom: false,
                 child: Column(
                   children: [
                     // ✅ Header يدوي بدل AppBar
@@ -507,7 +510,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         onRefresh: _loadEmployees,
                         color: AppColors.primary,
                         child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                           itemCount: _filteredEmployees.length,
                           itemBuilder: (context, index) {
                             final employee = _filteredEmployees[index];
@@ -519,11 +522,12 @@ class _EmployeesPageState extends State<EmployeesPage> {
                   ],
                 ),
               ),
-              // زر عائم لإضافة موظف جديد
-              floatingActionButton: FloatingActionButton(
-                onPressed: _navigateToAddEmployee,
-                backgroundColor: AppColors.primary,
-                child: const Icon(Icons.person_add, color: Colors.white),
+              // شريط التنقل زي باقي الصفحات — المحتوى بيعدّي تحته
+              extendBody: true,
+              bottomNavigationBar: GlassBottomNav(
+                currentIndex: 2,
+                onTap: (index) => AppNav.go(context, index, current: 2, uid: widget.currentUserId,
+                    name: widget.currentUserName, role: widget.currentUserRole),
               ),
             ),
           ),

@@ -25,11 +25,10 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
 
   const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
   assert.equal(pay.status, 201);
-  assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000, 'deducted from HR cash');
+  assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 5000, 'not out of HR cash until the employee confirms');
   // approved policy: the HR cashbox may go below zero — the deficit is what the office owes it
   const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 });
   assert.equal(over.status, 201);
-  assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, -500);
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${over.body.payout.id}/cancel`, {})).status, 200);
   // the employee sees it, confirms receipt; others cannot
   const mine = (await h.call(c.t.e1, 'GET', '/payouts?scope=mine')).body.payouts;
@@ -37,6 +36,7 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   assert.equal(mine[0].canReceive, true);
   assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 404);
   assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000, 'out of HR cash once received');
   assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 409);
   // shows on the monthly payroll as paid
   const p = (await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
@@ -47,4 +47,24 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${c2.body.payout.id}/cancel`, {})).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000);
   assert.equal((await h.call(c.t.e2, 'GET', '/payouts')).body.payouts.length, 2, 'employees see only their own');
+});
+
+test('salaries list: one month, due = net without commissions / work expenses; صرف الراتب pays what is left once', async () => {
+  const l = (await h.call(c.t.hr, 'GET', '/payouts/salaries?month=2026-03')).body;
+  const row = l.salaries.find((x: any) => x.employeeId === c.ids.e1);
+  assert.ok(row, 'employee with a salary is listed');
+  assert.equal(row.paid, 3000);
+  assert.equal((await h.call(c.t.e1, 'GET', '/payouts/salaries?month=2026-03')).status, 403);
+  if (row.remaining > 0) {
+    assert.equal(row.canPay, true);
+    const p = await h.call(c.t.hr, 'POST', '/payouts/salary', { employeeId: c.ids.e1, month: '2026-03' });
+    assert.equal(p.status, 201, JSON.stringify(p.body));
+    assert.equal(Number(p.body.payout.amount_egp), row.remaining);
+  }
+  const again = await h.call(c.t.hr, 'POST', '/payouts/salary', { employeeId: c.ids.e1, month: '2026-03' });
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error.details.reason, 'already_paid');
+  const after = (await h.call(c.t.hr, 'GET', '/payouts/salaries?month=2026-03')).body.salaries.find((x: any) => x.employeeId === c.ids.e1);
+  assert.ok(['awaiting_receipt', 'received'].includes(after.status));
+  assert.equal((await h.call(c.t.e1, 'POST', '/payouts/salary', { employeeId: c.ids.e2, month: '2026-03' })).status, 403);
 });

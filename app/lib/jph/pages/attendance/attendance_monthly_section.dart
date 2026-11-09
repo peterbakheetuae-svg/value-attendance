@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../l10n/app_localizations.dart';
-import '../../widgets/payslip_pdf.dart';
 
 class MonthlySection extends StatelessWidget {
   final Map<String, dynamic> monthly;
@@ -116,7 +115,6 @@ class MonthlySection extends StatelessWidget {
   // 🔥 ويدجت لعرض البيانات الشهرية
   Widget _buildMonthlySection(BuildContext context) {
     // 🔥 ترجمة النصوص
-    final monthlyReportTitle = AppLocalizations.of(context, 'monthly_report');
     final workDaysText = AppLocalizations.of(context, 'work_days');
     final holidayAttendText = AppLocalizations.of(context, 'without_pay');
     final holidaysText = AppLocalizations.of(context, 'holidays');
@@ -156,43 +154,6 @@ class MonthlySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         const SizedBox(height: 6),
-        if (canPrint)
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  try {
-                    await printPayslip(monthly: monthly, employeeName: employeeName, monthLabel: monthLabel);
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر الطباعة: $e'), backgroundColor: Colors.red));
-                    }
-                  }
-                },
-                icon: const Icon(Icons.print_rounded),
-                label: const Text('طباعة بيان الراتب'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: Text(
-            monthlyReportTitle,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
           decoration: BoxDecoration(

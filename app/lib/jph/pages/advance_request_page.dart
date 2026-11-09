@@ -7,12 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../services/advance_request_api.dart';
-import '../services/employee_api.dart';
 import '../widgets/app_background.dart';
 import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
-import '../services/api_service.dart';
-import 'disbursements_page.dart';
 import '../widgets/payouts_widgets.dart';
 import 'cash/cashbox_hub_page.dart';
 import '../widgets/jph_form_ui.dart';
@@ -48,10 +45,6 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   File? _selectedImage;
   bool _isSubmitting = false;
 
-  List<Map<String, dynamic>> _activeEmployees = [];
-  String? _selectedEmployeeId;
-  String? _selectedEmployeeName;
-  bool _isLoadingEmployees = true;
 
   // عمولة الصفقة اتنقلت لتبويب "مبيعات" (بيع + طلب عمولة)
   final List<String> _requestTypes = [
@@ -92,41 +85,12 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
     // تعيين الشهر الحالي تلقائياً
     final now = DateTime.now();
     _selectedMonth = _months[now.month - 1];
-    _loadActiveEmployees();
   }
 
   @override
   void dispose() {
     _amountController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadActiveEmployees() async {
-    try {
-      final result = await EmployeeApi.getActiveEmployees();
-      if (result["success"] == true) {
-        setState(() {
-          _activeEmployees = List<Map<String, dynamic>>.from(result["employees"] ?? []);
-          _isLoadingEmployees = false;
-
-          // إذا كانت القائمة غير فارغة، نختار أول موظف افتراضيًا
-          if (_activeEmployees.isNotEmpty) {
-            _selectedEmployeeId = _activeEmployees[0]["uid"];
-            _selectedEmployeeName = _activeEmployees[0]["name"];
-          }
-        });
-      } else {
-        _showErrorDialog(result["message"] ?? "فشل في تحميل قائمة الموظفين");
-        setState(() {
-          _isLoadingEmployees = false;
-        });
-      }
-    } catch (e) {
-      _showErrorDialog("حدث خطأ أثناء تحميل الموظفين: $e");
-      setState(() {
-        _isLoadingEmployees = false;
-      });
-    }
   }
 
   String _tr(String key) {
@@ -241,12 +205,10 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                         isDark: isDark,
                         tabs: [
                           ('طلب', Icons.request_page_rounded),
-                          if (_canPay) ('صرف', Icons.payments_rounded),
                           ('مبيعات', Icons.home_work_rounded),
                         ],
                         pages: [
                           _requestTab(isDark, isRTL, primaryColor, textColor, subduedTextColor),
-                          if (_canPay) const DisbursementsPage(embedded: true),
                           SalesTab(isDark: isDark),
                         ],
                       ),
@@ -260,8 +222,6 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
       },
     );
   }
-
-  bool get _canPay => ApiService.can('finance.disburse') || ApiService.can('finance.fund');
 
   Widget _requestTab(bool isDark, bool isRTL, Color primaryColor, Color textColor, Color subduedTextColor) {
                       return LayoutBuilder(
@@ -362,11 +322,8 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         ),
                                       ),
 
-                                      // زر اختيار الموظف - بنفس شكل تقرير الحضور (عمولة الصفقة دايماً باسمك)
-                                      ...[
-                                        _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
-                                        const SizedBox(height: 20),
-                                      ],
+                                      // الطلب دايماً باسم اللي عامله (مفيش اختيار موظف): بيروح للمدير العام / المالك
+                                      // يوافق، وبعدها الموارد البشرية تصرف، وإنت تأكد "تم الاستلام" من الخزنة ← الطلبات
 
                                       // بيانات طلب السلفة/المصاريف
                                       Text(
@@ -949,34 +906,6 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                       );
   }
 
-  // زر اختيار الموظف - بنفس شكل تقرير الحضور
-  Widget _buildEmployeeDropdown(bool isDark, Color textColor, Color subduedTextColor) {
-    return JphUi.picker(
-      isDark: isDark,
-      icon: Icons.badge_rounded,
-      iconColor: Colors.teal,
-      label: 'الموظف *',
-      value: _isLoadingEmployees
-          ? 'جاري التحميل...'
-          : _activeEmployees.isEmpty
-              ? 'لا يوجد موظفين'
-              : (_selectedEmployeeName ?? 'اختار الموظف'),
-      onTap: _activeEmployees.isEmpty
-          ? null
-          : () async {
-              final v = await JphUi.sheet<String>(context, isDark, 'اختار الموظف',
-                  [for (final e in _activeEmployees) ('${e['uid']}', '${e['name'] ?? 'غير معروف'}', Icons.person_outline_rounded)],
-                  selected: _selectedEmployeeId, icon: Icons.badge_rounded);
-              if (v == null) return;
-              final emp = _activeEmployees.firstWhere((e) => '${e['uid']}' == v, orElse: () => {'uid': v, 'name': 'غير معروف'});
-              setState(() {
-                _selectedEmployeeId = v;
-                _selectedEmployeeName = emp['name'];
-              });
-            },
-    );
-  }
-
   Widget _buildRequestTypeButton(bool isDark, Color textColor, Color subduedTextColor, Color primaryColor) {
     final icon = _requestTypeIcons[_requestType] ?? Icons.account_balance_wallet_rounded;
     final iconColor = _requestTypeColors[_requestType] ?? primaryColor;
@@ -1440,11 +1369,6 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
       return;
     }
 
-    if (_selectedEmployeeId == null) {
-      _showErrorDialog('يرجى اختيار الموظف');
-      return;
-    }
-
     setState(() => _isSubmitting = true);
 
     try {
@@ -1457,7 +1381,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
 
       final res = await AdvanceRequestApi.submitAdvanceRequestByManager(
         uid: widget.uid,
-        employeeId: _selectedEmployeeId!,
+        employeeId: widget.uid, // always the person making the request
         requestType: _requestType,
         month: _selectedMonth,
         amount: _amount,
@@ -1468,7 +1392,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
       if (!mounted) return;
 
       if (res["success"] == true) {
-        _showSuccessDialog(res["message"] ?? 'تم إرسال طلب السلفة/المصاريف بنجاح للموظف: $_selectedEmployeeName');
+        _showSuccessDialog(res["message"] ?? 'تم إرسال الطلب ✅ — مستني موافقة المدير العام');
 
         _formKey.currentState!.reset();
         setState(() {

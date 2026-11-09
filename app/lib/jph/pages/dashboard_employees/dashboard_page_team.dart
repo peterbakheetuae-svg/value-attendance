@@ -931,6 +931,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
   Widget _buildDashboardHome() {
     return SafeArea(
+      bottom: false, // content scrolls under the glass bar
       child: RefreshIndicator(
         key: _refreshIndicatorKey,
         onRefresh: _handleRefresh,
@@ -981,7 +982,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                   child: Column(
                     children: [
                       _buildHeader(),
@@ -1388,6 +1389,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           child: Directionality(
             textDirection: appController.isRTL ? TextDirection.rtl : TextDirection.ltr,
             child: Scaffold(
+              extendBody: true,
               backgroundColor: Colors.transparent,
               body: _buildDashboardHome(),
               bottomNavigationBar: GlassBottomNav(

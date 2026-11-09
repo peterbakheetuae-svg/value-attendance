@@ -372,7 +372,7 @@ class JphRouter {
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/finance/', '/insights/', '/payroll/employee/', '/forms/'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
@@ -1027,7 +1027,21 @@ class JphRouter {
         'month': _monthsAr[m - 1],
         'note': _s(x['note'], ''),
         'status': status,
-        'stageLabel': x['status'] != 'pending' ? '' : (x['gm_approved_at'] != null ? 'بانتظار اعتماد الموارد البشرية' : 'بانتظار موافقة المدير العام'),
+        'stageLabel': x['status'] == 'pending' ? 'بانتظار موافقة المدير العام'
+            : switch (x['payment']) {
+                'unpaid' => 'معتمد — في انتظار الصرف',
+                'awaiting_receipt' => 'اتصرف — في انتظار تأكيد الاستلام',
+                'received' => 'تم الاستلام ✅',
+                _ => '',
+              },
+        // صرف → تم الاستلام (the HR cashbox pays once the employee confirms)
+        'payment': _s(x['payment'], ''),
+        'canPay': x['canPay'] == true,
+        'canReceive': x['canReceive'] == true,
+        'payoutId': _s(x['payout_id'], ''),
+        'employeeUuid': _s(x['employee_id'], ''),
+        'kind': _s(x['kind'], 'advance'),
+        'periodMonth': period.length >= 7 ? period.substring(0, 7) : '',
         'ceoStatus': x['gm_approved_at'] != null ? 'مؤكد' : (x['status'] == 'rejected' ? 'مرفوض' : 'قيد المراجعة'),
         'canDecide': x['canDecide'] == true,
         'stage': _s(x['stage'], ''),

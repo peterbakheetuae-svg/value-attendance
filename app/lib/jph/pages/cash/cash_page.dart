@@ -338,7 +338,6 @@ class _SummaryTabState extends State<_SummaryTab> {
             _tile('مصروفات الـ HR', hr['expenses'], Icons.receipt_long_rounded, Colors.deepOrange, 'hr_expenses'),
             _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Colors.purple, 'advances'),
             _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Colors.amber, 'commissions_unpaid'),
-            _tile('دفعات مرتبات مفتوحة', hr['payrollBatchesOpen'], Icons.fact_check_rounded, Colors.blueGrey, 'batches_open', money: false),
           ]),
           _section('الأقساط'),
           JphUi.statGrid([
@@ -1003,8 +1002,8 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
     });
   }
 
-  // HR: into the HR cashbox, or typing in what المدير received himself; المدير / المالك: the office cashbox only
-  late String _recipient = widget.can['hrDesk'] == true ? 'hr' : 'manager';
+  // HR: the HR cashbox only; المدير / المالك: the office cashbox only (neither collects into the other's cashbox)
+  late final String _recipient = widget.can['hrDesk'] == true ? 'hr' : 'manager';
   String _kind = 'reservation', _method = 'cash';
   final _amount = TextEditingController(), _payer = TextEditingController(), _phone = TextEditingController(),
       _purpose = TextEditingController(), _extNo = TextEditingController(), _notes = TextEditingController();
@@ -1013,19 +1012,10 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
 
   Future<void> _add() async {
     setState(() => _saving = true);
-    String? managerId;
-    if (_recipient == 'manager' && widget.can['office'] != true) {
-      managerId = await _pickManager();
-      if (managerId == null) {
-        setState(() => _saving = false);
-        return;
-      }
-    }
     final r = await _post('/cash/receipts', {
       'recipient': _recipient, 'kind': _kind, 'amount': num.tryParse(_amount.text.trim()), 'payerName': _payer.text.trim(),
       'payerPhone': _phone.text.trim(), 'purpose': _purpose.text.trim(), 'paymentMethod': _method,
       if (_extNo.text.trim().isNotEmpty) 'externalNo': _extNo.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref,
-      if (managerId != null) 'recipientId': managerId,
     }, ok: 'اتسجل التحصيل ✅');
     if (!mounted) return;
     setState(() => _saving = false);
@@ -1040,15 +1030,6 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
     }
   }
 
-  /// HR typing in a collection the manager received: pick that manager.
-  Future<String?> _pickManager() async {
-    final r = await ApiService.post({'action': 'getActiveEmployees'});
-    final people = ((r['employees'] as List?) ?? const []).whereType<Map>().toList();
-    if (!mounted) return null;
-    return JphUi.sheet<String>(context, widget.isDark, 'المدير اللي استلم',
-        [for (final p in people) ('${p['id']}', '${p['name']}', Icons.person_rounded)]);
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -1059,13 +1040,8 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
           _inlineForm(isDark,
               title: 'تسجيل تحصيل (إيصال)', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
               children: [
-                Text('مين استلم الفلوس فعلاً؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-                const SizedBox(height: 6),
-                if (widget.can['hrDesk'] == true)
-                  _segmented(isDark, {'hr': 'HR (خزنة الـ HR)', 'manager': 'المدير بنفسه (المكتب)'}, _recipient,
-                      (v) => setState(() => _recipient = v))
-                else
-                  JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
+                JphUi.readOnly(isDark: isDark, label: 'الخزنة',
+                    value: _recipient == 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
                 const SizedBox(height: 14),
                 _segmented(isDark, _receiptKinds, _kind, (v) => setState(() => _kind = v)),
                 const SizedBox(height: 14),

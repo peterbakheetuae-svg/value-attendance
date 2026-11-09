@@ -15,17 +15,25 @@ import 'attendance_expandable_cards.dart'; // 🔥 استيراد البطاقا
 import 'attendance_widgets.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
+import '../../widgets/payslip_pdf.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   final String uid;
   final String name;
   final String role;
+  /// open straight on one employee's monthly report (e.g. from the salaries list)
+  final String? initialEmployeeId;
+  final int? initialMonth;
+  final int? initialYear;
 
   const AttendanceReportPage({
     super.key,
     required this.uid,
     required this.name,
     required this.role,
+    this.initialEmployeeId,
+    this.initialMonth,
+    this.initialYear,
   });
 
   @override
@@ -60,6 +68,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialMonth != null) selMonth = widget.initialMonth!;
+    if (widget.initialYear != null) selYear = widget.initialYear!;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       loadEmployees().then((_) {
         if (selectedUid != null) {
@@ -93,8 +103,12 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
 
           // 🔥 إذا كانت القائمة غير فارغة، نختار أول موظف افتراضيًا
           if (employees.isNotEmpty) {
-            selectedUid = employees[0]["uid"];
-            selectedEmployeeName = employees[0]["name"];
+            final wanted = widget.initialEmployeeId == null
+                ? null
+                : employees.where((e) => '${e["uid"]}' == widget.initialEmployeeId).firstOrNull;
+            final pick = wanted ?? employees[0];
+            selectedUid = pick["uid"];
+            selectedEmployeeName = pick["name"];
           }
           loadingEmployees = false;
         });
@@ -408,11 +422,25 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
             child: Scaffold(
               backgroundColor: Colors.transparent,
               body: SafeArea(
+                bottom: false, // the content scrolls under the glass bar
                 child: Column(
                   children: [
                     Header(
                       onBack: () => Navigator.pop(context),
                       onFilter: () => _openFilter(context, appController.isDark),
+                      onPrint: isMonthly && monthly.isNotEmpty && ApiService.can('employee.salary_read')
+                          ? () async {
+                              try {
+                                await printPayslip(monthly: monthly, employeeName: selectedEmployeeName ?? '',
+                                    monthLabel: '${_monthNameAr(selMonth)} $selYear');
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('تعذّر الطباعة: $e'), backgroundColor: Colors.red));
+                                }
+                              }
+                            }
+                          : null,
                       isRTL: appController.isRTL,
                       isDark: appController.isDark,
                       title: attendanceReportTitle,
@@ -475,7 +503,6 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         context: context,
                       ),
                     ),
-                    const SizedBox(height: 84), // room for the bottom bar
                   ],
                 ),
               ),
@@ -553,7 +580,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
 
     if (isMonthly) {
       return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
         child: MonthlySection(
           canPrint: ApiService.can('employee.salary_read'),
           employeeName: selectedEmployeeName ?? '',
@@ -567,7 +594,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       );
     } else {
       return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 100),
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
         child: AttendanceExpandableCards(
           days: daily,
           isDark: isDark,
