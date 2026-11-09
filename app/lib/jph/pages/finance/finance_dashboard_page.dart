@@ -27,10 +27,7 @@ class _FinanceDashboardPageState extends State<FinanceDashboardPage> {
   bool get _canInsights => ApiService.can('cash.office') || ApiService.can('report.read_all');
 
   Future<void> _pickMonth() async {
-    final now = DateTime.now();
-    final months = [for (var i = 0; i < 12; i++) DateTime(now.year, now.month - i)];
-    final m = await JphUi.sheet<DateTime>(context, context.read<AppController>().isDark, 'الشهر',
-        [for (final d in months) (d, '${JphUi.monthsAr[d.month - 1]} ${d.year}', Icons.event_rounded)]);
+    final m = await JphUi.pickMonth(context, context.read<AppController>().isDark, _month);
     if (m != null) setState(() => _month = m);
   }
 

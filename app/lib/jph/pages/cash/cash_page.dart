@@ -13,7 +13,9 @@ import '../../widgets/jph_form_ui.dart';
 /// Tabs by permission: الأرصدة • الحركات • التحويلات • المصروفات • التحصيلات.
 /// Everything shown comes from the API already filtered by role (HR never receives office data).
 class CashPage extends StatefulWidget {
-  const CashPage({super.key});
+  /// true = the "الخزنة" tab of the cashbox page: no own header, and the movements live in the "السجل" tab
+  final bool embedded;
+  const CashPage({super.key, this.embedded = false});
 
   @override
   State<CashPage> createState() => _CashPageState();
@@ -81,11 +83,37 @@ class _CashPageState extends State<CashPage> {
       final isRTL = app.isRTL;
       final tabs = <(String, String, IconData)>[
         ('summary', 'الأرصدة', Icons.account_balance_wallet_rounded),
-        ('ledger', 'الحركات', Icons.receipt_long_rounded),
+        if (!widget.embedded) ('ledger', 'الحركات', Icons.receipt_long_rounded),
         ('transfers', 'التحويلات', Icons.swap_horiz_rounded),
         ('expenses', 'المصروفات', Icons.shopping_bag_rounded),
         ('receipts', 'التحصيلات', Icons.call_received_rounded),
       ];
+      final Widget body = _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _summary['success'] != true
+              ? Center(child: Text('${_summary['message'] ?? 'مش متاح'}', style: TextStyle(color: JphUi.sub(isDark))))
+              : Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1000),
+                    child: switch (_tab) {
+                      'ledger' => CashLedgerView(isDark: isDark, can: _can),
+                      'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
+                      'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
+                      'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
+                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load),
+                    },
+                  ),
+                );
+      if (widget.embedded) {
+        return Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: _segmented(isDark, {for (final t in tabs) t.$1: t.$2}, _tab, (v) => setState(() => _tab = v)),
+          ),
+          const SizedBox(height: 8),
+          Expanded(child: body),
+        ]);
+      }
       return AppBackground(
         child: Directionality(
           textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
@@ -95,48 +123,12 @@ class _CashPageState extends State<CashPage> {
               child: Column(children: [
                 JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'الخزينة',
                     action: IconButton(icon: Icon(Icons.refresh_rounded, color: JphUi.primary(isDark)), onPressed: _load)),
-                SizedBox(
-                  height: 46,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    children: [
-                      for (final t in tabs)
-                        Padding(
-                          padding: const EdgeInsetsDirectional.only(end: 8),
-                          child: ChoiceChip(
-                            selected: _tab == t.$1,
-                            onSelected: (_) => setState(() => _tab = t.$1),
-                            avatar: Icon(t.$3, size: 18, color: _tab == t.$1 ? Colors.white : JphUi.primary(isDark)),
-                            label: Text(t.$2, style: TextStyle(fontWeight: FontWeight.w800, color: _tab == t.$1 ? Colors.white : JphUi.text(isDark))),
-                            selectedColor: JphUi.primary(isDark),
-                            backgroundColor: isDark ? Colors.white.withOpacity(0.12) : Colors.white,
-                            showCheckmark: false,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                        ),
-                    ],
-                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: _segmented(isDark, {for (final t in tabs) t.$1: t.$2}, _tab, (v) => setState(() => _tab = v)),
                 ),
                 const SizedBox(height: 8),
-                Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _summary['success'] != true
-                          ? Center(child: Text('${_summary['message'] ?? 'مش متاح'}', style: TextStyle(color: JphUi.sub(isDark))))
-                          : Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 1000),
-                                child: switch (_tab) {
-                                  'ledger' => _LedgerTab(isDark: isDark, can: _can),
-                                  'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
-                                  'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
-                                  'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
-                                  _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load),
-                                },
-                              ),
-                            ),
-                ),
+                Expanded(child: body),
               ]),
             ),
           ),
@@ -258,18 +250,35 @@ Future<void> _thresholdSheet(BuildContext context, bool isDark, Object? current,
   await done();
 }
 
+/// Same look as the home-page tab bar (glass pill, the chosen one filled); scrolls when there are many choices.
 Widget _segmented(bool isDark, Map<String, String> options, String value, ValueChanged<String> onChanged) {
-  return Wrap(spacing: 8, runSpacing: 8, children: [
-    for (final e in options.entries)
-      ChoiceChip(
-        selected: value == e.key,
-        onSelected: (_) => onChanged(e.key),
-        label: Text(e.value, style: TextStyle(fontWeight: FontWeight.w800, color: value == e.key ? Colors.white : JphUi.text(isDark))),
-        selectedColor: JphUi.primary(isDark),
-        backgroundColor: isDark ? Colors.white.withOpacity(0.12) : Colors.grey.shade100,
-        showCheckmark: false,
-      ),
-  ]);
+  final p = JphUi.primary(isDark);
+  final t = isDark ? Colors.white : Colors.black;
+  return Container(
+    padding: const EdgeInsets.all(5),
+    decoration: BoxDecoration(
+      color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: LayoutBuilder(builder: (context, c) {
+      Widget item(MapEntry<String, String> e, {bool expand = false}) {
+        final w = GestureDetector(
+          onTap: () => onChanged(e.key),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+            decoration: BoxDecoration(color: value == e.key ? p : Colors.transparent, borderRadius: BorderRadius.circular(24)),
+            child: Text(e.value, textAlign: TextAlign.center, maxLines: 1,
+                style: TextStyle(color: value == e.key ? Colors.white : t, fontWeight: FontWeight.w700)),
+          ),
+        );
+        return expand ? Expanded(child: w) : w;
+      }
+      // few choices share the width; many choices scroll sideways
+      if (options.length <= 3) return Row(children: [for (final e in options.entries) item(e, expand: true)]);
+      return SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [for (final e in options.entries) item(e)]));
+    }),
+  );
 }
 
 /// A bottom-sheet form in the app style; [submit] returns the API result (sheet closes on success).
@@ -324,17 +333,19 @@ Future<void> _formSheet(BuildContext context, bool isDark, String title, List<Wi
 }
 
 // ==================================================================== الحركات
-class _LedgerTab extends StatefulWidget {
+/// كل حركات الفلوس في الخزنة (وارد / صادر) بفلتر الشهر — تبويب "السجل".
+class CashLedgerView extends StatefulWidget {
   final bool isDark;
   final Map<String, dynamic> can;
-  const _LedgerTab({required this.isDark, required this.can});
+  const CashLedgerView({super.key, required this.isDark, required this.can});
 
   @override
-  State<_LedgerTab> createState() => _LedgerTabState();
+  State<CashLedgerView> createState() => _LedgerTabState();
 }
 
-class _LedgerTabState extends State<_LedgerTab> {
+class _LedgerTabState extends State<CashLedgerView> {
   late String _box = widget.can['office'] == true ? 'office' : 'hr';
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   Map<String, dynamic> _r = {};
   bool _loading = true;
 
@@ -346,7 +357,9 @@ class _LedgerTabState extends State<_LedgerTab> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final r = await _get('/cash/ledger', {'cashbox': _box});
+    final last = DateTime(_month.year, _month.month + 1, 0);
+    String d(DateTime x) => '${x.year}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+    final r = await _get('/cash/ledger', {'cashbox': _box, 'from': d(_month), 'to': d(last)});
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -367,7 +380,14 @@ class _LedgerTabState extends State<_LedgerTab> {
             _box = v;
             _load();
           }),
-        const SizedBox(height: 10),
+        JphUi.filterButton(isDark, '${JphUi.monthsAr[_month.month - 1]} ${_month.year}', () async {
+          final m = await JphUi.pickMonth(context, isDark, _month);
+          if (m != null) {
+            _month = m;
+            _load();
+          }
+        }),
+        const SizedBox(height: 6),
         Row(children: [
           Expanded(child: JphUi.stat(isDark, 'إجمالي الوارد', JphUi.money(totals['in']), Icons.south_west_rounded, Colors.green)),
           const SizedBox(width: 10),

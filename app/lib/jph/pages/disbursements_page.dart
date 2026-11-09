@@ -6,13 +6,16 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_background.dart';
+import '../widgets/jph_form_ui.dart';
 import '../widgets/payouts_widgets.dart';
 
 /// صرف مالية — same look as "طلب سلفة / مصاريف": HR pays salary (القبض) / advances / commissions /
 /// work expenses from the cash in hand; the manager / owner hands cash to HR (صرف أموال).
 /// Every payout waits for the receiver's "تم الاستلام".
 class DisbursementsPage extends StatefulWidget {
-  const DisbursementsPage({super.key});
+  /// true = shown as the "صرف" tab inside طلبات المالية (no own header / page)
+  final bool embedded;
+  const DisbursementsPage({super.key, this.embedded = false});
 
   @override
   State<DisbursementsPage> createState() => _DisbursementsPageState();
@@ -39,6 +42,9 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
   late DateTime _month;
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  Map<String, dynamic>? _pay; // the chosen employee's payroll for the chosen month (the salary note)
+  bool _payLoading = false;
+  String? _payErr;
 
   @override
   void initState() {
@@ -80,6 +86,79 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
       _people = people;
       if (!_people.any((p) => p['id'] == _who)) _who = null;
     });
+  }
+
+  /// Salary note: when an employee is chosen for القبض / عمولة / سلفة, show his salary and what is due.
+  Future<void> _loadPay() async {
+    final who = _who;
+    if (_fundMode || who == null || _kind == 'work_expense') {
+      setState(() => _pay = null);
+      return;
+    }
+    setState(() {
+      _payLoading = true;
+      _payErr = null;
+    });
+    final m = '${_month.year}-${_month.month.toString().padLeft(2, '0')}';
+    final r = await ApiService.post({'action': 'cash_get', 'path': '/payroll/employee/$who', 'query': {'month': m}});
+    if (!mounted || who != _who) return;
+    setState(() {
+      _payLoading = false;
+      _pay = r['payroll'] is Map ? (r['payroll'] as Map).cast<String, dynamic>() : null;
+      if (_pay == null) _payErr = '${r['message'] ?? 'مش قادر أجيب المرتب'}';
+    });
+  }
+
+  Widget _payNote(bool isDark) {
+    if (_fundMode || _who == null || _kind == 'work_expense') return const SizedBox.shrink();
+    final c = Colors.indigo;
+    Widget line(String k, Object? v, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(children: [
+            Expanded(child: Text(k, style: TextStyle(fontSize: 13.5, color: isDark ? Colors.white70 : Colors.black87))),
+            Text(egp(v), style: TextStyle(fontSize: strong ? 16 : 14, fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+                color: strong ? (isDark ? Colors.indigo.shade200 : c.shade700) : (isDark ? Colors.white : Colors.black87))),
+          ]),
+        );
+    final p = _pay;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? c.shade900.withOpacity(0.3) : c.shade50,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isDark ? c.shade700 : c.shade200, width: 1.5),
+      ),
+      child: _payLoading
+          ? const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+          : p == null
+              ? Text(_payErr ?? '', style: const TextStyle(color: Colors.red))
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Row(children: [
+                    Icon(Icons.sticky_note_2_rounded, color: isDark ? c.shade200 : c.shade700),
+                    const SizedBox(width: 8),
+                    Text('مرتب ${_monthsAr[_month.month - 1]} ${_month.year}',
+                        style: TextStyle(fontWeight: FontWeight.w900, color: isDark ? c.shade200 : c.shade800)),
+                  ]),
+                  const SizedBox(height: 4),
+                  line('الراتب الأساسي', p['baseSalary'], strong: _kind == 'advance'),
+                  if (_kind == 'salary') ...[
+                    line('إجمالي الخصومات', p['totalDeductions']),
+                    line('السلف', p['advances']),
+                    line('العمولات', p['commissions']),
+                    line('الصافي المستحق', p['net']),
+                    line('اتصرف منه', p['salaryPaid']),
+                    line('الباقي له', p['remaining'], strong: true),
+                  ],
+                  if (_kind == 'commission') ...[
+                    line('عمولات الشهر', p['commissions']),
+                    line('اتصرف منها', p['commissionPaid']),
+                    line('الباقي من العمولات',
+                        ((p['commissions'] as num?) ?? 0) - ((p['commissionPaid'] as num?) ?? 0), strong: true),
+                  ],
+                  if (_kind == 'advance') line('سلف الشهر ده', p['advances']),
+                ]),
+    );
   }
 
   Future<void> _submit() async {
@@ -141,37 +220,8 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
     );
   }
 
-  Future<T?> _sheet<T>(bool isDark, String title, List<(T, String, IconData?)> options) {
-    return showModalBottomSheet<T>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4))),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          Flexible(
-            child: ListView(shrinkWrap: true, children: [
-              for (final o in options)
-                ListTile(
-                  leading: o.$3 == null ? null : Icon(o.$3, color: AppColors.primary),
-                  title: Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  onTap: () => Navigator.pop(ctx, o.$1),
-                ),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
+  Future<T?> _sheet<T>(bool isDark, String title, List<(T, String, IconData?)> options, {T? selected}) =>
+      JphUi.sheet<T>(context, isDark, title, options, selected: selected);
 
   @override
   Widget build(BuildContext context) {
@@ -184,69 +234,11 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
       final whoName = _people.where((p) => p['id'] == _who).map((p) => '${p['name']}').firstOrNull;
       final kind = _kinds[_kind]!;
 
-      return AppBackground(
-        child: Directionality(
-          textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            body: SafeArea(
-              child: Column(children: [
-                // Header — same as the request page
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  child: Row(children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        width: 46, height: 46,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 8))],
-                        ),
-                        child: Icon(isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded, color: text, size: 22),
-                      ),
-                    ),
-                    const Spacer(),
-                    Text('صرف مالية', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: text)),
-                    const Spacer(),
-                    const SizedBox(width: 46),
-                  ]),
-                ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: _loading
+      final Widget content = _loading
                       ? const Center(child: CircularProgressIndicator())
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView(padding: const EdgeInsets.all(16), children: [
-                            // طلب | صرف
-                            Row(children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: const Icon(Icons.request_page_rounded),
-                                  label: const Text('طلب'),
-                                  style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(vertical: 14),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: null,
-                                  icon: const Icon(Icons.payments_rounded),
-                                  label: const Text('صرف'),
-                                  style: ElevatedButton.styleFrom(
-                                      disabledBackgroundColor: AppColors.primary, disabledForegroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 14),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                                ),
-                              ),
-                            ]),
-                            const SizedBox(height: 16),
-
                             if (_canDisburse)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 16),
@@ -281,10 +273,11 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                                   final v = await _sheet<bool>(isDark, 'نوع العملية', [
                                     (false, 'صرف لموظف', Icons.person_rounded),
                                     (true, 'صرف أموال للموارد البشرية', Icons.account_balance_rounded),
-                                  ]);
+                                  ], selected: _fundMode);
                                   if (v != null && v != _fundMode) {
                                     setState(() => _fundMode = v);
                                     await _loadPeople();
+                                    _loadPay();
                                   }
                                 },
                               ),
@@ -298,8 +291,11 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                                 value: whoName ?? 'اختار', text: text, sub: sub,
                                 onTap: () async {
                                   final v = await _sheet<String>(isDark, _fundMode ? 'اختار المستلم' : 'اختار الموظف',
-                                      [for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)]);
-                                  if (v != null) setState(() => _who = v);
+                                      [for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)], selected: _who);
+                                  if (v != null) {
+                                    setState(() => _who = v);
+                                    _loadPay();
+                                  }
                                 },
                               ),
                               const SizedBox(height: 16),
@@ -308,8 +304,11 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                                   isDark: isDark, icon: kind.$2, iconColor: kind.$3, label: 'نوع الصرف *', value: kind.$1, text: text, sub: sub,
                                   onTap: () async {
                                     final v = await _sheet<String>(isDark, 'نوع الصرف',
-                                        [for (final e in _kinds.entries) (e.key, e.value.$1, e.value.$2)]);
-                                    if (v != null) setState(() => _kind = v);
+                                        [for (final e in _kinds.entries) (e.key, e.value.$1, e.value.$2)], selected: _kind);
+                                    if (v != null) {
+                                      setState(() => _kind = v);
+                                      _loadPay();
+                                    }
                                   },
                                 ),
                                 const SizedBox(height: 16),
@@ -320,12 +319,17 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                                     final now = DateTime.now();
                                     final months = [for (var i = -3; i <= 1; i++) DateTime(now.year, now.month + i)];
                                     final v = await _sheet<DateTime>(isDark, 'الشهر',
-                                        [for (final m in months) (m, '${_monthsAr[m.month - 1]} ${m.year}', Icons.event_rounded)]);
-                                    if (v != null) setState(() => _month = v);
+                                        [for (final m in months) (m, '${_monthsAr[m.month - 1]} ${m.year}', Icons.event_rounded)], selected: _month);
+                                    if (v != null) {
+                                      setState(() => _month = v);
+                                      _loadPay();
+                                    }
                                   },
                                 ),
                                 const SizedBox(height: 16),
                               ],
+
+                              _payNote(isDark),
 
                               // المبلغ
                               Container(
@@ -390,7 +394,41 @@ class _DisbursementsPageState extends State<DisbursementsPage> {
                             const SizedBox(height: 8),
                             PayoutsList(items: _all, reload: _load, showEmployee: true),
                           ]),
+                        ),;
+      if (widget.embedded) return content;
+
+      return AppBackground(
+        child: Directionality(
+          textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: SafeArea(
+              child: Column(children: [
+                // Header — same as the request page
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: Row(children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 46, height: 46,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 8))],
                         ),
+                        child: Icon(isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded, color: text, size: 22),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text('صرف مالية', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: text)),
+                    const Spacer(),
+                    const SizedBox(width: 46),
+                  ]),
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: content
                 ),
               ]),
             ),

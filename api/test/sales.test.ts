@@ -33,7 +33,7 @@ test('schedule maths: 4 frequencies, rounding into the last installment, month e
 });
 
 test('register a sale: one buyer per unit, schedule generated, totals exact', async () => {
-  assert.equal((await h.call(c.t.e1, 'POST', '/sales', {})).status, 403);
+  assert.equal((await h.call(c.t.e1, 'POST', '/sales', {})).status, 400, 'a salesperson may submit, but not an empty sale');
   const body = { projectId: project, unitNo: 'A-101', buyerName: 'أحمد علي', buyerPhone: '0100', totalPrice: 4_500_000, downPayment: 450_000,
     saleDate: '2026-03-10', downPaymentDueDate: '2026-03-20', frequency: 'monthly', installmentsCount: 36, firstDueDate: '2026-04-10' };
   const s = await h.call(c.t.hr, 'POST', '/sales', body);
@@ -115,4 +115,42 @@ test('cancel (manager / owner) → lines cancelled, collections kept, full refun
   // and nothing about the sale can be edited or deleted
   await assert.rejects(h.db.query(`UPDATE sale_installments SET amount_egp = 1 WHERE sale_id = $1`, [saleId]), /cannot be edited/);
   await assert.rejects(h.db.query(`DELETE FROM unit_sales WHERE id = $1`, [saleId]), /never deleted/);
+});
+
+test('a salesperson submits a sale with its commission: waits for the management, no collecting before approval', async () => {
+  const body = { projectId: project, unitNo: 'S-7', buyerName: 'منى حسن', buyerPhone: '01000000000', totalPrice: 1_000_000, downPayment: 1_000_000,
+    saleDate: '2026-03-10', downPaymentDueDate: '2026-03-10', withCommission: true, pricePerM2: 10_000, areaM2: 100 };
+  const s = await h.call(c.t.e1, 'POST', '/sales', body);
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.equal(s.body.sale.status, 'pending');
+  assert.equal(s.body.sale.paymentMethod, 'cash');
+  assert.equal(s.body.sale.commission.status, 'pending');
+  const id = s.body.sale.id;
+  assert.equal((await h.call(c.t.e1, 'POST', '/sales', { ...body, withCommission: false })).body.error.details.reason, 'unit_has_buyer', 'a waiting unit is taken');
+  assert.equal((await h.call(c.t.hr, 'POST', `/sales/${id}/collect`, { installmentId: s.body.schedule[0].id, amount: 10, recipient: 'hr' })).status, 409);
+  // the salesperson sees only his own; cannot decide
+  const mine = (await h.call(c.t.e1, 'GET', '/sales')).body.sales;
+  assert.ok(mine.every((x: any) => x.createdBy === c.ids.e1) && mine.length === 1);
+  assert.equal((await h.call(c.t.e1, 'POST', `/sales/${id}/decision`, { decision: 'approve' })).status, 403);
+  assert.equal((await h.call(c.t.hr, 'POST', `/sales/${id}/decision`, { decision: 'approve' })).status, 403, 'HR records, the management approves');
+  const ok = await h.call(tGm, 'POST', `/sales/${id}/decision`, { decision: 'approve' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.sale.status, 'active');
+  assert.equal((await h.call(c.t.hr, 'POST', `/sales/${id}/collect`, { installmentId: s.body.schedule[0].id, amount: 10, recipient: 'hr' })).status, 201);
+});
+
+test('rejected sale frees the unit and rejects its waiting commission; HR files the commission for the salesperson', async () => {
+  const body = { projectId: project, unitNo: 'S-8', buyerName: 'كريم', totalPrice: 500_000, downPayment: 100_000, saleDate: '2026-03-10',
+    downPaymentDueDate: '2026-03-15', frequency: 'monthly', installmentsCount: 4, firstDueDate: '2026-04-10', withCommission: true, pricePerM2: 5000, areaM2: 100 };
+  const s = await h.call(c.t.e2, 'POST', '/sales', body);
+  assert.equal(s.body.sale.paymentMethod, 'installments');
+  assert.equal((await h.call(tGm, 'POST', `/sales/${s.body.sale.id}/decision`, { decision: 'reject' })).status, 400, 'a reason is required');
+  const rej = await h.call(tGm, 'POST', `/sales/${s.body.sale.id}/decision`, { decision: 'reject', reason: 'السعر غلط' });
+  assert.equal(rej.body.sale.status, 'rejected');
+  assert.equal(rej.body.sale.commission.status, 'rejected');
+  // HR / المدير may file the commission for the salesperson (a salesperson's employeeId is ignored)
+  const hr = await h.call(c.t.hr, 'POST', '/sales', { ...body, employeeId: c.ids.e2 });
+  assert.equal(hr.status, 201, JSON.stringify(hr.body));
+  assert.equal(hr.body.sale.status, 'active', 'HR records directly');
+  assert.equal(hr.body.sale.commission.employeeName, 'موظف ٢');
 });

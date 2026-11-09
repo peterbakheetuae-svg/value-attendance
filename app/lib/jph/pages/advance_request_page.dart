@@ -1,5 +1,4 @@
 import 'dart:ui' as ui;
-import '../widgets/deal_commission_form.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -15,7 +14,10 @@ import '../l10n/app_localizations.dart';
 import '../services/api_service.dart';
 import 'disbursements_page.dart';
 import '../widgets/payouts_widgets.dart';
-import 'advance_summary.dart';
+import 'cash/cashbox_hub_page.dart';
+import '../widgets/jph_form_ui.dart';
+import '../widgets/sale_form.dart';
+import '../widgets/swipe_tabs.dart';
 
 class AdvanceRequestPage extends StatefulWidget {
   final String uid;
@@ -51,12 +53,11 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   String? _selectedEmployeeName;
   bool _isLoadingEmployees = true;
 
+  // عمولة الصفقة اتنقلت لتبويب "مبيعات" (بيع + طلب عمولة)
   final List<String> _requestTypes = [
     'سلفة',
     'مصاريف عمل',
-    'عمولة صفقة',
   ];
-  static const _deal = 'عمولة صفقة';
 
   final List<String> _months = [
     'يناير',
@@ -187,7 +188,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           ),
                           const Spacer(),
                           Text(
-                            'طلب سلفة / مصاريف',
+                            'طلبات المالية',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -200,7 +201,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => FinancialSummaryPage(
+                                  builder: (context) => CashboxHubPage(
                                     uid: widget.uid,
                                     name: widget.name,
                                     role: widget.role,
@@ -233,10 +234,37 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                       ),
                     ),
 
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 6),
 
                     Expanded(
-                      child: LayoutBuilder(
+                      child: SwipeTabs(
+                        isDark: isDark,
+                        tabs: [
+                          ('طلب', Icons.request_page_rounded),
+                          if (_canPay) ('صرف', Icons.payments_rounded),
+                          ('مبيعات', Icons.home_work_rounded),
+                        ],
+                        pages: [
+                          _requestTab(isDark, isRTL, primaryColor, textColor, subduedTextColor),
+                          if (_canPay) const DisbursementsPage(embedded: true),
+                          SalesTab(isDark: isDark),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  bool get _canPay => ApiService.can('finance.disburse') || ApiService.can('finance.fund');
+
+  Widget _requestTab(bool isDark, bool isRTL, Color primaryColor, Color textColor, Color subduedTextColor) {
+                      return LayoutBuilder(
                         builder: (context, constraints) {
                           return SingleChildScrollView(
                             physics: const AlwaysScrollableScrollPhysics(),
@@ -251,38 +279,6 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
-                                      // طلب (this page) | صرف (disbursements) — for HR, the manager and the owner
-                                      if (ApiService.can('finance.disburse') || ApiService.can('finance.fund'))
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 16),
-                                          child: Row(children: [
-                                            Expanded(
-                                              child: ElevatedButton.icon(
-                                                onPressed: null,
-                                                icon: const Icon(Icons.request_page_rounded),
-                                                label: const Text('طلب'),
-                                                style: ElevatedButton.styleFrom(
-                                                  disabledBackgroundColor: AppColors.primary,
-                                                  disabledForegroundColor: Colors.white,
-                                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: OutlinedButton.icon(
-                                                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DisbursementsPage())),
-                                                icon: const Icon(Icons.payments_rounded),
-                                                label: const Text('صرف'),
-                                                style: OutlinedButton.styleFrom(
-                                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                                ),
-                                              ),
-                                            ),
-                                          ]),
-                                        ),
                                       const MyPayoutsSection(),
                                       // زر الانتقال السريع إلى ملخص المالية
                                       GestureDetector(
@@ -290,7 +286,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (context) => FinancialSummaryPage(
+                                              builder: (context) => CashboxHubPage(
                                                 uid: widget.uid,
                                                 name: widget.name,
                                                 role: widget.role,
@@ -337,7 +333,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                   crossAxisAlignment: CrossAxisAlignment.end,
                                                   children: [
                                                     Text(
-                                                      'ملخص المالية',
+                                                      CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية',
                                                       style: TextStyle(
                                                         fontSize: 16,
                                                         fontWeight: FontWeight.w800,
@@ -367,14 +363,14 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                       ),
 
                                       // زر اختيار الموظف - بنفس شكل تقرير الحضور (عمولة الصفقة دايماً باسمك)
-                                      if (_requestType != _deal) ...[
+                                      ...[
                                         _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
                                         const SizedBox(height: 20),
                                       ],
 
                                       // بيانات طلب السلفة/المصاريف
                                       Text(
-                                        _requestType == _deal ? 'بيانات الصفقة' : 'بيانات طلب السلفة/المصاريف',
+                                        'بيانات طلب السلفة/المصاريف',
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.w800,
@@ -388,9 +384,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
 
                                       const SizedBox(height: 16),
 
-                                      if (_requestType == _deal)
-                                        DealCommissionForm(isDark: isDark)
-                                      else ...[
+                                      ...[
                                       // الشهر
                                       _buildMonthButton(isDark, textColor, subduedTextColor, primaryColor),
 
@@ -952,107 +946,34 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                             ),
                           );
                         },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+                      );
   }
 
   // زر اختيار الموظف - بنفس شكل تقرير الحضور
   Widget _buildEmployeeDropdown(bool isDark, Color textColor, Color subduedTextColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-          ),
-        ],
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedEmployeeId,
-          isExpanded: true,
-          items: _activeEmployees.map((employee) {
-            return DropdownMenuItem<String>(
-              value: employee['uid'],
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    employee['name'] ?? 'غير معروف',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'UID: ${employee['uid']}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: subduedTextColor,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-          onChanged: (String? newValue) {
-            if (newValue != null) {
-              final selectedEmployee = _activeEmployees.firstWhere(
-                    (emp) => emp['uid'] == newValue,
-                orElse: () => {'uid': '', 'name': 'غير معروف'},
-              );
-
+    return JphUi.picker(
+      isDark: isDark,
+      icon: Icons.badge_rounded,
+      iconColor: Colors.teal,
+      label: 'الموظف *',
+      value: _isLoadingEmployees
+          ? 'جاري التحميل...'
+          : _activeEmployees.isEmpty
+              ? 'لا يوجد موظفين'
+              : (_selectedEmployeeName ?? 'اختار الموظف'),
+      onTap: _activeEmployees.isEmpty
+          ? null
+          : () async {
+              final v = await JphUi.sheet<String>(context, isDark, 'اختار الموظف',
+                  [for (final e in _activeEmployees) ('${e['uid']}', '${e['name'] ?? 'غير معروف'}', Icons.person_outline_rounded)],
+                  selected: _selectedEmployeeId, icon: Icons.badge_rounded);
+              if (v == null) return;
+              final emp = _activeEmployees.firstWhere((e) => '${e['uid']}' == v, orElse: () => {'uid': v, 'name': 'غير معروف'});
               setState(() {
-                _selectedEmployeeId = newValue;
-                _selectedEmployeeName = selectedEmployee['name'];
+                _selectedEmployeeId = v;
+                _selectedEmployeeName = emp['name'];
               });
-            }
-          },
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: textColor,
-          ),
-          dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: isDark ? Colors.blue.shade300 : Colors.blue,
-            size: 28,
-          ),
-          hint: _isLoadingEmployees
-              ? const Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              SizedBox(width: 8),
-              Text('جاري التحميل...'),
-            ],
-          )
-              : _activeEmployees.isEmpty
-              ? const Text('لا يوجد موظفين')
-              : null,
-          elevation: 8,
-          menuMaxHeight: 400,
-        ),
-      ),
+            },
     );
   }
 

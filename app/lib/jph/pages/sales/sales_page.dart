@@ -27,6 +27,7 @@ const _freqAr = {'monthly': 'شهري', 'quarterly': 'كل 3 شهور', 'semiann
 const _stageAr = {
   'reserved': ('حجز — المقدم لسه مكملش', Colors.orange), 'installments': ('أقساط', Colors.blue),
   'completed': ('اتسدد بالكامل', Colors.green), 'cancelled': ('ملغي', Colors.grey),
+  'pending': ('مستنية اعتماد الإدارة', Colors.orange), 'rejected': ('مرفوضة', Colors.red),
 };
 
 String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -119,8 +120,7 @@ class _DueTabState extends State<_DueTab> {
         cashSegmented(isDark, {'open': 'كل المفتوح', 'overdue': 'المتأخر', 'today': 'مستحق النهارده', 'range': 'فترة'}, _filter, (v) async {
           if (v == 'range') {
             final now = DateTime.now();
-            final picked = await showDateRangePicker(context: context, firstDate: DateTime(now.year - 2), lastDate: DateTime(now.year + 10),
-                initialDateRange: _range ?? DateTimeRange(start: now, end: now.add(const Duration(days: 30))));
+            final picked = await JphUi.pickRange(context, isDark, _range?.start ?? now, _range?.end ?? now.add(const Duration(days: 30)));
             if (picked == null) return;
             _range = picked;
           }
@@ -539,6 +539,22 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
     _load();
   }
 
+  Future<void> _decide(bool approve) async {
+    final isDark = Provider.of<AppController>(context, listen: false).isDark;
+    if (approve) {
+      final r = await cashPost('/sales/${widget.saleId}/decision', {'decision': 'approve'}, ok: 'اتعتمدت البيعة ✅');
+      if (mounted) JphUi.toast(context, r);
+    } else {
+      final reason = TextEditingController();
+      await cashFormSheet(context, isDark, 'رفض البيعة', (s) => [
+            Text('لو فيه طلب عمولة مستني مع البيعة هيترفض معاها.', style: TextStyle(color: JphUi.sub(isDark))),
+            const SizedBox(height: 10),
+            JphUi.input(isDark: isDark, label: 'السبب', controller: reason, big: false),
+          ], () => cashPost('/sales/${widget.saleId}/decision', {'decision': 'reject', 'reason': reason.text.trim()}, ok: 'اترفضت البيعة'));
+    }
+    _load();
+  }
+
   Future<void> _refund(num due) async {
     final isDark = Provider.of<AppController>(context, listen: false).isDark;
     String box = ApiService.can('cash.office') ? 'office' : 'hr';
@@ -610,7 +626,21 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                         ]),
                                         if (sale['status'] == 'cancelled')
                                           Padding(padding: const EdgeInsets.only(top: 8), child: Text('اتلغى: ${sale['cancelReason'] ?? ''}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                                        if (sale['status'] == 'rejected')
+                                          Padding(padding: const EdgeInsets.only(top: 8), child: Text('اترفضت: ${sale['rejectReason'] ?? ''}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                                        if (sale['commission'] is Map)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 8),
+                                            child: JphUi.chip('طلب عمولة #${(sale['commission'] as Map)['ref']} — ${(sale['commission'] as Map)['employeeName'] ?? ''}: ${commissionStatus('${(sale['commission'] as Map)['status']}').$1}',
+                                                commissionStatus('${(sale['commission'] as Map)['status']}').$2),
+                                          ),
                                         Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
+                                          if (can['decide'] == true) ...[
+                                            ElevatedButton.icon(onPressed: () => _decide(true), icon: const Icon(Icons.check_rounded), label: const Text('اعتماد'),
+                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
+                                            TextButton.icon(onPressed: () => _decide(false), icon: const Icon(Icons.close_rounded, color: Colors.red),
+                                                label: const Text('رفض', style: TextStyle(color: Colors.red))),
+                                          ],
                                           if (can['cancel'] == true)
                                             TextButton.icon(onPressed: _cancel, icon: const Icon(Icons.block_rounded, color: Colors.red),
                                                 label: const Text('إلغاء البيع', style: TextStyle(color: Colors.red))),

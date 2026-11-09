@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../payroll/payroll_batches_page.dart';
+import '../cash/cashbox_hub_page.dart';
 import '../finance/finance_dashboard_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
@@ -437,7 +438,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       SettingsTile(
                         title: 'الخزينة',
                         icon: Icons.account_balance_wallet_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CashPage())),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1))),
                       ),
                       const SizedBox(height: 14),
                     ],

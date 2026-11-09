@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
+import '../../widgets/jph_form_ui.dart';
 
 class MonthStats extends StatelessWidget {
   final Map<String, dynamic> monthData;
@@ -18,6 +19,8 @@ class MonthStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'work_days'),
+                icon: Icons.event_available_rounded,
+                color: Colors.green,
                 value: (monthData["workDays"] ?? "--").toString(),
               ),
             ),
@@ -26,6 +29,8 @@ class MonthStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'leave_days'),
+                icon: Icons.beach_access_rounded,
+                color: Colors.purple,
                 value: (monthData["leaveDays"] ?? "0").toString(),
               ),
             ),
@@ -34,6 +39,8 @@ class MonthStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'absent_days'),
+                icon: Icons.event_busy_rounded,
+                color: Colors.red,
                 value: (monthData["absentDays"] ?? "--").toString(),
               ),
             ),
@@ -46,6 +53,8 @@ class MonthStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'sick_leave'),
+                icon: Icons.healing_rounded,
+                color: Colors.pink,
                 value: (monthData["sickLeave"] ?? "0").toString(),
               ),
             ),
@@ -54,6 +63,8 @@ class MonthStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'late_month'),
+                icon: Icons.schedule_rounded,
+                color: Colors.orange,
                 value: (monthData["lateTime"] ?? "--").toString(),
               ),
             ),
@@ -63,42 +74,15 @@ class MonthStats extends StatelessWidget {
     );
   }
 
+  /// Same box as ملخص المالية (JphUi.stat).
   Widget _buildStatMiniCard({
     required BuildContext context,
     required String title,
     required String value,
+    required IconData icon,
+    required Color color,
   }) {
-    final appController = Provider.of<AppController>(context);
-    final isDark = appController.isDark;
-
-    return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : Colors.black,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.white70 : Colors.grey.shade700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        )
-
-    );
+    final isDark = Provider.of<AppController>(context).isDark;
+    return JphUi.stat(isDark, title, value, icon, color);
   }
 }

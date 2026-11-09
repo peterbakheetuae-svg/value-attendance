@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
+import '../../widgets/jph_form_ui.dart';
 
 class TodayStats extends StatelessWidget {
   final Map<String, dynamic> sheetData;
@@ -18,6 +19,8 @@ class TodayStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'work_time'),
+                icon: Icons.timer_rounded,
+                color: Colors.blue,
                 value: (sheetData["workTime"] ?? "--:--").toString(),
               ),
             ),
@@ -26,6 +29,8 @@ class TodayStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'break_time'),
+                icon: Icons.free_breakfast_rounded,
+                color: Colors.teal,
                 value: (sheetData["breakTime"] ?? "--:--").toString(),
               ),
             ),
@@ -34,6 +39,8 @@ class TodayStats extends StatelessWidget {
               child: _buildStatMiniCard(
                 context: context,
                 title: AppLocalizations.of(context, 'late_time'),
+                icon: Icons.schedule_rounded,
+                color: Colors.orange,
                 value: (sheetData["lateTime"] ?? "00:00").toString(),
               ),
             ),
@@ -43,41 +50,15 @@ class TodayStats extends StatelessWidget {
     );
   }
 
+  /// Same box as ملخص المالية (JphUi.stat).
   Widget _buildStatMiniCard({
     required BuildContext context,
     required String title,
     required String value,
+    required IconData icon,
+    required Color color,
   }) {
-    final appController = Provider.of<AppController>(context);
-    final isDark = appController.isDark;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
+    final isDark = Provider.of<AppController>(context).isDark;
+    return JphUi.stat(isDark, title, value, icon, color);
   }
 }

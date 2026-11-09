@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../pages/attendance/attendance_filters.dart';
 import '../theme/app_colors.dart';
 
 /// The app's own building blocks (same look as "طلب سلفة / مصاريف" and "صرف مالية"):
@@ -156,38 +157,160 @@ class JphUi {
     );
   }
 
-  static Future<T?> sheet<T>(BuildContext context, bool isDark, String title, List<(T, String, IconData?)> options) {
+  /// The one drop-down list of the app — same look as "نوع الطلب" in طلبات المالية: a floating rounded card with a title,
+  /// a close button and each choice as a tile with its icon, the current one ticked.
+  static Future<T?> sheet<T>(BuildContext context, bool isDark, String title, List<(T, String, IconData?)> options,
+      {T? selected, IconData? icon, Color? color}) {
+    final c = color ?? primary(isDark);
     return showModalBottomSheet<T>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4))),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          if (options.isEmpty)
-            const Padding(padding: EdgeInsets.all(20), child: Text('مفيش اختيارات متاحة'))
-          else
-            Flexible(
-              child: ListView(shrinkWrap: true, children: [
-                for (final o in options)
-                  ListTile(
-                    leading: o.$3 == null ? null : Icon(o.$3, color: AppColors.primary),
-                    title: Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    onTap: () => Navigator.pop(ctx, o.$1),
+      builder: (ctx) => Directionality(
+        textDirection: Directionality.of(context),
+        child: Container(
+          margin: const EdgeInsets.all(16),
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.75),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: Container(
+              padding: const EdgeInsets.all(18),
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Row(children: [
+                  Icon(icon ?? Icons.list_alt_rounded, color: c, size: 28),
+                  Expanded(
+                    child: Text(title, textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx),
+                    child: Icon(Icons.close_rounded, color: isDark ? Colors.white70 : Colors.grey.shade600, size: 28),
+                  ),
+                ]),
+                const SizedBox(height: 16),
+                if (options.isEmpty)
+                  Padding(padding: const EdgeInsets.all(20), child: Text('مفيش اختيارات متاحة', style: TextStyle(color: sub(isDark))))
+                else
+                  Flexible(
+                    child: ListView(shrinkWrap: true, children: [
+                      for (final o in options)
+                        _sheetTile(isDark, o.$2, o.$3 ?? icon ?? Icons.circle_outlined, c, o.$1 == selected && selected != null,
+                            () => Navigator.pop(ctx, o.$1)),
+                    ]),
                   ),
               ]),
             ),
-        ]),
+          ),
+        ),
       ),
+    );
+  }
+
+  static Widget _sheetTile(bool isDark, String label, IconData icon, Color c, bool on, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: on ? c.withOpacity(isDark ? 0.3 : 0.15) : (isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: on ? c.withOpacity(0.5) : (isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300), width: on ? 1.5 : 1),
+          ),
+          child: Row(children: [
+            iconTile(isDark, icon, c),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87)),
+            ),
+            if (on) Icon(Icons.check_circle_rounded, color: c, size: 24),
+          ]),
+        ),
+      );
+
+  /// Month filter — the same sheet as تقرير الحضور.
+  static Future<DateTime?> pickMonth(BuildContext context, bool isDark, DateTime current) {
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => MonthYearSheet(
+        tmpMonth: current.month,
+        tmpYear: current.year,
+        isDark: isDark,
+        onApply: (m, y) => Navigator.pop(ctx, DateTime(y, m)),
+      ),
+    );
+  }
+
+  /// Date range filter — the same sheet as تقرير الحضور.
+  static Future<DateTimeRange?> pickRange(BuildContext context, bool isDark, DateTime start, DateTime end) {
+    return showModalBottomSheet<DateTimeRange>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => RangeSheet(
+        tmpStart: start,
+        tmpEnd: end,
+        isDark: isDark,
+        onApply: (s, e) => Navigator.pop(ctx, DateTimeRange(start: s, end: e.isBefore(s) ? s : e)),
+      ),
+    );
+  }
+
+  /// The filter button (as in تقرير الحضور), showing the current choice.
+  static Widget filterButton(bool isDark, String label, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: ElevatedButton.icon(
+            onPressed: onTap,
+            icon: const Icon(Icons.filter_alt_rounded, size: 20),
+            label: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primary(isDark),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              elevation: 4,
+            ),
+          ),
+        ),
+      );
+
+  /// The tab bar of the home page (الحضور / الاستراحة / الإجازة): a glass pill, the chosen tab filled.
+  static Widget tabs(bool isDark, List<(String, IconData)> items, int index, ValueChanged<int> onTap) {
+    final p = primary(isDark);
+    final t = isDark ? Colors.white : Colors.black;
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(children: [
+        for (var i = 0; i < items.length; i++)
+          Expanded(
+            child: GestureDetector(
+              onTap: () => onTap(i),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(color: i == index ? p : Colors.transparent, borderRadius: BorderRadius.circular(24)),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(items[i].$2, color: i == index ? Colors.white : t, size: 20),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(items[i].$1, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: i == index ? Colors.white : t, fontWeight: FontWeight.w600)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 
@@ -199,24 +322,38 @@ class JphUi {
         child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12)),
       );
 
-  /// Small stat card for summaries.
+  /// The summary box of the app (as in ملخص المالية): tinted card, icon in a small square, title, value in the colour.
   static Widget stat(bool isDark, String label, String value, IconData icon, Color color) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: box(isDark),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 6),
-            Expanded(child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: sub(isDark)))),
-          ]),
-          const SizedBox(height: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(isDark ? 0.2 : 0.1),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 6, offset: const Offset(0, 3))],
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10), color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.7)),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 8),
+          Text(label, textAlign: TextAlign.center, maxLines: 2,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+          const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: text(isDark))),
+            child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
           ),
         ]),
       );
+
+  /// A row / grid of [stat] boxes (2 per row on phones, more on wide screens).
+  static Widget statGrid(List<Widget> boxes, {int phone = 2}) => LayoutBuilder(builder: (context, c) {
+        final cols = c.maxWidth > 700 ? (boxes.length >= 4 ? 4 : boxes.length) : phone;
+        final w = (c.maxWidth - (cols - 1) * 8) / cols;
+        return Wrap(spacing: 8, runSpacing: 8, children: [for (final b in boxes) SizedBox(width: w, child: b)]);
+      });
 
   static void toast(BuildContext context, Map<String, dynamic> r) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(

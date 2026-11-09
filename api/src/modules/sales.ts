@@ -5,6 +5,8 @@ import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
+import { notify } from './notify.ts';
 
 /**
  * Financial system, phase 2 — unit sales: reservation → down payment → installments.
@@ -13,6 +15,8 @@ import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, s
  *  - Money is always a numbered receipt (cash.ts) tied to the sale and to one schedule line; a line can never be
  *    collected beyond what is left on it.
  *  - Cancelling (approved policy: full refund) stops the remaining lines; refunds are expenses linked to the sale.
+ *  - A salesperson's sale waits for the management (sales.approve) before anything can be collected on it; HR / المدير
+ *    record sales directly. The deal commission can be filed with the sale (for the chosen salesperson when HR / المدير).
  */
 
 const FREQ_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
@@ -22,6 +26,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const canView = (a: Actor) => has(a, 'sales.view');
 const canManage = (a: Actor) => has(a, 'sales.manage');
+const canApprove = (a: Actor) => has(a, 'sales.approve');
 
 function dateParam(b: Record<string, unknown>, field: string, optional = false): string | null {
   const v = b[field];
@@ -82,9 +87,13 @@ function lineStatus(saleStatus: string, amount: number, paid: number, due: strin
 }
 
 const SALE_SELECT = `SELECT s.*, p.name AS project_name, e.full_name AS created_by_name,
+  (SELECT full_name FROM employees d WHERE d.id = s.decided_by) AS decided_by_name,
+  cr.ref AS commission_ref, cr.status AS commission_status, cr.sales_amount AS commission_amount,
+  (SELECT full_name FROM employees ce WHERE ce.id = cr.employee_id) AS commission_employee_name,
   COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.sale_id = s.id AND r.status = 'posted'), 0) AS collected,
   COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.sale_id = s.id AND x.status = 'posted'), 0) AS refunded
-  FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id JOIN employees e ON e.id = s.created_by`;
+  FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id JOIN employees e ON e.id = s.created_by
+  LEFT JOIN commission_requests cr ON cr.id = s.commission_request_id`;
 
 function shapeSale(s: any) {
   const collected = Number(s.collected), total = Number(s.total_price), down = Number(s.down_payment);
@@ -95,8 +104,13 @@ function shapeSale(s: any) {
     totalPrice: total, downPayment: down, downPaid: r2(downPaid), saleDate: String(s.sale_date).slice(0, 10),
     downPaymentDueDate: String(s.down_payment_due_date).slice(0, 10), frequency: s.frequency, installmentsCount: s.installments_count,
     firstDueDate: s.first_due_date ? String(s.first_due_date).slice(0, 10) : null, notes: s.notes,
-    status: s.status, stage: s.status === 'cancelled' ? 'cancelled' : collected >= total ? 'completed' : downPaid >= down ? 'installments' : 'reserved',
-    collected: r2(collected), remaining: s.status === 'cancelled' ? 0 : r2(total - collected), refunded: r2(Number(s.refunded)),
+    status: s.status,
+    stage: ['cancelled', 'pending', 'rejected'].includes(s.status) ? s.status : collected >= total ? 'completed' : downPaid >= down ? 'installments' : 'reserved',
+    paymentMethod: Number(s.installments_count) > 0 ? 'installments' : 'cash',
+    collected: r2(collected), remaining: ['cancelled', 'rejected'].includes(s.status) ? 0 : r2(total - collected), refunded: r2(Number(s.refunded)),
+    createdBy: s.created_by, decidedByName: s.decided_by_name ?? null, decidedAt: s.decided_at ?? null, rejectReason: s.reject_reason ?? null,
+    commission: s.commission_request_id ? { id: s.commission_request_id, ref: Number(s.commission_ref), status: s.commission_status,
+      amount: Number(s.commission_amount), employeeName: s.commission_employee_name } : null,
     refundDue: s.status === 'cancelled' ? r2(collected - Number(s.refunded)) : 0,
     createdByName: s.created_by_name, createdAt: s.created_at, cancelledAt: s.cancelled_at, cancelReason: s.cancel_reason,
   };
@@ -114,7 +128,7 @@ export const salesModule: Module = (r, { db, clock }) => {
 
   r.post('/sales', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    const direct = canManage(a); // HR / المدير: the sale is live at once; anyone else's waits for approval
     const b = obj(req.body);
     const projectId = typeof b.projectId === 'string' ? b.projectId : '';
     if (!isUuid(projectId)) throw invalid('Choose the project', { field: 'projectId' });
@@ -133,23 +147,34 @@ export const salesModule: Module = (r, { db, clock }) => {
     const firstDue = dateParam(b, 'firstDueDate', true);
     const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
     const lines = buildSchedule({ total, down, downDue, frequency, count, installmentAmount: instAmount, firstDue });
+    const commission = b.withCommission === true ? parseCommissionRequest({ ...b, projectId, unitNo, note: b.commissionNote ?? '' }, a) : null;
     const id = await db.tx(async (q) => {
       const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1`, [projectId]);
       if (!p) throw invalid('Choose the project', { field: 'projectId' });
-      const live = await one(q, `SELECT ref_no FROM unit_sales WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status = 'active'`,
+      const live = await one(q, `SELECT ref_no FROM unit_sales WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('active','pending')`,
         [projectId, unitNo]);
       if (live) throw new AppError('conflict', 'This unit already has an active sale', { reason: 'unit_has_buyer', refNo: Number(live.ref_no) });
       const s = await one(q, `
         INSERT INTO unit_sales (project_id, unit_no, buyer_name, buyer_phone, buyer_contact, total_price, down_payment, sale_date,
-               down_payment_due_date, frequency, installments_count, first_due_date, notes, created_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
+               down_payment_due_date, frequency, installments_count, first_due_date, notes, created_by, status, commission_request_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
         [projectId, unitNo, buyerName, buyerPhone, buyerContact, total, down, saleDate, downDue,
-          lines.length > 1 ? frequency : null, lines.length - 1, lines.length > 1 ? firstDue : null, notes, a.id]);
+          lines.length > 1 ? frequency : null, lines.length - 1, lines.length > 1 ? firstDue : null, notes, a.id,
+          direct ? 'active' : 'pending', commission ? await createCommissionRequest(q, a, commission) : null]);
       for (const l of lines) {
         await q.query(`INSERT INTO sale_installments (sale_id, seq, due_date, amount_egp) VALUES ($1,$2,$3,$4)`, [s.id, l.seq, l.due, l.amount]);
       }
       await audit(q, a.id, 'sales.create', 'unit_sale', s.id, undefined,
-        { projectId, unitNo, buyerName, total, down, frequency, installments: lines.length - 1 });
+        { projectId, unitNo, buyerName, total, down, frequency, installments: lines.length - 1, status: direct ? 'active' : 'pending' });
+      if (!direct) {
+        const approvers = await q.query(`
+          SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
+           WHERE rp.perm_key = 'sales.approve' AND e.status = 'active' AND e.id <> $1`, [a.id]);
+        for (const ap of approvers.rows) {
+          await notify(q, { to: ap.id, type: 'sale_awaiting', title: `بيعة جديدة من ${a.fullName} مستنية الاعتماد`,
+            body: `وحدة ${unitNo} — ${buyerName}`, entity: 'unit_sale', entityId: s.id, dedupeKey: `sale:${s.id}:awaiting` });
+        }
+      }
       return s.id;
     });
     return ok(await saleDetails(db, id, a), 201);
@@ -178,32 +203,61 @@ export const salesModule: Module = (r, { db, clock }) => {
       refunds: refunds.rows.map((x) => ({ id: x.id, refNo: Number(x.ref_no), amount: Number(x.amount_egp), cashbox: x.cashbox,
         at: x.occurred_at, reason: x.reason, status: x.status })),
       can: { collect: canManage(a) && s.status === 'active', cancel: has(a, 'sales.cancel') && s.status === 'active',
+        decide: canApprove(a) && s.status === 'pending' && s.created_by !== a.id,
         refund: s.status === 'cancelled' && (canOffice(a) || canHrOperate(a)) && has(a, 'sales.cancel') },
     };
   }
 
   r.get('/sales/:id', async (req) => {
     const a = await authenticate(db, req);
-    if (!canView(a)) throw forbidden();
-    await loadSale(db, req.params.id);
+    const s = await loadSale(db, req.params.id);
+    if (!canView(a) && s.created_by !== a.id) throw forbidden(); // the salesperson sees his own submissions
     return ok(await saleDetails(db, req.params.id, a));
   });
 
   r.get('/sales', async (req) => {
     const a = await authenticate(db, req);
-    if (!canView(a)) throw forbidden();
     const vals: unknown[] = []; const where: string[] = [];
+    if (!canView(a) || req.query.get('mine') === '1') { vals.push(a.id); where.push(`s.created_by = $${vals.length}`); }
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(s.buyer_name) LIKE $${vals.length} OR lower(s.unit_no) LIKE $${vals.length} OR s.buyer_phone LIKE $${vals.length})`); }
     const pid = req.query.get('projectId');
     if (pid && isUuid(pid)) { vals.push(pid); where.push(`s.project_id = $${vals.length}`); }
     const st = req.query.get('status');
-    if (st === 'active' || st === 'cancelled') { vals.push(st); where.push(`s.status = $${vals.length}`); }
+    if (st && ['pending', 'active', 'rejected', 'cancelled'].includes(st)) { vals.push(st); where.push(`s.status = $${vals.length}`); }
     const rows = await db.query(`
       ${SALE_SELECT.replace('FROM unit_sales s', `, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r JOIN sale_installments i ON i.id = r.installment_id
           WHERE i.sale_id = s.id AND i.seq = 0 AND r.status = 'posted'), 0) AS down_paid FROM unit_sales s`)}
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.created_at DESC LIMIT 500`, vals);
-    return ok({ currency: 'EGP', sales: rows.rows.map(shapeSale) });
+    return ok({ currency: 'EGP', sales: rows.rows.map(shapeSale),
+      can: { manage: canManage(a), approve: canApprove(a), view: canView(a) } });
+  });
+
+  /** Management decision on a salesperson's sale: approve (collections can start) or reject (with a reason). */
+  r.post('/sales/:id/decision', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canApprove(a)) throw forbidden();
+    const b = obj(req.body);
+    const decision = oneOf(b, 'decision', ['approve', 'reject'] as const)!;
+    const reason = decision === 'reject' ? str(b, 'reason', { min: 3, max: 500 })! : null;
+    await db.tx(async (q) => {
+      const s = await loadSale(q, req.params.id, true);
+      if (s.status !== 'pending') throw conflict('This sale was already decided');
+      if (s.created_by === a.id) throw forbidden('You cannot approve your own sale');
+      await q.query(`UPDATE unit_sales SET status = $2, decided_by = $3, decided_at = now(), reject_reason = $4 WHERE id = $1`,
+        [s.id, decision === 'approve' ? 'active' : 'rejected', a.id, reason]);
+      // a rejected sale takes its waiting commission request with it
+      if (decision === 'reject' && s.commission_request_id) {
+        const c = await one(q, `UPDATE commission_requests SET status = 'rejected', decided_by = $2, decided_at = now(), reject_reason = $3
+                                 WHERE id = $1 AND status = 'pending' AND employee_id <> $2 RETURNING id, employee_id`, [s.commission_request_id, a.id, `البيعة اترفضت: ${reason}`]);
+        if (c) await audit(q, a.id, 'commission.request.reject', 'commission_request', c.id, undefined, { reason: 'sale rejected' });
+      }
+      await audit(q, a.id, `sales.${decision}`, 'unit_sale', s.id, { status: 'pending' }, { status: decision === 'approve' ? 'active' : 'rejected', reason });
+      await notify(q, { to: s.created_by, type: decision === 'approve' ? 'sale_approved' : 'sale_rejected',
+        title: decision === 'approve' ? `اتعتمدت بيعة وحدة ${s.unit_no}` : `اترفضت بيعة وحدة ${s.unit_no}`,
+        body: decision === 'approve' ? s.buyer_name : `${reason}`, entity: 'unit_sale', entityId: s.id, dedupeKey: `sale:${s.id}:${decision}` });
+    });
+    return ok(await saleDetails(db, req.params.id, a));
   });
 
   /**

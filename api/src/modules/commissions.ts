@@ -132,6 +132,64 @@ async function monthClosed(q: Q, employeeId: string, period: string) {
     [employeeId, period]));
 }
 
+export interface CommissionRequestInput { projectId: string; unitNo: string; price: number; area: number; note: string; employeeId: string }
+
+/**
+ * The deal commission request. It is filed under the signed-in employee; HR / المدير (sales.manage) may file it for the
+ * salesperson who made the deal. Any amount / percentage sent is ignored — they come from the project.
+ */
+export function parseCommissionRequest(b: Record<string, unknown>, a: Actor): CommissionRequestInput {
+  const projectId = typeof b.projectId === 'string' ? b.projectId : '';
+  if (!isUuid(projectId)) throw invalid('Choose the project', { field: 'projectId' });
+  const unitNo = str(b, 'unitNo', { min: 1, max: 60 })!.trim();
+  const price = num(b, 'pricePerM2', { min: 0.01, max: 10_000_000 })!;
+  const area = num(b, 'areaM2', { min: 0.01, max: 1_000_000 })!;
+  const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
+  let employeeId = a.id;
+  // anyone else's employeeId is ignored (the request is always his own), as before
+  if (has(a, 'sales.manage') && typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id) {
+    if (!isUuid(b.employeeId)) throw invalid('Choose the salesperson', { field: 'employeeId' });
+    employeeId = b.employeeId;
+  }
+  return { projectId, unitNo, price, area, note, employeeId };
+}
+
+export async function createCommissionRequest(q: Q, a: Actor, x0: CommissionRequestInput): Promise<string> {
+  const { projectId, unitNo, price, area, note, employeeId } = x0;
+  const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
+  if (!p) throw invalid('Choose the project', { field: 'projectId' });
+  if (p.status !== 'active') throw new AppError('unprocessable', 'This project is not accepting deals now', { reason: 'project_inactive' });
+  const dup = await one(q, `SELECT employee_id, status FROM commission_requests
+                             WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('pending','approved')`,
+    [projectId, unitNo]);
+  if (dup) {
+    throw new AppError('conflict', 'This unit already has a commission request in this project',
+      { reason: dup.status === 'pending' ? 'pending_exists' : 'unit_sold', what: 'طلب عمولة لنفس الوحدة' });
+  }
+  const me = await one(q, `SELECT e.full_name, e.status, ${SM_OF} AS sales_manager_id FROM employees e LEFT JOIN teams t ON t.id = e.team_id WHERE e.id = $1`, [employeeId]);
+  if (!me || me.status !== 'active') throw invalid('Choose an active salesperson', { field: 'employeeId' });
+  const x = await one(q, `
+    INSERT INTO commission_requests (project_id, employee_id, sales_manager_id, unit_no, price_per_m2, area_m2, unit_value,
+           total_pct, sales_pct, manager_pct, company_pct, sales_amount, manager_amount, company_amount, note)
+    SELECT $1, $2, $3, $4, v.price, v.area, v.val, p.total_pct, p.sales_pct, p.manager_pct, p.company_pct,
+           round(v.val * p.sales_pct / 100, 2), round(v.val * p.manager_pct / 100, 2), round(v.val * p.company_pct / 100, 2), $7
+      FROM commission_projects p,
+           LATERAL (SELECT $5::numeric AS price, $6::numeric AS area, round($5::numeric * $6::numeric, 2) AS val) v
+     WHERE p.id = $1
+    RETURNING id`, [projectId, employeeId, me.sales_manager_id ?? null, unitNo, String(price), String(area), note]);
+  await audit(q, a.id, 'commission.request.create', 'commission_request', x.id, undefined,
+    { projectId, unitNo, pricePerM2: price, areaM2: area, ...(employeeId !== a.id ? { employeeId, filedBy: a.id } : {}) });
+  // ring the approvers (المدير / owner)
+  const approvers = await q.query(`
+    SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
+     WHERE rp.perm_key = 'commission.approve' AND e.status = 'active' AND e.id <> $1`, [employeeId]);
+  for (const ap of approvers.rows) {
+    await notify(q, { to: ap.id, type: 'commission_awaiting', title: `طلب عمولة صفقة من ${me.full_name}`,
+      body: `${p.name} — وحدة ${unitNo}`, entity: 'commission_request', entityId: x.id, dedupeKey: `commission:${x.id}:awaiting` });
+  }
+  return x.id;
+}
+
 export const commissionsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ projects
   r.get('/commissions/projects', async (req) => {
@@ -263,45 +321,10 @@ export const commissionsModule: Module = (r, { db, clock }) => {
   r.post('/commissions/requests', async (req) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
-    // the employee is always the signed-in person; any employeeId / amount / percentage sent is ignored
-    const projectId = typeof b.projectId === 'string' ? b.projectId : '';
-    if (!isUuid(projectId)) throw invalid('Choose the project', { field: 'projectId' });
-    const unitNo = str(b, 'unitNo', { min: 1, max: 60 })!.trim();
-    const price = num(b, 'pricePerM2', { min: 0.01, max: 10_000_000 })!;
-    const area = num(b, 'areaM2', { min: 0.01, max: 1_000_000 })!;
-    const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
+    const input = parseCommissionRequest(b, a);
     const row = await db.tx(async (q) => {
-      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
-      if (!p) throw invalid('Choose the project', { field: 'projectId' });
-      if (p.status !== 'active') throw new AppError('unprocessable', 'This project is not accepting deals now', { reason: 'project_inactive' });
-      const dup = await one(q, `SELECT employee_id, status FROM commission_requests
-                                 WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('pending','approved')`,
-        [projectId, unitNo]);
-      if (dup) {
-        throw new AppError('conflict', 'This unit already has a commission request in this project',
-          { reason: dup.status === 'pending' ? 'pending_exists' : 'unit_sold', what: 'طلب عمولة لنفس الوحدة' });
-      }
-      const me = await one(q, `SELECT ${SM_OF} AS sales_manager_id FROM employees e LEFT JOIN teams t ON t.id = e.team_id WHERE e.id = $1`, [a.id]);
-      const x = await one(q, `
-        INSERT INTO commission_requests (project_id, employee_id, sales_manager_id, unit_no, price_per_m2, area_m2, unit_value,
-               total_pct, sales_pct, manager_pct, company_pct, sales_amount, manager_amount, company_amount, note)
-        SELECT $1, $2, $3, $4, v.price, v.area, v.val, p.total_pct, p.sales_pct, p.manager_pct, p.company_pct,
-               round(v.val * p.sales_pct / 100, 2), round(v.val * p.manager_pct / 100, 2), round(v.val * p.company_pct / 100, 2), $7
-          FROM commission_projects p,
-               LATERAL (SELECT $5::numeric AS price, $6::numeric AS area, round($5::numeric * $6::numeric, 2) AS val) v
-         WHERE p.id = $1
-        RETURNING id`, [projectId, a.id, me?.sales_manager_id ?? null, unitNo, String(price), String(area), note]);
-      await audit(q, a.id, 'commission.request.create', 'commission_request', x.id, undefined,
-        { projectId, unitNo, pricePerM2: price, areaM2: area });
-      // ring the approvers (المدير / owner) — the employee's own general manager first
-      const approvers = await q.query(`
-        SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-         WHERE rp.perm_key = 'commission.approve' AND e.status = 'active' AND e.id <> $1`, [a.id]);
-      for (const ap of approvers.rows) {
-        await notify(q, { to: ap.id, type: 'commission_awaiting', title: `طلب عمولة صفقة من ${a.fullName}`,
-          body: `${p.name} — وحدة ${unitNo}`, entity: 'commission_request', entityId: x.id, dedupeKey: `commission:${x.id}:awaiting` });
-      }
-      return one(q, `SELECT ${REQ_COLS} ${REQ_FROM} WHERE cr.id = $1`, [x.id]);
+      const id = await createCommissionRequest(q, a, input);
+      return one(q, `SELECT ${REQ_COLS} ${REQ_FROM} WHERE cr.id = $1`, [id]);
     });
     return ok({ request: shapeRequest(row, a) }, 201);
   });

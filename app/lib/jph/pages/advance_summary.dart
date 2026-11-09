@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import '../widgets/jph_form_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/FinancialRequestApi.dart';
@@ -16,12 +17,15 @@ class FinancialSummaryPage extends StatefulWidget {
   final String uid;
   final String name;
   final String role;
+  /// true = shown as the "الطلبات" tab of the cashbox page (no own header / page)
+  final bool embedded;
 
   const FinancialSummaryPage({
     super.key,
     required this.uid,
     required this.name,
     required this.role,
+    this.embedded = false,
   });
 
   @override
@@ -970,16 +974,10 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
         final dividerColor =
         isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300;
 
-        return AppBackground(
-          child: Directionality(
-            textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: SafeArea(
-                child: Column(
+        final Widget content = Column(
                   children: [
-                    // Header
-                    Padding(
+                    // Header (own page) — or the filter button when inside the cashbox page
+                    if (!widget.embedded) Padding(
                       padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       child: Row(
@@ -1049,6 +1047,9 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                         ],
                       ),
                     ),
+
+                    if (widget.embedded)
+                      JphUi.filterButton(isDark, '${_monthNameAr(_filterMonth)} $_filterYear', _showFilterSheet),
 
                     // Search Bar
                     _buildSearchBar(isDark, textColor),
@@ -1126,7 +1127,16 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                       ),
                     ),
                   ],
-                ),
+                );
+        if (widget.embedded) return content;
+
+        return AppBackground(
+          child: Directionality(
+            textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: SafeArea(
+                child: content,
               ),
             ),
           ),
