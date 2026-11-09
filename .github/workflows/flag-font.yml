@@ -1,0 +1,21 @@
+name: One-off — make the small flag font (NotoFlags.ttf)
+# Builds a tiny subset of Google's Noto Color Emoji (SIL OFL 1.1) holding only the flags shown on the
+# login / language screens, so the browser no longer downloads the whole 693 KB emoji font for them.
+on:
+  push: { branches: [pending-build], paths: ['.github/workflows/flag-font.yml'] }
+permissions: { contents: write }
+jobs:
+  font:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: pending-build }
+      - run: |
+          pip install -q fonttools==4.55.3 brotli
+          curl -sSL --fail -o /tmp/NotoColorEmoji.ttf https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.047/fonts/NotoColorEmoji.ttf
+          curl -sSL --fail -o app/assets/fonts/NotoFlags-OFL.txt https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.047/fonts/LICENSE
+          pyftsubset /tmp/NotoColorEmoji.ttf --text="🇸🇦🇺🇸🇵🇰🇮🇳🌐" --layout-features='*' --output-file=app/assets/fonts/NotoFlags.ttf
+          ls -la app/assets/fonts/NotoFlags.ttf
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/assets/fonts/NotoFlags.ttf app/assets/fonts/NotoFlags-OFL.txt
+          git commit -m "Small flag font (Noto Color Emoji subset: SA, US, PK, IN + globe)" && git push origin HEAD:pending-build
