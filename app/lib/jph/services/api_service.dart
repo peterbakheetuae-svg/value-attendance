@@ -369,6 +369,19 @@ class JphRouter {
             if (p['status'] != null) 'status': '${p['status']}',
           });
           return _ok(pl.cast<String, dynamic>());
+        // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
+        case 'cash_get':
+          final cg = '${p['path'] ?? ''}';
+          if (!cg.startsWith('/cash/')) return _fail('bad path');
+          final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
+          return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
+        case 'cash_post':
+          final cp = '${p['path'] ?? ''}';
+          if (!cp.startsWith('/cash/')) return _fail('bad path');
+          final cr2 = p['method'] == 'patch'
+              ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
+              : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
+          return _ok({...cr2.cast<String, dynamic>(), 'message': p['ok'] ?? 'تم ✅'});
         // ---------------------------------------------------------------- project commissions (عمولات المشاريع)
         case 'commission_projects':
           return _ok((await _api.get('/commissions/projects', <String, String?>{
@@ -571,7 +584,7 @@ class JphRouter {
       final msg = _message(e);
       // a repeated request while another one is still waiting / overlapping: a popup, not only a small bar
       final reason = e.details?['reason'];
-      if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold') {
+      if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold' || reason == 'duplicate_receipt') {
         AlertCenter.instance.popupError('مينفعش تكرر الطلب', msg);
       }
       return {'success': false, 'code': e.code, 'status': e.status, 'message': msg};
@@ -590,6 +603,7 @@ class JphRouter {
       final what = '${e.details?['what'] ?? 'طلب'}';
       return 'عندك $what لسه مستني الموافقة — استنى الرد عليه أو الغيه الأول وبعدين اطلب تاني';
     }
+    if (e.details?['reason'] == 'duplicate_receipt') return 'رقم الإيصال ده اتسجل قبل كده';
     if (e.details?['reason'] == 'split_mismatch') {
       return 'مجموع النسب (${e.details?['sum']}%) لازم يساوي إجمالي العمولة (${e.details?['total']}%)';
     }

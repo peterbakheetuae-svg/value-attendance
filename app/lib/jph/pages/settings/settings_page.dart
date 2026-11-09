@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
 import '../../services/session_service.dart';
 import '../../services/api_service.dart';
@@ -404,6 +405,15 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+
+                    if (ApiService.can('cash.hr_view') || ApiService.can('cash.office')) ...[
+                      SettingsTile(
+                        title: 'الخزينة',
+                        icon: Icons.account_balance_wallet_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CashPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
 
                     SettingsTile(
                       title: 'عمولات المشاريع',

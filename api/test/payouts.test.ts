@@ -14,11 +14,7 @@ before(async () => {
 });
 after(async () => { await h.close(); });
 
-test('cash: the manager hands cash to HR; HR confirms; HR pays employees only from that cash', async () => {
-  // HR has no cash yet
-  const tooEarly = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 1000, month: '2026-03' });
-  assert.equal(tooEarly.status, 422);
-  assert.equal(tooEarly.body.error.details.reason, 'no_cash');
+test('cash: the manager hands cash to HR; HR confirms; HR payments come out of the HR cashbox (it may go negative)', async () => {
   assert.equal((await h.call(c.t.e1, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'fund', amount: 5000 })).status, 403);
   assert.equal((await h.call(tGm, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'fund', amount: 5000 })).status, 400, 'cash only to HR');
   const fund = await h.call(tGm, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 5000, note: 'عهدة مارس' });
@@ -30,7 +26,11 @@ test('cash: the manager hands cash to HR; HR confirms; HR pays employees only fr
   const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
   assert.equal(pay.status, 201);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000, 'deducted from HR cash');
-  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 })).status, 422, 'not enough cash');
+  // approved policy: the HR cashbox may go below zero — the deficit is what the office owes it
+  const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 });
+  assert.equal(over.status, 201);
+  assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, -500);
+  assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${over.body.payout.id}/cancel`, {})).status, 200);
   // the employee sees it, confirms receipt; others cannot
   const mine = (await h.call(c.t.e1, 'GET', '/payouts?scope=mine')).body.payouts;
   assert.equal(mine.length, 1);
@@ -46,5 +46,5 @@ test('cash: the manager hands cash to HR; HR confirms; HR pays employees only fr
   const c2 = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 500 });
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${c2.body.payout.id}/cancel`, {})).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000);
-  assert.equal((await h.call(c.t.e2, 'GET', '/payouts')).body.payouts.length, 1, 'employees see only their own');
+  assert.equal((await h.call(c.t.e2, 'GET', '/payouts')).body.payouts.length, 2, 'employees see only their own');
 });

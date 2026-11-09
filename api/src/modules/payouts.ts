@@ -11,13 +11,13 @@ export const PAYOUT_AR: Record<string, string> = {
   salary: 'القبض', advance: 'السلفة', commission: 'العمولة', work_expense: 'مصاريف العمل', fund: 'صرف أموال',
 };
 
-/** Cash in hand: money received from the manager / owner minus everything paid out (not cancelled). */
-export async function cashBalance(q: Q, employeeId: string): Promise<number> {
-  const r = await one(q, `
-    SELECT COALESCE((SELECT sum(amount_egp) FROM payouts WHERE employee_id = $1 AND kind = 'fund' AND status = 'received'), 0)
-         - COALESCE((SELECT sum(amount_egp) FROM payouts WHERE created_by = $1 AND kind <> 'fund' AND status <> 'cancelled'), 0) AS b`,
-    [employeeId]);
-  return Number(r.b);
+/**
+ * The HR cashbox book balance (cash_ledger: collections, expenses, transfers, cash handed over by the manager and
+ * every payout). It may be negative — that is money the office owes the HR cashbox (approved policy).
+ */
+export async function cashBalance(q: Q, _employeeId?: string): Promise<number> {
+  const r = await one(q, `SELECT COALESCE(sum(amount), 0) AS b FROM cash_ledger WHERE cashbox = 'hr'`);
+  return Math.round(Number(r.b) * 100) / 100;
 }
 
 const COLS = `p.*, e.full_name AS employee_name, e.code AS employee_code, c.full_name AS created_by_name`;
@@ -85,10 +85,7 @@ export const payoutsModule: Module = (r, { db, clock }) => {
         if (!ok) throw invalid('Cash can only be handed to someone who pays employees (HR)', { field: 'employeeId' });
       } else {
         if (!has(a, 'finance.disburse')) throw forbidden('Only HR pays employees');
-        // one payer at a time: the cash box never goes below zero
-        await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
-        const bal = await cashBalance(q, a.id);
-        if (amount > bal) throw new AppError('unprocessable', 'Not enough cash in hand — ask the manager / owner for cash first', { reason: 'no_cash', balance: bal });
+        // the HR cashbox may go below zero (approved policy): the deficit shows to the manager as money to transfer
         if (advanceId) {
           const adv = await one(q, `SELECT * FROM advance_requests WHERE id = $1`, [advanceId]);
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });
