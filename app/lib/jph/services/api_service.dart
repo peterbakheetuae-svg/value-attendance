@@ -372,7 +372,7 @@ class JphRouter {
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/finance/', '/insights/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':

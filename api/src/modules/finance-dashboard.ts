@@ -1,0 +1,170 @@
+import { ok, type Module } from '../ctx.ts';
+import { one } from '../db.ts';
+import { forbidden, notFound } from '../http/errors.ts';
+import { local } from '../lib/time.ts';
+import { isUuid, monthParam } from '../http/validate.ts';
+import { authenticate, has } from '../auth/context.ts';
+import { cashSummary, canHrView, canOffice } from './cash.ts';
+import { computePayroll, loadRules } from './payroll-calc.ts';
+
+/**
+ * Financial system, phase 5 — dashboards, the employee account report, and monthly employee indicators.
+ * Each figure is returned only to the people allowed to see it (office figures never reach HR).
+ * Indicators inform the manager; they never trigger a deduction or a disciplinary step by themselves.
+ */
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const n = (v: unknown) => Number(v ?? 0);
+
+function prevMonth(period: string) {
+  const [y, m] = period.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return d.toISOString().slice(0, 10);
+}
+
+export const financeDashboardModule: Module = (r, { db, clock }) => {
+  const today = () => local(clock()).date;
+
+  r.get('/finance/dashboard', async (req) => {
+    const a = await authenticate(db, req);
+    const hr = canHrView(a), office = canOffice(a);
+    if (!hr && !office) throw forbidden();
+    const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
+    const t = today();
+    const cash = await cashSummary(db, a);
+    const m = await one(db, `SELECT
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[])
+                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS collections,
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind IN ('reservation','down_payment')
+                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS down_payments,
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = 'installment'
+                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS installments,
+        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'hr'
+                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS hr_expenses,
+        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'office'
+                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS office_expenses,
+        COALESCE((SELECT sum(amount_egp) FROM payouts WHERE kind = 'salary' AND status <> 'cancelled' AND period = $1), 0) AS salaries_paid,
+        COALESCE((SELECT sum(amount_egp) FROM commission_entitlements WHERE status = 'active' AND period = $1), 0) AS commissions,
+        COALESCE((SELECT sum(ce.amount_egp) FROM commission_entitlements ce WHERE ce.status = 'active'
+                   AND NOT EXISTS (SELECT 1 FROM payouts p WHERE p.commission_entitlement_id = ce.id AND p.status <> 'cancelled')), 0) AS commissions_unpaid,
+        (SELECT count(*) FROM payroll_batches WHERE status IN ('draft','returned','pending_approval')) AS batches_open,
+        (SELECT count(*) FROM cash_transfers WHERE status IN ('requested','approved','executed')) AS transfers_open`,
+      [period, office ? ['hr', 'office'] : ['hr']]);
+    // outstanding advances: what is still to come off salaries from this month on
+    const adv = await one(db, `SELECT COALESCE(sum(GREATEST(ar.amount_egp - COALESCE(d.done, 0), 0)), 0) AS outstanding
+        FROM advance_requests ar
+        LEFT JOIN LATERAL (SELECT sum(x.amount_egp) AS done FROM advance_deductions x
+                            WHERE x.advance_id = ar.id AND x.status = 'active' AND x.period < $1) d ON true
+       WHERE ar.kind = 'advance' AND ar.status = 'confirmed'
+         AND (EXISTS (SELECT 1 FROM advance_deductions y WHERE y.advance_id = ar.id AND y.status = 'active') OR ar.period >= $1)`, [period]);
+    const inst = await one(db, `
+      WITH lines AS (
+        SELECT i.id, i.due_date, i.amount_egp,
+               COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
+          FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id WHERE s.status = 'active')
+      SELECT COALESCE(sum(amount_egp - paid) FILTER (WHERE due_date < $1 AND paid < amount_egp), 0) AS overdue,
+             count(*) FILTER (WHERE due_date < $1 AND paid < amount_egp) AS overdue_n,
+             COALESCE(sum(amount_egp - paid) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp), 0) AS week,
+             count(*) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp) AS week_n,
+             COALESCE(sum(amount_egp - paid) FILTER (WHERE paid < amount_egp), 0) AS units_remaining
+        FROM lines`, [t]);
+    const out: Record<string, unknown> = {
+      currency: 'EGP', month: period.slice(0, 7), cash,
+      hr: {
+        collections: r2(n(m.collections)), expenses: r2(n(m.hr_expenses)),
+        requiredFromOffice: (cash as any).hr ? r2(n((cash as any).hr.deficit)) : 0,
+        payrollBatchesOpen: Number(m.batches_open), outstandingAdvances: r2(n(adv.outstanding)),
+        commissionsAwaitingPayment: r2(n(m.commissions_unpaid)),
+        installmentsDueThisWeek: { amount: r2(n(inst.week)), count: Number(inst.week_n) },
+        overdueInstallments: { amount: r2(n(inst.overdue)), count: Number(inst.overdue_n) },
+      },
+    };
+    if (office) {
+      out.management = {
+        transfersOpen: Number(m.transfers_open), hrExpenses: r2(n(m.hr_expenses)), officeExpenses: r2(n(m.office_expenses)),
+        salariesPaid: r2(n(m.salaries_paid)), outstandingAdvances: r2(n(adv.outstanding)), commissions: r2(n(m.commissions)),
+        downPayments: r2(n(m.down_payments)), installmentsCollected: r2(n(m.installments)),
+        overdueInstallments: r2(n(inst.overdue)), unitsRemaining: r2(n(inst.units_remaining)),
+      };
+    }
+    return ok(out);
+  });
+
+  /** One employee's money: payroll per month, payments (with confirmation), advances and commissions. */
+  r.get('/finance/employee-account/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const self = req.params.id === a.id;
+    if (!self && !(has(a, 'employee.salary_read') && (canHrView(a) || canOffice(a)))) throw forbidden();
+    const emp = await one(db, `SELECT id, full_name, code FROM employees WHERE id = $1`, [req.params.id]);
+    if (!emp) throw notFound();
+    const pays = await db.query(`SELECT id, kind, amount_egp, period, status, created_at, received_at, dispute_reason, note
+                                   FROM payouts WHERE employee_id = $1 AND kind <> 'fund' ORDER BY created_at DESC LIMIT 200`, [emp.id]);
+    const advs = await db.query(`SELECT ar.id, ar.amount_egp, ar.period, ar.status,
+          (SELECT json_agg(json_build_object('month', to_char(d.period,'YYYY-MM'), 'amount', d.amount_egp, 'status', d.status) ORDER BY d.period)
+             FROM advance_deductions d WHERE d.advance_id = ar.id) AS deductions
+        FROM advance_requests ar WHERE ar.employee_id = $1 AND ar.kind = 'advance' ORDER BY ar.period DESC LIMIT 50`, [emp.id]);
+    const coms = await db.query(`SELECT ce.amount_egp, ce.period, ce.role, ce.status, p.name AS project, cr.unit_no
+        FROM commission_entitlements ce JOIN commission_requests cr ON cr.id = ce.request_id JOIN commission_projects p ON p.id = cr.project_id
+       WHERE ce.employee_id = $1 ORDER BY ce.period DESC LIMIT 100`, [emp.id]);
+    return ok({
+      currency: 'EGP', employee: { id: emp.id, name: emp.full_name, code: emp.code },
+      payments: pays.rows.map((p) => ({ id: p.id, kind: p.kind, amount: n(p.amount_egp), month: String(p.period).slice(0, 7), status: p.status,
+        at: p.created_at, receivedAt: p.received_at, disputeReason: p.dispute_reason, note: p.note })),
+      advances: advs.rows.map((x) => ({ id: x.id, amount: n(x.amount_egp), month: String(x.period).slice(0, 7), status: x.status,
+        deductions: (x.deductions ?? []).map((d: any) => ({ ...d, amount: n(d.amount) })) })),
+      commissions: coms.rows.map((x) => ({ amount: n(x.amount_egp), month: String(x.period).slice(0, 7), role: x.role, status: x.status,
+        project: x.project, unitNo: x.unit_no })),
+    });
+  });
+
+  /**
+   * Monthly indicators per employee vs the previous month: punctuality, late count / minutes, absence, unpaid leave,
+   * permissions & visits, manager evaluation, deals and commissions. Alerts and suggestions are advice only.
+   */
+  r.get('/insights/employees', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a) && !has(a, 'report.read_all')) throw forbidden();
+    const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
+    const prev = prevMonth(period);
+    const rules = await loadRules(db);
+    const emps = await db.query(`SELECT id, full_name, code FROM employees WHERE status = 'active' AND role_key <> 'owner' AND NOT attendance_exempt ORDER BY full_name`);
+    const out = [];
+    for (const e of emps.rows) {
+      const stat = async (p: string) => {
+        const pay = await computePayroll(db, e.id, p, today(), rules);
+        const att = await one(db, `SELECT count(*) AS n FROM attendance WHERE employee_id = $1 AND work_date >= $2 AND work_date < ($2::date + interval '1 month')`, [e.id, p]);
+        const outs = await one(db, `SELECT count(*) FILTER (WHERE kind = 'permission') AS perms, count(*) FILTER (WHERE kind = 'visit') AS visits
+                                      FROM outing_requests WHERE employee_id = $1 AND status = 'approved' AND parent_id IS NULL
+                                       AND requested_at >= ($2::date AT TIME ZONE 'Africa/Cairo') AND requested_at < (($2::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')`, [e.id, p]);
+        const deals = await one(db, `SELECT count(*) AS n, COALESCE(sum(sales_amount),0) AS c FROM commission_requests WHERE employee_id = $1 AND status = 'approved' AND period = $2`, [e.id, p]);
+        const ev = await one(db, `SELECT avg((SELECT avg(v) FROM unnest(ARRAY[discipline, attendance, communication, follow_up, teamwork,
+                                        sales_performance, initiative, professional_behavior]) v)) AS s
+                                    FROM evaluations WHERE employee_id = $1 AND period = $2 AND status = 'published'`, [e.id, p]);
+        const days = Number(att.n);
+        const lateDays = Number((pay as any).late?.days ?? 0);
+        return {
+          attendanceDays: days, lateCount: lateDays, lateMinutes: Number((pay as any).late?.minutes ?? 0),
+          earlyCount: Number((pay as any).early?.days ?? 0), absenceDays: Number((pay as any).absence?.days ?? 0),
+          unpaidLeaveDays: Number((pay as any).unpaid?.days ?? 0), permissions: Number(outs.perms ?? 0), visits: Number(outs.visits ?? 0),
+          punctuality: days ? Math.round(((days - lateDays) / days) * 100) : null,
+          deals: Number(deals.n), commissions: r2(n(deals.c)), evaluation: ev?.s == null ? null : r2(Number(ev.s)),
+        };
+      };
+      const cur = await stat(period), old = await stat(prev);
+      const alerts: string[] = [], tips: string[] = [];
+      if (cur.lateCount >= 3) alerts.push(`اتأخر ${cur.lateCount} مرات الشهر ده`);
+      if (cur.lateCount > old.lateCount && old.lateCount > 0) alerts.push('التأخير زاد عن الشهر اللي فات');
+      if (cur.absenceDays >= 2) alerts.push(`غياب بدون إذن ${cur.absenceDays} يوم`);
+      if (old.punctuality != null && cur.punctuality != null && cur.punctuality + 10 < old.punctuality) alerts.push('نسبة الالتزام نزلت');
+      if (old.deals > 0 && cur.deals < old.deals) alerts.push('صفقات أقل من الشهر اللي فات');
+      if (cur.lateCount >= 3) tips.push('كلمه عن مواعيد الحضور وشوف لو فيه ظرف يحتاج تعديل ميعاده');
+      if (cur.absenceDays >= 2) tips.push('اتأكد من سبب الغياب قبل أي إجراء');
+      if (old.deals > 0 && cur.deals < old.deals) tips.push('راجع معاه الصفقات المفتوحة واحتياجه من دعم');
+      if (!alerts.length && cur.punctuality != null && cur.punctuality >= 95) tips.push('التزام ممتاز — يستاهل كلمة شكر');
+      out.push({ id: e.id, name: e.full_name, code: e.code, current: cur, previous: old, alerts, suggestions: tips });
+    }
+    return ok({ month: period.slice(0, 7), previousMonth: prev.slice(0, 7), employees: out,
+      note: 'المؤشرات للمتابعة فقط — مفيش خصم أو إجراء تلقائي بناءً عليها' });
+  });
+};

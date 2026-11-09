@@ -22,6 +22,7 @@ import { commissionsModule } from './modules/commissions.ts';
 import { cashModule } from './modules/cash.ts';
 import { salesModule } from './modules/sales.ts';
 import { payrollBatchesModule } from './modules/payroll-batches.ts';
+import { financeDashboardModule } from './modules/finance-dashboard.ts';
 import { pushEnabled } from './lib/fcm.ts';
 import { mailEnabled } from './lib/mail.ts';
 
@@ -37,6 +38,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule, financeDashboardModule]) m(r, ctx);
   return r;
 }

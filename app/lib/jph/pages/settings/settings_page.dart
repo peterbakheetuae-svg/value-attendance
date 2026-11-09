@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../payroll/payroll_batches_page.dart';
+import '../finance/finance_dashboard_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../commissions/commissions_page.dart';
@@ -408,6 +409,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
+                    if (ApiService.can('cash.hr_view') || ApiService.can('cash.office')) ...[
+                      SettingsTile(
+                        title: 'لوحة المالية والمؤشرات',
+                        icon: Icons.insights_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FinanceDashboardPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
                     if (ApiService.can('payroll.prepare') || ApiService.can('payroll.approve')) ...[
                       SettingsTile(
                         title: 'دفعات المرتبات',
