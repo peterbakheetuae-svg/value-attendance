@@ -1,0 +1,27 @@
+name: One-off — fonts for the printed forms (Noto Naskh Arabic + Arimo)
+# Free fonts used to draw the custody receipt form: Arimo has the same metrics as Arial (the original's font) and
+# Noto Naskh Arabic is the closest free match to Arial's Arabic letters. Both are free to ship (OFL / Apache 2.0).
+on:
+  push: { branches: [pending-build], paths: ['.github/workflows/forms-font.yml'] }
+permissions: { contents: write }
+jobs:
+  font:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: pending-build }
+      - run: |
+          set -e
+          d=app/assets/fonts/forms; mkdir -p $d
+          N=https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoNaskhArabic/hinted/ttf
+          A=https://raw.githubusercontent.com/googlefonts/Arimo/main/fonts/ttf
+          curl -sSfL -o $d/NotoNaskhArabic-Regular.ttf $N/NotoNaskhArabic-Regular.ttf
+          curl -sSfL -o $d/NotoNaskhArabic-Bold.ttf $N/NotoNaskhArabic-Bold.ttf
+          curl -sSfL -o $d/Arimo-Regular.ttf $A/Arimo-Regular.ttf
+          curl -sSfL -o $d/Arimo-Bold.ttf $A/Arimo-Bold.ttf
+          curl -sSfL -o $d/NotoNaskhArabic-OFL.txt https://raw.githubusercontent.com/notofonts/arabic/main/OFL.txt
+          curl -sSfL -o $d/Arimo-LICENSE.txt https://raw.githubusercontent.com/googlefonts/Arimo/main/LICENSE.txt || curl -sSfL -o $d/Arimo-LICENSE.txt https://www.apache.org/licenses/LICENSE-2.0.txt
+          ls -la $d
+          git add -A $d
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Fonts for the printed forms (Noto Naskh Arabic, Arimo)" && git push origin HEAD:pending-build
