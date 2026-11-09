@@ -21,6 +21,9 @@ export async function cashBalance(q: Q, _employeeId?: string): Promise<number> {
   return Math.round(Number(r.b) * 100) / 100;
 }
 
+/** صرف الراتب is HR's desk only: المدير and the owner (office cashbox) see who was paid and who was not, nothing more. */
+const paysSalaries = (a: Actor) => has(a, 'finance.disburse') && !has(a, 'cash.office');
+
 const COLS = `p.*, e.full_name AS employee_name, e.code AS employee_code, c.full_name AS created_by_name`;
 const FROM = `FROM payouts p JOIN employees e ON e.id = p.employee_id JOIN employees c ON c.id = p.created_by`;
 
@@ -132,8 +135,9 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const paid = Math.round(pays.rows.reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
     const received = Math.round(pays.rows.filter((x) => x.status === 'received').reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
     const remaining = Math.round((due - paid) * 100) / 100;
+    const awaiting = Math.round((paid - received) * 100) / 100; // handed over, not confirmed by him yet (قيد المراجعة)
     const waiting = pays.rows.some((x) => x.status === 'pending' || x.status === 'disputed');
-    return { employeeId: e.id, employeeName: e.full_name, employeeCode: e.code ?? null, month: period.slice(0, 7), due, paid, received, remaining,
+    return { employeeId: e.id, employeeName: e.full_name, employeeCode: e.code ?? null, month: period.slice(0, 7), due, paid, received, awaiting, remaining,
       complete: !!p.complete,
       status: remaining > 0.009 ? (paid > 0 ? 'partly_paid' : 'unpaid') : waiting ? 'awaiting_receipt' : paid > 0 ? 'received' : 'nothing_due',
       payments: pays.rows.map((x) => ({ id: x.id, amount: Number(x.amount_egp), status: x.status, createdAt: x.created_at, receivedAt: x.received_at })) };
@@ -150,16 +154,18 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const rows: any[] = [];
     for (const e of emps.rows) {
       const x = await salaryRow(db, e, period, rules, t);
-      if (x) rows.push({ ...x, canPay: x.remaining > 0.009 && has(a, 'finance.disburse') && e.id !== a.id });
+      if (x) rows.push({ ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id });
     }
-    const sum = (k: 'due' | 'paid' | 'remaining') => Math.round(rows.reduce((s, x) => s + Math.max(0, x[k]), 0) * 100) / 100;
-    return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, totals: { due: sum('due'), paid: sum('paid'), remaining: sum('remaining') } });
+    const sum = (k: 'due' | 'paid' | 'received' | 'awaiting' | 'remaining') =>
+      Math.round(rows.reduce((s, x) => s + Math.max(0, x[k]), 0) * 100) / 100;
+    return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, canPay: paysSalaries(a),
+      totals: { due: sum('due'), paid: sum('paid'), received: sum('received'), awaiting: sum('awaiting'), remaining: sum('remaining') } });
   });
 
   /** صرف الراتب: hands the employee what is left of the month's salary; it leaves the HR cashbox once he confirms. */
   r.post('/payouts/salary', async (req) => {
     const a = await authenticate(db, req);
-    if (!has(a, 'finance.disburse')) throw forbidden('Only HR pays employees');
+    if (!paysSalaries(a)) throw forbidden('Only HR pays salaries — the manager and the owner only follow who was paid');
     const b = obj(req.body);
     const employeeId = typeof b.employeeId === 'string' ? b.employeeId : '';
     if (!isUuid(employeeId)) throw invalid('Choose the employee', { field: 'employeeId' });

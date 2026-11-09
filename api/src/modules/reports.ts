@@ -5,7 +5,7 @@ import { monthParam, isUuid } from '../http/validate.ts';
 import { assertCanRead, authenticate, has, readableIds, teamMemberIds, type Actor } from '../auth/context.ts';
 import { addMonths, local } from '../lib/time.ts';
 import { workbook, XLSX_MIME, type Cell } from '../lib/xlsx.ts';
-import { computePayroll, loadRules } from './payroll-calc.ts';
+import { arrearsBefore, computePayroll, loadRules } from './payroll-calc.ts';
 import { computeMonth, type MonthSummary } from './attendance-calc.ts';
 import { ensurePeriod, loadPeriod } from './kpi.ts';
 import { overall } from './evaluations.ts';
@@ -196,7 +196,10 @@ export const reportsModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     if (req.params.id !== a.id && !has(a, 'employee.salary_read')) throw forbidden();
     const period = monthParam(req.query.get('month'));
-    return ok({ period, currency: 'EGP', payroll: await computePayroll(db, req.params.id, period, today(), await loadRules(db)) });
+    const rules = await loadRules(db);
+    const payroll = await computePayroll(db, req.params.id, period, today(), rules);
+    // المتأخرات = still owed from earlier months only (0 when nothing is)
+    return ok({ period, currency: 'EGP', payroll: payroll && { ...payroll, arrears: await arrearsBefore(db, req.params.id, period, today(), rules) } });
   });
 
   r.get('/reports/payroll', async (req) => {

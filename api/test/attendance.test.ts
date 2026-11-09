@@ -79,6 +79,8 @@ test('HR correction keeps originals and full history; nobody corrects themselves
   assert.equal((await h.call(c.t.e1, 'POST', '/attendance/corrections', { employeeId: c.ids.e1, workDate: '2026-03-10', checkIn: '10:00', reason: 'test' })).status, 403);
   assert.equal((await h.call(c.t.sm1, 'POST', '/attendance/corrections', { employeeId: c.ids.e1, workDate: '2026-03-10', checkIn: '10:00', reason: 'test' })).status, 403, 'sales manager cannot edit attendance');
   const r = await h.call(c.t.hr, 'POST', '/attendance/corrections', { employeeId: c.ids.e1, workDate: '2026-03-10', checkIn: '10:05', checkOut: '18:00', reason: 'زحمة مرور موثقة' });
+  const rng = (await h.call(c.t.hr, 'GET', `/attendance/range?employeeId=${c.ids.e1}&from=2026-03-10&to=2026-03-10`)).body.days;
+  assert.ok(rng[0].correctedByName, 'the daily report says who edited the times');
   assert.equal(r.status, 201);
   const after = (await h.db.query(`SELECT * FROM attendance WHERE id = $1`, [before.id])).rows[0];
   assert.equal(after.corrected, true);

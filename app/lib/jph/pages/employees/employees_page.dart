@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import 'employee_details_page.dart';
 import 'add_employee_page.dart';
 import '../../widgets/app_nav.dart';
+import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_bottom_nav.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
 
 class EmployeesPage extends StatefulWidget {
@@ -350,57 +351,21 @@ class _EmployeesPageState extends State<EmployeesPage> {
 
                           const SizedBox(height: 12),
 
-                          // قائمة الفلتر
-                          Row(
-                            children: [
-                              Text(
-                                'فلتر:',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: isDark ? Colors.white70 : Colors.grey[700],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Container(
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                    child: DropdownButton<String>(
-                                      value: _selectedFilter,
-                                      items: _filterOptions.map((option) {
-                                        return DropdownMenuItem<String>(
-                                          value: option,
-                                          child: Text(
-                                            option,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: isDark ? Colors.white : Colors.black,
-                                            ),
-                                          ),
-                                        );
-                                      }).toList(),
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _selectedFilter = value!;
-                                        });
-                                      },
-                                      isExpanded: true,
-                                      underline: const SizedBox(),
-                                      dropdownColor: isDark ? Colors.grey[800] : Colors.white,
-                                      icon: Icon(
-                                        Icons.filter_list,
-                                        color: isDark ? Colors.white70 : Colors.grey[600],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          // قائمة الفلتر — نفس شكل باقي القوائم في التطبيق
+                          JphUi.picker(
+                            isDark: isDark,
+                            icon: Icons.filter_list_rounded,
+                            iconColor: Colors.teal,
+                            label: 'فلتر',
+                            value: _selectedFilter,
+                            onTap: () async {
+                              final v = await JphUi.sheet<String>(context, isDark, 'فلتر الموظفين', [
+                                for (final o in _filterOptions)
+                                  (o, o, o == 'الكل' ? Icons.groups_rounded : o == 'نشط' ? Icons.check_circle_outline_rounded
+                                      : o == 'غير نشط' ? Icons.person_off_outlined : Icons.work_outline_rounded),
+                              ], selected: _selectedFilter, icon: Icons.filter_list_rounded);
+                              if (v != null) setState(() => _selectedFilter = v);
+                            },
                           ),
                         ],
                       ),

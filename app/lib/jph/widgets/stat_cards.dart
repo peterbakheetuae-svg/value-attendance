@@ -118,17 +118,32 @@ class StatRightCardModel {
 
 class StatRightCard extends StatelessWidget {
   final StatRightCardModel model;
+  /// greyed out — e.g. the employee's file says he has no check-in / check-out
+  final bool disabled;
 
-  const StatRightCard({super.key, required this.model});
+  const StatRightCard({super.key, required this.model, this.disabled = false});
 
   @override
   Widget build(BuildContext context) {
     return Selector<AppController, bool>(
       selector: (_, controller) => controller.isDark,
       builder: (context, isDark, _) {
-        return _StatRightCardContent(
+        final card = _StatRightCardContent(
           model: model,
           isDark: isDark,
+        );
+        if (!disabled) return card;
+        return Opacity(
+          opacity: 0.45,
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.matrix(<double>[
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0, 0, 0, 1, 0,
+            ]),
+            child: card,
+          ),
         );
       },
     );

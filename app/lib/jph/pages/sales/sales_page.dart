@@ -7,11 +7,13 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/swipe_tabs.dart';
+import '../attendance/attendance_widgets.dart';
 import '../cash/cash_page.dart';
 
 /// المبيعات والأقساط — the operational page for HR and the manager (the Projects page stays as it is):
-///  • الأقساط المستحقة: every open installment with filters (overdue, today, dates, project, unit, buyer).
-///  • الوحدات المباعة: registered sales, a new sale, and each sale's schedule / collections / cancellation.
+///  • الأقساط المستحقة: كل المفتوح | المتأخر | النهارده (swipe), period filter icon top-left, search by buyer.
+///  • العملاء: every buyer (from the sales); tapping one shows his installments; a new sale is registered here.
 class SalesPage extends StatefulWidget {
   const SalesPage({super.key});
 
@@ -33,7 +35,20 @@ const _stageAr = {
 String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 class _SalesPageState extends State<SalesPage> {
-  String _tab = 'due';
+  /// the period filter (icon top-left, like the attendance report) — applies to the installments lists
+  final _range = ValueNotifier<DateTimeRange?>(null);
+
+  @override
+  void dispose() {
+    _range.dispose();
+    super.dispose();
+  }
+
+  Future<void> _filter(bool isDark) async {
+    final now = DateTime.now();
+    final picked = await JphUi.pickRange(context, isDark, _range.value?.start ?? now, _range.value?.end ?? now.add(const Duration(days: 30)));
+    if (picked != null) _range.value = picked;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,17 +62,24 @@ class _SalesPageState extends State<SalesPage> {
             backgroundColor: Colors.transparent,
             body: SafeArea(
               child: Column(children: [
-                JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'المبيعات والأقساط'),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: cashSegmented(isDark, {'due': 'الأقساط المستحقة', 'sales': 'الوحدات المباعة'}, _tab, (v) => setState(() => _tab = v)),
+                Header(
+                  onBack: () => Navigator.pop(context),
+                  onFilter: () => _filter(isDark),
+                  isRTL: isRTL,
+                  isDark: isDark,
+                  title: 'المبيعات والأقساط',
                 ),
-                const SizedBox(height: 8),
                 Expanded(
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1000),
-                      child: _tab == 'due' ? _DueTab(isDark: isDark) : _SalesTab(isDark: isDark),
+                      // the page bar is tapped; the installments bar under it is the one you swipe
+                      child: SwipeTabs(
+                        isDark: isDark,
+                        swipe: false,
+                        tabs: const [('الأقساط المستحقة', Icons.event_note_rounded), ('العملاء', Icons.people_alt_rounded)],
+                        pages: [_DueTab(isDark: isDark, range: _range), _ClientsTab(isDark: isDark)],
+                      ),
                     ),
                   ),
                 ),
@@ -71,17 +93,58 @@ class _SalesPageState extends State<SalesPage> {
 }
 
 // ==================================================================== الأقساط المستحقة
-class _DueTab extends StatefulWidget {
+/// كل المفتوح | المتأخر | النهارده — same bar as the attendance pages, swipe right / left between them.
+class _DueTab extends StatelessWidget {
   final bool isDark;
-  const _DueTab({required this.isDark});
+  final ValueNotifier<DateTimeRange?> range;
+  const _DueTab({required this.isDark, required this.range});
 
   @override
-  State<_DueTab> createState() => _DueTabState();
+  Widget build(BuildContext context) {
+    return Column(children: [
+      ValueListenableBuilder<DateTimeRange?>(
+        valueListenable: range,
+        builder: (_, r, __) => r == null
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: InputChip(
+                  avatar: const Icon(Icons.date_range_rounded, size: 18),
+                  label: Text('من ${_iso(r.start)} لـ ${_iso(r.end)}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  onDeleted: () => range.value = null,
+                ),
+              ),
+      ),
+      Expanded(
+        child: SwipeTabs(
+          isDark: isDark,
+          tabs: const [
+            ('كل المفتوح', Icons.list_alt_rounded),
+            ('المتأخر', Icons.warning_amber_rounded),
+            ('النهارده', Icons.today_rounded),
+          ],
+          pages: [
+            _DueList(isDark: isDark, filter: 'open', range: range),
+            _DueList(isDark: isDark, filter: 'overdue', range: range),
+            _DueList(isDark: isDark, filter: 'today', range: range),
+          ],
+        ),
+      ),
+    ]);
+  }
 }
 
-class _DueTabState extends State<_DueTab> {
-  String _filter = 'open'; // open | overdue | today | range
-  DateTimeRange? _range;
+class _DueList extends StatefulWidget {
+  final bool isDark;
+  final String filter; // open | overdue | today
+  final ValueNotifier<DateTimeRange?> range;
+  const _DueList({required this.isDark, required this.filter, required this.range});
+
+  @override
+  State<_DueList> createState() => _DueListState();
+}
+
+class _DueListState extends State<_DueList> {
   final _q = TextEditingController();
   Map<String, dynamic> _r = {};
   bool _loading = true;
@@ -89,17 +152,26 @@ class _DueTabState extends State<_DueTab> {
   @override
   void initState() {
     super.initState();
+    widget.range.addListener(_load);
     _load();
   }
 
+  @override
+  void dispose() {
+    widget.range.removeListener(_load);
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     final q = _q.text.trim();
+    final range = widget.range.value;
     final r = await cashGet('/sales/installments/due', {
-      if (_filter == 'overdue') 'overdue': '1',
-      if (_filter == 'today') 'today': '1',
-      if (_filter == 'range' && _range != null) 'from': _iso(_range!.start),
-      if (_filter == 'range' && _range != null) 'to': _iso(_range!.end),
+      if (widget.filter == 'overdue') 'overdue': '1',
+      if (widget.filter == 'today') 'today': '1',
+      if (range != null) 'from': _iso(range.start),
+      if (range != null) 'to': _iso(range.end),
       if (q.isNotEmpty) 'buyer': q,
     });
     if (!mounted) return;
@@ -117,17 +189,6 @@ class _DueTabState extends State<_DueTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        cashSegmented(isDark, {'open': 'كل المفتوح', 'overdue': 'المتأخر', 'today': 'مستحق النهارده', 'range': 'فترة'}, _filter, (v) async {
-          if (v == 'range') {
-            final now = DateTime.now();
-            final picked = await JphUi.pickRange(context, isDark, _range?.start ?? now, _range?.end ?? now.add(const Duration(days: 30)));
-            if (picked == null) return;
-            _range = picked;
-          }
-          setState(() => _filter = v);
-          _load();
-        }),
-        const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: JphUi.box(isDark),
@@ -182,18 +243,20 @@ class _DueTabState extends State<_DueTab> {
   }
 }
 
-// ==================================================================== الوحدات المباعة
-class _SalesTab extends StatefulWidget {
+// ==================================================================== العملاء
+/// Every buyer (from the registered sales — one client per mobile number). Tapping one opens his installments.
+class _ClientsTab extends StatefulWidget {
   final bool isDark;
-  const _SalesTab({required this.isDark});
+  const _ClientsTab({required this.isDark});
 
   @override
-  State<_SalesTab> createState() => _SalesTabState();
+  State<_ClientsTab> createState() => _ClientsTabState();
 }
 
-class _SalesTabState extends State<_SalesTab> {
+class _ClientsTabState extends State<_ClientsTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  String? _error;
   final _q = TextEditingController();
 
   @override
@@ -203,11 +266,12 @@ class _SalesTabState extends State<_SalesTab> {
   }
 
   Future<void> _load() async {
-    final r = await cashGet('/sales', {'q': _q.text.trim()});
+    final r = await cashGet('/sales/clients', {'q': _q.text.trim()});
     if (!mounted) return;
     setState(() {
       _loading = false;
-      _items = cashList(r, 'sales');
+      _error = r['success'] == true ? null : '${r['message'] ?? 'مش قادر أحمّل العملاء'}';
+      _items = cashList(r, 'clients');
     });
   }
 
@@ -232,18 +296,20 @@ class _SalesTabState extends State<_SalesTab> {
           child: TextField(
             controller: _q,
             onSubmitted: (_) => _load(),
-            decoration: InputDecoration(hintText: 'ابحث بالمشتري أو رقم الوحدة أو الموبايل', border: InputBorder.none,
+            decoration: InputDecoration(hintText: 'ابحث باسم العميل أو الموبايل أو الوحدة', border: InputBorder.none,
                 prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark))),
           ),
         ),
         const SizedBox(height: 10),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-        if (!_loading && _items.isEmpty)
-          Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مبيعات مسجلة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
-        for (final s in _items)
+        if (!_loading && _error != null)
+          Padding(padding: const EdgeInsets.all(30), child: Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        if (!_loading && _error == null && _items.isEmpty)
+          Padding(padding: const EdgeInsets.all(30), child: Text('مفيش عملاء', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        for (final c in _items)
           GestureDetector(
             onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${s['id']}')));
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => ClientDetailsPage(clientKey: '${c['key']}', name: '${c['name']}')));
               _load();
             },
             child: Container(
@@ -252,27 +318,189 @@ class _SalesTabState extends State<_SalesTab> {
               decoration: JphUi.box(isDark),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
-                  JphUi.iconTile(isDark, Icons.home_work_rounded, Colors.indigo),
+                  JphUi.iconTile(isDark, Icons.person_rounded, c['paymentMethod'] == 'installments' ? Colors.indigo : Colors.green),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('${s['projectName']} — وحدة ${s['unitNo']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                      Text('${s['buyerName']} • ${s['saleDate']} • #${s['refNo']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                      Text('${c['name']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                      Text([if ('${c['phone'] ?? ''}'.isNotEmpty) '${c['phone']}', ...((c['units'] as List?) ?? const []).map((u) => '$u')].join(' • '),
+                          style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                     ]),
                   ),
-                  JphUi.chip((_stageAr[s['stage']] ?? ('${s['stage']}', Colors.grey)).$1, (_stageAr[s['stage']] ?? ('', Colors.grey)).$2),
+                  JphUi.chip(c['paymentMethod'] == 'installments' ? 'تقسيط' : 'كاش', c['paymentMethod'] == 'installments' ? Colors.indigo : Colors.green),
                 ]),
                 const SizedBox(height: 8),
                 Wrap(spacing: 14, runSpacing: 4, children: [
-                  Text('السعر: ${JphUi.money(s['totalPrice'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text('المحصّل: ${JphUi.money(s['collected'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.green)),
-                  Text('الباقي: ${JphUi.money(s['remaining'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.orange)),
+                  Text('الإجمالي: ${JphUi.money(c['total'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text('المدفوع: ${JphUi.money(c['collected'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.green)),
+                  Text('المتبقي: ${JphUi.money(c['remaining'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.orange)),
+                  if (((c['overdue'] as num?) ?? 0) > 0)
+                    Text('متأخر: ${JphUi.money(c['overdue'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.red)),
                 ]),
               ]),
             ),
           ),
       ]),
     );
+  }
+}
+
+/// One client: installments count (all / paid / left), amounts (paid / left / total), then the installments table.
+class ClientDetailsPage extends StatefulWidget {
+  final String clientKey;
+  final String name;
+  const ClientDetailsPage({super.key, required this.clientKey, required this.name});
+
+  @override
+  State<ClientDetailsPage> createState() => _ClientDetailsPageState();
+}
+
+class _ClientDetailsPageState extends State<ClientDetailsPage> {
+  Map<String, dynamic> _r = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await cashGet('/sales/clients/detail', {'key': widget.clientKey});
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _r = r;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppController>(builder: (context, app, _) {
+      final isDark = app.isDark;
+      final counts = ((_r['counts'] as Map?) ?? const {});
+      final amounts = ((_r['amounts'] as Map?) ?? const {});
+      final lines = cashList(_r, 'schedule');
+      final sales = cashList(_r, 'sales');
+      final client = ((_r['client'] as Map?) ?? const {});
+      final multi = sales.where((x) => x['status'] == 'active').length > 1;
+      TextStyle th = TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: JphUi.sub(isDark));
+      return AppBackground(
+        child: Directionality(
+          textDirection: app.isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: SafeArea(
+              child: Column(children: [
+                JphUi.header(context, isDark: isDark, isRTL: app.isRTL, title: widget.name),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
+                      if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
+                      if (!_loading && _r['success'] != true)
+                        Text('${_r['message'] ?? 'مش قادر أحمّل بيانات العميل'}', textAlign: TextAlign.center),
+                      if (!_loading && _r['success'] == true) ...[
+                        if ('${client['phone'] ?? ''}'.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text('الموبايل: ${client['phone']}', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))),
+                          ),
+                        JphUi.statGrid([
+                          JphUi.stat(isDark, 'إجمالي عدد الأقساط', '${counts['installments'] ?? 0}', Icons.format_list_numbered_rounded, Colors.indigo),
+                          JphUi.stat(isDark, 'المدفوع', '${counts['paid'] ?? 0}', Icons.check_circle_rounded, Colors.green),
+                          JphUi.stat(isDark, 'المتبقي', '${counts['remaining'] ?? 0}', Icons.hourglass_bottom_rounded, Colors.orange),
+                        ], phone: 3),
+                        const SizedBox(height: 10),
+                        JphUi.statGrid([
+                          JphUi.stat(isDark, 'المبلغ المدفوع', JphUi.money(amounts['paid']), Icons.price_check_rounded, Colors.green),
+                          JphUi.stat(isDark, 'المبلغ المتبقي', JphUi.money(amounts['remaining']), Icons.pending_rounded, Colors.orange),
+                          JphUi.stat(isDark, 'إجمالي المبلغ', JphUi.money(amounts['total']), Icons.account_balance_rounded, Colors.indigo),
+                        ], phone: 3),
+                        const SizedBox(height: 16),
+                        Text('جدول الأقساط', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                        const SizedBox(height: 8),
+                        Container(
+                          decoration: JphUi.box(isDark),
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Column(children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              child: Row(children: [
+                                Expanded(flex: 3, child: Text('القسط', style: th)),
+                                Expanded(flex: 4, child: Text('الميعاد', style: th)),
+                                Expanded(flex: 4, child: Text('المبلغ', style: th)),
+                                Expanded(flex: 4, child: Text('المدفوع', style: th)),
+                                Expanded(flex: 4, child: Text('الحالة', style: th)),
+                              ]),
+                            ),
+                            const Divider(height: 1),
+                            if (lines.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('مفيش أقساط')),
+                            for (final l in lines)
+                              InkWell(
+                                onTap: () async {
+                                  await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${l['saleId']}')));
+                                  _load();
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                                  decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15)))),
+                                  child: Row(children: [
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text('${l['seq'] == 0 ? 'المقدم' : 'قسط ${l['seq']}'}${multi ? '\n${l['unit']}' : ''}',
+                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+                                    ),
+                                    Expanded(flex: 4, child: Text('${l['dueDate']}', style: const TextStyle(fontSize: 12))),
+                                    Expanded(flex: 4, child: Text(JphUi.money(l['amount']), style: const TextStyle(fontSize: 12))),
+                                    Expanded(flex: 4, child: Text(JphUi.money(l['paid']), style: const TextStyle(fontSize: 12, color: Colors.green))),
+                                    Expanded(
+                                      flex: 4,
+                                      child: Text((_lineStatus[l['status']] ?? ('${l['status']}', Colors.grey)).$1,
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: (_lineStatus[l['status']] ?? ('', Colors.grey)).$2)),
+                                    ),
+                                  ]),
+                                ),
+                              ),
+                          ]),
+                        ),
+                        const SizedBox(height: 16),
+                        Text('الوحدات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                        const SizedBox(height: 8),
+                        for (final s in sales)
+                          GestureDetector(
+                            onTap: () async {
+                              await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${s['id']}')));
+                              _load();
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.all(14),
+                              decoration: JphUi.box(isDark),
+                              child: Row(children: [
+                                JphUi.iconTile(isDark, Icons.home_work_rounded, Colors.indigo),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Text('${s['projectName']} — وحدة ${s['unitNo']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                                    Text('${s['saleDate']} • ${s['paymentMethod'] == 'installments' ? 'تقسيط' : 'كاش'} • #${s['refNo']}',
+                                        style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                                  ]),
+                                ),
+                                JphUi.chip((_stageAr[s['stage']] ?? ('${s['stage']}', Colors.grey)).$1, (_stageAr[s['stage']] ?? ('', Colors.grey)).$2),
+                              ]),
+                            ),
+                          ),
+                      ],
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+    });
   }
 }
 
@@ -487,8 +715,9 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
 
   Future<void> _collect(Map<String, dynamic> line) async {
     final isDark = Provider.of<AppController>(context, listen: false).isDark;
-    final can = ApiService.can('cash.hr_operate');
-    String recipient = can ? 'hr' : 'manager';
+    // HR collects into the HR cashbox only, المدير / المالك into the office cashbox only
+    final can = ApiService.can('cash.hr_operate') && !ApiService.can('cash.office');
+    final String recipient = can ? 'hr' : 'manager';
     String kind = 'down_payment', method = 'cash';
     final amount = TextEditingController(text: '${line['remaining']}');
     final ext = TextEditingController();
@@ -496,9 +725,8 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
     await cashFormSheet(context, isDark, line['seq'] == 0 ? 'تحصيل الحجز / المقدم' : 'تحصيل قسط ${line['seq']}', (s) => [
           if (line['seq'] == 0) cashSegmented(isDark, {'reservation': 'مبلغ حجز', 'down_payment': 'مقدم'}, kind, (v) => s(() => kind = v)),
           const SizedBox(height: 10),
-          Text('مين استلم الفلوس فعلاً؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-          const SizedBox(height: 6),
-          cashSegmented(isDark, {if (can) 'hr': 'HR (خزينة HR)', 'manager': 'المدير بنفسه (خزينة المكتب)'}, recipient, (v) => s(() => recipient = v)),
+          JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: recipient == 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب',
+              icon: Icons.account_balance_rounded, color: Colors.indigo),
           const SizedBox(height: 10),
           JphUi.input(isDark: isDark, label: 'المبلغ (الباقي ${JphUi.money(line['remaining'])})', controller: amount, number: true, suffix: 'جنيه'),
           const SizedBox(height: 10),
@@ -506,17 +734,9 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
           const SizedBox(height: 10),
           JphUi.input(isDark: isDark, label: 'رقم الإيصال الورقي (اختياري)', controller: ext, big: false),
         ], () async {
-      String? managerId;
-      if (recipient == 'manager' && !ApiService.can('cash.office')) {
-        final r = await ApiService.post({'action': 'getActiveEmployees'});
-        final people = ((r['employees'] as List?) ?? const []).whereType<Map>().toList();
-        if (!mounted) return <String, dynamic>{'success': false, 'message': ''};
-        managerId = await JphUi.sheet<String>(context, isDark, 'المدير اللي استلم', [for (final p in people) ('${p['id']}', '${p['name']}', Icons.person_rounded)]);
-        if (managerId == null) return <String, dynamic>{'success': false, 'message': 'اختار المدير'};
-      }
       final r = await cashPost('/sales/${widget.saleId}/collect', {
         'installmentId': line['id'], 'kind': kind, 'amount': num.tryParse(amount.text.trim()), 'recipient': recipient,
-        if (managerId != null) 'recipientId': managerId, 'paymentMethod': method,
+        'paymentMethod': method,
         if (ext.text.trim().isNotEmpty) 'externalNo': ext.text.trim(), 'clientRef': ref,
       }, ok: 'اتسجل التحصيل ✅');
       if (r['success'] == true && r['receipt'] is Map) {

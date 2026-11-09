@@ -126,6 +126,139 @@ async function loadSale(q: Q, id: string, lock = false) {
 export const salesModule: Module = (r, { db, clock }) => {
   const today = () => local(clock()).date;
 
+  // ------------------------------------------------------------------ العملاء (built from the sales — no separate list to keep)
+  /** One client = one buyer: the same mobile number (or, without one, the same name). */
+  const clientKey = (name: string, phone: string) => {
+    const d = String(phone ?? '').replace(/\D/g, '');
+    return d.length >= 7 ? `p:${d.slice(-10)}` : `n:${String(name ?? '').trim().toLowerCase()}`;
+  };
+
+  async function clientSales(q: Q) {
+    return (await q.query(`
+      ${SALE_SELECT} WHERE s.status IN ('active','pending','cancelled') ORDER BY s.sale_date, s.created_at`)).rows;
+  }
+
+  async function clientLines(q: Q, saleIds: string[]) {
+    if (!saleIds.length) return [];
+    return (await q.query(`
+      SELECT i.id, i.sale_id, i.seq, i.due_date, i.amount_egp,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
+        FROM sale_installments i WHERE i.sale_id = ANY($1::uuid[]) ORDER BY i.due_date, i.seq`, [saleIds])).rows;
+  }
+
+  r.get('/sales/clients', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canView(a)) throw forbidden();
+    const q = (req.query.get('q') ?? '').trim().toLowerCase();
+    const t = today();
+    const sales = await clientSales(db);
+    const lines = await clientLines(db, sales.filter((x) => x.status === 'active').map((x) => x.id));
+    const overdueBySale = new Map<string, number>();
+    for (const l of lines) {
+      const due = String(l.due_date).slice(0, 10), left = Number(l.amount_egp) - Number(l.paid);
+      if (due < t && left > 0.009) overdueBySale.set(l.sale_id, (overdueBySale.get(l.sale_id) ?? 0) + left);
+    }
+    const by = new Map<string, any>();
+    for (const x of sales) {
+      const sh = shapeSale(x);
+      const k = clientKey(x.buyer_name, x.buyer_phone);
+      const c = by.get(k) ?? { key: k, name: sh.buyerName, phone: sh.buyerPhone, units: [] as string[], salesCount: 0,
+        total: 0, collected: 0, remaining: 0, overdue: 0, installments: false, lastSale: '' };
+      c.salesCount++;
+      c.units.push(`${sh.projectName} — ${sh.unitNo}${x.status === 'cancelled' ? ' (ملغي)' : x.status === 'pending' ? ' (مستنية اعتماد)' : ''}`);
+      if (x.status === 'active') {
+        c.total += sh.totalPrice; c.collected += sh.collected; c.remaining += sh.remaining;
+        c.overdue += overdueBySale.get(x.id) ?? 0;
+        if (Number(x.installments_count) > 0) c.installments = true;
+      }
+      if (!c.phone && sh.buyerPhone) c.phone = sh.buyerPhone;
+      c.lastSale = sh.saleDate > c.lastSale ? sh.saleDate : c.lastSale;
+      by.set(k, c);
+    }
+    let list = [...by.values()].map((c) => ({ ...c, total: r2(c.total), collected: r2(c.collected), remaining: r2(c.remaining),
+      overdue: r2(c.overdue), paymentMethod: c.installments ? 'installments' : 'cash' }));
+    if (q) list = list.filter((c) => c.name.toLowerCase().includes(q) || String(c.phone).includes(q) || c.units.some((u: string) => u.toLowerCase().includes(q)));
+    list.sort((x, y) => (y.overdue - x.overdue) || (y.remaining - x.remaining) || x.name.localeCompare(y.name, 'ar'));
+    return ok({ currency: 'EGP', clients: list });
+  });
+
+  /**
+   * One client: number of installments (all / paid / left), amounts (paid / left / total) and the full schedule of
+   * every unit he bought, each line with what was collected on it in the cashbox.
+   */
+  r.get('/sales/clients/detail', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canView(a)) throw forbidden();
+    const key = req.query.get('key') ?? '';
+    const t = today();
+    const sales = (await clientSales(db)).filter((x) => clientKey(x.buyer_name, x.buyer_phone) === key);
+    if (!sales.length) throw notFound('Client not found');
+    const active = sales.filter((x) => x.status === 'active');
+    const lines = await clientLines(db, active.map((x) => x.id));
+    const saleBy = new Map(active.map((x) => [x.id, shapeSale(x)]));
+    const schedule = lines.map((l) => {
+      const sh = saleBy.get(l.sale_id)!;
+      const amount = Number(l.amount_egp), paid = Number(l.paid), due = String(l.due_date).slice(0, 10);
+      return { id: l.id, saleId: l.sale_id, unit: `${sh.projectName} — ${sh.unitNo}`, seq: l.seq, dueDate: due, amount, paid: r2(paid),
+        remaining: r2(Math.max(0, amount - paid)), status: lineStatus('active', amount, paid, due, t) };
+    }).filter((l) => l.amount > 0);
+    const inst = schedule.filter((l) => l.seq > 0);
+    const shaped = sales.map(shapeSale);
+    const total = r2(active.reduce((s, x) => s + Number(x.total_price), 0));
+    const collected = r2([...saleBy.values()].reduce((s, x) => s + x.collected, 0));
+    return ok({ currency: 'EGP', client: { key, name: shaped[0].buyerName, phone: shaped.find((x) => x.buyerPhone)?.buyerPhone ?? '' },
+      counts: { installments: inst.length, paid: inst.filter((l) => l.status === 'paid').length,
+        remaining: inst.filter((l) => l.status !== 'paid').length, overdue: inst.filter((l) => l.status === 'overdue').length },
+      amounts: { paid: collected, remaining: r2(Math.max(0, total - collected)), total },
+      sales: shaped, schedule });
+  });
+
+  /**
+   * تحصيل من الخزنة مربوط بالعميل: the amount goes automatically to the sale's open schedule lines, oldest first
+   * (down payment / reservation → line 0 only; installment → the installments). One numbered receipt per line.
+   */
+  r.post('/sales/:id/collect-auto', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const b = obj(req.body);
+    const out = await db.tx(async (q) => {
+      const s = await loadSale(q, req.params.id, true);
+      if (s.status !== 'active') throw conflict('This sale is not active');
+      const reqKind = b.kind === 'reservation' || b.kind === 'down_payment' ? b.kind : 'installment';
+      const p = await one(q, `SELECT name FROM commission_projects WHERE id = $1`, [s.project_id]);
+      const base = parseReceipt({ ...b, kind: reqKind, payerName: b.payerName || s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
+        purpose: b.purpose || `${p.name} — وحدة ${s.unit_no}` }, a, clock());
+      if (base.ref) {
+        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [base.ref]);
+        if (dup) return { ids: [dup.id], duplicate: true };
+      }
+      const open = (await q.query(`
+        SELECT i.*, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
+          FROM sale_installments i WHERE i.sale_id = $1 AND ${reqKind === 'installment' ? 'i.seq > 0' : 'i.seq = 0'}
+         ORDER BY i.due_date, i.seq`, [s.id])).rows
+        .map((l) => ({ ...l, left: cents(Number(l.amount_egp)) - cents(Number(l.paid)) })).filter((l) => l.left > 0);
+      const leftAll = open.reduce((t, l) => t + l.left, 0);
+      let rest = cents(base.amount);
+      if (rest > leftAll) {
+        throw new AppError('unprocessable', `Only ${egp(leftAll)} is left to collect here`, { reason: 'over_collect', remaining: egp(leftAll) });
+      }
+      const ids: string[] = [];
+      for (const l of open) {
+        if (rest <= 0) break;
+        const take = Math.min(rest, l.left);
+        rest -= take;
+        const lineKind = l.seq === 0 ? reqKind : 'installment';
+        const rec = await recordReceipt(q, a, { ...base, kind: lineKind, amount: egp(take), ref: ids.length ? null : base.ref,
+          externalNo: ids.length ? null : base.externalNo,
+          purpose: `${p.name} — وحدة ${s.unit_no} — ${l.seq === 0 ? (lineKind === 'reservation' ? 'حجز' : 'مقدم') : `قسط ${l.seq}`}`,
+          saleId: s.id, installmentId: l.id });
+        ids.push(rec.id);
+      }
+      return { ids, duplicate: false };
+    });
+    return ok({ receiptIds: out.ids, duplicate: out.duplicate, ...(await saleDetails(db, req.params.id, a)) }, out.duplicate ? 200 : 201);
+  });
+
   r.post('/sales', async (req) => {
     const a = await authenticate(db, req);
     const direct = canManage(a); // HR / المدير: the sale is live at once; anyone else's waits for approval

@@ -8,6 +8,8 @@ class AttendanceExpandableCards extends StatefulWidget {
   final bool isDark;
   final Map<String, bool> expandedCards;
   final Function(String) onToggle;
+  /// المدير / HR / المالك: edit the day's check-in / check-out times
+  final void Function(Map<String, dynamic> day)? onEdit;
 
   const AttendanceExpandableCards({
     super.key,
@@ -15,6 +17,7 @@ class AttendanceExpandableCards extends StatefulWidget {
     required this.isDark,
     required this.expandedCards,
     required this.onToggle,
+    this.onEdit,
   });
 
   @override
@@ -62,6 +65,7 @@ class _AttendanceExpandableCardsState extends State<AttendanceExpandableCards> {
             isExpanded: widget.expandedCards[day['cardId'] ?? ''] ?? false,
             onTap: () => widget.onToggle(day['cardId'] ?? ''),
             openMap: _openMap, // 🔥 تمرير الدالة للبطاقة
+            onEdit: widget.onEdit == null ? null : () => widget.onEdit!(day),
           ),
       ],
     );
@@ -74,6 +78,7 @@ class AttendanceExpandableCard extends StatelessWidget {
   final bool isExpanded;
   final VoidCallback onTap;
   final Function(String) openMap; // 🔥 إضافة الدالة
+  final VoidCallback? onEdit;
 
   const AttendanceExpandableCard({
     super.key,
@@ -82,6 +87,7 @@ class AttendanceExpandableCard extends StatelessWidget {
     required this.isExpanded,
     required this.onTap,
     required this.openMap, // 🔥
+    this.onEdit,
   });
 
   @override
@@ -433,6 +439,29 @@ class AttendanceExpandableCard extends StatelessWidget {
                     ),
 
                     const SizedBox(height: 16),
+
+                    if ((dayData['correctedBy'] ?? '').toString().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text('تم التعديل بواسطة ${dayData['correctedBy']}',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.deepOrange)),
+                      ),
+                    if (onEdit != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: onEdit,
+                            icon: const Icon(Icons.edit_calendar_rounded),
+                            label: const Text('تعديل وقت الحضور / الانصراف', style: TextStyle(fontWeight: FontWeight.w800)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ),
 
                     // 🔥 مواعيد الدوام المطلوبة
                     _buildSection(

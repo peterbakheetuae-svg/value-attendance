@@ -49,6 +49,8 @@ export function tierAmount(tiers: Tier[], minutes: number): number {
  */
 export async function computePayroll(q: Q, employeeId: string, period: string, today: string, rules: PayrollRules) {
   const sal = await one(q, `SELECT base_salary FROM employee_salaries WHERE employee_id = $1`, [employeeId]);
+  const empRow = await one(q, `SELECT attendance_exempt FROM employees WHERE id = $1`, [employeeId]);
+  const exempt = empRow?.attendance_exempt === true; // "no check-in / check-out" in the employee's file
   const sch = await one(q, `SELECT ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default)) WHERE e.id = $1`, [employeeId]);
   const { days, summary } = await computeMonth(q, employeeId, period, today);
@@ -71,9 +73,10 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
                  WHERE employee_id = $1 AND period = $2 AND status = 'confirmed' AND kind = 'work_expense'), 0) AS expenses`, [employeeId, period]);
   const advances = Number(adv.advances), workExpenses = Number(adv.expenses);
   const paid = await one(q, `SELECT COALESCE(sum(amount_egp) FILTER (WHERE kind = 'salary'), 0) AS salary,
-                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'commission'), 0) AS commission
+                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'commission'), 0) AS commission,
+                                    COALESCE(sum(amount_egp) FILTER (WHERE kind = 'work_expense'), 0) AS work_expense
                                FROM payouts WHERE employee_id = $1 AND period = $2 AND status <> 'cancelled'`, [employeeId, period]);
-  const salaryPaid = Number(paid.salary), commissionPaid = Number(paid.commission);
+  const salaryPaid = Number(paid.salary), commissionPaid = Number(paid.commission), workExpensePaid = Number(paid.work_expense);
   // deal commissions approved by the general manager for this payroll month (salesperson / sales manager share)
   const com = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM commission_entitlements
                              WHERE employee_id = $1 AND period = $2 AND status = 'active'`, [employeeId, period]);
@@ -119,14 +122,22 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
   // except unexcused absence and unpaid leave; a full month never pays more than the monthly salary
   const elapsed = days.filter((d) => !['future', 'before_joining', 'inactive'].includes(d.status)).length;
   const paidDays = Math.max(0, elapsed - absentDays - unpaidDays);
+  // the whole month is paid in full only when he was employed all of it (no days before joining / inactive)
+  const fullMonth = !days.some((d) => d.status === 'before_joining' || d.status === 'inactive');
+  // days actually worked or on paid leave: none at all → nothing is earned for the month (weekends are not paid alone)
+  const earnedDays = summary.attendedDays + summary.approvedAbsenceDays - summary.unpaidAbsenceDays;
+  const nothingEarned = !exempt && earnedDays <= 0;
   let attendanceSalary: number | null = null;
   if (base !== null && dayWage !== null) {
-    attendanceSalary = summary.complete && absentDays + unpaidDays === 0 ? base : Math.min(base, paidDays * dayWage);
+    if (exempt) attendanceSalary = summary.complete && fullMonth ? base : Math.min(base, elapsed * dayWage);
+    else if (nothingEarned) attendanceSalary = 0;
+    else attendanceSalary = summary.complete && fullMonth && absentDays + unpaidDays === 0 ? base : Math.min(base, paidDays * dayWage);
   }
   // the absent day itself is already unpaid above; the penalty adds only the extra days (e.g. 2 = one more day)
   const absenceAmt = dayWage === null ? 0 : absentDays * Math.max(0, rules.absencePenaltyDays - 1) * dayWage;
   const unpaidAmt = 0;
-  const auto = rules.auto && base !== null;
+  // no automatic deductions for someone who does not use check-in, or who earned nothing this month
+  const auto = rules.auto && base !== null && !exempt && !nothingEarned;
   const autoTotal = auto ? lateAmt + earlyAmt + absenceAmt + unpaidAmt : 0;
   const adminDed = Number(adj.deductions), bonuses = Number(adj.bonuses);
   return {
@@ -148,7 +159,30 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     // cash actually handed over for this month (صرف القبض) and what is still owed
     salaryPaid: r2(salaryPaid), commissionPaid: r2(commissionPaid),
     // commission payouts (صرف عمولة) settle the commissions part, salary payouts the rest
+    // work expenses paid on their own (صرف الطلب) settle that part too
+    workExpensePaid: r2(workExpensePaid),
     remaining: attendanceSalary === null ? null
-      : r2(attendanceSalary - autoTotal - adminDed + bonuses + commissions - advances + workExpenses - salaryPaid - commissionPaid),
+      : r2(attendanceSalary - autoTotal - adminDed + bonuses + commissions - advances + workExpenses - salaryPaid - commissionPaid - workExpensePaid),
   };
+}
+
+/**
+ * المتأخرات: what is still owed from the months BEFORE `period` (never the month itself). Counted only from the
+ * first month salaries were paid through the system (earlier months were settled outside it), at most 12 months back.
+ */
+export async function arrearsBefore(q: Q, employeeId: string, period: string, today: string, rules: PayrollRules): Promise<number> {
+  const start = await one(q, `SELECT GREATEST(
+      (SELECT min(period) FROM payouts WHERE kind = 'salary' AND status <> 'cancelled'),
+      (SELECT date_trunc('month', joining_date)::date FROM employees WHERE id = $1),
+      ($2::date - interval '12 months')::date) AS m`, [employeeId, period]);
+  if (!start?.m) return 0;
+  let m = String(start.m instanceof Date ? start.m.toISOString() : start.m).slice(0, 10);
+  let owed = 0;
+  while (m < period) {
+    const p: any = await computePayroll(q, employeeId, m, today, rules);
+    if (p?.remaining != null && p.remaining > 0) owed += p.remaining;
+    const [y, mo] = m.split('-').map(Number);
+    m = `${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01`;
+  }
+  return r2(owed);
 }

@@ -241,7 +241,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     const today = local(clock()).date;
     const rows = await db.query(`
       SELECT a.*, b.started_at AS break_start, b.ended_at AS break_end,
-             EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
+             EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie,
+             (SELECT e.full_name FROM attendance_corrections c JOIN employees e ON e.id = c.approved_by
+               WHERE c.attendance_id = a.id ORDER BY c.at DESC LIMIT 1) AS corrected_by_name
         FROM attendance a LEFT JOIN attendance_breaks b ON b.attendance_id = a.id
        WHERE a.employee_id = $1 AND a.work_date BETWEEN $2 AND $3 ORDER BY a.work_date DESC LIMIT 400`, [employeeId, from, to]);
     // permissions / visits of each day (approved ones; an extension replaces its parent)
@@ -259,6 +261,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     return ok({ days: rows.rows.map((x) => ({
       ...shape(x, today), checkInLat: x.check_in_lat, checkInLng: x.check_in_lng, checkOutLat: x.check_out_lat, checkOutLng: x.check_out_lng,
       breakStart: x.break_start, breakEnd: x.break_end, hasSelfie: x.has_selfie, outings: outBy.get(String(x.work_date)) ?? [],
+      correctedByName: x.corrected_by_name ?? null,
     })) });
   });
 

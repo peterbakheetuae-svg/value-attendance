@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../l10n/app_localizations.dart'; // 🔥 استيراد الترجمة
+import '../../widgets/jph_form_ui.dart';
 import 'attendance_daily_section.dart';
 import 'attendance_monthly_section.dart';
 
@@ -904,133 +905,26 @@ class EmployeeDropdown extends StatelessWidget {
       );
     }
 
+    // same picker + bottom sheet as every other list in the app
+    final current = employees.where((e) => '${e['uid']}' == selectedUid).firstOrNull;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            value: selectedUid,
-            isExpanded: true,
-            icon: Icon(
-              Icons.arrow_drop_down,
-              color: isDark ? Colors.white : Colors.black,
-              size: 28,
-            ),
-            hint: Container(
-              height: 40,
-              alignment: Alignment.centerRight,
-              child: Text(
-                selectEmployeeText,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            style: TextStyle(
-              fontSize: 16,
-              color: isDark ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w600,
-            ),
-            dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            itemHeight: 64, // 🔥 زيادة ارتفاع العنصر لمنع التدفق
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                final selectedEmployee = employees.firstWhere(
-                      (emp) => emp['uid'] == newValue,
-                  orElse: () => {},
-                );
-                final name = selectedEmployee['name']?.toString();
-                onChanged(newValue, name);
-              }
-            },
-            items: employees.map<DropdownMenuItem<String>>((employee) {
-              final uid = employee['uid']?.toString() ?? '';
-              final name = employee['name']?.toString() ?? '';
-              final role = employee['role']?.toString() ?? '';
-              final isActive = employee['active'] == true;
-
-              return DropdownMenuItem<String>(
-                value: uid,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 6), // 🔥 تقليل الحشو الداخلي
-                  constraints: const BoxConstraints(
-                    minHeight: 56, // 🔥 تحديد ارتفاع أدنى
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min, // 🔥 استخدام أقل حجم ممكن
-                    children: [
-                      Text(
-                        '$name ($uid)',
-                        style: TextStyle(
-                          fontSize: 14, // 🔥 تقليل حجم الخط
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2), // 🔥 تقليل المسافة
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              role,
-                              style: TextStyle(
-                                fontSize: 11, // 🔥 تقليل حجم الخط
-                                color: isDark ? Colors.white60 : Colors.black54,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: isActive ? Colors.green : Colors.red,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isActive
-                                ? AppLocalizations.of(context, 'active')
-                                : AppLocalizations.of(context, 'inactive'),
-                            style: TextStyle(
-                              fontSize: 10, // 🔥 تقليل حجم الخط
-                              color: isActive ? Colors.green : Colors.red,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
+      child: JphUi.picker(
+        isDark: isDark,
+        icon: Icons.badge_rounded,
+        iconColor: Colors.teal,
+        label: selectEmployeeText,
+        value: current == null ? (selectedEmployeeName ?? selectEmployeeText) : '${current['name'] ?? ''}',
+        onTap: () async {
+          final v = await JphUi.sheet<String>(context, isDark, selectEmployeeText, [
+            for (final e in employees)
+              ('${e['uid']}', '${e['name'] ?? ''}${(e['role'] ?? '').toString().isEmpty ? '' : ' — ${e['role']}'}',
+                  e['active'] == false ? Icons.person_off_outlined : Icons.person_outline_rounded),
+          ], selected: selectedUid, icon: Icons.badge_rounded);
+          if (v == null) return;
+          final emp = employees.where((e) => '${e['uid']}' == v).firstOrNull;
+          onChanged(v, emp?['name']?.toString());
+        },
       ),
     );
   }

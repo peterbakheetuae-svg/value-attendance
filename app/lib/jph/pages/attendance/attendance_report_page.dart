@@ -392,6 +392,68 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     }
   }
 
+  /// المدير / HR / المالك correct someone else's times (never their own); the edit is recorded with their name.
+  bool get _canCorrect =>
+      ApiService.can('attendance.correct') && selectedUid != null && selectedUid != widget.uid;
+
+  Future<void> _editDay(Map<String, dynamic> day, bool isDark) async {
+    TimeOfDay? parse(Object? v) {
+      final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch('${v ?? ''}');
+      return m == null ? null : TimeOfDay(hour: int.parse(m.group(1)!), minute: int.parse(m.group(2)!));
+    }
+    String fmt(TimeOfDay? t) => t == null ? '' : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    TimeOfDay? tIn = parse(day['startTime']) ?? const TimeOfDay(hour: 9, minute: 0);
+    TimeOfDay? tOut = parse(day['endTime']);
+    final reason = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(builder: (c, setS) {
+          Widget pick(String label, TimeOfDay? v, ValueChanged<TimeOfDay?> on, {bool clearable = false}) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.access_time_rounded),
+                title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(v == null ? 'مش متسجل' : fmt(v), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                trailing: clearable && v != null ? IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setS(() => on(null))) : null,
+                onTap: () async {
+                  final t = await showTimePicker(context: c, initialTime: v ?? const TimeOfDay(hour: 17, minute: 0));
+                  if (t != null) setS(() => on(t));
+                },
+              );
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+            title: Text('تعديل مواعيد ${day['workDate'] ?? day['date'] ?? ''}', textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(selectedEmployeeName ?? '', style: const TextStyle(fontWeight: FontWeight.w700)),
+              pick('وقت الحضور', tIn, (t) => tIn = t),
+              pick('وقت الانصراف', tOut, (t) => tOut = t, clearable: true),
+              TextField(controller: reason, decoration: const InputDecoration(labelText: 'سبب التعديل (اختياري)')),
+              const SizedBox(height: 8),
+              const Text('المواعيد الأصلية بتفضل محفوظة، والتعديل بيتسجل باسمك.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
+              FilledButton(onPressed: tIn == null ? null : () => Navigator.pop(c, true), child: const Text('حفظ')),
+            ],
+          );
+        }),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final r = await ApiService.post({
+      'action': 'attendance_correct', 'uid': selectedUid, 'workDate': day['workDate'] ?? day['date'],
+      'checkIn': fmt(tIn), 'checkOut': fmt(tOut), 'reason': reason.text,
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${r['message'] ?? (r['success'] == true ? 'تم ✅' : 'حصلت مشكلة')}'),
+      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+    ));
+    if (r['success'] == true) loadDailyReport();
+  }
+
   // 🔥 دالة لتغيير حالة البطاقة
   void _toggleCard(String cardId) {
     setState(() {
@@ -600,6 +662,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           isDark: isDark,
           expandedCards: _expandedCards,
           onToggle: _toggleCard,
+          onEdit: _canCorrect ? (d) => _editDay(d, isDark) : null,
         ),
       );
     }

@@ -14,6 +14,8 @@ before(async () => {
   for (const [id, sal] of [[c.ids.e1, 10000], [c.ids.e2, 8000]] as const) {
     await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, $2, $3)`, [id, sal, c.ids.owner]);
   }
+  // e2 does not use check-in (so he earns his salary without attendance rows in this test)
+  await h.db.query(`UPDATE employees SET attendance_exempt = true WHERE id = $1`, [c.ids.e2]);
   // an approved advance of 18,000 for e1 in March
   const adv = await h.db.query(`INSERT INTO advance_requests (employee_id, kind, period, amount_egp, status, created_by, decided_by, decided_at)
                                 VALUES ($1,'advance','2026-03-01',18000,'confirmed',$1,$2,now()) RETURNING id`, [c.ids.e1, c.ids.owner]);

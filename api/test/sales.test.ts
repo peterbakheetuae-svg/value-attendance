@@ -154,3 +154,27 @@ test('rejected sale frees the unit and rejects its waiting commission; HR files 
   assert.equal(hr.body.sale.status, 'active', 'HR records directly');
   assert.equal(hr.body.sale.commission.employeeName, 'موظف ٢');
 });
+
+test('clients: built from the sales; detail has counts, amounts and the schedule; cashbox collection links automatically', async () => {
+  const body = { projectId: project, unitNo: 'C-9', buyerName: 'منى حسن', buyerPhone: '01011112222', totalPrice: 120_000, downPayment: 20_000,
+    saleDate: '2026-03-10', downPaymentDueDate: '2026-03-10', frequency: 'monthly', installmentsCount: 4, firstDueDate: '2026-04-10' };
+  const s = await h.call(c.t.hr, 'POST', '/sales', body);
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  const id = s.body.sale.id;
+  const list = (await h.call(c.t.hr, 'GET', '/sales/clients?q=01011112222')).body.clients;
+  assert.equal(list.length, 1);
+  assert.equal(list[0].paymentMethod, 'installments');
+  assert.equal((await h.call(c.t.e1, 'GET', '/sales/clients')).status, 403);
+  // 50,000 as "installment": first the down payment? no — installments only: 25,000 + 25,000 → two receipts on lines 1 and 2
+  const dp = await h.call(c.t.hr, 'POST', `/sales/${id}/collect-auto`, { kind: 'down_payment', amount: 20_000, recipient: 'hr', clientRef: randomUUID() });
+  assert.equal(dp.status, 201, JSON.stringify(dp.body));
+  const ins = await h.call(c.t.hr, 'POST', `/sales/${id}/collect-auto`, { kind: 'installment', amount: 50_000, recipient: 'hr', clientRef: randomUUID() });
+  assert.equal(ins.status, 201, JSON.stringify(ins.body));
+  assert.equal(ins.body.receiptIds.length, 2);
+  const over = await h.call(c.t.hr, 'POST', `/sales/${id}/collect-auto`, { kind: 'installment', amount: 50_001, recipient: 'hr' });
+  assert.equal(over.body.error.details.reason, 'over_collect');
+  const d = (await h.call(c.t.hr, 'GET', `/sales/clients/detail?key=${encodeURIComponent(list[0].key)}`)).body;
+  assert.deepEqual(d.counts, { installments: 4, paid: 2, remaining: 2, overdue: 0 });
+  assert.deepEqual(d.amounts, { paid: 70_000, remaining: 50_000, total: 120_000 });
+  assert.equal(d.schedule.length, 5);
+});

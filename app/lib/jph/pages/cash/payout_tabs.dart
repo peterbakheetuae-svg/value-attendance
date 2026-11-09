@@ -243,11 +243,13 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
     }
     final me = JphBridge.myId;
     return list(isDark, [
+      // المستحق • قيد المراجعة (اتصرف ولسه المستلم ما أكدش) • اتصرف (اتأكد استلامه) • الباقي
       JphUi.statGrid([
         JphUi.stat(isDark, 'المستحق', JphUi.money(_totals['due']), Icons.payments_rounded, Colors.indigo),
-        JphUi.stat(isDark, 'اتصرف', JphUi.money(_totals['paid']), Icons.check_circle_rounded, Colors.green),
+        JphUi.stat(isDark, 'قيد المراجعة', JphUi.money(_totals['awaiting']), Icons.pending_actions_rounded, Colors.teal),
+        JphUi.stat(isDark, 'اتصرف', JphUi.money(_totals['received']), Icons.check_circle_rounded, Colors.green),
         JphUi.stat(isDark, 'الباقي', JphUi.money(_totals['remaining']), Icons.hourglass_bottom_rounded, Colors.orange),
-      ], phone: 3),
+      ]),
       const SizedBox(height: 12),
       if (_rowsAll.isEmpty) _empty(isDark, 'مفيش مرتبات للشهر ده'),
       for (final x in _rowsAll) _row(isDark, x, me),

@@ -1015,7 +1015,11 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                                   ? liveBreakTimeN
                                   : liveWorkTimeN,
                               builder: (_, value, __) {
-                                return StatRightCard(model: _getRightCard(context));
+                                // greyed when his file says "no check-in / check-out" (check-in and permission / visit tabs)
+                                return StatRightCard(
+                                  model: _getRightCard(context),
+                                  disabled: sheetData['attendanceExempt'] == true && mode != DashMode.leave,
+                                );
                               },
                             ),
                           ),

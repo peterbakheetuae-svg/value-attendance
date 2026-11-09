@@ -370,6 +370,16 @@ class JphRouter {
           });
           return _ok(pl.cast<String, dynamic>());
         // ---------------------------------------------------------------- الخزينة (office / HR cashboxes) — only /cash/* paths
+        // تعديل وقت الحضور / الانصراف من التقرير اليومي (المدير / HR / المالك) — the original times and who edited stay on record
+        case 'attendance_correct':
+          final emp = await _id(p['uid']);
+          final out = '${p['checkOut'] ?? ''}';
+          await _api.post('/attendance/corrections', {
+            'employeeId': emp, 'workDate': '${p['workDate']}', 'checkIn': '${p['checkIn']}',
+            if (out.isNotEmpty) 'checkOut': out,
+            'reason': '${p['reason'] ?? ''}'.trim().length >= 3 ? '${p['reason']}'.trim() : 'تعديل من تقرير الحضور',
+          });
+          return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
           if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/'].any(cg.startsWith)) return _fail('bad path');
@@ -1381,8 +1391,10 @@ class JphRouter {
         'startForemanId': '--',
         'endForemanName': '--',
         'endForemanId': '--',
-        'startCeoConfirm': d['corrected'] == true ? 'معدل من الإدارة' : 'تلقائي',
-        'endCeoConfirm': d['corrected'] == true ? 'معدل من الإدارة' : 'تلقائي',
+        'startCeoConfirm': d['corrected'] == true ? 'تم التعديل بواسطة ${_s(d['correctedByName'], 'الإدارة')}' : 'تلقائي',
+        'endCeoConfirm': d['corrected'] == true ? 'تم التعديل بواسطة ${_s(d['correctedByName'], 'الإدارة')}' : 'تلقائي',
+        'correctedBy': d['corrected'] == true ? _s(d['correctedByName'], 'الإدارة') : '',
+        'workDate': _date(d['workDate']),
         'lateMinutes': '${d['lateMinutes'] ?? 0}',
       };
     }).toList();
@@ -1421,7 +1433,7 @@ class JphRouter {
       'advance': pay['advances'] ?? 0,
       'received': ((pay['salaryPaid'] as num?) ?? 0) + ((pay['commissionPaid'] as num?) ?? 0),
       'dueSalary': pay['net'] ?? 0,
-      'arrears': pay['remaining'] ?? 0,
+      'arrears': pay['arrears'] ?? 0, // still owed from earlier months only
     }});
   }
 

@@ -68,3 +68,29 @@ test('salaries list: one month, due = net without commissions / work expenses; �
   assert.ok(['awaiting_receipt', 'received'].includes(after.status));
   assert.equal((await h.call(c.t.e1, 'POST', '/payouts/salary', { employeeId: c.ids.e2, month: '2026-03' })).status, 403);
 });
+
+test('payroll: a month with no attendance at all earns nothing; arrears are only from earlier months', async () => {
+  // e2 has a salary but never checked in during February (a complete month)
+  await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 6000, $2) ON CONFLICT (employee_id) DO UPDATE SET base_salary = 6000`, [c.ids.e2, c.ids.owner]);
+  await h.db.query(`UPDATE employees SET joining_date = '2026-01-01' WHERE id = $1`, [c.ids.e2]);
+  const feb = (await h.call(c.t.hr, 'GET', `/payroll/employee/${c.ids.e2}?month=2026-02`)).body.payroll;
+  assert.equal(feb.attendanceSalary, 0);
+  assert.equal(feb.net, 0);
+  assert.equal(feb.arrears, 0);
+  // someone who does not use check-in gets his salary
+  await h.db.query(`UPDATE employees SET attendance_exempt = true WHERE id = $1`, [c.ids.e2]);
+  const feb2 = (await h.call(c.t.hr, 'GET', `/payroll/employee/${c.ids.e2}?month=2026-02`)).body.payroll;
+  assert.equal(feb2.attendanceSalary, 6000);
+  // March: February was never paid → it shows as arrears in March (salaries are paid through the system since March)
+  const mar = (await h.call(c.t.hr, 'GET', `/payroll/employee/${c.ids.e2}?month=2026-03`)).body.payroll;
+  assert.equal(mar.arrears, 0, 'the system started paying salaries in March: earlier months are not counted');
+  await h.db.query(`UPDATE employees SET attendance_exempt = false WHERE id = $1`, [c.ids.e2]);
+});
+
+test('salaries: the owner / manager only see who was paid — they cannot pay salaries', async () => {
+  const l = (await h.call(c.t.owner, 'GET', '/payouts/salaries?month=2026-03')).body;
+  assert.equal(l.canPay, false);
+  assert.ok(l.salaries.every((x: any) => x.canPay === false));
+  assert.equal((await h.call(c.t.owner, 'POST', '/payouts/salary', { employeeId: c.ids.e2, month: '2026-03' })).status, 403);
+  assert.ok('awaiting' in l.totals && 'received' in l.totals);
+});

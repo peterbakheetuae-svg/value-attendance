@@ -1009,14 +1009,57 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
       _purpose = TextEditingController(), _extNo = TextEditingController(), _notes = TextEditingController();
   String _ref = newClientRef();
   bool _saving = false;
+  /// the client's unit this money is for: the collection goes on its installments automatically
+  Map<String, dynamic>? _sale;
+
+  bool get _saleKind => const {'reservation', 'down_payment', 'installment'}.contains(_kind);
+  bool get _canLink => ApiService.can('sales.manage') && ApiService.can('sales.view');
+
+  /// العميل ← (لو عنده أكتر من وحدة) الوحدة — fills the payer and links the receipt to the sale.
+  Future<void> _pickClient() async {
+    final isDark = widget.isDark;
+    final r = await _get('/sales/clients');
+    if (!mounted) return;
+    final clients = _list(r, 'clients').where((c) => ((c['remaining'] as num?) ?? 0) > 0).toList();
+    if (clients.isEmpty) {
+      JphUi.toast(context, {'success': false, 'message': '${r['message'] ?? 'مفيش عملاء عليهم مبالغ'}'});
+      return;
+    }
+    final key = await JphUi.sheet<String>(context, isDark, 'العميل', [
+      for (final c in clients) ('${c['key']}', '${c['name']} — باقي ${JphUi.money(c['remaining'])}', Icons.person_rounded),
+    ], icon: Icons.people_alt_rounded);
+    if (key == null || !mounted) return;
+    final d = await _get('/sales/clients/detail', {'key': key});
+    if (!mounted) return;
+    final sales = _list(d, 'sales').where((x) => x['status'] == 'active' && ((x['remaining'] as num?) ?? 0) > 0).toList();
+    if (sales.isEmpty) return;
+    Map<String, dynamic>? sale = sales.length == 1 ? sales.first : null;
+    if (sale == null) {
+      final id = await JphUi.sheet<String>(context, isDark, 'الوحدة', [
+        for (final x in sales) ('${x['id']}', '${x['projectName']} — وحدة ${x['unitNo']} (باقي ${JphUi.money(x['remaining'])})', Icons.home_work_rounded),
+      ], icon: Icons.home_work_rounded);
+      if (id == null) return;
+      sale = sales.firstWhere((x) => '${x['id']}' == id);
+    }
+    setState(() {
+      _sale = sale;
+      _payer.text = '${sale!['buyerName'] ?? ''}';
+      _phone.text = '${sale['buyerPhone'] ?? ''}';
+      _purpose.text = '${sale['projectName']} — وحدة ${sale['unitNo']}';
+    });
+  }
 
   Future<void> _add() async {
     setState(() => _saving = true);
-    final r = await _post('/cash/receipts', {
+    final body = {
       'recipient': _recipient, 'kind': _kind, 'amount': num.tryParse(_amount.text.trim()), 'payerName': _payer.text.trim(),
       'payerPhone': _phone.text.trim(), 'purpose': _purpose.text.trim(), 'paymentMethod': _method,
       if (_extNo.text.trim().isNotEmpty) 'externalNo': _extNo.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref,
-    }, ok: 'اتسجل التحصيل ✅');
+    };
+    // linked to a client's unit → spread over its open installments automatically (one receipt per installment)
+    final r = _sale != null && _saleKind
+        ? await _post('/sales/${_sale!['id']}/collect-auto', body, ok: 'اتسجل التحصيل واتربط بأقساط العميل ✅')
+        : await _post('/cash/receipts', body, ok: 'اتسجل التحصيل ✅');
     if (!mounted) return;
     setState(() => _saving = false);
     JphUi.toast(context, r);
@@ -1025,6 +1068,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
         c.clear();
       }
       _ref = newClientRef();
+      _sale = null;
       await _load();
       await widget.onChanged();
     }
@@ -1045,6 +1089,22 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
                 const SizedBox(height: 14),
                 _segmented(isDark, _receiptKinds, _kind, (v) => setState(() => _kind = v)),
                 const SizedBox(height: 14),
+                if (_saleKind && _canLink) ...[
+                  JphUi.picker(
+                    isDark: isDark,
+                    icon: Icons.people_alt_rounded,
+                    iconColor: Colors.indigo,
+                    label: 'العميل (بيتربط بأقساطه تلقائي)',
+                    value: _sale == null ? 'اختار العميل' : '${_sale!['buyerName']} — ${_sale!['projectName']} ${_sale!['unitNo']}',
+                    onTap: _pickClient,
+                  ),
+                  if (_sale != null)
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: TextButton(onPressed: () => setState(() => _sale = null), child: const Text('من غير ربط بعميل')),
+                    ),
+                  const SizedBox(height: 14),
+                ],
                 JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
                 const SizedBox(height: 14),
                 JphUi.input(isDark: isDark, label: 'اسم الدافع *', controller: _payer, icon: Icons.person_rounded, big: false),

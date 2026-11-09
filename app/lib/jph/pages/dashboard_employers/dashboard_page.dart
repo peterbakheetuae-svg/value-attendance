@@ -557,15 +557,22 @@ class _DashboardPageState extends State<DashboardPage>
     return '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}';
   }
 
-  /// Admin home: the same glass card as the employee, filled with company totals for the tab.
+  /// Same card as the employee home (his own check-in / permission / visit), for everyone; the company totals
+  /// are in the boxes below. Leave tab keeps the month's leave totals.
   StatRightCardModel _getRightCard(BuildContext context) {
-    final t = _ovToday, m = _ovMonth;
+    final m = _ovMonth;
     switch (mode) {
       case DashMode.breakTime:
-        return StatRightCardModel(
-          line1Title: 'admin_out_now', line1Value: _n(t['outNow']), line1Icon: Icons.directions_walk_rounded,
-          line2Title: 'admin_pending_outings', line2Value: _n(t['pendingOutings']), line2Icon: Icons.hourglass_top_rounded,
-          line3Title: 'admin_checked_out', line3Value: _n(t['checkedOut']), line3Icon: Icons.logout_rounded,
+        final o = _outingActive ?? _outingPending;
+        String hhmm(Object? iso) {
+          final d = DateTime.tryParse('$iso')?.toLocal();
+          return d == null ? '--:--' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+        }
+        return StatRightCardModel.outing(
+          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
+          start: o == null ? '--:--' : hhmm(o['starts_at'] ?? o['requested_at']),
+          expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
+          returnAt: _outingActive == null ? null : DateTime.tryParse('${_outingActive!['expected_return_at']}')?.toLocal(),
         );
       case DashMode.leave:
         return StatRightCardModel(
@@ -575,10 +582,10 @@ class _DashboardPageState extends State<DashboardPage>
         );
       case DashMode.check:
       default:
-        return StatRightCardModel(
-          line1Title: 'admin_present_today', line1Value: '${_n(t['present'])} / ${_n(t['employees'])}', line1Icon: Icons.login_rounded,
-          line2Title: 'admin_late', line2Value: _n(t['late']), line2Icon: Icons.schedule_rounded,
-          line3Title: 'admin_absent', line3Value: _n(t['absent']), line3Icon: Icons.person_off_rounded,
+        return StatRightCardModel.check(
+          checkTime: state.checkInTime,
+          checkOutTime: state.checkOutTime,
+          workTime: checkedIn ? _calcWorkTime() : ((sheetData['workTime'] ?? '--:--').toString()),
         );
     }
   }
@@ -1660,9 +1667,9 @@ class _DashboardPageState extends State<DashboardPage>
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: GestureDetector(
-                              onTap: mode == DashMode.check ? _openToday : (mode == DashMode.breakTime ? _openOut : null),
-                              child: StatRightCard(model: _getRightCard(context)),
+                            child: StatRightCard(
+                              model: _getRightCard(context),
+                              disabled: _exempt && mode != DashMode.leave,
                             ),
                           ),
                         ],
