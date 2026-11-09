@@ -102,7 +102,15 @@ jobs:
           ALIAS=$(keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/release.p12" -storepass "$KEY_PASS" | awk -F, '/PrivateKeyEntry/{print $1; exit}')
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RUNNER_TEMP/release.p12" "$KEY_PASS" "$ALIAS" "$KEY_PASS" > android/key.properties
           echo "SIGNED=1" >> "$GITHUB_ENV"
+      - name: Android build wanted? ([apk] in the commit's first line, or a manual run)
+        env: { COMMIT_MSG: '${{ github.event.head_commit.message }}' }
+        run: |
+          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && W=1
+          printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && W=1
+          echo "BUILD_APK=$W" >> "$GITHUB_ENV"; echo "build APK: $W"
       - name: Build Android APK
+        # a web-only update skips the (slow) Android build entirely, so the web goes out quickly
+        if: env.BUILD_APK == '1'
         run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
       - name: Publish the update (backup copy as a release; phones and browsers get it from Hostinger)
         # the web-only pre-release never needs the Android key; an Android ([apk]) release does
@@ -111,7 +119,7 @@ jobs:
         env: { GH_TOKEN: '${{ github.token }}', COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
           V=1.0.${{ github.run_number }}
-          cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
+          [ -f build/app/outputs/flutter-apk/app-release.apk ] && cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
           # the same web build for jaurea.com/value-attendance/ (public files only: the app that already ships to every browser)
           (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
           EXTRA=""; [ -f value-attendance-web-wasm-test.zip ] && EXTRA=value-attendance-web-wasm-test.zip
@@ -119,6 +127,7 @@ jobs:
           # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
           WANT_APK=0; printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && WANT_APK=1
           # without the signing key an Android update is never published (phones would refuse it); the web still goes out
+          [ -f value-attendance.apk ] || WANT_APK=0
           if [ "$WANT_APK" = "1" ] && [ "$SIGNED" != "1" ]; then
             echo "::warning::[apk] asked but the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets are not set — web only, no Android update"; WANT_APK=0
           fi
@@ -137,6 +146,7 @@ jobs:
             gh release create "web-$V" value-attendance-web.zip $EXTRA --title "Web build $V (no Android update)" --notes "نسخة الويب فقط" --prerelease
           fi
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_APK == '1'
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
