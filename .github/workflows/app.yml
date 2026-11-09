@@ -95,7 +95,10 @@ jobs:
             echo "::warning::ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets not set — APK stays debug-signed and no Android update is published"; exit 0
           fi
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
-          keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/release.p12" -storepass "$KEY_PASS" >/dev/null || { echo "::error::keystore or password is wrong"; exit 1; }
+          # a wrong key / password never blocks the web: the APK just is not published (and the build says why)
+          if ! keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/release.p12" -storepass "$KEY_PASS" >/dev/null 2>&1; then
+            echo "::warning::ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS do not match (wrong password or a broken copy of the key) — no Android update this time"; rm -f "$RUNNER_TEMP/release.p12"; exit 0
+          fi
           ALIAS=$(keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/release.p12" -storepass "$KEY_PASS" | awk -F, '/PrivateKeyEntry/{print $1; exit}')
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RUNNER_TEMP/release.p12" "$KEY_PASS" "$ALIAS" "$KEY_PASS" > android/key.properties
           echo "SIGNED=1" >> "$GITHUB_ENV"
