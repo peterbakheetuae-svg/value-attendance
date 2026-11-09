@@ -14,8 +14,17 @@ jobs:
           pip install -q fonttools==4.55.3 brotli
           curl -sSL --fail -o /tmp/NotoColorEmoji.ttf https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.047/fonts/NotoColorEmoji.ttf
           curl -sSL --fail -o app/assets/fonts/NotoFlags-OFL.txt https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.047/fonts/LICENSE
-          pyftsubset /tmp/NotoColorEmoji.ttf --text="🇸🇦🇺🇸🇵🇰🇮🇳🌐" --layout-features='*' --output-file=app/assets/fonts/NotoFlags.ttf
+          # exactly the 4 flags + globe: no layout closure (it would pull every flag made of these letters)
+          pyftsubset /tmp/NotoColorEmoji.ttf --unicodes=U+1F1F8,U+1F1E6,U+1F1FA,U+1F1F5,U+1F1F0,U+1F1EE,U+1F1F3,U+1F310 \
+            --glyphs='u1F1F8_u1F1E6,u1F1FA_u1F1F8,u1F1F5_u1F1F0,u1F1EE_u1F1F3' --no-layout-closure --layout-features='*' \
+            --output-file=app/assets/fonts/NotoFlags.ttf
           ls -la app/assets/fonts/NotoFlags.ttf
+          python3 -c "
+          from fontTools.ttLib import TTFont
+          f=TTFont('app/assets/fonts/NotoFlags.ttf'); g=set(f.getGlyphOrder())
+          need=['u1F1F8_u1F1E6','u1F1FA_u1F1F8','u1F1F5_u1F1F0','u1F1EE_u1F1F3']
+          print('glyphs:', sorted(g)); missing=[n for n in need if n not in g]; assert not missing, missing
+          "
+          git add -A app/assets/fonts; git status --short
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/assets/fonts/NotoFlags.ttf app/assets/fonts/NotoFlags-OFL.txt
-          git commit -m "Small flag font (Noto Color Emoji subset: SA, US, PK, IN + globe)" && git push origin HEAD:pending-build
+          git commit -m "Smaller flag font: exactly SA, US, PK, IN + globe" && git push origin HEAD:pending-build

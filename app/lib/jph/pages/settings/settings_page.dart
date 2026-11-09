@@ -866,7 +866,7 @@ class _SettingsPageState extends State<SettingsPage> {
               // العلم
               Text(
                 flag,
-                style: const TextStyle(fontSize: 22),
+                style: const TextStyle(fontSize: 22, fontFamilyFallback: ['NotoFlags']),
               ),
               const SizedBox(width: 12),
 

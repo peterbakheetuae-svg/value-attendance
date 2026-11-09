@@ -109,6 +109,7 @@ class _LanguageOption extends StatelessWidget {
               flag,
               style: const TextStyle(
                 fontSize: 24,
+                fontFamilyFallback: ['NotoFlags'],
               ),
             ),
           ),

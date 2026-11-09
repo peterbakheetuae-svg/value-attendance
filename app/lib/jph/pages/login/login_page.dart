@@ -320,7 +320,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
           ),
           child: Row(
             children: [
-              Text(flag, style: const TextStyle(fontSize: 28)),
+              Text(flag, style: const TextStyle(fontSize: 28, fontFamilyFallback: ['NotoFlags'])),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
@@ -416,7 +416,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
           children: [
             Icon(Icons.language, size: 24, color: isDark ? Colors.white : Colors.black),
             const SizedBox(width: 8),
-            Text(_getLanguageFlag(currentLanguage), style: const TextStyle(fontSize: 16)),
+            Text(_getLanguageFlag(currentLanguage), style: const TextStyle(fontSize: 16, fontFamilyFallback: ['NotoFlags'])),
           ],
         ),
       ),
