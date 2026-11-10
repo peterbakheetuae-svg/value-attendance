@@ -56,9 +56,44 @@ class ApiClient {
     return Uri.parse('$baseUrl$path').replace(queryParameters: q.isEmpty ? null : q);
   }
 
+  // ---- speed: a screen opened again shows its last data at once and refreshes it in the background --------------
+  // Kept in memory for 5 minutes, per signed-in user. Any change the person makes (post / put / patch / delete)
+  // clears it, so their own actions always show fresh. Live things (attendance, outings, notifications, the
+  // signed-in account) are never served from it. Identical reads in flight are shared instead of sent twice.
+  static const _memTtl = Duration(minutes: 5);
+  static const _memFresh = Duration(seconds: 15);
+  static const _live = ['/attendance', '/outings', '/notifications', '/me', '/auth', '/tracking', '/alerts', '/healthz', '/media'];
+  final Map<String, (Map<String, dynamic>, DateTime)> _mem = {};
+  final Map<String, Future<Map<String, dynamic>>> _inflight = {};
+
+  /// Forget every remembered read (sign-out, or after a change).
+  void clearCache() {
+    _mem.clear();
+    _gen++;
+  }
+
+  int _gen = 0; // bumps on every change: a read that started before it is not remembered
+
+  Future<Map<String, dynamic>> get(String path, [Map<String, String?>? query]) {
+    final memKey = '${token.hashCode}|${_uri(path, query).replace(scheme: 'x', host: 'x')}';
+    final live = _live.any(path.startsWith);
+    final hit = live ? null : _mem[memKey];
+    final age = hit == null ? null : DateTime.now().difference(hit.$2);
+    final gen = _gen;
+    Future<Map<String, dynamic>> fetch() => _inflight[memKey] ??= _getNetwork(path, query).then((r) {
+          if (!live && r['_offline'] != true && gen == _gen) _mem[memKey] = (r, DateTime.now());
+          return r;
+        }).whenComplete(() => _inflight.remove(memKey));
+    if (hit != null && age! < _memTtl) {
+      if (age > _memFresh) fetch().catchError((_) => <String, dynamic>{}); // refresh quietly for the next time
+      return Future.value({...hit.$1});
+    }
+    return fetch();
+  }
+
   /// Reads work offline: every successful read is kept on the phone and returned (marked
   /// `_offline: true`) when there is no connection.
-  Future<Map<String, dynamic>> get(String path, [Map<String, String?>? query]) async {
+  Future<Map<String, dynamic>> _getNetwork(String path, [Map<String, String?>? query]) async {
     final key = 'apicache:${_uri(path, query).replace(scheme: 'x', host: 'x').toString()}';
     try {
       final r = await _send(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
@@ -172,13 +207,33 @@ class ApiClient {
     return (sent: sent, important: important, failed: failed);
   }
 
-  Future<Map<String, dynamic>> post(String path, [Object? body]) =>
-      _send(() => _http.post(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})));
-  Future<Map<String, dynamic>> put(String path, [Object? body]) =>
-      _send(() => _http.put(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})));
-  Future<Map<String, dynamic>> patch(String path, [Object? body]) =>
-      _send(() => _http.patch(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})));
-  Future<Map<String, dynamic>> delete(String path) => _send(() => _http.delete(_uri(path), headers: _headers()));
+  /// a change makes the remembered reads stale (location pings are not a change anyone sees)
+  void _changed(String path) {
+    if (!path.startsWith('/tracking')) clearCache();
+  }
+
+  Future<Map<String, dynamic>> post(String path, [Object? body]) {
+    _changed(path);
+    return _send(() => _http.post(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})))
+        .whenComplete(() => _changed(path));
+  }
+
+  Future<Map<String, dynamic>> put(String path, [Object? body]) {
+    _changed(path);
+    return _send(() => _http.put(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})))
+        .whenComplete(() => _changed(path));
+  }
+
+  Future<Map<String, dynamic>> patch(String path, [Object? body]) {
+    _changed(path);
+    return _send(() => _http.patch(_uri(path), headers: _headers(json: true), body: jsonEncode(body ?? {})))
+        .whenComplete(() => _changed(path));
+  }
+
+  Future<Map<String, dynamic>> delete(String path) {
+    _changed(path);
+    return _send(() => _http.delete(_uri(path), headers: _headers())).whenComplete(() => _changed(path));
+  }
 
   /// Binary download (xlsx / photos / documents).
   Future<Uint8List> bytes(String path, [Map<String, String?>? query]) async {

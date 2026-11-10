@@ -45,8 +45,8 @@ jobs:
             # Public API URL (not a secret). Override with the repository variable API_BASE_URL if it moves.
             echo "API_BASE_URL=https://value-attendance.vercel.app" >> "$GITHUB_ENV"
           fi
-      - name: Build Web
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+      - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
+        run: flutter build web --release --wasm --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
       - name: Start the first-screen files early (preload) instead of one after another
         run: |
           # Fetched right away while main.dart.js is still being prepared; no cache rule changes, so updates stay instant.
@@ -64,14 +64,6 @@ jobs:
           open(p, 'w').write(s.replace('</head>', tags + '</head>', 1))
           print(tags)
           PY
-      - name: Trial — skwasm renderer build in value-attendance/_test/ (measured only; the live app is unchanged)
-        continue-on-error: true
-        run: |
-          rm -rf /tmp/webmain && cp -r build/web /tmp/webmain
-          flutter build web --release --wasm --base-href /value-attendance/_test/ --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
-          rm -rf build/wasm-test && cp -r build/web build/wasm-test
-          rm -rf build/web && cp -r /tmp/webmain build/web
-          (cd build/wasm-test && zip -qr ../../value-attendance-web-wasm-test.zip .) && ls -la value-attendance-web-wasm-test.zip
       - name: Hostinger copy of the web build (+ its own folder-only .htaccess) and validation
         run: |
           rm -rf build/hostinger && cp -r build/web build/hostinger

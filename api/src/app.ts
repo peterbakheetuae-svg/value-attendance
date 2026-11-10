@@ -36,7 +36,7 @@ export function buildRouter(ctx: Ctx): Router {
    */
   r.get('/healthz/latency', async () => {
     let dbRegion = 'unknown';
-    try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -3).join('.') || 'unknown'; } catch { /* keep */ }
+    try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -2).join('.') || 'unknown'; } catch { /* keep */ }
     const ms: number[] = [];
     try {
       for (let i = 0; i < 4; i++) {
@@ -48,7 +48,7 @@ export function buildRouter(ctx: Ctx): Router {
       return { status: 503, json: { ok: false } };
     }
     return { json: { ok: true, apiRegion: process.env.VERCEL_REGION ?? 'local', dbRegion,
-      pooled: /-pooler\./.test(process.env.DATABASE_URL ?? ''), dbRoundTripMs: ms } };
+      pooled: process.env.VA_DB_DIRECT !== '1', dbRoundTripMs: ms } };
   });
   r.get('/readyz', async () => {
     try {

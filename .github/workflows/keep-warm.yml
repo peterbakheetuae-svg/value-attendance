@@ -1,0 +1,16 @@
+name: Keep the API warm (working hours)
+# The free database sleeps after a few idle minutes and the first screen after that waits for it to wake up.
+# During working hours (08:00–20:00 Cairo, Saturday–Thursday) this pings the API every 5 minutes so it stays awake.
+# Outside those hours it is left to sleep, to stay inside the free plan's monthly compute hours.
+on:
+  schedule:
+    - cron: '*/5 6-17 * * 0-4,6'   # UTC (Cairo = UTC+2)
+  workflow_dispatch:
+permissions: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          curl -s -m 25 -o /dev/null -w "API %{http_code} in %{time_total}s\n" https://value-attendance.vercel.app/healthz/latency || true
