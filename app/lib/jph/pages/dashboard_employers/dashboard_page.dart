@@ -69,6 +69,8 @@ class _DashboardPageState extends State<DashboardPage>
   bool _isRefreshing = false;
   int bottomIndex = 0;
   Timer? _updateTimer;
+  /// ticks every second while checked in, so the work timer on the card runs live
+  final ValueNotifier<int> _workTick = ValueNotifier(0);
 
   // ✅ متغيرات جديدة للكروت
   List<Map<String, dynamic>> _leaveRequests = [];
@@ -118,6 +120,9 @@ class _DashboardPageState extends State<DashboardPage>
     super.initState();
     AppNav.homeAlive++;
     _pendingTimer = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) _loadPendingOutings(); });
+    _updateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && checkedIn && mode == DashMode.check) _workTick.value++;
+    });
     WidgetsBinding.instance.addObserver(this);
     _cameraService = CameraService();
     _audioPlayer = AudioPlayer();
@@ -181,6 +186,7 @@ class _DashboardPageState extends State<DashboardPage>
     AppNav.homeAlive--;
     _pendingTimer?.cancel();
     _updateTimer?.cancel();
+    _workTick.dispose();
     _forceCloseCamera();
     _audioPlayer.dispose();
     _loadingAnimationController.dispose();
@@ -221,7 +227,7 @@ class _DashboardPageState extends State<DashboardPage>
       final prefs = await SharedPreferences.getInstance();
 
       final workStartMillis = prefs.getInt('${widget.uid}_work_start');
-      if (checkedIn && workStartMillis != null) {
+      if (checkedIn && workStartMillis != null && _serverWorkStart == null) {
         _localWorkStart = DateTime.fromMillisecondsSinceEpoch(workStartMillis);
       }
 
@@ -396,11 +402,15 @@ class _DashboardPageState extends State<DashboardPage>
     ]);
   }
 
+
+  /// The real check-in instant from the server (not the moment this page opened).
+  DateTime? get _serverWorkStart => DateTime.tryParse('${sheetData['checkInAt'] ?? ''}')?.toLocal();
+
   void _initializeLocalTimers() {
     // مؤثر العمل
-    if (checkedIn && _localWorkStart == null) {
-      _localWorkStart = DateTime.now();
-    } else if (!checkedIn) {
+    if (checkedIn) {
+      _localWorkStart = _serverWorkStart ?? _localWorkStart ?? DateTime.now();
+    } else {
       _localWorkStart = null;
     }
 
@@ -1647,9 +1657,12 @@ class _DashboardPageState extends State<DashboardPage>
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: StatRightCard(
-                              model: _getRightCard(context),
-                              disabled: _exempt && mode != DashMode.leave,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _workTick,
+                              builder: (context, _, __) => StatRightCard(
+                                model: _getRightCard(context),
+                                disabled: _exempt && mode != DashMode.leave,
+                              ),
                             ),
                           ),
                         ],

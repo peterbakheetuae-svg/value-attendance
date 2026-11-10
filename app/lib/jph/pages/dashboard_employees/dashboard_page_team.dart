@@ -230,7 +230,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       final prefs = await SharedPreferences.getInstance();
 
       final workStartMillis = prefs.getInt('${widget.uid}_work_start');
-      if (checkedIn && workStartMillis != null) {
+      if (checkedIn && workStartMillis != null && _serverWorkStart == null) {
         _localWorkStart = DateTime.fromMillisecondsSinceEpoch(workStartMillis);
       }
 
@@ -429,10 +429,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   String _calcWorkTime() {
     if (!checkedIn) return "--:--:--";
 
-    if (_localWorkStart == null) {
-      _localWorkStart = DateTime.now();
-      return "00:00:01";
-    }
+    _localWorkStart ??= _serverWorkStart;
+    if (_localWorkStart == null) return "--:--:--";
 
     final now = DateTime.now();
     final difference = now.difference(_localWorkStart!);
@@ -460,10 +458,14 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     return _fmt(difference);
   }
 
+
+  /// The real check-in instant from the server (not the moment this page opened).
+  DateTime? get _serverWorkStart => DateTime.tryParse('${sheetData['checkInAt'] ?? ''}')?.toLocal();
+
   void _initializeLocalTimers() {
-    if (checkedIn && _localWorkStart == null) {
-      _localWorkStart = DateTime.now();
-    } else if (!checkedIn) {
+    if (checkedIn) {
+      _localWorkStart = _serverWorkStart ?? _localWorkStart ?? DateTime.now();
+    } else {
       _localWorkStart = null;
     }
 

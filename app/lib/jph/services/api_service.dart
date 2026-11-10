@@ -802,6 +802,7 @@ class JphRouter {
             : DateTime.now().difference(_dt(a['checkIn'])!).inMinutes;
     return _ok({
       'checkInTime': a == null ? '--:--' : _time(a['checkIn']),
+      'checkInAt': a == null ? '' : '${a['checkIn'] ?? ''}', // the real check-in instant — the live work timer counts from it
       'checkOutTime': a?['checkOut'] == null ? '--:--' : _time(a!['checkOut']),
       'onBreak': false, // the break was replaced by hourly permission / visit
       'outingTime': _hm(outMinutes),
