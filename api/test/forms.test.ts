@@ -83,3 +83,28 @@ test('client intro form: any employee files it, his own name is the sales person
   assert.equal((await h.call(c.t.e1, 'GET', '/forms/client-intros')).body.forms.length, 1);
   assert.equal((await h.call(c.t.hr, 'GET', '/forms/client-intros')).body.forms.length, 2);
 });
+
+test('HR / المدير / the owner delete an earlier form; nobody else; numbers are never given again', async () => {
+  const perms = (await h.db.query(`SELECT role_key FROM role_permissions WHERE perm_key = 'forms.delete' ORDER BY role_key`)).rows.map((x) => x.role_key);
+  assert.deepEqual(perms, ['hr_manager', 'manager', 'owner']);
+  const r = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data() });
+  const id = r.body.receipt.id; const n = r.body.receipt.number;
+  assert.equal((await h.call(c.t.hr, 'GET', '/forms/custody-receipts')).body.canDelete, true);
+  assert.equal((await h.call(c.t.e1, 'GET', '/forms/custody-receipts')).body.canDelete, false);
+  assert.equal((await h.call(c.t.e1, 'DELETE', `/forms/${id}`)).status, 403);
+  assert.equal((await h.call(c.t.acc, 'DELETE', `/forms/${id}`)).status, 403);
+  const del = await h.call(c.t.hr, 'DELETE', `/forms/${id}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal((await h.call(c.t.hr, 'GET', `/forms/custody-receipts/${id}`)).status, 404);
+  assert.equal((await h.call(c.t.hr, 'DELETE', `/forms/${id}`)).status, 404);
+  const log = await h.db.query(`SELECT before FROM audit_log WHERE action = 'forms.delete' AND entity_id = $1`, [id]);
+  assert.equal(log.rows[0].before.form.number, n, 'the audit log keeps a copy');
+  const next = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data() });
+  assert.equal(next.body.receipt.number, n + 1, 'a deleted number is not reused');
+  // client intros too (owner); other documents stay undeletable
+  const ci = (await h.call(c.t.hr, 'GET', '/forms/client-intros')).body.forms[0];
+  assert.equal((await h.call(c.t.owner, 'DELETE', `/forms/${ci.id}`)).status, 200);
+  const other = await h.db.query(`SELECT id FROM employee_documents WHERE employee_id IS NOT NULL AND file_name NOT LIKE 'custody-receipt-%' AND file_name NOT LIKE 'laptop-receipt-%' AND file_name NOT LIKE 'client-intro-%' LIMIT 1`);
+  if (other.rows[0]) assert.equal((await h.call(c.t.hr, 'DELETE', `/forms/${other.rows[0].id}`)).status, 404);
+  await assert.rejects(h.db.query(`DELETE FROM employee_documents WHERE id = $1`, [next.body.receipt.id]));
+});

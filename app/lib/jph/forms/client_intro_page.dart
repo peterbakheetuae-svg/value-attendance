@@ -13,6 +13,7 @@ import '../widgets/app_background.dart';
 import '../widgets/jph_form_ui.dart';
 import '../widgets/swipe_tabs.dart';
 import 'custody_receipt_pdf.dart';
+import 'form_delete.dart';
 
 /// الإعدادات ← استمارات ← استمارات عملاء ← استمارة تعارف.
 /// Every employee can fill it. "اسم مسؤول المبيعات" is the employee who fills it (automatic); HR / the management
@@ -239,6 +240,7 @@ class _History extends StatefulWidget {
 class _HistoryState extends State<_History> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  bool _canDelete = false;
 
   @override
   void initState() {
@@ -252,6 +254,7 @@ class _HistoryState extends State<_History> {
     setState(() {
       _loading = false;
       _items = cashList(r, 'forms');
+      _canDelete = r['canDelete'] == true;
     });
   }
 
@@ -283,6 +286,10 @@ class _HistoryState extends State<_History> {
                   ]),
                 ),
                 Icon(Icons.print_rounded, color: JphUi.sub(isDark)),
+                if (_canDelete)
+                  formDeleteButton(() async {
+                    if (await deleteFormRecord(context, '${f['id']}', '${(f['data'] as Map?)?['clientName'] ?? ''} • رقم ${f['number'] ?? ''}')) _load();
+                  }),
               ]),
             ),
           ),

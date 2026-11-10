@@ -388,7 +388,9 @@ class JphRouter {
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
           if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody'].any(cp.startsWith)) return _fail('bad path');
-          final cr2 = p['method'] == 'patch'
+          final cr2 = p['method'] == 'delete' && cp.startsWith('/forms/')
+              ? await _api.delete(cp)
+              : p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
           return _ok({...cr2.cast<String, dynamic>(), 'message': p['ok'] ?? 'تم ✅'});

@@ -27,6 +27,17 @@ const ANY_PREFIX = `(d.file_name LIKE '${FILE_PREFIX}%' OR d.file_name LIKE 'lap
 
 const canManage = (a: Actor) => has(a, 'documents.manage') || has(a, 'employee.manage');
 const canReadAll = (a: Actor) => canManage(a) || has(a, 'documents.read') || has(a, 'employee.read_all');
+/** HR / المدير / the owner may delete an earlier form. */
+const canDelete = (a: Actor) => has(a, 'forms.delete');
+const FORM_PREFIXES = [FILE_PREFIX, 'laptop-receipt-', 'client-intro-'];
+
+/** Next number for a form kind — from a counter, so a deleted form's number is never given again. */
+async function nextNumber(q: Q, prefix: string): Promise<number> {
+  const r = await one(q, `
+    INSERT INTO form_counters (prefix, last) VALUES ($1, 1)
+    ON CONFLICT (prefix) DO UPDATE SET last = form_counters.last + 1 RETURNING last`, [prefix]);
+  return Number(r.last);
+}
 
 const CONDITIONS = ['new', 'used_good', 'other'] as const;
 const ACCESSORIES = ['charger', 'cable', 'case', 'headset', 'other'] as const;
@@ -168,8 +179,7 @@ export const formsModule: Module = (r, { db }) => {
       if (!emp) throw invalid('Choose the employee', { field: 'employeeId' });
       // one numbering for all custody receipts; the lock keeps two saves from taking the same number
       await q.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`forms:${dev.template}`]);
-      const n = await one(q, `SELECT count(*)::int AS n FROM employee_documents WHERE kind = 'other' AND file_name LIKE $1`, [`${dev.prefix}%`]);
-      const number = Number(n.n) + 1;
+      const number = await nextNumber(q, dev.prefix);
       const body = { template: dev.template, templateVersion: dev.version, number, data,
         createdBy: a.id, createdAt: new Date().toISOString() };
       const buf = Buffer.from(JSON.stringify(body), 'utf8');
@@ -198,7 +208,7 @@ export const formsModule: Module = (r, { db }) => {
       SELECT d.id, d.employee_id, d.title, d.content, d.created_at, u.full_name AS created_by_name, e.full_name AS employee_name
         FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by JOIN employees e ON e.id = d.employee_id
        WHERE ${where} ORDER BY d.created_at DESC LIMIT 500`, vals);
-    return ok({ receipts: rows.rows.map((x) => ({ ...shapeRecord(x), employeeName: x.employee_name })) });
+    return ok({ receipts: rows.rows.map((x) => ({ ...shapeRecord(x), employeeName: x.employee_name })), canDelete: canDelete(a) });
   });
 
   r.get('/forms/custody-receipts/:id', async (req) => {
@@ -255,8 +265,7 @@ export const formsModule: Module = (r, { db }) => {
       if (!emp) throw invalid('Choose the sales person', { field: 'salesEmployeeId' });
       data.salesName = emp.full_name; // always the sales person's name from the system
       await q.query(`SELECT pg_advisory_xact_lock(hashtext('forms:client_intro'))`);
-      const n = await one(q, `SELECT count(*)::int AS n FROM employee_documents WHERE kind = 'other' AND file_name LIKE $1`, [`${CLIENT_PREFIX}%`]);
-      const number = Number(n.n) + 1;
+      const number = await nextNumber(q, CLIENT_PREFIX);
       const body = { template: 'client_intro', templateVersion: 1, number, data, createdBy: a.id, createdAt: new Date().toISOString() };
       const buf = Buffer.from(JSON.stringify(body), 'utf8');
       const x = await one(q, `
@@ -280,6 +289,25 @@ export const formsModule: Module = (r, { db }) => {
       SELECT d.id, d.employee_id, d.title, d.content, d.created_at, u.full_name AS created_by_name
         FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by
        WHERE ${where} ORDER BY d.created_at DESC LIMIT 500`, vals);
-    return ok({ forms: rows.rows.map(shapeRecord), canPickSales: canManage(a) });
+    return ok({ forms: rows.rows.map(shapeRecord), canPickSales: canManage(a), canDelete: canDelete(a) });
+  });
+
+  // ------------------------------------------------------------------ delete an earlier form
+  /** HR / المدير / the owner delete an earlier form (custody receipt or client intro). The audit log keeps a copy. */
+  r.delete('/forms/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canDelete(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    await db.tx(async (q) => {
+      const row = await one(q, `SELECT id, employee_id, title, file_name, content FROM employee_documents WHERE id = $1 AND kind = 'other' FOR UPDATE`, [req.params.id]);
+      if (!row || !FORM_PREFIXES.some((p) => String(row.file_name).startsWith(p))) throw notFound();
+      let body: unknown = null;
+      try { body = JSON.parse(Buffer.from(row.content).toString('utf8')); } catch { /* keep null */ }
+      await q.query(`SELECT set_config('va.form_delete', $1, true)`, [row.id]);
+      await q.query(`DELETE FROM employee_documents WHERE id = $1`, [row.id]);
+      await q.query(`SELECT set_config('va.form_delete', '', true)`);
+      await audit(q, a.id, 'forms.delete', 'employee_document', row.id, { title: row.title, employeeId: row.employee_id, form: body }, undefined);
+    });
+    return ok({ deleted: true });
   });
 };
