@@ -24,8 +24,8 @@ function setup() {
 }
 
 /**
- * Minute heartbeat (free): the API has no scheduler, so this pokes it every minute — an overdue
- * permission / visit rings on time and reminders go out even when nobody has the app open.
+ * Minute heartbeat (free): the API has no scheduler, so this pokes it every minute in working hours — an
+ * overdue permission / visit rings on time and reminders go out even when nobody has the app open.
  */
 function setupHeartbeat() {
   ScriptApp.getProjectTriggers()
@@ -34,7 +34,20 @@ function setupHeartbeat() {
   ScriptApp.newTrigger('heartbeat').timeBased().everyMinutes(1).create();
 }
 
+/**
+ * Working hours only (Saturday–Thursday 08:00–20:00 Cairo): every ping keeps the free database awake, and
+ * keeping it awake around the clock would use up its monthly free compute (100 CU-hours) — the database
+ * would then stop until the next month. Outside these hours it sleeps and wakes up on the first request.
+ */
+function workingHours_() {
+  const now = new Date();
+  const hour = Number(Utilities.formatDate(now, 'Africa/Cairo', 'H'));
+  const day = Utilities.formatDate(now, 'Africa/Cairo', 'u'); // 1 = Monday … 5 = Friday … 7 = Sunday
+  return day !== '5' && hour >= 8 && hour < 20;
+}
+
 function heartbeat() {
+  if (!workingHours_()) return;
   const token = PropertiesService.getScriptProperties().getProperty('BACKUP_TOKEN');
   if (!token) return;
   UrlFetchApp.fetch(API + '/backup/sweep', { method: 'post', headers: { 'X-Backup-Token': token }, muteHttpExceptions: true });
