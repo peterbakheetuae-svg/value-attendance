@@ -89,6 +89,26 @@ export const custodyModule: Module = (r, { db, clock }) => {
     return ok({ ok: true });
   });
 
+  /** One item of the list with its history: who had it, from when, when it came back and who received it. */
+  r.get('/custody/assets/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'custody.manage') && !has(a, 'custody.read_all')) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await one(db, `
+      SELECT x.*, c.id AS custody_id, c.employee_id AS holder_id, c.assigned_on AS holder_since, e.full_name AS holder_name, e.code AS holder_code
+        FROM custody_assets x
+        LEFT JOIN custody_items c ON c.asset_id = x.id AND c.status = 'assigned'
+        LEFT JOIN employees e ON e.id = c.employee_id
+       WHERE x.id = $1`, [req.params.id]);
+    if (!x) throw notFound();
+    const hist = await db.query(`SELECT ${COLS} ${FROM} WHERE c.asset_id = $1 ORDER BY c.assigned_on DESC, c.created_at DESC`, [x.id]);
+    const d = (v: unknown) => v instanceof Date ? v.toISOString().slice(0, 10) : v == null ? null : String(v).slice(0, 10);
+    return ok({ asset: shapeAsset(x), canManage: canManageCustody(a), history: hist.rows.map((c) => ({
+      id: c.id, status: c.status, employeeId: c.employee_id, employeeName: c.employee_name, assignedOn: d(c.assigned_on),
+      assignedByName: c.assigned_by_name, conditionOut: c.condition_out, returnedOn: d(c.returned_on), conditionIn: c.condition_in,
+      receivedByName: c.received_by_name, closedAt: c.closed_at, notes: c.notes ?? '' })) });
+  });
+
   /** Bring an archived asset back to the list (available for handover again). */
   r.post('/custody/assets/:id/restore', async (req) => {
     const a = await authenticate(db, req);

@@ -111,3 +111,19 @@ test('custody asset: archive hides it from handover; restore brings it back', as
   assert.equal((await h.call(c.t.hr, 'POST', `/custody/assets/${id}/restore`, {})).status, 200);
   assert.equal(await avail(), true);
 });
+
+test('custody asset details: the history of who had it, when it came back and who received it', async () => {
+  const x = (await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'mobile', name: 'Oppo A78', serialNo: 'HIST-1' })).body.asset;
+  const g1 = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e1}/custody`, { assetId: x.id });
+  assert.equal(g1.status, 201, JSON.stringify(g1.body));
+  assert.equal((await h.call(c.t.hr, 'POST', `/custody/${g1.body.item.id}/close`, { outcome: 'returned', condition: 'good' })).status, 200);
+  assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/custody`, { assetId: x.id })).status, 201);
+  const d = await h.call(c.t.hr, 'GET', `/custody/assets/${x.id}`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(d.body.asset.holder.employeeId, c.ids.e2);
+  assert.equal(d.body.history.length, 2);
+  const back = d.body.history.find((r: any) => r.status === 'returned');
+  assert.equal(back.employeeId, c.ids.e1);
+  assert.ok(back.receivedByName && back.returnedOn);
+  assert.equal((await h.call(c.t.e1, 'GET', `/custody/assets/${x.id}`)).status, 403);
+});

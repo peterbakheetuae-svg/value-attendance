@@ -52,7 +52,6 @@ class ClientIntroPage extends StatelessWidget {
 const clientPropertyTypes = {
   'residential': 'سكني',
   'commercial': 'تجاري',
-  'residential_2': 'سكني',
   'administrative': 'إداري',
   'medical': 'طبي',
   'operational': 'تشغيل',

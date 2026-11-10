@@ -24,7 +24,6 @@
   "checks": {
     "propertyTypes:residential":    [473.7, 485.9, 546.1, 558.4],
     "propertyTypes:commercial":     [401.7, 413.9, 546.1, 558.4],
-    "propertyTypes:residential_2":  [325.6, 337.8, 546.1, 558.4],
     "propertyTypes:administrative": [473.7, 485.9, 585.2, 597.5],
     "propertyTypes:medical":        [397.6, 409.8, 585.2, 597.5],
     "propertyTypes:operational":    [329.7, 341.9, 585.2, 597.5],

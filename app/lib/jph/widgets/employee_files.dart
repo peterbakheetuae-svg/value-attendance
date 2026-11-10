@@ -11,6 +11,7 @@ import '../theme/app_colors.dart';
 import 'app_background.dart';
 import 'glass_ui_widgets.dart';
 import 'glass_dialog.dart';
+import 'custody_asset_card.dart';
 
 /// Employee documents (acknowledgment PDF, job description PDF, ID image) and custody sections —
 /// same glass cards as the rest of the profile. Files are fetched with the session token only.
@@ -274,36 +275,23 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
 
   /// تسليم عهدة: pick one of the items added in Settings → العهدة that is not with anyone.
   Future<void> _assign() async {
-    final r0 = await ApiService.post({'action': 'cash_get', 'path': '/custody/assets', 'query': {'available': '1'}});
-    if (!mounted) return;
-    final assets = ((r0['assets'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
-    if (assets.isEmpty) {
-      _snack({'success': false, 'message': r0['success'] == true ? 'مفيش عهدة متاحة — ضيفها الأول من الإعدادات ← العهدة' : '${r0['message'] ?? ''}'});
-      return;
-    }
+    final isDark = Provider.of<AppController>(context, listen: false).isDark;
+    final asset = await pickCustodyAsset(context, isDark);
+    if (asset == null || !mounted) return;
     final notes = TextEditingController();
     String cond = 'good';
-    String? assetId;
     await showModalBottomSheet(
       context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => _sheet(ctx, 'تسليم عهدة', [
-            DropdownButtonFormField<String>(value: assetId, isExpanded: true, decoration: _input('العهدة *'),
-                items: [
-                  for (final a in assets)
-                    DropdownMenuItem(value: '${a['id']}',
-                        child: Text('${a['typeAr'] ?? ''}: ${a['name']}${'${a['serialNo'] ?? ''}'.isEmpty ? '' : ' — ${a['serialNo']}'}',
-                            overflow: TextOverflow.ellipsis)),
-                ],
-                onChanged: (v) => set(() => assetId = v)),
-            const SizedBox(height: 10),
+            CustodyAssetCard(asset: asset, isDark: isDark),
+            const SizedBox(height: 6),
             DropdownButtonFormField<String>(value: cond, decoration: _input('الحالة وقت التسليم'),
                 items: _conditions.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(), onChanged: (v) => set(() => cond = v ?? cond)),
             const SizedBox(height: 10),
             TextField(controller: notes, decoration: _input('ملاحظات')),
             const SizedBox(height: 16),
             _save(() async {
-              if (assetId == null) return;
-              final r = await ApiService.post({'action': 'custody_assign', 'id': widget.employeeId, 'assetId': assetId, 'condition': cond,
+              final r = await ApiService.post({'action': 'custody_assign', 'id': widget.employeeId, 'assetId': asset['id'], 'condition': cond,
                 'notes': notes.text.trim()});
               if (ctx.mounted) Navigator.pop(ctx);
               _snack(r);

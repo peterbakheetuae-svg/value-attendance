@@ -229,7 +229,7 @@ export const formsModule: Module = (r, { db }) => {
    * receipts: one permanent JSON record (employee_documents, under the sales person), numbered, never overwritten.
    */
   const CLIENT_PREFIX = 'client-intro-';
-  const CLIENT_TYPES = ['residential', 'commercial', 'residential_2', 'administrative', 'medical', 'operational', 'other'] as const;
+  const CLIENT_TYPES = ['residential', 'commercial', 'administrative', 'medical', 'operational', 'other'] as const;
   const phone = (b: Record<string, unknown>, k: string, required = false) => {
     const v = text(b, k, 20).replace(/\s+/g, '');
     if (required && !v) throw invalid('Enter the phone number', { field: k });

@@ -9,6 +9,8 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
+import '../../widgets/custody_asset_card.dart';
+import 'custody_asset_details_page.dart';
 
 /// الإعدادات ← العهدة: the company's mobiles and laptops. Each item is added once here (button top-right), then
 /// handed to an employee from his page ("تسليم عهدة" picks from this list) and used to fill the custody receipt form.
@@ -100,7 +102,6 @@ class _BodyState extends State<_Body> {
 }
 
 const _accAr = {'charger': 'شاحن', 'cable': 'كابل', 'case': 'جراب', 'headset': 'سماعة', 'bag': 'شنطة', 'mouse': 'ماوس', 'other': 'أخرى'};
-const _condAr = {'new': 'جديد', 'used_good': 'مستعمل بحالة جيدة', 'other': 'أخرى'};
 
 /// Add one item (mobile / laptop) to the custody list.
 Future<bool> _addSheet(BuildContext context, bool isDark, String type) async {
@@ -290,52 +291,18 @@ class _AssetsListState extends State<_AssetsList> {
               padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
               child: Text('المؤرشفة', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.sub(isDark))),
             ),
-          Opacity(
-            opacity: x['status'] == 'retired' ? 0.5 : 1,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: JphUi.box(isDark),
-              child: Row(children: [
-                JphUi.iconTile(isDark, widget.type == 'laptop' ? Icons.laptop_rounded : Icons.phone_android_rounded,
-                    x['holder'] != null ? Colors.teal : Colors.green),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('${x['name']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                    Text(
-                        [
-                          if ('${x['serialNo']}'.isNotEmpty) '${widget.type == 'laptop' ? 'SN' : 'IMEI'}: ${x['serialNo']}',
-                          if ('${x['lineNumber']}'.isNotEmpty) 'خط ${x['lineNumber']}',
-                          if ('${x['specs']}'.isNotEmpty) '${x['specs']}',
-                          _condAr['${x['condition']}'] ?? '',
-                          ...((x['accessories'] as List?) ?? const []).map((a) => _accAr['$a'] ?? '$a'),
-                        ].where((e) => e.isNotEmpty).join(' • '),
-                        style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-                    const SizedBox(height: 2),
-                    Text(
-                        x['status'] == 'retired'
-                            ? 'مؤرشفة'
-                            : x['holder'] != null
-                                ? 'مع ${(x['holder'] as Map)['name']} من ${'${(x['holder'] as Map)['since'] ?? ''}'.padRight(10).substring(0, 10).trim()}'
-                                : 'متاحة للتسليم',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: x['holder'] != null ? Colors.teal : Colors.green)),
-                  ]),
-                ),
-                if (ApiService.can('custody.manage') && x['status'] == 'active' && x['holder'] == null)
-                  IconButton(
-                    tooltip: 'أرشفة',
-                    onPressed: () => _retire(x),
-                    icon: Icon(Icons.archive_outlined, color: JphUi.sub(isDark)),
-                  ),
-                if (ApiService.can('custody.manage') && x['status'] == 'retired')
-                  TextButton.icon(
-                    onPressed: () => _restore(x),
-                    icon: const Icon(Icons.unarchive_rounded),
-                    label: const Text('رجّعها'),
-                  ),
-              ]),
-            ),
+          CustodyAssetCard(
+            asset: x,
+            isDark: isDark,
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => CustodyAssetDetailsPage(assetId: '${x['id']}')));
+              load();
+            },
+            trailing: ApiService.can('custody.manage') && x['status'] == 'active' && x['holder'] == null
+                ? IconButton(tooltip: 'أرشفة', onPressed: () => _retire(x), icon: Icon(Icons.archive_outlined, color: JphUi.sub(isDark)))
+                : ApiService.can('custody.manage') && x['status'] == 'retired'
+                    ? TextButton.icon(onPressed: () => _restore(x), icon: const Icon(Icons.unarchive_rounded), label: const Text('رجّعها'))
+                    : null,
           ),
         ],
       ]),
