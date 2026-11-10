@@ -1,5 +1,6 @@
 import { createSign } from 'node:crypto';
 import type { Q } from '../db.ts';
+import { webPushTo } from './webpush.ts';
 
 /**
  * Firebase Cloud Messaging (HTTP v1) sender — free, no card. Configured only by the
@@ -51,6 +52,10 @@ export const RING_TYPES = new Set([
 
 /** Push one notification to every live device of an employee. Never throws (push is best-effort). */
 export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }) {
+  await Promise.all([fcmTo(q, employeeId, m), webPushTo(q, employeeId, { ...m, ring: RING_TYPES.has(m.type) })]);
+}
+
+async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }) {
   const a = sa();
   if (!a) return;
   try {

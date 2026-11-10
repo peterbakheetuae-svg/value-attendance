@@ -1,5 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { pushEnabled } from '../lib/fcm.ts';
+import { webPushPublicKey } from '../lib/webpush.ts';
 import { lastMailError, mailEnabled, otpMail, sendMail } from '../lib/mail.ts';
 import { createHash, randomInt } from 'node:crypto';
 import { one } from '../db.ts';
@@ -74,6 +75,7 @@ export const authModule: Module = (r, { db }) => {
     const a = await authenticate(db, req, { allowPasswordChange: true });
     await db.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [a.sessionId]);
     await db.query(`DELETE FROM push_tokens WHERE session_id = $1`, [a.sessionId]);
+    await db.query(`DELETE FROM web_push_subscriptions WHERE session_id = $1`, [a.sessionId]);
     return ok({ ok: true });
   });
 
@@ -87,6 +89,27 @@ export const authModule: Module = (r, { db }) => {
       ON CONFLICT (token) DO UPDATE SET employee_id = EXCLUDED.employee_id, session_id = EXCLUDED.session_id,
         platform = EXCLUDED.platform, updated_at = now()`, [token, a.id, a.sessionId, platform]);
     return ok({ ok: true, pushEnabled: pushEnabled() });
+  });
+
+  /** Web Push (the web app on iPhone / browsers): the server's public key, then the browser's subscription. */
+  r.get('/me/web-push', async (req) => {
+    await authenticate(db, req, { allowPasswordChange: true });
+    return ok({ publicKey: webPushPublicKey() });
+  });
+
+  r.post('/me/web-push', async (req) => {
+    const a = await authenticate(db, req, { allowPasswordChange: true });
+    const b = obj(req.body);
+    const endpoint = reqStr(b, 'endpoint', { min: 12, max: 2000 });
+    if (!/^https:\/\//.test(endpoint)) throw invalid('Bad endpoint', { field: 'endpoint' });
+    const k = obj(b.keys);
+    const p256dh = reqStr(k, 'p256dh', { min: 80, max: 100 }), auth = reqStr(k, 'auth', { min: 16, max: 30 });
+    if (Buffer.from(p256dh, 'base64url').length !== 65 || Buffer.from(auth, 'base64url').length !== 16) throw invalid('Bad keys', { field: 'keys' });
+    await db.query(`INSERT INTO web_push_subscriptions (employee_id, session_id, endpoint, p256dh, auth, user_agent) VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT (endpoint) DO UPDATE SET employee_id = EXCLUDED.employee_id, session_id = EXCLUDED.session_id,
+        p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, user_agent = EXCLUDED.user_agent`,
+      [a.id, a.sessionId, endpoint, p256dh, auth, String(req.headers['user-agent'] ?? '').slice(0, 300)]);
+    return ok({ ok: true });
   });
 
   // ---------------------------------------------------------------- forgot password (OTP by email)

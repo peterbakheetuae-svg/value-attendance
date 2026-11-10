@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../core/web_push.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -112,6 +113,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   void initState() {
     super.initState();
     AppNav.homeAlive++;
+    // web app (iPhone / browsers): notifications even when closed — asks once, after the home has shown
+    Future.delayed(const Duration(seconds: 3), WebPush.ensure);
     WidgetsBinding.instance.addObserver(this);
     _cameraService = CameraService();
     _audioPlayer = AudioPlayer();

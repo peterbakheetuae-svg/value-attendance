@@ -47,6 +47,15 @@ jobs:
           fi
       - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
         run: flutter build web --release --wasm --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+      - name: Web Push (notifications for the web app on iPhone / browsers) — its worker + helper next to the app
+        run: |
+          cp web_push/push-sw.js web_push/va-push.js build/web/
+          python3 - <<'PY'
+          p = 'build/web/index.html'; s = open(p).read()
+          assert '</head>' in s and 'va-push.js' not in s
+          open(p, 'w').write(s.replace('</head>', '  <script src="va-push.js" defer></script>\n</head>', 1))
+          PY
+          grep -q 'va-push.js' build/web/index.html
       - name: Start the first-screen files early (preload) instead of one after another
         run: |
           # Fetched right away while main.dart.js is still being prepared; no cache rule changes, so updates stay instant.
@@ -69,7 +78,7 @@ jobs:
           rm -rf build/hostinger && cp -r build/web build/hostinger
           cp deploy/hostinger/.htaccess build/hostinger/.htaccess
           # the build must be complete and point at /value-attendance/ before anything is uploaded
-          for f in index.html flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp; do
+          for f in index.html flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp push-sw.js va-push.js; do
             test -s "build/hostinger/$f" || { echo "::error::missing $f"; exit 1; }
           done
           grep -q '<base href="/value-attendance/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../core/web_push.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -119,6 +120,8 @@ class _DashboardPageState extends State<DashboardPage>
   void initState() {
     super.initState();
     AppNav.homeAlive++;
+    // web app (iPhone / browsers): notifications even when closed — asks once, after the home has shown
+    Future.delayed(const Duration(seconds: 3), WebPush.ensure);
     _pendingTimer = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) _loadPendingOutings(); });
     _updateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && checkedIn && mode == DashMode.check) _workTick.value++;

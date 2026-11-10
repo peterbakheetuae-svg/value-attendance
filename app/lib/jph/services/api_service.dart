@@ -345,6 +345,11 @@ class JphRouter {
               if (p[k] != null && '${p[k]}'.isNotEmpty) k: p[k],
           });
           return _ok({'message': 'تم تسليم العهدة'});
+        case 'web_push_key':
+          return _ok((await _api.get('/me/web-push')).cast<String, dynamic>());
+        case 'web_push_save':
+          await _api.post('/me/web-push', {'endpoint': p['endpoint'], 'keys': p['keys']});
+          return _ok({});
         case 'custody_close':
           await _api.post('/custody/${p['itemId']}/close', {
             'outcome': p['outcome'], if (p['condition'] != null) 'condition': p['condition'], if ((p['notes'] ?? '').toString().isNotEmpty) 'notes': p['notes'],
