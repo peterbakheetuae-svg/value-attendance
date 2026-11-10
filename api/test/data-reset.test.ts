@@ -76,3 +76,21 @@ test('old hourly permissions come in as approved requests and excuse the late ar
   assert.equal(after.lateMinutes, before - 180);
   assert.equal(after.hourlyPermissions, 1);
 });
+
+test('an advance handed over outside the cashbox: in his advances, deducted from the month, never in a cashbox', async () => {
+  const body = { employeeId: c.ids.e1, amount: 1000, month: '2026-11', note: 'سلفة قديمة' };
+  assert.equal((await h.call(c.t.hr, 'POST', '/admin/opening-advance', body)).status, 403);
+  const r = await h.call(c.t.owner, 'POST', '/admin/opening-advance', body);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const adv = (await h.call(c.t.e1, 'GET', '/advances')).body.advances?.find((x: any) => x.id === r.body.advance.id)
+    ?? (await h.call(c.t.e1, 'GET', '/advances')).body.items?.find((x: any) => x.id === r.body.advance.id);
+  assert.ok(adv, 'shows in his advances');
+  assert.equal(adv.payment, 'received');
+  assert.equal(adv.canPay, false);
+  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'advance', amount: 1000, month: '2026-11', advanceId: r.body.advance.id });
+  assert.equal(pay.status, 409, 'cannot be paid from the cashbox again');
+  const p = await h.call(c.t.hr, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-11`);
+  assert.equal(p.body.payroll.advances, 1000, 'deducted from November');
+  const ledger = Number((await h.db.query(`SELECT count(*) FROM cash_ledger`)).rows[0].count);
+  assert.equal(ledger, 0, 'no cashbox movement');
+});

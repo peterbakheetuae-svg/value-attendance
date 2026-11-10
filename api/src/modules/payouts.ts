@@ -96,6 +96,7 @@ export const payoutsModule: Module = (r, { db, clock }) => {
           const adv = await one(q, `SELECT * FROM advance_requests WHERE id = $1 FOR UPDATE`, [advanceId]);
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });
           if (adv.kind !== kind) throw invalid('The payment kind does not match the request', { field: 'kind' });
+          if (adv.paid_outside) throw conflict('This advance was already handed over outside the cashbox');
           if (Math.round(Number(adv.amount_egp) * 100) !== Math.round(amount * 100)) throw invalid(`The approved amount is ${Number(adv.amount_egp)}`, { field: 'amount' });
           if (await one(q, `SELECT 1 FROM payouts WHERE advance_id = $1 AND status <> 'cancelled'`, [advanceId])) throw conflict('This advance was already paid');
         }

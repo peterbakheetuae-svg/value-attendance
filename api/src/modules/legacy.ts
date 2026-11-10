@@ -41,8 +41,10 @@ export const legacyModule: Module = (r, { db, clock }) => {
     return { ...x, attachment: undefined, has_attachment: x.attachment !== null, stage: x.status !== 'pending' ? 'done' : 'gm',
       canDecide: stage !== null, myStage: stage,
       // صرف: an approved request that was not paid yet, by HR (never their own)
-      payment: x.payout_status === 'received' ? 'received' : live ? 'awaiting_receipt' : x.status === 'confirmed' ? 'unpaid' : null,
-      canPay: x.status === 'confirmed' && !x.payout_id && has(a, 'finance.disburse') && x.employee_id !== a.id,
+      // paid_outside: handed over before / outside the system — received, never through a cashbox
+      payment: x.paid_outside ? 'received' : x.payout_status === 'received' ? 'received' : live ? 'awaiting_receipt' : x.status === 'confirmed' ? 'unpaid' : null,
+      paidOutside: x.paid_outside === true,
+      canPay: x.status === 'confirmed' && !x.paid_outside && !x.payout_id && has(a, 'finance.disburse') && x.employee_id !== a.id,
       canReceive: live && x.employee_id === a.id };
   };
 

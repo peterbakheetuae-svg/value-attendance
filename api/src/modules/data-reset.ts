@@ -93,6 +93,34 @@ export const dataResetModule: Module = (r, { db }) => {
     return ok({ dryRun: false, imported, plan });
   });
 
+  /**
+   * An advance already handed over before / outside the system (the owner only): approved, shown in the employee's
+   * advances and deducted from that month's salary — never through a cashbox (paid_outside).
+   */
+  r.post('/admin/opening-advance', async (req) => {
+    const a = await authenticate(db, req);
+    if (a.role !== 'owner') throw forbidden('Only the owner can add it');
+    const b = obj(req.body);
+    const employeeId = typeof b.employeeId === 'string' ? b.employeeId : '';
+    const amount = Number(b.amount);
+    const month = typeof b.month === 'string' && /^\d{4}-\d{2}$/.test(b.month) ? `${b.month}-01` : '';
+    if (!/^[0-9a-f-]{36}$/.test(employeeId)) throw invalid('Choose the employee', { field: 'employeeId' });
+    if (!(amount > 0 && amount <= 1_000_000)) throw invalid('Enter the amount', { field: 'amount' });
+    if (!month) throw invalid('Enter the month (YYYY-MM)', { field: 'month' });
+    if (employeeId === a.id) throw forbidden('Nobody approves their own advance');
+    const row = await db.tx(async (q) => {
+      const emp = await one(q, `SELECT id FROM employees WHERE id = $1 AND status = 'active'`, [employeeId]);
+      if (!emp) throw invalid('Choose the employee', { field: 'employeeId' });
+      const x = await one(q, `INSERT INTO advance_requests (employee_id, kind, period, amount_egp, note, status, created_by, decided_by, decided_at,
+          gm_approved_by, gm_approved_at, paid_outside)
+        VALUES ($1,'advance',$2,$3,$4,'confirmed',$5,$5,now(),$5,now(),true) RETURNING *`,
+        [employeeId, month, amount, (typeof b.note === 'string' && b.note.trim() ? b.note.trim() : 'سلفة مصروفة قبل كده (خارج الخزنة)').slice(0, 500), a.id]);
+      await audit(q, a.id, 'advance.opening', 'advance_request', x.id, undefined, x);
+      return x;
+    });
+    return ok({ advance: { id: row.id, amount: Number(row.amount_egp), period: row.period, paidOutside: true } }, 201);
+  });
+
   r.post('/admin/data-reset', async (req) => {
     const a = await authenticate(db, req);
     if (a.role !== 'owner') throw forbidden('Only the owner can reset the data');
