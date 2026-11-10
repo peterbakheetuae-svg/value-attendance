@@ -345,6 +345,8 @@ class JphRouter {
               if (p[k] != null && '${p[k]}'.isNotEmpty) k: p[k],
           });
           return _ok({'message': 'تم تسليم العهدة'});
+        case 'owner_dashboard':
+          return _ok((await _api.get('/dashboard/owner', {'range': '${p['range'] ?? 14}'})).cast<String, dynamic>());
         case 'web_push_key':
           return _ok((await _api.get('/me/web-push')).cast<String, dynamic>());
         case 'web_push_save':

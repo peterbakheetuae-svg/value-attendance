@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'owner_overview.dart';
 import '../../../core/web_push.dart';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -1619,7 +1620,19 @@ class _DashboardPageState extends State<DashboardPage>
       }
     }
   }
+  /// المالك / المدير العام: the overview dashboard first; the attendance & requests view one tap away
+  bool _classic = false;
+  bool get _ownerHome => ApiService.can('cash.office');
+
   Widget _buildDashboardHome() {
+    if (_ownerHome && !_classic) {
+      return OwnerOverview(
+        isDark: Provider.of<AppController>(context).isDark,
+        header: _buildHeader(),
+        uid: widget.uid, name: widget.name, role: widget.role,
+        onOpenClassic: () => setState(() => _classic = true),
+      );
+    }
     return SafeArea(
       bottom: false, // content scrolls under the glass bar
       child: RefreshIndicator(
@@ -1636,6 +1649,15 @@ class _DashboardPageState extends State<DashboardPage>
                   child: Column(
                     children: [
                       _buildHeader(),
+                      if (_ownerHome)
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: TextButton.icon(
+                            onPressed: () => setState(() => _classic = false),
+                            icon: const Icon(Icons.dashboard_rounded),
+                            label: const Text('لوحة المالك'),
+                          ),
+                        ),
 
                       const SizedBox(height: 18),
                       _buildPendingOutingsCard(),

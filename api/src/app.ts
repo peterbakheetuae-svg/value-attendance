@@ -18,6 +18,7 @@ import { companyModule } from './modules/company.ts';
 import { custodyModule } from './modules/custody.ts';
 import { formsModule } from './modules/forms.ts';
 import { dataResetModule } from './modules/data-reset.ts';
+import { ownerDashboardModule } from './modules/owner-dashboard.ts';
 import { backupModule } from './modules/backup.ts';
 import { payoutsModule } from './modules/payouts.ts';
 import { commissionsModule } from './modules/commissions.ts';
@@ -60,6 +61,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule, financeDashboardModule, formsModule, dataResetModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule, financeDashboardModule, formsModule, dataResetModule, ownerDashboardModule]) m(r, ctx);
   return r;
 }
