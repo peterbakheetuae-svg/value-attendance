@@ -725,7 +725,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
     await cashFormSheet(context, isDark, line['seq'] == 0 ? 'تحصيل الحجز / المقدم' : 'تحصيل قسط ${line['seq']}', (s) => [
           if (line['seq'] == 0) cashSegmented(isDark, {'reservation': 'مبلغ حجز', 'down_payment': 'مقدم'}, kind, (v) => s(() => kind = v)),
           const SizedBox(height: 10),
-          JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: recipient == 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب',
+          JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب',
               icon: Icons.account_balance_rounded, color: Colors.indigo),
           const SizedBox(height: 10),
           JphUi.input(isDark: isDark, label: 'المبلغ (الباقي ${JphUi.money(line['remaining'])})', controller: amount, number: true, suffix: 'جنيه'),
@@ -781,7 +781,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
     final amount = TextEditingController(text: '$due');
     final reason = TextEditingController();
     await cashFormSheet(context, isDark, 'رد فلوس للمشتري', (s) => [
-          cashSegmented(isDark, {if (ApiService.can('cash.office')) 'office': 'من خزينة المكتب', if (ApiService.can('cash.hr_operate')) 'hr': 'من خزينة HR'}, box,
+          cashSegmented(isDark, {if (ApiService.can('cash.office')) 'office': 'من خزينة المكتب', if (ApiService.can('cash.hr_operate')) 'hr': 'من خزينة المحاسب'}, box,
               (v) => s(() => box = v)),
           const SizedBox(height: 10),
           JphUi.input(isDark: isDark, label: 'المبلغ (الباقي للاسترداد ${JphUi.money(due)})', controller: amount, number: true, suffix: 'جنيه'),

@@ -132,7 +132,7 @@ class _DashboardTabState extends State<_DashboardTab> {
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         _section(isDark, 'الخزن'),
         _grid([
-          JphUi.stat(isDark, 'خزنة الـ HR', m(hrBox['bookBalance']), Icons.account_balance_wallet_rounded, Colors.teal),
+          JphUi.stat(isDark, 'خزنة المحاسب', m(hrBox['bookBalance']), Icons.account_balance_wallet_rounded, Colors.teal),
           if (office != null) JphUi.stat(isDark, 'خزنة المكتب', m(office['bookBalance']), Icons.account_balance_rounded, Colors.indigo),
           if (cash['total'] != null) JphUi.stat(isDark, 'الإجمالي', m(cash['total']), Icons.summarize_rounded, Colors.blue),
           JphUi.stat(isDark, 'مطلوب من المكتب', m(hr['requiredFromOffice']), Icons.call_received_rounded, Colors.red),
@@ -140,7 +140,7 @@ class _DashboardTabState extends State<_DashboardTab> {
         _section(isDark, 'الشهر ده'),
         _grid([
           JphUi.stat(isDark, 'التحصيلات', m(hr['collections']), Icons.savings_rounded, Colors.green),
-          JphUi.stat(isDark, 'مصروفات الـ HR', m(hr['expenses']), Icons.receipt_long_rounded, Colors.orange),
+          JphUi.stat(isDark, 'مصروفات خزنة المحاسب', m(hr['expenses']), Icons.receipt_long_rounded, Colors.orange),
           JphUi.stat(isDark, 'سلف لسه هتتخصم', m(hr['outstandingAdvances']), Icons.request_quote_rounded, Colors.purple),
           JphUi.stat(isDark, 'عمولات مستنية الصرف', m(hr['commissionsAwaitingPayment']), Icons.workspace_premium_rounded, Colors.amber),
           JphUi.stat(isDark, 'دفعات مرتبات مفتوحة', '${hr['payrollBatchesOpen'] ?? 0}', Icons.payments_rounded, Colors.teal),

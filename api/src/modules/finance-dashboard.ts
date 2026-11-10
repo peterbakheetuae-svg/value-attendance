@@ -136,11 +136,11 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
                           WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND ${IN_MONTH('occurred_at')}
                             AND ($3::text[] IS NULL OR kind = ANY($3::text[])) ORDER BY occurred_at DESC`, [period, boxes, kinds]))
           .map((x) => ({ title: x.payer_name, sub: `#${x.ref_no} — ${x.purpose} — ${ds(x.occurred_at).slice(0, 10)}`,
-            amount: n(x.amount_egp), tag: x.cashbox === 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب' }));
+            amount: n(x.amount_egp), tag: x.cashbox === 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب' }));
         break;
       }
       case 'hr_expenses': case 'office_expenses': {
-        title = key === 'hr_expenses' ? 'مصروفات الـ HR' : 'مصروفات المكتب';
+        title = key === 'hr_expenses' ? 'مصروفات خزنة المحاسب' : 'مصروفات المكتب';
         rows = (await q(`SELECT ref_no, category, reason, beneficiary, amount_egp, occurred_at FROM cash_expenses
                           WHERE status = 'posted' AND cashbox = $2 AND ${IN_MONTH('occurred_at')} ORDER BY occurred_at DESC`,
           [period, key === 'hr_expenses' ? 'hr' : 'office']))
@@ -201,7 +201,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         title = 'تحويلات مفتوحة';
         rows = (await q(`SELECT t.ref_no, t.direction, t.amount_requested, t.status, t.reason FROM cash_transfers t
                           WHERE t.status IN ('requested','approved','executed') ORDER BY t.requested_at DESC`, []))
-          .map((x) => ({ title: x.direction === 'office_to_hr' ? 'تحويل للـ HR' : 'توريد للمكتب', sub: `#${x.ref_no} — ${x.reason}`,
+          .map((x) => ({ title: x.direction === 'office_to_hr' ? 'تحويل لخزنة المحاسب' : 'توريد للمكتب', sub: `#${x.ref_no} — ${x.reason}`,
             amount: n(x.amount_requested), tag: x.status === 'requested' ? 'مطلوب' : x.status === 'approved' ? 'اتوافق عليه' : 'اتسلّم — مستني تأكيد' }));
         break;
       }

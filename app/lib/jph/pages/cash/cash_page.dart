@@ -33,7 +33,7 @@ String newClientRef() {
   return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }
 
-const _boxAr = {'office': 'خزينة المكتب', 'hr': 'خزينة HR'};
+const _boxAr = {'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'};
 const _receiptKinds = {
   'reservation': 'مبلغ حجز',
   'down_payment': 'مقدم وحدة',
@@ -45,7 +45,7 @@ const _methods = {'cash': 'كاش', 'bank_transfer': 'تحويل بنكي', 'che
 const _ledgerAr = {
   'opening': 'رصيد افتتاحي', 'adjustment': 'تسوية جرد', 'receipt': 'تحصيل', 'receipt_reversal': 'عكس تحصيل',
   'expense': 'مصروف', 'expense_reversal': 'عكس مصروف', 'transfer_in': 'تحويل وارد', 'transfer_out': 'تحويل صادر',
-  'fund_in': 'صرف أموال من المدير', 'fund_out': 'صرف أموال لـ HR', 'payout_salary': 'صرف قبض', 'payout_advance': 'صرف سلفة',
+  'fund_in': 'صرف أموال من المدير', 'fund_out': 'صرف أموال للمحاسب', 'payout_salary': 'صرف قبض', 'payout_advance': 'صرف سلفة',
   'payout_commission': 'صرف عمولة', 'payout_work_expense': 'صرف مصاريف عمل',
 };
 
@@ -335,7 +335,7 @@ class _SummaryTabState extends State<_SummaryTab> {
             _tile('مرتبات اتصرفت', hr['salariesPaid'], Icons.price_check_rounded, Colors.green, 'salaries_paid'),
             _tile('باقي من المرتبات', hr['salariesRemaining'], Icons.hourglass_bottom_rounded, Colors.orange, 'salaries'),
             _tile('التحصيلات', hr['collections'], Icons.savings_rounded, Colors.green, 'collections'),
-            _tile('مصروفات الـ HR', hr['expenses'], Icons.receipt_long_rounded, Colors.deepOrange, 'hr_expenses'),
+            _tile('مصروفات خزنة المحاسب', hr['expenses'], Icons.receipt_long_rounded, Colors.deepOrange, 'hr_expenses'),
             _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Colors.purple, 'advances'),
             _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Colors.amber, 'commissions_unpaid'),
           ]),
@@ -415,7 +415,7 @@ Future<void> _adjustSheet(BuildContext context, bool isDark, Future<void> Functi
   String box = 'office', kind = 'opening';
   final amount = TextEditingController(), reason = TextEditingController(), counted = TextEditingController();
   await _formSheet(context, isDark, 'رصيد افتتاحي / تسوية جرد', (setS) => [
-        _segmented(isDark, {'office': 'خزينة المكتب', 'hr': 'خزينة HR'}, box, (v) => setS(() => box = v)),
+        _segmented(isDark, {'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'}, box, (v) => setS(() => box = v)),
         const SizedBox(height: 10),
         _segmented(isDark, {'opening': 'رصيد افتتاحي', 'adjustment': 'تسوية جرد'}, kind, (v) => setS(() => kind = v)),
         const SizedBox(height: 10),
@@ -439,7 +439,7 @@ Future<void> _adjustSheet(BuildContext context, bool isDark, Future<void> Functi
 Future<void> _thresholdSheet(BuildContext context, bool isDark, Object? current, Future<void> Function() done) async {
   final c = TextEditingController(text: '${current ?? ''}');
   await _formSheet(context, isDark, 'حد موافقة المصروفات', (setS) => [
-        Text('أي مصروف من خزينة HR أكبر من المبلغ ده يستنى موافقة المدير الأول.', style: TextStyle(color: JphUi.sub(isDark))),
+        Text('أي مصروف من خزينة المحاسب أكبر من المبلغ ده يستنى موافقة المدير الأول.', style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 10),
         JphUi.input(isDark: isDark, label: 'المبلغ', controller: c, number: true, suffix: 'جنيه'),
       ], () => _post('/cash/settings', {'expenseApprovalThreshold': num.tryParse(c.text.trim())}, ok: 'اتحفظ ✅', patch: true));
@@ -586,7 +586,7 @@ class _LedgerTabState extends State<CashLedgerView> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (widget.can['office'] == true)
-          _segmented(isDark, {'office': 'خزينة المكتب', 'hr': 'خزينة HR'}, _box, (v) {
+          _segmented(isDark, {'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'}, _box, (v) {
             _box = v;
             _load();
           }),
@@ -709,7 +709,7 @@ class _TransfersTabState extends State<_TransfersTab> {
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (_kinds.isNotEmpty)
           _inlineForm(isDark,
-              title: _dir == 'office_to_hr' ? 'طلب تحويل من خزنة المكتب للـ HR' : 'طلب توريد من خزنة الـ HR للمكتب',
+              title: _dir == 'office_to_hr' ? 'طلب تحويل من خزنة المكتب لخزنة المحاسب' : 'طلب توريد من خزنة المحاسب للمكتب',
               icon: _kinds[_dir]?.$2 ?? Icons.swap_horiz_rounded,
               button: 'إرسال الطلب',
               saving: _saving,
@@ -749,7 +749,7 @@ class _TransfersTabState extends State<_TransfersTab> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${toHr ? 'المكتب ← HR' : 'HR ← المكتب'} • #${t['refNo']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+              Text('${toHr ? 'المكتب ← المحاسب' : 'المحاسب ← المكتب'} • #${t['refNo']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               Text('${t['reason']} • ${t['requestedByName']} • ${JphUi.date(t['requestedAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
             ]),
           ),
@@ -1085,7 +1085,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
               title: 'تسجيل تحصيل (إيصال)', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
               children: [
                 JphUi.readOnly(isDark: isDark, label: 'الخزنة',
-                    value: _recipient == 'hr' ? 'خزنة الـ HR' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
+                    value: _recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
                 const SizedBox(height: 14),
                 _segmented(isDark, _receiptKinds, _kind, (v) => setState(() => _kind = v)),
                 const SizedBox(height: 14),
