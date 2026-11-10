@@ -111,6 +111,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   @override
   void initState() {
     super.initState();
+    AppNav.homeAlive++;
     WidgetsBinding.instance.addObserver(this);
     _cameraService = CameraService();
     _audioPlayer = AudioPlayer();
@@ -186,6 +187,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
   @override
   void dispose() {
+    AppNav.homeAlive--;
     _updateTimer?.cancel();
     _breakAlertTimer?.cancel();
     _forceCloseCamera();

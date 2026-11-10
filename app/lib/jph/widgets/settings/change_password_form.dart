@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/api_service.dart'; // استيراد ApiService بدلاً من PasswordService
 import '../../l10n/app_localizations.dart';
+import '../glass_dialog.dart';
 
 class ChangePasswordForm extends StatefulWidget {
   final String uid;
@@ -94,7 +95,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   void _showSuccessDialog(String message) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(AppLocalizations.of(context, 'success') ?? 'نجاح'),
         content: Text(message),
         actions: [
@@ -110,7 +111,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(AppLocalizations.of(context, 'error') ?? 'خطأ'),
         content: Text(message),
         actions: [

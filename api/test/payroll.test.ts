@@ -92,3 +92,19 @@ test('approved tier policy: up to 15 min nothing, then 25 / 50 / 100 once per da
   const policy = [{ afterMinutes: 15, amount: 25 }, { afterMinutes: 30, amount: 50 }, { afterMinutes: 60, amount: 100 }];
   assert.deepEqual([0, 15, 16, 30, 31, 60, 61, 240].map((m) => tierAmount(policy, m)), [0, 0, 25, 25, 50, 50, 100, 100]);
 });
+
+test('علاوة / خصم: HR records a raise with a photo; the owner approves; it goes into الزيادة and the salary', async () => {
+  await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 5000, $2) ON CONFLICT (employee_id) DO NOTHING`, [c.ids.e2, c.ids.owner]);
+  const r = await h.call(c.t.hr, 'POST', '/finance/adjustments', { employeeId: c.ids.e2, month: '2026-03', kind: 'raise', amountEgp: 500,
+    reason: 'زيادة سنوية', attachment: Buffer.from('img').toString('base64') });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const list = (await h.call(c.t.owner, 'GET', '/finance/adjustments?kind=raise')).body.adjustments;
+  assert.equal(list[0].has_attachment, true);
+  assert.equal(list[0].canDecide, true);
+  assert.equal((await h.call(c.t.owner, 'POST', `/finance/adjustments/${r.body.adjustment.id}/decision`, { decision: 'approve' })).status, 200);
+  const sal = await h.db.query(`SELECT base_salary FROM employee_salaries WHERE employee_id = $1`, [c.ids.e2]);
+  assert.equal(Number(sal.rows[0].base_salary), 5500);
+  const lf = await h.db.query(`SELECT legacy_fields->>'increase' AS inc FROM employees WHERE id = $1`, [c.ids.e2]);
+  assert.equal(Number(lf.rows[0].inc), 500);
+  assert.equal((await h.call(c.t.e1, 'POST', '/finance/adjustments', { employeeId: c.ids.e2, kind: 'bonus', amountEgp: 1, reason: 'xxx' })).status, 403);
+});

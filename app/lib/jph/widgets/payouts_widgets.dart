@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
+import 'glass_dialog.dart';
 
 const payoutKindsAr = {
   'salary': 'القبض',
@@ -160,7 +161,7 @@ class PayoutsList extends StatelessWidget {
                         final reason = TextEditingController();
                         final ok = await showDialog<bool>(
                           context: context,
-                          builder: (c) => AlertDialog(
+                          builder: (c) => GlassAlertDialog(
                             title: const Text('بلاغ عن مشكلة في المبلغ'),
                             content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(hintText: 'إيه المشكلة؟ (مثلاً: استلمت مبلغ أقل)')),
                             actions: [

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../services/app_controller.dart';
 
 class SettingsExpandableTile extends StatelessWidget {
   final IconData icon;
@@ -21,7 +23,8 @@ class SettingsExpandableTile extends StatelessWidget {
     return Column(
       children: [
         ListTile(
-          leading: Icon(icon),
+          // white icons in dark mode
+      leading: Icon(icon, color: Provider.of<AppController>(context).isDark ? Colors.white : null),
           title: Text(
             title,
             style: const TextStyle(fontWeight: FontWeight.w700),

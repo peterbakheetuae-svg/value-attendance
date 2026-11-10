@@ -130,6 +130,19 @@ class LightTheme {
         ),
       ),
 
+      // pop-up messages: floating, rounded, translucent like the rest of the glass UI
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        elevation: 0,
+        backgroundColor: const Color(0xE6303040),
+        contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0x40FFFFFF))),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: const Color(0xEBFFFFFF),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26), side: const BorderSide(color: Color(0x40FFFFFF))),
+      ),
       cardTheme: baseTheme.cardTheme.copyWith(
         color: AppColors.surfaceLight,
         elevation: 0,

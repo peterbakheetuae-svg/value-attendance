@@ -11,6 +11,7 @@ import 'add_employee_page.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_bottom_nav.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
+import '../../widgets/glass_dialog.dart';
 
 class EmployeesPage extends StatefulWidget {
   final String currentUserId;
@@ -170,7 +171,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
+        return GlassAlertDialog(
           backgroundColor: isDark ? Colors.grey[900] : Colors.white,
           title: Text(
             'تغيير وضع الموظف',

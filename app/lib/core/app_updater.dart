@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import '../jph/widgets/glass_dialog.dart';
 
 /// App update (Android): every Android build is published on the app's own site —
 /// https://jaurea.com/value-attendance/android/latest.json names the newest version and its APK next to it.
@@ -146,7 +147,7 @@ class AppUpdater with WidgetsBindingObserver {
       barrierDismissible: false,
       builder: (c) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           icon: const Icon(Icons.system_update_rounded, size: 46, color: Color(0xFF4F46E5)),
           title: Text('تحديث جديد $version', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -208,7 +209,7 @@ class AppUpdater with WidgetsBindingObserver {
       context: context,
       builder: (c) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Text('التحقق من التحديثات', textAlign: TextAlign.center),
           content: Text(msg, textAlign: TextAlign.center),

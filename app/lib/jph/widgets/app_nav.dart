@@ -16,6 +16,9 @@ class AppNav {
   static bool get adminHome =>
       JphBridge.session.role == 'owner' || ApiService.can('attendance.read_all') || ApiService.can('attendance.read_team');
 
+  /// how many home pages are alive (set by the two home pages) — the home is always the bottom of the stack
+  static int homeAlive = 0;
+
   static bool get seesEmployees => ApiService.can('employee.read_all') || ApiService.can('employee.read_team');
 
   static Widget home({required String uid, required String name, required String role, String photo = ''}) => adminHome
@@ -27,6 +30,11 @@ class AppNav {
       {required int current, required String uid, required String name, required String role, String photo = ''}) {
     if (index == current) return;
     if (index == 0) {
+      // the home is already open under this page: go back to it as it is (no reloading the whole app)
+      if (homeAlive > 0) {
+        Navigator.of(context).popUntil((r) => r.isFirst);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => home(uid: uid, name: name, role: role, photo: photo)), (r) => false);
       return;

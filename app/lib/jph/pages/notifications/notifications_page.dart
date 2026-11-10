@@ -8,6 +8,7 @@ import '../../services/notification_service.dart';
 import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'Send_Notifications_Page.dart'; // 🔥 استيراد صفحة إرسال الإشعارات
+import '../../widgets/glass_dialog.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String uid;
@@ -370,7 +371,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Future<void> _clearAllNotifications() async {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: const Text('تأكيد الحذف'),
         content: const Text('هل أنت متأكد من حذف جميع الإشعارات؟'),
         actions: [

@@ -27,7 +27,11 @@ String _show(String iso) {
 /// الإعدادات ← استمارات ← استمارة استلام عهدة.
 /// Tabs: استمارة جديدة (the original's fields, employee data filled from the system) | الاستمارات السابقة (reopen / print).
 class CustodyReceiptPage extends StatelessWidget {
-  const CustodyReceiptPage({super.key});
+  /// mobile | laptop — استمارات ← استمارة استلام عهدة ← موبايل / كمبيوتر محمول
+  final String device;
+  const CustodyReceiptPage({super.key, this.device = 'mobile'});
+
+  String get title => device == 'laptop' ? 'استلام عهدة — كمبيوتر محمول' : 'استلام عهدة — موبايل';
 
   static bool get canUse => ApiService.can('documents.manage') || ApiService.can('employee.manage');
 
@@ -42,7 +46,7 @@ class CustodyReceiptPage extends StatelessWidget {
             backgroundColor: Colors.transparent,
             body: SafeArea(
               child: Column(children: [
-                JphUi.header(context, isDark: isDark, isRTL: true, title: 'استمارة استلام عهدة'),
+                JphUi.header(context, isDark: isDark, isRTL: true, title: title),
                 Expanded(
                   child: SwipeTabs(
                     isDark: isDark,
@@ -51,8 +55,8 @@ class CustodyReceiptPage extends StatelessWidget {
                       ('الاستمارات السابقة', Icons.folder_open_rounded),
                     ],
                     pages: [
-                      if (canUse) _NewReceipt(isDark: isDark),
-                      _History(isDark: isDark),
+                      if (canUse) _NewReceipt(isDark: isDark, device: device),
+                      _History(isDark: isDark, device: device),
                     ],
                   ),
                 ),
@@ -68,7 +72,8 @@ class CustodyReceiptPage extends StatelessWidget {
 // ============================================================================ new receipt
 class _NewReceipt extends StatefulWidget {
   final bool isDark;
-  const _NewReceipt({required this.isDark});
+  final String device;
+  const _NewReceipt({required this.isDark, required this.device});
 
   @override
   State<_NewReceipt> createState() => _NewReceiptState();
@@ -81,6 +86,10 @@ class _NewReceiptState extends State<_NewReceipt> {
   DateTime _receiptDate = DateTime.now(), _signDate = DateTime.now();
   String _condition = 'new';
   final Set<String> _acc = {};
+  /// the employee's custody of this kind (handed from Settings → العهدة)
+  List<Map<String, dynamic>> _items = [];
+  String? _itemId;
+  bool get _laptop => widget.device == 'laptop';
 
   final _name = TextEditingController(), _code = TextEditingController(), _job = TextEditingController(),
       _dept = TextEditingController(), _manager = TextEditingController(), _brand = TextEditingController(),
@@ -121,11 +130,14 @@ class _NewReceiptState extends State<_NewReceipt> {
       _employeeId = v;
       _loadingPrefill = true;
     });
-    final r = await _get('/forms/custody-receipt/prefill/$v');
+    final r = await _get('/forms/custody-receipt/prefill/$v', {'device': widget.device});
     if (!mounted) return;
     final p = (r['prefill'] as Map?) ?? const {};
     setState(() {
       _loadingPrefill = false;
+      _items = cashList(r, 'items');
+      _itemId = null;
+      if (_items.length == 1) _useItem(_items.first);
       _name.text = '${p['employeeName'] ?? ''}';
       _code.text = '${p['employeeCode'] ?? ''}';
       _job.text = '${p['jobTitle'] ?? ''}';
@@ -133,6 +145,22 @@ class _NewReceiptState extends State<_NewReceipt> {
       _manager.text = '${p['directManager'] ?? ''}';
       _signName.text = _name.text;
     });
+  }
+
+  /// fills the device part from one of the employee's custody items
+  void _useItem(Map<String, dynamic> it) {
+    _itemId = '${it['id']}';
+    _brand.text = '${it['name'] ?? ''}';
+    _imei.text = '${it['serialNo'] ?? ''}';
+    if (!_laptop) _line.text = '${it['lineNumber'] ?? ''}';
+    final c = '${it['condition'] ?? ''}';
+    if (const ['new', 'used_good', 'other'].contains(c)) _condition = c;
+    final allowed = _laptop ? const {'charger', 'cable', 'other'} : const {'charger', 'cable', 'case', 'headset', 'other'};
+    _acc
+      ..clear()
+      ..addAll(((it['accessories'] as List?) ?? const []).map((e) => '$e').where(allowed.contains));
+    final d = DateTime.tryParse('${it['assignedOn'] ?? ''}');
+    if (d != null) _receiptDate = d;
   }
 
   Future<void> _pickDate(bool receipt) async {
@@ -149,7 +177,8 @@ class _NewReceiptState extends State<_NewReceipt> {
   Map<String, dynamic> get _data => {
         'employeeName': _name.text.trim(), 'employeeCode': _code.text.trim(), 'jobTitle': _job.text.trim(),
         'department': _dept.text.trim(), 'directManager': _manager.text.trim(), 'receiptDate': _iso(_receiptDate),
-        'phoneBrand': _brand.text.trim(), 'imei': _imei.text.trim(), 'lineNumber': _line.text.trim(),
+        if (_laptop) ...{'brand': _brand.text.trim(), 'serialNo': _imei.text.trim()}
+        else ...{'phoneBrand': _brand.text.trim(), 'imei': _imei.text.trim(), 'lineNumber': _line.text.trim()},
         'condition': _condition, 'conditionOther': _condition == 'other' ? _condOther.text.trim() : '',
         'accessories': _acc.toList(), 'accessoriesOther': _acc.contains('other') ? _accOther.text.trim() : '',
         'signEmployeeName': _signName.text.trim(), 'signDate': _iso(_signDate),
@@ -163,9 +192,9 @@ class _NewReceiptState extends State<_NewReceipt> {
     } else if (_name.text.trim().isEmpty) {
       err = 'اكتب اسم الموظف';
     } else if (_brand.text.trim().isEmpty) {
-      err = 'اكتب نوع / ماركة الهاتف';
+      err = _laptop ? 'اكتب نوع / ماركة الجهاز' : 'اكتب نوع / ماركة الهاتف';
     } else if (_imei.text.trim().isEmpty) {
-      err = 'اكتب رقم الجهاز / IMEI';
+      err = _laptop ? 'اكتب سريل الجهاز / SN' : 'اكتب رقم الجهاز / IMEI';
     } else if (_condition == 'other' && _condOther.text.trim().isEmpty) {
       err = 'اكتب حالة الجهاز';
     } else if (_acc.contains('other') && _accOther.text.trim().isEmpty) {
@@ -176,7 +205,8 @@ class _NewReceiptState extends State<_NewReceipt> {
       return;
     }
     setState(() => _saving = true);
-    final r = await _post('/forms/custody-receipts', {'employeeId': _employeeId, 'data': _data}, ok: 'اتحفظت الاستمارة ✅');
+    final r = await _post('/forms/custody-receipts', {'employeeId': _employeeId, 'device': widget.device, 'data': _data},
+        ok: 'اتحفظت الاستمارة ✅');
     if (!mounted) return;
     setState(() => _saving = false);
     JphUi.toast(context, r);
@@ -189,6 +219,8 @@ class _NewReceiptState extends State<_NewReceipt> {
         _employeeId = null;
         _acc.clear();
         _condition = 'new';
+        _items = [];
+        _itemId = null;
       });
       await Navigator.push(context, MaterialPageRoute(builder: (_) => CustodyReceiptPreview(receipt: rec)));
     }
@@ -238,13 +270,36 @@ class _NewReceiptState extends State<_NewReceipt> {
       _gap(),
       JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.orange, label: 'تاريخ استلام العهدة',
           value: _show(_iso(_receiptDate)), onTap: () => _pickDate(true)),
-      _title('ثانيًا: بيانات الهاتف المحمول'),
-      JphUi.input(isDark: isDark, label: 'نوع / الماركة *', controller: _brand, icon: Icons.phone_android_rounded, big: false),
+      _title(_laptop ? 'ثانيًا: بيانات كمبيوتر محمول' : 'ثانيًا: بيانات الهاتف المحمول'),
+      if (_employeeId != null) ...[
+        JphUi.picker(
+          isDark: isDark, icon: Icons.inventory_2_rounded, iconColor: Colors.indigo, label: 'العهدة المسلَّمة للموظف',
+          value: _items.isEmpty
+              ? 'مفيش ${_laptop ? 'لابتوب' : 'موبايل'} مسلَّم له — سلّمه من صفحة الموظف'
+              : '${(_items.where((x) => '${x['id']}' == _itemId).firstOrNull ?? const {})['name'] ?? 'اختار العهدة'}',
+          onTap: _items.isEmpty
+              ? null
+              : () async {
+                  final v = await JphUi.sheet<String>(context, isDark, 'العهدة', [
+                    for (final it in _items)
+                      ('${it['id']}', '${it['name']}${'${it['serialNo']}'.isEmpty ? '' : ' — ${it['serialNo']}'}',
+                          _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded),
+                  ], selected: _itemId, icon: Icons.inventory_2_rounded);
+                  if (v != null) setState(() => _useItem(_items.firstWhere((x) => '${x['id']}' == v)));
+                },
+        ),
+        _gap(),
+      ],
+      JphUi.input(isDark: isDark, label: 'نوع / الماركة *', controller: _brand,
+          icon: _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, big: false),
       _gap(),
-      JphUi.input(isDark: isDark, label: 'رقم الجهاز / IMEI *', controller: _imei, icon: Icons.qr_code_rounded, number: true, big: false),
+      JphUi.input(isDark: isDark, label: _laptop ? 'سريل الجهاز / SN *' : 'رقم الجهاز / IMEI *', controller: _imei,
+          icon: Icons.qr_code_rounded, number: !_laptop, big: false),
       _gap(),
-      JphUi.input(isDark: isDark, label: 'رقم الخط', controller: _line, icon: Icons.sim_card_rounded, number: true, big: false),
-      _gap(),
+      if (!_laptop) ...[
+        JphUi.input(isDark: isDark, label: 'رقم الخط', controller: _line, icon: Icons.sim_card_rounded, number: true, big: false),
+        _gap(),
+      ],
       Text('حالة الجهاز عند التسليم', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
       const SizedBox(height: 8),
       JphUi.tabs(isDark, const [('جديد', Icons.fiber_new_rounded), ('مستعمل بحالة جيدة', Icons.thumb_up_rounded), ('أخرى', Icons.more_horiz_rounded)],
@@ -259,8 +314,8 @@ class _NewReceiptState extends State<_NewReceipt> {
       Wrap(spacing: 8, runSpacing: 8, children: [
         _check('charger', 'الشاحن'),
         _check('cable', 'كابل الشحن'),
-        _check('case', 'جراب'),
-        _check('headset', 'سماعة'),
+        if (!_laptop) _check('case', 'جراب'),
+        if (!_laptop) _check('headset', 'سماعة'),
         _check('other', 'أخرى'),
       ]),
       if (_acc.contains('other')) ...[
@@ -299,7 +354,8 @@ class _NewReceiptState extends State<_NewReceipt> {
 // ============================================================================ earlier receipts
 class _History extends StatefulWidget {
   final bool isDark;
-  const _History({required this.isDark});
+  final String device;
+  const _History({required this.isDark, required this.device});
 
   @override
   State<_History> createState() => _HistoryState();
@@ -316,7 +372,7 @@ class _HistoryState extends State<_History> {
   }
 
   Future<void> _load() async {
-    final r = await _get('/forms/custody-receipts');
+    final r = await _get('/forms/custody-receipts', {'device': widget.device});
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -346,7 +402,7 @@ class _HistoryState extends State<_History> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('${x['title']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                    Text('${x['employeeName'] ?? ''} • ${(x['data'] as Map?)?['phoneBrand'] ?? ''} • ${_show('${(x['data'] as Map?)?['receiptDate'] ?? ''}')}',
+                    Text('${x['employeeName'] ?? ''} • ${(x['data'] as Map?)?['phoneBrand'] ?? (x['data'] as Map?)?['brand'] ?? ''} • ${_show('${(x['data'] as Map?)?['receiptDate'] ?? ''}')}',
                         style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                     Text('سجلها: ${x['createdByName'] ?? ''}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
@@ -382,7 +438,8 @@ class CustodyReceiptPreview extends StatelessWidget {
               JphUi.header(context, isDark: isDark, isRTL: true, title: '${receipt['title'] ?? 'استمارة استلام عهدة'}'),
               Expanded(
                 child: PdfPreview(
-                  build: (_) => buildCustodyReceiptPdf(data, version: version),
+                  build: (_) => buildCustodyReceiptPdf(data, version: version,
+                      template: '${receipt['template'] ?? 'custody_receipt'}' == 'laptop_receipt' ? 'laptop_receipt' : 'custody_receipt'),
                   initialPageFormat: PdfPageFormat.letter,
                   canChangePageFormat: false,
                   canChangeOrientation: false,

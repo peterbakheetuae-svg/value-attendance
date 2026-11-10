@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
+import 'glass_dialog.dart';
 
 /// Hourly permission / external visit dialogs — same shell as the original break dialog
 /// (rounded 24 dialog, translucent surface, circular icon badge, full-width buttons).
@@ -11,9 +12,7 @@ Widget _shell(BuildContext context, {required IconData icon, required Color colo
   final isDark = app.isDark;
   return Directionality(
     textDirection: app.isRTL ? TextDirection.rtl : TextDirection.ltr,
-    child: Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24.0)),
-      backgroundColor: isDark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+    child: GlassDialogPanel(
       insetPadding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
         child: Container(

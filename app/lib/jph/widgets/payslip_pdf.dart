@@ -32,13 +32,13 @@ Future<void> printPayslip({
     ['ساعات التأخير', txt(monthly['lateHours'])],
     ['راتب الحضور', money(monthly['attendSalary'])],
     ['عمولة المبيعات', money(monthly['commissions'])],
-    ['المكافآت', money(monthly['bonus'])],
+    ['علاوة إضافية', money(monthly['bonus'])],
   ];
   final deductions = <List<String>>[
     ['مصاريف العمل', money(monthly['workExpenses'])],
     ['خصم التأخير', money(monthly['lateAmount'])],
     ['خصم الغياب', money(monthly['absentDeduction'])],
-    ['خصومات أخرى', money(monthly['deduction'])],
+    ['خصومات', money(monthly['deduction'])],
     ['السلف', money(monthly['advance'])],
     ['المستلم', money(monthly['received'])],
     ['المتأخرات', money(monthly['arrears'])],

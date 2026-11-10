@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart'; // لمشاركة معلومات ا
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_dialog.dart';
 
 class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
@@ -700,7 +701,7 @@ Value Attendance Support:
   void _showComingSoonDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: const Text('قريباً'),
         content: const Text('هذه الميزة قيد التطوير وسوف تكون متاحة قريباً.'),
         actions: [

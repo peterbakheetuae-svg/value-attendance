@@ -8,6 +8,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../services/api_service.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// Work locations (geofence) management screen — list, create, edit
 /// geofence locations for the current company context.
@@ -195,7 +196,7 @@ class _WorkLocationsPageState extends State<WorkLocationsPage> {
 
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => GlassAlertDialog(
         title: Text(
           isEdit
               ? AppLocalizations.of(dialogContext, 'edit_work_location')

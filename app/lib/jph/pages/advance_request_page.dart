@@ -15,6 +15,7 @@ import 'cash/cashbox_hub_page.dart';
 import '../widgets/jph_form_ui.dart';
 import '../widgets/sale_form.dart';
 import '../widgets/swipe_tabs.dart';
+import '../widgets/adjustment_form.dart';
 
 class AdvanceRequestPage extends StatefulWidget {
   final String uid;
@@ -205,10 +206,12 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                         isDark: isDark,
                         tabs: [
                           ('طلب', Icons.request_page_rounded),
+                          if (AdjustmentsTab.visible) ('علاوة / خصم', Icons.tune_rounded),
                           ('مبيعات', Icons.home_work_rounded),
                         ],
                         pages: [
                           _requestTab(isDark, isRTL, primaryColor, textColor, subduedTextColor),
+                          if (AdjustmentsTab.visible) AdjustmentsTab(isDark: isDark),
                           SalesTab(isDark: isDark),
                         ],
                       ),

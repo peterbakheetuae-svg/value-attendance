@@ -20,17 +20,24 @@ class CustodyReceiptTemplate {
   final pw.Font latin;
   CustodyReceiptTemplate._(this.version, this.spec, this.background, this.arabic, this.latin);
 
-  /// Template versions shipped with the app. Add a new folder (v2, …) for a new version; never edit an old one.
+  /// Template versions shipped with the app, per form (موبايل / كمبيوتر محمول). Add a new folder (v2, …) for a new
+  /// version; never edit an old one.
+  static const templates = {
+    'custody_receipt': {1: 'assets/forms/custody_receipt/v1/fields.json'},
+    'laptop_receipt': {1: 'assets/forms/laptop_receipt/v1/fields.json'},
+  };
   static const versions = {1: 'assets/forms/custody_receipt/v1/fields.json'};
   static const latestVersion = 1;
 
-  static final Map<int, CustodyReceiptTemplate> _cache = {};
+  static final Map<String, CustodyReceiptTemplate> _cache = {};
 
-  static Future<CustodyReceiptTemplate> load([int version = latestVersion, Future<ByteData> Function(String)? loader]) async {
-    if (_cache[version] != null) return _cache[version]!;
+  static Future<CustodyReceiptTemplate> load([int version = latestVersion, Future<ByteData> Function(String)? loader,
+      String template = 'custody_receipt']) async {
+    final key = '$template:$version';
+    if (_cache[key] != null) return _cache[key]!;
     final ld = loader ?? rootBundle.load;
-    final path = versions[version];
-    if (path == null) throw StateError('Unknown custody receipt template version $version');
+    final path = templates[template]?[version];
+    if (path == null) throw StateError('Unknown form template $template v$version');
     final spec = jsonDecode(utf8.decode((await ld(path)).buffer.asUint8List())) as Map<String, dynamic>;
     final page = spec['page'] as Map<String, dynamic>;
     final font = spec['font'] as Map<String, dynamic>;
@@ -41,7 +48,7 @@ class CustodyReceiptTemplate {
       pw.Font.ttf(await ld(font['arabic'] as String)),
       pw.Font.ttf(await ld(font['latin'] as String)),
     );
-    return _cache[version] = t;
+    return _cache[key] = t;
   }
 
   double get width => ((spec['page'] as Map)['widthPt'] as num).toDouble();
@@ -55,8 +62,8 @@ List<double> _box(Object? v) => (v as List).map((e) => (e as num).toDouble()).to
 
 /// Builds the filled document. [data] holds exactly the fields of the original form.
 Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version = CustodyReceiptTemplate.latestVersion,
-    Future<ByteData> Function(String)? loader}) async {
-  final t = await CustodyReceiptTemplate.load(version, loader);
+    Future<ByteData> Function(String)? loader, String template = 'custody_receipt'}) async {
+  final t = await CustodyReceiptTemplate.load(version, loader, template);
   final style = pw.TextStyle(font: t.arabic, fontFallback: [t.latin], fontSize: t.fontSize, color: PdfColors.black);
 
   // a value written over its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
@@ -119,7 +126,7 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     if (on) children.add(tick(_box(e.value)));
   }
 
-  final doc = pw.Document(title: 'استمارة استلام عهدة', creator: 'Value Attendance');
+  final doc = pw.Document(title: '${t.spec['title'] ?? 'استمارة استلام عهدة'}', creator: 'Value Attendance');
   doc.addPage(pw.Page(
     pageFormat: PdfPageFormat(t.width, t.height, marginAll: 0),
     margin: pw.EdgeInsets.zero,

@@ -116,6 +116,7 @@ class _DashboardPageState extends State<DashboardPage>
   @override
   void initState() {
     super.initState();
+    AppNav.homeAlive++;
     _pendingTimer = Timer.periodic(const Duration(seconds: 30), (_) { if (mounted) _loadPendingOutings(); });
     WidgetsBinding.instance.addObserver(this);
     _cameraService = CameraService();
@@ -177,6 +178,7 @@ class _DashboardPageState extends State<DashboardPage>
 
   @override
   void dispose() {
+    AppNav.homeAlive--;
     _pendingTimer?.cancel();
     _updateTimer?.cancel();
     _forceCloseCamera();
@@ -255,8 +257,8 @@ class _DashboardPageState extends State<DashboardPage>
   void onBottomTap(int index) => AppNav.go(context, index, current: 0, uid: widget.uid, name: widget.name, role: widget.role, photo: _photoUrl);
 
   Future<void> _loadInitialData() async {
-    await loadToday();
-    await _loadAdditionalData();
+    // today's own record and the company totals load side by side
+    await Future.wait([loadToday(), _loadAdditionalData()]);
     _restoreTimerStates();
   }
 
@@ -371,49 +373,27 @@ class _DashboardPageState extends State<DashboardPage>
     );
   }
 
+  /// Everything under the fingerprint card, all at once (they do not depend on each other) — the home shows up
+  /// as soon as the slowest one answers instead of the sum of all of them.
   Future<void> _loadAdditionalData() async {
     _loadPendingOutings();
-    try {
-      // تحميل طلبات الإجازة
-      final leaveRes = await DashboardApi.getLeaveRequests(widget.uid);
-      if (leaveRes["success"] == true) {
-        setState(() {
-          _leaveRequests = List<Map<String, dynamic>>.from(leaveRes["requests"] ?? []);
-        });
+    Future<void> one(Future<Map<String, dynamic>> f, void Function(Map<String, dynamic>) use) async {
+      try {
+        final r = await f;
+        if (r["success"] == true && mounted) setState(() => use(r));
+      } catch (e) {
+        print('❌ خطأ في تحميل البيانات الإضافية: $e');
       }
-
-      // تحميل طلبات السلف
-      final loanRes = await DashboardApi.getLoanRequests(widget.uid);
-      if (loanRes["success"] == true) {
-        setState(() {
-          _loanRequests = List<Map<String, dynamic>>.from(loanRes["requests"] ?? []);
-        });
-      }
-
-      // إجماليات اليوم والشهر (مربعات الصفحة الرئيسية)
-      final ov = await ApiService.post({'action': 'admin_overview'});
-      if (ov["success"] == true && mounted) {
-        setState(() => _overview = ov);
-      }
-
-      // تحميل إحصائيات اليوم
-      final statsRes = await DashboardApi.getTodayStats(widget.uid);
-      if (statsRes["success"] == true) {
-        setState(() {
-          _todayStats = Map<String, dynamic>.from(statsRes["stats"] ?? {});
-        });
-      }
-
-      // تحميل الحضور حسب المشروع
-      final projectRes = await DashboardApi.getAttendanceByProject(widget.uid);
-      if (projectRes["success"] == true) {
-        setState(() {
-          _attendanceByProject = List<Map<String, dynamic>>.from(projectRes["projects"] ?? []);
-        });
-      }
-    } catch (e) {
-      print('❌ خطأ في تحميل البيانات الإضافية: $e');
     }
+    await Future.wait([
+      one(DashboardApi.getLeaveRequests(widget.uid), (r) => _leaveRequests = List<Map<String, dynamic>>.from(r["requests"] ?? [])),
+      one(DashboardApi.getLoanRequests(widget.uid), (r) => _loanRequests = List<Map<String, dynamic>>.from(r["requests"] ?? [])),
+      // إجماليات اليوم والشهر (مربعات الصفحة الرئيسية)
+      one(ApiService.post({'action': 'admin_overview'}), (r) => _overview = r),
+      one(DashboardApi.getTodayStats(widget.uid), (r) => _todayStats = Map<String, dynamic>.from(r["stats"] ?? {})),
+      one(DashboardApi.getAttendanceByProject(widget.uid),
+          (r) => _attendanceByProject = List<Map<String, dynamic>>.from(r["projects"] ?? [])),
+    ]);
   }
 
   void _initializeLocalTimers() {

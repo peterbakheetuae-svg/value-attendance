@@ -9,6 +9,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../advance_summary.dart';
 import '../attendance/attendance_report_page.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// الخزنة ← الطلبات: شريط تاني تحت شريط الصفحة — سلف | مرتبات | عمولات.
 /// الطريقة الوحيدة لصرف السلف والمرتبات والعمولات:
@@ -52,7 +53,7 @@ Future<bool> _confirm(BuildContext context, String title, String body) async =>
       context: context,
       builder: (c) => Directionality(
         textDirection: ui.TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
           content: Text(body, textAlign: TextAlign.center),

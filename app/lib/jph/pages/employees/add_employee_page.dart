@@ -106,7 +106,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   void _initializeDefaultValues() {
     // تعيين القيم الافتراضية
-    _selectedRole = 'مستشار عقاري';
+    _selectedRole = 'سيلز';
     _selectedAccounting = 'شهرى';
     _selectedLeaveDay = 'الجمعة';
     _selectedAbsenceMultiplier = '1';

@@ -52,3 +52,20 @@ test('each save is a new numbered record with its template version; earlier ones
   await assert.rejects(h.db.query(`DELETE FROM employee_documents WHERE id = $1`, [r1.body.receipt.id]));
   await assert.rejects(h.db.query(`UPDATE employee_documents SET content = 'x' WHERE id = $1`, [r1.body.receipt.id]));
 });
+
+test('laptop custody receipt: its own fields and numbering; prefill offers the employee\'s laptops', async () => {
+  const asset = await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'laptop', name: 'Dell Latitude 5440', serialNo: 'SN-1234', specs: 'i5 / 16GB' });
+  assert.equal(asset.status, 201, JSON.stringify(asset.body));
+  assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/custody`, { assetId: asset.body.asset.id })).status, 201);
+  const pf = (await h.call(c.t.hr, 'GET', `/forms/custody-receipt/prefill/${c.ids.e2}?device=laptop`)).body;
+  assert.equal(pf.template, 'laptop_receipt');
+  assert.equal(pf.items[0].serialNo, 'SN-1234');
+  const d = { employeeName: 'x y', receiptDate: '2026-03-10', signDate: '2026-03-10', brand: 'Dell', serialNo: 'SN-1234', condition: 'new', accessories: ['charger'] };
+  assert.equal((await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e2, device: 'laptop', data: { ...d, accessories: ['case'] } })).status, 400);
+  const r = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e2, device: 'laptop', data: d });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.receipt.number, 1);
+  assert.equal(r.body.receipt.device, 'laptop');
+  const list = (await h.call(c.t.hr, 'GET', '/forms/custody-receipts?device=laptop')).body.receipts;
+  assert.equal(list.length, 1);
+});

@@ -23,7 +23,8 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   const token = h.slice(7).trim();
   if (!token || token.length > 200) throw new AppError('unauthenticated', 'Sign in required');
   const row = await one(q, `
-    SELECT s.id AS session_id, e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password,
+    SELECT s.id AS session_id, (s.last_seen_at IS NULL OR s.last_seen_at < now() - interval '5 minutes') AS stale,
+           e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password,
            COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms
       FROM sessions s
       JOIN employees e ON e.id = s.employee_id
@@ -31,9 +32,12 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
      GROUP BY s.id, e.id`, [sha256(token)]);
   if (!row || row.status !== 'active') throw new AppError('unauthenticated', 'Session expired, sign in again');
-  // sliding expiry, bounded by the TTL from last activity
-  await q.query(`UPDATE sessions SET last_seen_at = now(),
-                   expires_at = now() + make_interval(hours => $2) WHERE id = $1`, [row.session_id, SESSION_TTL_HOURS]);
+  // sliding expiry, bounded by the TTL from last activity — written at most every 5 minutes (one less database
+  // round trip on almost every request)
+  if (row.stale) {
+    await q.query(`UPDATE sessions SET last_seen_at = now(),
+                     expires_at = now() + make_interval(hours => $2) WHERE id = $1`, [row.session_id, SESSION_TTL_HOURS]);
+  }
   const actor: Actor = {
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
     perms: new Set(row.perms), sessionId: row.session_id, mustChangePassword: row.must_change_password,

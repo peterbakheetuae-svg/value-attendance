@@ -16,6 +16,7 @@ import 'attendance_widgets.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/payslip_pdf.dart';
+import '../../widgets/glass_dialog.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   final String uid;
@@ -421,7 +422,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                   if (t != null) setS(() => on(t));
                 },
               );
-          return AlertDialog(
+          return GlassAlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
             title: Text('تعديل مواعيد ${day['workDate'] ?? day['date'] ?? ''}', textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w800)),

@@ -9,6 +9,7 @@ import '../../services/jph_bridge.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'project_form_page.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// One project: its split, the totals and the sold units (approved deals only). Company figures arrive from the
 /// API only for the owner / المدير; the sales manager gets only his team's units.
@@ -49,7 +50,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
       context: context,
       builder: (c) => Directionality(
         textDirection: ui.TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Text('إلغاء عمولة معتمدة', style: TextStyle(fontWeight: FontWeight.w900)),
           content: Column(mainAxisSize: MainAxisSize.min, children: [

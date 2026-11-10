@@ -7,6 +7,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../services/api_service.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// Platform Owner dashboard — plans, subscriptions, and billing events.
 ///
@@ -279,7 +280,7 @@ class _PlatformDashboardPageState extends State<PlatformDashboardPage>
     final controller = TextEditingController();
     return showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(AppLocalizations.of(ctx, 'suspend_reason')),
         content: TextField(
           controller: controller,

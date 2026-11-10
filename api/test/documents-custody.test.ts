@@ -84,3 +84,18 @@ test('custody: owner/HR assign, employee sees own, history is permanent', async 
   assert.equal(all.body.items.length, 1);
   assert.equal((await h.call(c.t.e1, 'GET', '/custody')).status, 403);
 });
+
+test('العهدة list: add mobiles / laptops once, hand one to an employee from the list, never to two at once', async () => {
+  const m = await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'mobile', name: 'Samsung A15', serialNo: '356789012345678', lineNumber: '0100', accessories: ['charger'] });
+  assert.equal(m.status, 201, JSON.stringify(m.body));
+  assert.equal((await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'mobile', name: 'Other', serialNo: '356789012345678' })).status, 409);
+  assert.equal((await h.call(c.t.e1, 'POST', '/custody/assets', { assetType: 'laptop', name: 'Dell' })).status, 403);
+  const g = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e1}/custody`, { assetId: m.body.asset.id });
+  assert.equal(g.status, 201, JSON.stringify(g.body));
+  assert.equal(g.body.item.asset_name, 'Samsung A15');
+  assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/custody`, { assetId: m.body.asset.id })).status, 409);
+  const avail = (await h.call(c.t.hr, 'GET', '/custody/assets?type=mobile&available=1')).body.assets;
+  assert.ok(!avail.some((x: any) => x.id === m.body.asset.id));
+  const all = (await h.call(c.t.hr, 'GET', '/custody/assets')).body.assets;
+  assert.equal(all.find((x: any) => x.id === m.body.asset.id).holder.employeeId, c.ids.e1);
+});

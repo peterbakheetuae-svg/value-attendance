@@ -34,10 +34,10 @@ class JphRouter {
     'hr_manager': 'مدير الموارد البشرية',
     'accountant': 'محاسب',
     'sales_manager': 'مدير مبيعات',
-    'sales_employee': 'مستشار عقاري',
+    'sales_employee': 'سيلز',
   };
   static String roleKeyOf(String? label) {
-    if (label == null) return 'sales_employee';
+    if (label == null || label == 'مستشار عقاري') return 'sales_employee';
     if (roleAr.containsKey(label)) return label;
     for (final e in roleAr.entries) {
       if (e.value == label) return e.key;
@@ -341,7 +341,7 @@ class JphRouter {
           return _ok((await _api.get('/employees/${await _id(p['id'] ?? p['uid'])}/custody')).cast<String, dynamic>());
         case 'custody_assign':
           await _api.post('/employees/${await _id(p['id'] ?? p['uid'])}/custody', {
-            for (final k in const ['assetName', 'assetType', 'description', 'serialNo', 'assignedOn', 'condition', 'notes'])
+            for (final k in const ['assetId', 'assetName', 'assetType', 'description', 'serialNo', 'assignedOn', 'condition', 'notes'])
               if (p[k] != null && '${p[k]}'.isNotEmpty) k: p[k],
           });
           return _ok({'message': 'تم تسليم العهدة'});
@@ -382,12 +382,12 @@ class JphRouter {
           return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/'].any(cp.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
@@ -1336,9 +1336,9 @@ class JphRouter {
   }
 
   // ------------------------------------------------------------------ reports
+  /// حاضر / متأخر / بدون انصراف — an edited day keeps its real status; "تم التعديل بواسطة …" shows inside the card
   static String _dayStatus(Map<String, dynamic> d) {
     if (d['missingCheckout'] == true) return 'بدون انصراف';
-    if (d['corrected'] == true) return 'معدل';
     if (d['isLate'] == true) return 'متأخر';
     return 'حاضر';
   }
@@ -1428,7 +1428,8 @@ class JphRouter {
       // عمولة المبيعات: approved deal commissions of this payroll month (salesperson / sales manager share)
       'commissions': pay['commissions'] ?? 0,
       'workExpenses': pay['workExpenses'] ?? 0,
-      'deduction': amt('late') + amt('early') + ((pay['adminDeductions'] as num?) ?? 0),
+      // خصومات = only what was recorded on the علاوة / خصم page (late / absence have their own boxes)
+      'deduction': (pay['adminDeductions'] as num?) ?? 0,
       'absentDeduction': amt('absence') + amt('unpaid'),
       'advance': pay['advances'] ?? 0,
       'received': ((pay['salaryPaid'] as num?) ?? 0) + ((pay['commissionPaid'] as num?) ?? 0),

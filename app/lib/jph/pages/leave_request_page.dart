@@ -12,6 +12,7 @@ import '../widgets/app_background.dart';
 import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import 'leave_summary.dart';
+import '../widgets/glass_dialog.dart';
 
 class LeaveRequestPage extends StatefulWidget {
   final String uid;
@@ -1634,7 +1635,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       builder: (context) {
         return Directionality(
           textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
-          child: AlertDialog(
+          child: GlassAlertDialog(
             title: const Text('معلومات عن طلب الإجازة'),
             content: const Column(
               mainAxisSize: MainAxisSize.min,

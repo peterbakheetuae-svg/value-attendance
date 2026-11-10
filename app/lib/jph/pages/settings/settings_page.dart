@@ -41,6 +41,8 @@ import '../multi_company/reports_page.dart';
 import '../multi_company/platform_dashboard_page.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/company_selector_sheet.dart';
+import '../../widgets/glass_dialog.dart';
+import '../custody/custody_assets_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final String uid;
@@ -96,7 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showNoUpdateDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(AppLocalizations.of(context, 'check_for_updates') ?? 'التحقق من التحديثات'),
         content: Text(AppLocalizations.of(context, 'app_up_to_date') ?? 'أنت تستخدم أحدث إصدار من التطبيق'),
         actions: [
@@ -112,7 +114,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showUpdateCheckFailedDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(AppLocalizations.of(context, 'check_for_updates') ?? 'التحقق من التحديثات'),
         content: Text(AppLocalizations.of(context, 'update_check_failed') ?? 'فشل التحقق من التحديثات'),
         actions: [
@@ -128,7 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showUpdateCheckErrorDialog(String error) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(AppLocalizations.of(context, 'check_for_updates') ?? 'التحقق من التحديثات'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -159,15 +161,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
+      builder: (context) => GlassDialogPanel(
         child: Directionality(
           textDirection: isRTL ? TextDirection.rtl : TextDirection.ltr,
           child: Container(
             decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.black.withOpacity(0.2)
-                  : Colors.white.withOpacity(0.8),
+              color: Colors.transparent,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isDark
@@ -358,7 +357,17 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     const SizedBox(height: 14),
 
-                    // ─── استمارات: pilot — استمارة استلام عهدة only ───
+                    // ─── العهدة: the company's mobiles / laptops (add here, hand over from the employee's page) ───
+                    if (CustodyAssetsPage.visible) ...[
+                      SettingsTile(
+                        title: 'العهدة',
+                        icon: Icons.inventory_2_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustodyAssetsPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // ─── استمارات ← استمارة استلام عهدة ← موبايل / كمبيوتر محمول ───
                     if (CustodyReceiptPage.canUse || ApiService.can('documents.read') || ApiService.can('employee.read_all')) ...[
                       SettingsExpandableTile(
                         title: 'استمارات',
@@ -367,7 +376,16 @@ class _SettingsPageState extends State<SettingsPage> {
                         onToggle: () => setState(() => _formsOpen = !_formsOpen),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          child: _companyOption(appController, 'استمارة استلام عهدة', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8, right: 4),
+                              child: Text('استمارة استلام عهدة', style: TextStyle(fontWeight: FontWeight.w800,
+                                  color: appController.isDark ? Colors.white70 : Colors.black54)),
+                            ),
+                            _companyOption(appController, 'موبايل', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
+                            const SizedBox(height: 12),
+                            _companyOption(appController, 'كمبيوتر محمول', Icons.laptop_rounded, () => const CustodyReceiptPage(device: 'laptop')),
+                          ]),
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -505,7 +523,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ? Icons.nightlight_round
                                   : Icons.wb_sunny,
                               color: appController.isDark
-                                  ? Colors.yellow[700]
+                                  ? Colors.white
                                   : Colors.orange[700],
                             ),
                           ),
@@ -599,7 +617,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                           child: Icon(
                             Icons.system_update,
-                            color: Theme.of(context).primaryColor,
+                            color: Provider.of<AppController>(context, listen: false).isDark ? Colors.white : Theme.of(context).primaryColor,
                           ),
                         ),
                         title: Text(
@@ -732,7 +750,7 @@ class _SettingsPageState extends State<SettingsPage> {
             border: Border.all(color: Colors.grey.withOpacity(0.2)),
           ),
           child: Row(children: [
-            Icon(icon, size: 22, color: Theme.of(context).primaryColor),
+            Icon(icon, size: 22, color: appController.isDark ? Colors.white : Theme.of(context).primaryColor),
             const SizedBox(width: 12),
             Expanded(
               child: Text(title,

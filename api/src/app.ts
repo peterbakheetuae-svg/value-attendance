@@ -30,6 +30,26 @@ import { mailEnabled } from './lib/mail.ts';
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
   r.get('/healthz', async () => ({ json: { ok: true } }));
+  /**
+   * Speed check (no secrets): where the API runs, which region the database is in (from its host name only), and
+   * how long a database round trip takes from here. A far database makes every screen slow.
+   */
+  r.get('/healthz/latency', async () => {
+    let dbRegion = 'unknown';
+    try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -3).join('.') || 'unknown'; } catch { /* keep */ }
+    const ms: number[] = [];
+    try {
+      for (let i = 0; i < 4; i++) {
+        const t0 = performance.now();
+        await ctx.db.query('SELECT 1');
+        ms.push(Math.round(performance.now() - t0));
+      }
+    } catch {
+      return { status: 503, json: { ok: false } };
+    }
+    return { json: { ok: true, apiRegion: process.env.VERCEL_REGION ?? 'local', dbRegion,
+      pooled: /-pooler\./.test(process.env.DATABASE_URL ?? ''), dbRoundTripMs: ms } };
+  });
   r.get('/readyz', async () => {
     try {
       const x = await ctx.db.query(`SELECT count(*)::int AS n FROM schema_migrations`);

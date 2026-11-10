@@ -4,6 +4,7 @@ import '../pages/cash/cash_page.dart';
 import '../pages/sales/sales_page.dart';
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
+import 'glass_dialog.dart';
 
 /// تبويب "مبيعات" في طلبات المالية: بيع وحدة (كاش أو تقسيط) ببيانات العميل، ومعاه طلب العمولة.
 ///  - السيلز: البيعة بتروح للإدارة تعتمدها، وطلب العمولة باسمه.
@@ -166,7 +167,7 @@ class _SalesTabState extends State<SalesTab> {
     if (!approve) {
       final go = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => GlassAlertDialog(
           title: const Text('رفض البيعة'),
           content: TextField(controller: reason, decoration: const InputDecoration(hintText: 'السبب')),
           actions: [

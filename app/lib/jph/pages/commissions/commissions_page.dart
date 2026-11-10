@@ -10,6 +10,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import 'commission_project_page.dart';
 import 'project_form_page.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// إدارة عمولات المشاريع — one place, tabs by permission:
 ///  مشاريع (owner / المدير / HR / sales manager) • الاعتماد (المدير / owner) • عمولات (عمولاتي — everyone).
@@ -320,7 +321,7 @@ class _ApproveTabState extends State<_ApproveTab> {
       context: context,
       builder: (c) => Directionality(
         textDirection: ui.TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Text('تأكيد اعتماد العمولة', style: TextStyle(fontWeight: FontWeight.w900)),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -352,7 +353,7 @@ class _ApproveTabState extends State<_ApproveTab> {
       context: context,
       builder: (c) => Directionality(
         textDirection: ui.TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Text('سبب الرفض', style: TextStyle(fontWeight: FontWeight.w900)),
           content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(hintText: 'اكتب السبب (إجباري)')),

@@ -8,7 +8,7 @@ before(async () => { h = await harness(); c = await cast(h); });
 after(async () => { await h.close(); });
 
 // /media is public by design but needs a valid HMAC signature (checked below)
-const PUBLIC = new Set(['GET /healthz', 'GET /readyz', 'POST /auth/login', 'GET /media/:kind/:id',
+const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', 'POST /auth/login', 'GET /media/:kind/:id',
   // forgot password: anonymous by nature, protected by emailed OTP + rate limits
   'POST /auth/forgot', 'POST /auth/forgot/verify', 'POST /auth/forgot/reset']);
 const FAKE_ID = '00000000-0000-4000-8000-000000000000';

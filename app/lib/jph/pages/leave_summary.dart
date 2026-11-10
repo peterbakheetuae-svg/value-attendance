@@ -11,6 +11,7 @@ import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'attendance/attendance_filters.dart';
+import '../widgets/glass_dialog.dart';
 
 class LeaveSummaryPage extends StatefulWidget {
   final String uid;
@@ -617,7 +618,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
       context: context,
       builder: (context) => Directionality(
         textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           backgroundColor:
           appController.isDark ? Colors.grey[900] : Colors.white,
           title: Text(

@@ -8,6 +8,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../services/api_service.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// Branch management screen — list, create, edit branches for the current
 /// company context.
@@ -215,7 +216,7 @@ class _BranchesPageState extends State<BranchesPage> {
 
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => GlassAlertDialog(
         title: Text(
           isEdit
               ? AppLocalizations.of(dialogContext, 'edit_branch')

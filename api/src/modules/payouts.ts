@@ -151,11 +151,18 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const t = local(clock()).date;
     const emps = await db.query(`SELECT e.id, e.full_name, e.code FROM employees e JOIN employee_salaries s ON s.employee_id = e.id
                                   WHERE e.status = 'active' ORDER BY e.full_name`);
-    const rows: any[] = [];
-    for (const e of emps.rows) {
-      const x = await salaryRow(db, e, period, rules, t);
-      if (x) rows.push({ ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id });
-    }
+    // a few employees at a time (the connection pool is small) instead of one after another
+    const out: any[] = new Array(emps.rows.length);
+    let next = 0;
+    await Promise.all([0, 1, 2].map(async () => {
+      while (next < emps.rows.length) {
+        const i = next++;
+        const e = emps.rows[i];
+        const x = await salaryRow(db, e, period, rules, t);
+        out[i] = x ? { ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id } : null;
+      }
+    }));
+    const rows: any[] = out.filter(Boolean);
     const sum = (k: 'due' | 'paid' | 'received' | 'awaiting' | 'remaining') =>
       Math.round(rows.reduce((s, x) => s + Math.max(0, x[k]), 0) * 100) / 100;
     return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, canPay: paysSalaries(a),

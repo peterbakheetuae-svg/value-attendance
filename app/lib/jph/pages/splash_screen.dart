@@ -8,6 +8,7 @@ import '../services/session_service.dart';
 import '../services/update_service.dart';
 import 'login/login_page.dart';
 import 'dashboard_employers/dashboard_page.dart';
+import '../widgets/glass_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
   final int splashDuration;
@@ -142,7 +143,7 @@ class _SplashScreenState extends State<SplashScreen>
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => AlertDialog(
+        builder: (context) => GlassAlertDialog(
           title: const Text('الصيانة'),
           content: Text(message),
           actions: [
@@ -165,7 +166,7 @@ class _SplashScreenState extends State<SplashScreen>
       showDialog(
         context: context,
         barrierDismissible: !forceUpdate,
-        builder: (context) => AlertDialog(
+        builder: (context) => GlassAlertDialog(
           title: const Text('تحديث متاح'),
           content: Text(updateInfo['latest_version']['release_notes'] ?? 'تحديث جديد متاح'),
           actions: [

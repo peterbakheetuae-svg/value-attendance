@@ -15,6 +15,7 @@ import '../widgets/app_background.dart';
 import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
+import '../widgets/glass_dialog.dart';
 
 class FinancialSummaryPage extends StatefulWidget {
   final String uid;
@@ -762,7 +763,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
       context: context,
       builder: (context) => Directionality(
         textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           backgroundColor:
           appController.isDark ? Colors.grey[900] : Colors.white,
           title: Text(
@@ -1534,7 +1535,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
         context: context,
         builder: (c) => Directionality(
           textDirection: ui.TextDirection.rtl,
-          child: AlertDialog(
+          child: GlassAlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
             title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
             content: Text(body, textAlign: TextAlign.center),

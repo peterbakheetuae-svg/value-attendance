@@ -7,6 +7,7 @@ import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
 import '../settings/privacy_policy_page.dart';
+import '../../widgets/glass_dialog.dart';
 
 class TermsPage extends StatefulWidget {
   const TermsPage({super.key});
@@ -53,7 +54,7 @@ class _TermsPageState extends State<TermsPage> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(
           AppLocalizations.of(context, 'terms_and_conditions') ?? 'الشروط والأحكام',
           style: TextStyle(

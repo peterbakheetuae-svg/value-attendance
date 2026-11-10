@@ -16,12 +16,21 @@ import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 export const CUSTODY_TEMPLATE = 'custody_receipt';
 export const CUSTODY_TEMPLATE_VERSION = 1;
 const FILE_PREFIX = 'custody-receipt-';
+/** استمارة استلام عهدة: موبايل (the pilot) | كمبيوتر محمول — each its own template, title and numbering. */
+const DEVICES = {
+  mobile: { template: CUSTODY_TEMPLATE, version: CUSTODY_TEMPLATE_VERSION, prefix: FILE_PREFIX, title: 'استمارة استلام عهدة', assetType: 'mobile' },
+  laptop: { template: 'laptop_receipt', version: 1, prefix: 'laptop-receipt-', title: 'استمارة استلام عهدة كمبيوتر محمول', assetType: 'laptop' },
+} as const;
+type Device = keyof typeof DEVICES;
+const deviceOf = (v: unknown): Device => (v === 'laptop' ? 'laptop' : 'mobile');
+const ANY_PREFIX = `(d.file_name LIKE '${FILE_PREFIX}%' OR d.file_name LIKE 'laptop-receipt-%')`;
 
 const canManage = (a: Actor) => has(a, 'documents.manage') || has(a, 'employee.manage');
 const canReadAll = (a: Actor) => canManage(a) || has(a, 'documents.read') || has(a, 'employee.read_all');
 
 const CONDITIONS = ['new', 'used_good', 'other'] as const;
 const ACCESSORIES = ['charger', 'cable', 'case', 'headset', 'other'] as const;
+const LAPTOP_ACCESSORIES = ['charger', 'cable', 'other'] as const;
 
 const isoDate = (b: Record<string, unknown>, k: string) => {
   const v = typeof b[k] === 'string' ? (b[k] as string).trim() : '';
@@ -35,6 +44,36 @@ const text = (b: Record<string, unknown>, k: string, max: number, required = fal
 };
 
 /** Exactly the fields of the original paper form — nothing invented. */
+function parseLaptop(b: Record<string, unknown>) {
+  const condition = String(b.condition ?? '');
+  if (!(CONDITIONS as readonly string[]).includes(condition)) throw invalid('Choose the device condition', { field: 'condition' });
+  const acc = Array.isArray(b.accessories) ? b.accessories.map(String) : [];
+  if (acc.some((x) => !(LAPTOP_ACCESSORIES as readonly string[]).includes(x))) throw invalid('Unknown accessory', { field: 'accessories' });
+  const data = {
+    employeeName: text(b, 'employeeName', 80, true),
+    employeeCode: text(b, 'employeeCode', 20),
+    jobTitle: text(b, 'jobTitle', 60),
+    department: text(b, 'department', 60),
+    directManager: text(b, 'directManager', 60),
+    receiptDate: isoDate(b, 'receiptDate'),
+    // ثانيًا: بيانات كمبيوتر محمول
+    brand: text(b, 'brand', 60, true),
+    serialNo: text(b, 'serialNo', 60, true),
+    condition,
+    conditionOther: text(b, 'conditionOther', 40),
+    accessories: [...new Set(acc)],
+    accessoriesOther: text(b, 'accessoriesOther', 60),
+    signEmployeeName: text(b, 'signEmployeeName', 80),
+    signDate: isoDate(b, 'signDate'),
+    custodianName: text(b, 'custodianName', 60),
+    hrName: text(b, 'hrName', 60),
+  };
+  if (condition === 'other' && !data.conditionOther) throw invalid('Describe the device condition', { field: 'conditionOther' });
+  if (data.accessories.includes('other') && !data.accessoriesOther) throw invalid('Name the other accessory', { field: 'accessoriesOther' });
+  if (!data.signEmployeeName) data.signEmployeeName = data.employeeName;
+  return data;
+}
+
 function parseData(b: Record<string, unknown>) {
   const condition = String(b.condition ?? '');
   if (!(CONDITIONS as readonly string[]).includes(condition)) throw invalid('Choose the device condition', { field: 'condition' });
@@ -88,6 +127,7 @@ function shapeRecord(row: any) {
   return {
     id: row.id, employeeId: row.employee_id, number: body.number ?? null, title: row.title,
     template: body.template, templateVersion: body.templateVersion, data: body.data ?? {},
+    device: body.template === 'laptop_receipt' ? 'laptop' : 'mobile',
     createdAt: row.created_at, createdByName: row.created_by_name ?? null,
   };
 }
@@ -100,7 +140,17 @@ export const formsModule: Module = (r, { db }) => {
     if (!isUuid(req.params.employeeId)) throw notFound();
     const p = await prefill(db, req.params.employeeId);
     if (!p) throw notFound();
-    return ok({ prefill: p, template: CUSTODY_TEMPLATE, templateVersion: CUSTODY_TEMPLATE_VERSION });
+    const dev = DEVICES[deviceOf(req.query.get('device'))];
+    // the employee's custody of this kind (handed from Settings → العهدة) — picked to fill the device part
+    const items = await db.query(`
+      SELECT c.id, c.asset_name AS name, c.serial_no, c.assigned_on, x.line_number, x.condition, x.accessories, x.specs
+        FROM custody_items c LEFT JOIN custody_assets x ON x.id = c.asset_id
+       WHERE c.employee_id = $1 AND c.status = 'assigned' AND c.asset_type = $2 ORDER BY c.assigned_on DESC`,
+      [req.params.employeeId, dev.assetType]);
+    return ok({ prefill: p, template: dev.template, templateVersion: dev.version,
+      items: items.rows.map((x) => ({ id: x.id, name: x.name, serialNo: x.serial_no ?? '', lineNumber: x.line_number ?? '',
+        condition: x.condition ?? null, accessories: x.accessories ?? [], specs: x.specs ?? '',
+        assignedOn: x.assigned_on instanceof Date ? x.assigned_on.toISOString().slice(0, 10) : String(x.assigned_on ?? '').slice(0, 10) })) });
   });
 
   /** Save a completed receipt as a new, permanent record (never overwrites an earlier one). */
@@ -110,24 +160,26 @@ export const formsModule: Module = (r, { db }) => {
     const b = obj(req.body);
     const employeeId = typeof b.employeeId === 'string' ? b.employeeId : '';
     if (!isUuid(employeeId)) throw invalid('Choose the employee', { field: 'employeeId' });
-    const data = parseData(obj(b.data));
+    const device = deviceOf(b.device);
+    const dev = DEVICES[device];
+    const data = device === 'laptop' ? parseLaptop(obj(b.data)) : parseData(obj(b.data));
     const row = await db.tx(async (q) => {
       const emp = await one(q, `SELECT id FROM employees WHERE id = $1`, [employeeId]);
       if (!emp) throw invalid('Choose the employee', { field: 'employeeId' });
       // one numbering for all custody receipts; the lock keeps two saves from taking the same number
-      await q.query(`SELECT pg_advisory_xact_lock(hashtext('forms:custody_receipt'))`);
-      const n = await one(q, `SELECT count(*)::int AS n FROM employee_documents WHERE kind = 'other' AND file_name LIKE $1`, [`${FILE_PREFIX}%`]);
+      await q.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`forms:${dev.template}`]);
+      const n = await one(q, `SELECT count(*)::int AS n FROM employee_documents WHERE kind = 'other' AND file_name LIKE $1`, [`${dev.prefix}%`]);
       const number = Number(n.n) + 1;
-      const body = { template: CUSTODY_TEMPLATE, templateVersion: CUSTODY_TEMPLATE_VERSION, number, data,
+      const body = { template: dev.template, templateVersion: dev.version, number, data,
         createdBy: a.id, createdAt: new Date().toISOString() };
       const buf = Buffer.from(JSON.stringify(body), 'utf8');
       const d = await one(q, `
         INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by)
         VALUES ($1, 'other', $2, $3, 'application/json', $4, $5, $6)
         RETURNING id, employee_id, title, content, created_at`,
-        [employeeId, `استمارة استلام عهدة رقم ${number}`, `${FILE_PREFIX}${number}.json`, buf.length, buf, a.id]);
-      await audit(q, a.id, 'forms.custody_receipt.create', 'employee_document', d.id, undefined,
-        { employeeId, number, templateVersion: CUSTODY_TEMPLATE_VERSION });
+        [employeeId, `${dev.title} رقم ${number}`, `${dev.prefix}${number}.json`, buf.length, buf, a.id]);
+      await audit(q, a.id, `forms.${dev.template}.create`, 'employee_document', d.id, undefined,
+        { employeeId, number, templateVersion: dev.version });
       return { ...d, created_by_name: a.fullName };
     });
     return ok({ receipt: shapeRecord(row) }, 201);
@@ -136,8 +188,9 @@ export const formsModule: Module = (r, { db }) => {
   /** Earlier receipts (newest first). HR / the management see all; an employee sees his own. */
   r.get('/forms/custody-receipts', async (req) => {
     const a = await authenticate(db, req);
-    const vals: unknown[] = [`${FILE_PREFIX}%`];
-    let where = `d.kind = 'other' AND d.file_name LIKE $1 AND d.employee_id IS NOT NULL`;
+    const dq = req.query.get('device');
+    const vals: unknown[] = [dq === 'laptop' ? 'laptop-receipt-%' : `${FILE_PREFIX}%`];
+    let where = `d.kind = 'other' AND ${dq ? 'd.file_name LIKE $1' : `(${ANY_PREFIX} OR $1 = '')`} AND d.employee_id IS NOT NULL`;
     const emp = req.query.get('employeeId');
     if (!canReadAll(a)) { vals.push(a.id); where += ` AND d.employee_id = $${vals.length}`; }
     else if (emp) { if (!isUuid(emp)) throw notFound(); vals.push(emp); where += ` AND d.employee_id = $${vals.length}`; }
@@ -154,7 +207,7 @@ export const formsModule: Module = (r, { db }) => {
     const row = await one(db, `
       SELECT d.id, d.employee_id, d.title, d.content, d.created_at, d.file_name, u.full_name AS created_by_name
         FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by WHERE d.id = $1`, [req.params.id]);
-    if (!row || !String(row.file_name).startsWith(FILE_PREFIX)) throw notFound();
+    if (!row || !(String(row.file_name).startsWith(FILE_PREFIX) || String(row.file_name).startsWith('laptop-receipt-'))) throw notFound();
     if (!canReadAll(a) && row.employee_id !== a.id) throw notFound();
     return ok({ receipt: shapeRecord(row) });
   });

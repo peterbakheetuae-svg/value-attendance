@@ -10,6 +10,7 @@ import '../services/jph_bridge.dart';
 import '../theme/app_colors.dart';
 import 'app_background.dart';
 import 'glass_ui_widgets.dart';
+import 'glass_dialog.dart';
 
 /// Employee documents (acknowledgment PDF, job description PDF, ID image) and custody sections —
 /// same glass cards as the rest of the profile. Files are fetched with the session token only.
@@ -67,9 +68,8 @@ Future<void> openDocument(BuildContext context, {required String id, required St
     if (mime.startsWith('image/')) {
       await showDialog<void>(
         context: context,
-        builder: (d) => Dialog(
+        builder: (d) => GlassDialogPanel(
           insetPadding: const EdgeInsets.all(12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Padding(padding: const EdgeInsets.all(12), child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700))),
             Flexible(child: InteractiveViewer(child: Image.memory(bytes))),
@@ -272,20 +272,29 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
         ),
       );
 
+  /// تسليم عهدة: pick one of the items added in Settings → العهدة that is not with anyone.
   Future<void> _assign() async {
-    final name = TextEditingController(), serial = TextEditingController(), desc = TextEditingController(), notes = TextEditingController();
-    String type = 'laptop', cond = 'good';
+    final r0 = await ApiService.post({'action': 'cash_get', 'path': '/custody/assets', 'query': {'available': '1'}});
+    if (!mounted) return;
+    final assets = ((r0['assets'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    if (assets.isEmpty) {
+      _snack({'success': false, 'message': r0['success'] == true ? 'مفيش عهدة متاحة — ضيفها الأول من الإعدادات ← العهدة' : '${r0['message'] ?? ''}'});
+      return;
+    }
+    final notes = TextEditingController();
+    String cond = 'good';
+    String? assetId;
     await showModalBottomSheet(
       context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => _sheet(ctx, 'تسليم عهدة', [
-            DropdownButtonFormField<String>(value: type, decoration: _input('النوع'),
-                items: custodyTypes.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(), onChanged: (v) => set(() => type = v ?? type)),
-            const SizedBox(height: 10),
-            TextField(controller: name, decoration: _input('اسم العهدة *')),
-            const SizedBox(height: 10),
-            TextField(controller: serial, decoration: _input('الرقم التسلسلي')),
-            const SizedBox(height: 10),
-            TextField(controller: desc, maxLines: 2, decoration: _input('الوصف')),
+            DropdownButtonFormField<String>(value: assetId, isExpanded: true, decoration: _input('العهدة *'),
+                items: [
+                  for (final a in assets)
+                    DropdownMenuItem(value: '${a['id']}',
+                        child: Text('${a['typeAr'] ?? ''}: ${a['name']}${'${a['serialNo'] ?? ''}'.isEmpty ? '' : ' — ${a['serialNo']}'}',
+                            overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => set(() => assetId = v)),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(value: cond, decoration: _input('الحالة وقت التسليم'),
                 items: _conditions.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(), onChanged: (v) => set(() => cond = v ?? cond)),
@@ -293,9 +302,9 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
             TextField(controller: notes, decoration: _input('ملاحظات')),
             const SizedBox(height: 16),
             _save(() async {
-              if (name.text.trim().length < 2) return;
-              final r = await ApiService.post({'action': 'custody_assign', 'id': widget.employeeId, 'assetName': name.text.trim(), 'assetType': type,
-                'serialNo': serial.text.trim(), 'description': desc.text.trim(), 'condition': cond, 'notes': notes.text.trim()});
+              if (assetId == null) return;
+              final r = await ApiService.post({'action': 'custody_assign', 'id': widget.employeeId, 'assetId': assetId, 'condition': cond,
+                'notes': notes.text.trim()});
               if (ctx.mounted) Navigator.pop(ctx);
               _snack(r);
             }),

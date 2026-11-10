@@ -8,6 +8,7 @@ import 'api_service.dart';
 import 'jph_bridge.dart';
 import 'notification_service.dart';
 import '../../core/push.dart';
+import '../widgets/glass_dialog.dart';
 
 /// In-app notification center with an audible ring (no push service on the free plan):
 /// polls the API while the app runs (Android keeps running in the background during a shift),
@@ -56,7 +57,7 @@ class AlertCenter with WidgetsBindingObserver {
       context: ctx,
       builder: (c) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
+        child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           icon: const Icon(Icons.error_outline_rounded, color: Colors.red, size: 46),
           title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -159,7 +160,7 @@ class AlertCenter with WidgetsBindingObserver {
     if (r.failed.isNotEmpty) {
       await showDialog<void>(
         context: ctx,
-        builder: (d) => AlertDialog(
+        builder: (d) => GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           title: const Text('حاجات اتسجلت أوفلاين ومااتقبلتش'),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -257,9 +258,7 @@ class AlertCenter with WidgetsBindingObserver {
     final warn = '${n['type']}'.contains('unauthorized') || '${n['type']}'.contains('overdue') || '${n['type']}'.contains('stopped');
     await showDialog<void>(
       context: ctx,
-      builder: (d) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        backgroundColor: dark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+      builder: (d) => GlassDialogPanel(
         insetPadding: const EdgeInsets.all(16),
         child: Padding(
           padding: const EdgeInsets.all(24),

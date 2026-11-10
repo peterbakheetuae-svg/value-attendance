@@ -9,6 +9,7 @@ import '../../widgets/employee_files.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_dialog.dart';
 
 class EmployeeDetailsPage extends StatefulWidget {
   final Map<String, dynamic> employeeData;
@@ -1094,7 +1095,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     final email = (_employeeData['email'] ?? '').toString();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (d) => AlertDialog(
+      builder: (d) => GlassAlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text('إعادة تعيين كلمة المرور'),
         content: Text(email.isNotEmpty
@@ -1121,7 +1122,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     final pw = '${r['password'] ?? ''}';
     await showDialog<void>(
       context: context,
-      builder: (d) => AlertDialog(
+      builder: (d) => GlassAlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: const Text('كلمة المرور المؤقتة'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [

@@ -8,6 +8,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../services/api_service.dart';
+import '../../widgets/glass_dialog.dart';
 
 /// Advances management screen — list, submit, approve/reject advance requests.
 ///
@@ -227,7 +228,7 @@ class _AdvancesPageState extends State<AdvancesPage> {
 
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => GlassAlertDialog(
         title: Text(AppLocalizations.of(dialogContext, 'advance_requests')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -325,7 +326,7 @@ class _AdvancesPageState extends State<AdvancesPage> {
     final controller = TextEditingController();
     return showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(AppLocalizations.of(ctx, 'rejection_reason')),
         content: TextField(
           controller: controller,
