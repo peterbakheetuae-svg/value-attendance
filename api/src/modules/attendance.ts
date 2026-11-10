@@ -32,7 +32,7 @@ export async function geofence(q: Q, body: Record<string, unknown>, opts: { enfo
   return { status: 'inside' as const, lat, lng, acc };
 }
 
-async function scheduleFor(q: Q, employeeId: string) {
+export async function scheduleFor(q: Q, employeeId: string) {
   return one(q, `
     SELECT ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time,
            e.attendance_exempt, e.selfie_required AS emp_selfie_required

@@ -23,8 +23,8 @@ CREATE OR REPLACE FUNCTION employee_documents_guard() RETURNS trigger LANGUAGE p
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.employee_id IS NULL THEN RETURN OLD; END IF;  -- abandoned staged upload
-    -- a form (استمارة), deleted through the API by someone allowed to (it sets va.form_delete for that one statement)
-    IF OLD.kind = 'other' AND current_setting('va.form_delete', true) = OLD.id::text
+    -- a form (استمارة), deleted through the API by someone allowed to (it sets va.form_delete to that form's id, or '*' for the owner's one-time data reset)
+    IF OLD.kind = 'other' AND current_setting('va.form_delete', true) IN (OLD.id::text, '*')
        AND (OLD.file_name LIKE 'custody-receipt-%' OR OLD.file_name LIKE 'laptop-receipt-%' OR OLD.file_name LIKE 'client-intro-%') THEN
       RETURN OLD;
     END IF;

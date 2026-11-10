@@ -1,0 +1,54 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { harness, cast, type Harness } from './helpers.ts';
+
+/** One-time start-over: activity, money and earlier forms go; employees and custody stay; old attendance comes in. */
+let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
+before(async () => { h = await harness('2026-11-10T13:00:00Z'); c = await cast(h); });
+after(async () => { await h.close(); });
+
+test('owner only; dry run changes nothing; the reset keeps employees + custody and imports the old attendance', async () => {
+  await h.db.query(`UPDATE employees SET phone = '01097790378' WHERE id = $1`, [c.ids.e1]);
+  // some activity to wipe
+  assert.equal((await h.call(c.t.hr, 'POST', '/attendance/corrections', { employeeId: c.ids.e2, workDate: '2026-11-03', checkIn: '10:00', checkOut: '18:00', reason: 'test' })).status, 201);
+  const asset = await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'mobile', name: 'Samsung A15', serialNo: 'IMEI-1' });
+  assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/custody`, { assetId: asset.body.asset.id })).status, 201);
+  const intro = { date: '2026-11-10', clientName: 'عميل', phone: '01012345678', propertyTypes: ['residential'] };
+  assert.equal((await h.call(c.t.e1, 'POST', '/forms/client-intros', { data: intro })).status, 201);
+  const empsBefore = (await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows;
+
+  const body = {
+    employees: [{ key: 'old1', name: 'بلال عبدالله', phone: '01097790378' }, { key: 'old2', name: 'موظف ٢' }, { key: 'old3', name: 'مش موجود' }],
+    attendance: [
+      { key: 'old1', day: '2026-11-01', in: '12:50', out: '20:36' },
+      { key: 'old1', day: '2026-11-10', in: '12:23', out: null },
+      { key: 'old2', day: '2026-11-02', in: '11:00', out: '19:00' },
+      { key: 'old3', day: '2026-11-02', in: '11:00', out: '19:00' },
+    ],
+  };
+  assert.equal((await h.call(c.t.hr, 'POST', '/admin/data-reset', body)).status, 403);
+  const dry = await h.call(c.t.owner, 'POST', '/admin/data-reset', body);
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.dryRun, true);
+  assert.equal(dry.body.summary[0].matched.id, c.ids.e1, 'matched by phone');
+  assert.equal(dry.body.summary[1].matched.id, c.ids.e2, 'matched by name');
+  assert.equal(dry.body.summary[2].matched, null);
+  assert.equal(dry.body.rows, 3);
+  assert.equal(Number((await h.db.query(`SELECT count(*) FROM attendance`)).rows[0].count), 1, 'dry run changed nothing');
+
+  assert.equal((await h.call(c.t.owner, 'POST', '/admin/data-reset', { ...body, dryRun: false })).status, 400, 'needs the confirmation words');
+  const res = await h.call(c.t.owner, 'POST', '/admin/data-reset', { ...body, dryRun: false, confirm: 'امسح البيانات' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.attendanceImported, 3);
+  assert.equal(res.body.formsDeleted, 1);
+  const att = (await h.db.query(`SELECT employee_id, work_date::text AS d, check_out_at FROM attendance ORDER BY work_date`)).rows;
+  assert.deepEqual(att.map((x) => x.d), ['2026-11-01', '2026-11-02', '2026-11-10']);
+  assert.equal(att[2].check_out_at, null, 'today still open: the employee checks out from the new app');
+  assert.equal(Number((await h.db.query(`SELECT count(*) FROM attendance_corrections`)).rows[0].count), 0);
+  assert.deepEqual((await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows, empsBefore, 'employees untouched');
+  assert.equal(Number((await h.db.query(`SELECT count(*) FROM custody_items`)).rows[0].count), 1, 'custody kept');
+  assert.equal(Number((await h.db.query(`SELECT count(*) FROM custody_assets`)).rows[0].count), 1);
+  assert.equal((await h.call(c.t.e1, 'POST', '/forms/client-intros', { data: intro })).body.form.number, 1, 'form numbering starts again');
+  const month = await h.call(c.t.hr, 'GET', `/attendance?employeeId=${c.ids.e1}&month=2026-11`);
+  assert.equal(month.status, 200, JSON.stringify(month.body));
+});
