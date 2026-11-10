@@ -289,7 +289,7 @@ export const formsModule: Module = (r, { db }) => {
       SELECT d.id, d.employee_id, d.title, d.content, d.created_at, u.full_name AS created_by_name
         FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by
        WHERE ${where} ORDER BY d.created_at DESC LIMIT 500`, vals);
-    return ok({ forms: rows.rows.map(shapeRecord), canPickSales: canManage(a), canDelete: canDelete(a) });
+    return ok({ forms: rows.rows.map(shapeRecord), canPickSales: canManage(a), canDelete: canDelete(a), canFilterEmployees: canReadAll(a) });
   });
 
   // ------------------------------------------------------------------ delete an earlier form

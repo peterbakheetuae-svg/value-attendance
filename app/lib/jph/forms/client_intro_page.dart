@@ -241,6 +241,9 @@ class _HistoryState extends State<_History> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
   bool _canDelete = false;
+  bool _canFilterEmployees = false;
+  DateTimeRange? _range; // filter: days (everyone)
+  String? _empId; // filter: sales person (HR / المدير / المالك)
 
   @override
   void initState() {
@@ -255,7 +258,62 @@ class _HistoryState extends State<_History> {
       _loading = false;
       _items = cashList(r, 'forms');
       _canDelete = r['canDelete'] == true;
+      _canFilterEmployees = r['canFilterEmployees'] == true;
     });
+  }
+
+  String _d(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String _show(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  /// sales people that appear on the loaded forms (id → name)
+  Map<String, String> get _people {
+    final m = <String, String>{};
+    for (final f in _items) {
+      final id = '${f['employeeId'] ?? ''}';
+      if (id.isNotEmpty) m[id] = '${(f['data'] as Map?)?['salesName'] ?? ''}';
+    }
+    return m;
+  }
+
+  List<Map<String, dynamic>> get _shown => _items.where((f) {
+        final day = '${(f['data'] as Map?)?['date'] ?? ''}';
+        if (_range != null && (day.compareTo(_d(_range!.start)) < 0 || day.compareTo(_d(_range!.end)) > 0)) return false;
+        if (_empId != null && '${f['employeeId']}' != _empId) return false;
+        return true;
+      }).toList();
+
+  List<Widget> _filters(BuildContext context, bool isDark) {
+    final people = _people;
+    return [
+      JphUi.picker(
+        isDark: isDark, icon: Icons.date_range_rounded, iconColor: Colors.indigo, label: 'الأيام',
+        value: _range == null ? 'كل الأيام' : '${_show(_range!.start)} - ${_show(_range!.end)}',
+        onTap: () async {
+          final now = DateTime.now();
+          final r = await JphUi.pickRange(context, isDark, _range?.start ?? DateTime(now.year, now.month, 1), _range?.end ?? now);
+          if (r != null && mounted) setState(() => _range = r);
+        },
+      ),
+      if (_range != null)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(onPressed: () => setState(() => _range = null), icon: const Icon(Icons.close_rounded, size: 18), label: const Text('كل الأيام')),
+        ),
+      if (_canFilterEmployees) ...[
+        const SizedBox(height: 10),
+        JphUi.picker(
+          isDark: isDark, icon: Icons.person_rounded, iconColor: Colors.teal, label: 'الموظف',
+          value: _empId == null ? 'كل الموظفين' : (people[_empId] ?? ''),
+          onTap: () async {
+            final v = await JphUi.sheet<String>(context, isDark, 'الموظف',
+                [('', 'كل الموظفين', Icons.groups_rounded), for (final e in people.entries) (e.key, e.value, Icons.person_rounded)],
+                selected: _empId ?? '');
+            if (v != null && mounted) setState(() => _empId = v.isEmpty ? null : v);
+          },
+        ),
+      ],
+      const SizedBox(height: 12),
+    ];
   }
 
   @override
@@ -265,9 +323,11 @@ class _HistoryState extends State<_History> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 60), children: [
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-        if (!_loading && _items.isEmpty)
-          Padding(padding: const EdgeInsets.all(30), child: Text('لسه مفيش استمارات', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
-        for (final f in _items)
+        if (!_loading && _items.isNotEmpty) ..._filters(context, isDark),
+        if (!_loading && _shown.isEmpty)
+          Padding(padding: const EdgeInsets.all(30), child: Text(_items.isEmpty ? 'لسه مفيش استمارات' : 'مفيش استمارات بالفلتر ده',
+              textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        for (final f in _shown)
           GestureDetector(
             onTap: () => _print(context, f),
             child: Container(

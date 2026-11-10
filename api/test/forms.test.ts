@@ -82,6 +82,8 @@ test('client intro form: any employee files it, his own name is the sales person
   assert.equal(hr.body.form.employeeId, c.ids.e2);
   assert.equal((await h.call(c.t.e1, 'GET', '/forms/client-intros')).body.forms.length, 1);
   assert.equal((await h.call(c.t.hr, 'GET', '/forms/client-intros')).body.forms.length, 2);
+  assert.equal((await h.call(c.t.hr, 'GET', '/forms/client-intros')).body.canFilterEmployees, true);
+  assert.equal((await h.call(c.t.e1, 'GET', '/forms/client-intros')).body.canFilterEmployees, false);
 });
 
 test('HR / المدير / the owner delete an earlier form; nobody else; numbers are never given again', async () => {
