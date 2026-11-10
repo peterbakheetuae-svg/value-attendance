@@ -99,3 +99,15 @@ test('العهدة list: add mobiles / laptops once, hand one to an employee fro
   const all = (await h.call(c.t.hr, 'GET', '/custody/assets')).body.assets;
   assert.equal(all.find((x: any) => x.id === m.body.asset.id).holder.employeeId, c.ids.e1);
 });
+
+test('custody asset: archive hides it from handover; restore brings it back', async () => {
+  const x = await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'laptop', name: 'Lenovo T14', serialNo: 'ARCH-1' });
+  assert.equal(x.status, 201, JSON.stringify(x.body));
+  const id = x.body.asset.id;
+  const avail = async () => (await h.call(c.t.hr, 'GET', '/custody/assets?type=laptop&available=1')).body.assets.some((a: any) => a.id === id);
+  assert.equal((await h.call(c.t.hr, 'POST', `/custody/assets/${id}/retire`, {})).status, 200);
+  assert.equal(await avail(), false);
+  assert.equal((await h.call(c.t.e1, 'POST', `/custody/assets/${id}/restore`, {})).status, 403);
+  assert.equal((await h.call(c.t.hr, 'POST', `/custody/assets/${id}/restore`, {})).status, 200);
+  assert.equal(await avail(), true);
+});

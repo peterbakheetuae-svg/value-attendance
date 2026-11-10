@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 
@@ -236,7 +237,27 @@ class _AssetsListState extends State<_AssetsList> {
   }
 
   Future<void> _retire(Map<String, dynamic> x) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => GlassAlertDialog(
+        icon: const Icon(Icons.archive_rounded, color: Colors.orange, size: 40),
+        title: const Text('أرشفة'),
+        content: Text('«${x['name']}» هتتشال من القايمة ومش هتظهر في التسليم. تقدر ترجعها تاني من «المؤرشفة». متأكد؟', textAlign: TextAlign.center),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.orange), onPressed: () => Navigator.pop(ctx, true), child: const Text('أرشفة')),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
     final r = await ApiService.post({'action': 'cash_post', 'path': '/custody/assets/${x['id']}/retire', 'body': {}, 'ok': 'اتشالت من القايمة'});
+    if (!mounted) return;
+    JphUi.toast(context, r);
+    load();
+  }
+
+  Future<void> _restore(Map<String, dynamic> x) async {
+    final r = await ApiService.post({'action': 'cash_post', 'path': '/custody/assets/${x['id']}/restore', 'body': {}, 'ok': 'رجعت للقايمة ✅'});
     if (!mounted) return;
     JphUi.toast(context, r);
     load();
@@ -263,7 +284,12 @@ class _AssetsListState extends State<_AssetsList> {
             padding: const EdgeInsets.all(30),
             child: Text('لسه مفيش — دوس + فوق على اليمين وضيف', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))),
           ),
-        for (final x in _items)
+        for (final x in [..._items.where((x) => x['status'] != 'retired'), ..._items.where((x) => x['status'] == 'retired')]) ...[
+          if (x['status'] == 'retired' && identical(x, _items.firstWhere((y) => y['status'] == 'retired')))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
+              child: Text('المؤرشفة', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.sub(isDark))),
+            ),
           Opacity(
             opacity: x['status'] == 'retired' ? 0.5 : 1,
             child: Container(
@@ -289,7 +315,7 @@ class _AssetsListState extends State<_AssetsList> {
                     const SizedBox(height: 2),
                     Text(
                         x['status'] == 'retired'
-                            ? 'متشالة من القايمة'
+                            ? 'مؤرشفة'
                             : x['holder'] != null
                                 ? 'مع ${(x['holder'] as Map)['name']} من ${'${(x['holder'] as Map)['since'] ?? ''}'.padRight(10).substring(0, 10).trim()}'
                                 : 'متاحة للتسليم',
@@ -298,13 +324,20 @@ class _AssetsListState extends State<_AssetsList> {
                 ),
                 if (ApiService.can('custody.manage') && x['status'] == 'active' && x['holder'] == null)
                   IconButton(
-                    tooltip: 'شيلها من القايمة',
+                    tooltip: 'أرشفة',
                     onPressed: () => _retire(x),
                     icon: Icon(Icons.archive_outlined, color: JphUi.sub(isDark)),
+                  ),
+                if (ApiService.can('custody.manage') && x['status'] == 'retired')
+                  TextButton.icon(
+                    onPressed: () => _restore(x),
+                    icon: const Icon(Icons.unarchive_rounded),
+                    label: const Text('رجّعها'),
                   ),
               ]),
             ),
           ),
+        ],
       ]),
     );
   }

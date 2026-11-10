@@ -89,6 +89,20 @@ export const custodyModule: Module = (r, { db, clock }) => {
     return ok({ ok: true });
   });
 
+  /** Bring an archived asset back to the list (available for handover again). */
+  r.post('/custody/assets/:id/restore', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManageCustody(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    await db.tx(async (q) => {
+      const x = await one(q, `SELECT * FROM custody_assets WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!x) throw notFound();
+      await q.query(`UPDATE custody_assets SET status = 'active' WHERE id = $1`, [x.id]);
+      await audit(q, a.id, 'custody.asset.restore', 'custody_asset', x.id);
+    });
+    return ok({ ok: true });
+  });
+
   r.get('/employees/:id/custody', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id) || !(await canReadCustody(db, a, req.params.id))) throw notFound('Employee not found');
