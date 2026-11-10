@@ -83,7 +83,9 @@ class ApiClient {
     Future<Map<String, dynamic>> fetch() => _inflight[memKey] ??= _getNetwork(path, query).then((r) {
           if (!live && r['_offline'] != true && gen == _gen) _mem[memKey] = (r, DateTime.now());
           return r;
-        }).whenComplete(() => _inflight.remove(memKey));
+        }).whenComplete(() {
+          _inflight.remove(memKey); // (a block: returning the removed future would make it wait for itself)
+        });
     if (hit != null && age! < _memTtl) {
       if (age > _memFresh) fetch().catchError((_) => <String, dynamic>{}); // refresh quietly for the next time
       return Future.value({...hit.$1});

@@ -32,4 +32,19 @@ void main() {
     final down = ApiClient(baseUrl: 'http://x', client: MockClient((_) async => throw http.ClientException('down')));
     try { await down.get('/me'); fail('should throw'); } on ApiException catch (e) { expect(e.isNetwork, true); }
   });
+
+  test('a read seen again is served at once; any change forgets it; live paths are never remembered', () async {
+    var n = 0;
+    final api = ApiClient(baseUrl: 'http://x', client: MockClient((r) async {
+      n++;
+      return http.Response(jsonEncode({'n': n}), 200);
+    }))..token = 't';
+    expect((await api.get('/employees'))['n'], 1);
+    expect((await api.get('/employees'))['n'], 1, reason: 'remembered');
+    await api.post('/employees', {});
+    expect((await api.get('/employees'))['n'], 3, reason: 'a change forgets it');
+    final a = await api.get('/attendance/today');
+    final b = await api.get('/attendance/today');
+    expect(b['n'], greaterThan(a['n'] as int), reason: 'live screens always ask the server');
+  });
 }
