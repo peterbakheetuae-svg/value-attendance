@@ -84,10 +84,10 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
         child: pw.FittedBox(
           fit: pw.BoxFit.scaleDown,
           alignment: align,
-          // Latin letters / digits are taller than the Arabic ones at the same size: one point smaller keeps the row even
+          // written in the same size as the form's own printed text (Arabic and Latin / digits alike)
           child: _arabic.hasMatch(v)
               ? pw.Text(v, style: style, textDirection: pw.TextDirection.rtl)
-              : pw.Text(v, style: style.copyWith(fontSize: t.fontSize - 1), textDirection: pw.TextDirection.ltr),
+              : pw.Text(v, style: style, textDirection: pw.TextDirection.ltr),
         ),
       ),
     );
