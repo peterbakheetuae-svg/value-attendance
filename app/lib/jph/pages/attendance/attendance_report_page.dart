@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/attendance_report_monthly_api.dart';
+import '../../services/jph_bridge.dart';
 import '../../services/api_service.dart';
 import '../../services/attendance_report_daily_expanded_api.dart'; // 🔥 استيراد API الجديد
 import '../../services/employee_list_api.dart';
@@ -101,6 +102,11 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       if (res["success"] == true) {
         setState(() {
           employees = List<Map<String, dynamic>>.from(res["employees"] ?? []);
+          // a team manager (e.g. مدير المبيعات) sees only his team members who are on duty — not those who left / were settled
+          if (!ApiService.can('employee.read_all')) {
+            final me = JphBridge.myId;
+            employees = employees.where((e) => '${e["uid"]}' == me || '${e["id"]}' == me || '${e["status"]}' == 'على رأس العمل').toList();
+          }
 
           // 🔥 إذا كانت القائمة غير فارغة، نختار أول موظف افتراضيًا
           if (employees.isNotEmpty) {
@@ -646,6 +652,8 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 120),
         child: MonthlySection(
           canPrint: ApiService.can('employee.salary_read'),
+          // money boxes only for those who read salaries (or his own report); a team manager sees the first six only
+          showMoney: ApiService.can('employee.salary_read') || selectedUid == JphBridge.myId || selectedUid == JphBridge.myCode,
           employeeName: selectedEmployeeName ?? '',
           monthLabel: '${_monthNameAr(selMonth)} $selYear',
           monthly: monthly,

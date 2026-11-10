@@ -32,16 +32,8 @@ const isDay = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.tes
 const isTime = (v: unknown) => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
 export const dataResetModule: Module = (r, { db }) => {
-  r.post('/admin/data-reset', async (req) => {
-    const a = await authenticate(db, req);
-    if (a.role !== 'owner') throw forbidden('Only the owner can reset the data');
-    const b = obj(req.body);
-    const dryRun = b.dryRun !== false;
-    const people = Array.isArray(b.employees) ? b.employees.map((x) => obj(x)) : [];
-    const rows = Array.isArray(b.attendance) ? b.attendance.map((x) => obj(x)) : [];
-    if (rows.length > 5000) throw invalid('Too many rows');
-
-    // match each old employee to a current one: phone first, then the name
+  /** match each old employee to a current one: phone first, then the name */
+  async function matchPeople(people: Record<string, unknown>[]) {
     const current = (await db.query(`SELECT id, full_name, phone, status FROM employees`)).rows;
     const byPhone = new Map(current.filter((e) => e.phone).map((e) => [digits(e.phone), e]));
     const byName = new Map(current.map((e) => [norm(e.full_name), e]));
@@ -51,6 +43,66 @@ export const dataResetModule: Module = (r, { db }) => {
       if (e) match.set(String(p.key), e);
       return { key: p.key, oldName: p.name, matched: e ? { id: e.id, name: e.full_name, status: e.status } : null };
     });
+    return { match, report };
+  }
+
+  /**
+   * Approved hourly permissions (إذن ساعات) from the old app → approved requests here, so the late arrival they
+   * covered is neither counted as late nor deducted. Each one is kept inside the employee's working hours.
+   * The owner only; `dryRun: true` (the default) only reports.
+   */
+  r.post('/admin/import-permissions', async (req) => {
+    const a = await authenticate(db, req);
+    if (a.role !== 'owner') throw forbidden('Only the owner can import');
+    const b = obj(req.body);
+    const dryRun = b.dryRun !== false;
+    const people = Array.isArray(b.employees) ? b.employees.map((x) => obj(x)) : [];
+    const rows = Array.isArray(b.permissions) ? b.permissions.map((x) => obj(x)) : [];
+    if (rows.length > 2000) throw invalid('Too many rows');
+    const { match, report } = await matchPeople(people);
+    const hm = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const plan: { employeeId: string; name: string; day: string; from: string; to: string; minutes: number; reason: string }[] = [];
+    const skipped: unknown[] = [];
+    for (const x of rows) {
+      const e = match.get(String(x.key));
+      if (!e || !isDay(x.day) || !isTime(x.from) || !isTime(x.to)) { skipped.push(x); continue; }
+      const s0 = await scheduleFor(db, e.id);
+      const start = hm(String(s0.start_time)), end = hm(String(s0.end_time));
+      const from = Math.max(hm(String(x.from)), start), to = Math.min(hm(String(x.to)), end);
+      if (to <= from) { skipped.push(x); continue; }
+      plan.push({ employeeId: e.id, name: e.full_name, day: String(x.day), from: fmt(from), to: fmt(to), minutes: to - from,
+        reason: (typeof x.reason === 'string' && x.reason.trim().length >= 3 ? x.reason.trim() : 'إذن ساعات — من التطبيق القديم').slice(0, 500) });
+    }
+    if (dryRun) return ok({ dryRun: true, summary: report, plan, skipped });
+    const imported = await db.tx(async (q) => {
+      let n = 0;
+      for (const p of plan) {
+        const dup = await one(q, `SELECT 1 FROM requests WHERE employee_id = $1 AND type = 'hourly_permission' AND day = $2
+                                    AND from_time = $3 AND to_time = $4 AND status = 'approved'`, [p.employeeId, p.day, p.from, p.to]);
+        if (dup) continue;
+        const rq = await one(q, `INSERT INTO requests (employee_id, type, day, from_time, to_time, duration_minutes, reason, route, status, decided_at)
+          VALUES ($1,'hourly_permission',$2,$3,$4,$5,$6,'hr_only','approved', now()) RETURNING id`,
+          [p.employeeId, p.day, p.from, p.to, p.minutes, p.reason]);
+        await q.query(`INSERT INTO request_actions (request_id, actor_id, stage, action, comment) VALUES ($1,$2,'hr','approve','من التطبيق القديم')`, [rq.id, a.id]);
+        n++;
+      }
+      await audit(q, a.id, 'data.import_permissions', 'company', null, undefined, { imported: n });
+      return n;
+    });
+    return ok({ dryRun: false, imported, plan });
+  });
+
+  r.post('/admin/data-reset', async (req) => {
+    const a = await authenticate(db, req);
+    if (a.role !== 'owner') throw forbidden('Only the owner can reset the data');
+    const b = obj(req.body);
+    const dryRun = b.dryRun !== false;
+    const people = Array.isArray(b.employees) ? b.employees.map((x) => obj(x)) : [];
+    const rows = Array.isArray(b.attendance) ? b.attendance.map((x) => obj(x)) : [];
+    if (rows.length > 5000) throw invalid('Too many rows');
+
+    const { match, report } = await matchPeople(people);
     const plan: { employeeId: string; day: string; in: string; out: string | null }[] = [];
     const skipped: unknown[] = [];
     for (const x of rows) {

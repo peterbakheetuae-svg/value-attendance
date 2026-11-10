@@ -52,3 +52,27 @@ test('owner only; dry run changes nothing; the reset keeps employees + custody a
   const month = await h.call(c.t.hr, 'GET', `/attendance?employeeId=${c.ids.e1}&month=2026-11`);
   assert.equal(month.status, 200, JSON.stringify(month.body));
 });
+
+test('old hourly permissions come in as approved requests and excuse the late arrival they covered', async () => {
+  // e2 starts at the default schedule; a late check-in on 2026-11-04
+  const s = (await h.db.query(`SELECT to_char(start_time,'HH24:MI') AS st FROM work_schedules WHERE is_default`)).rows[0].st;
+  const [H, M] = s.split(':').map(Number);
+  const late = `${String(H + 3).padStart(2, '0')}:${String(M).padStart(2, '0')}`;
+  assert.equal((await h.call(c.t.hr, 'POST', '/attendance/corrections', { employeeId: c.ids.e2, workDate: '2026-11-04', checkIn: late, reason: 'test' })).status, 201);
+  const before = (await h.call(c.t.hr, 'GET', `/attendance?employeeId=${c.ids.e2}&month=2026-11`)).body.summary.lateMinutes;
+  assert.ok(before >= 180);
+  const body = { employees: [{ key: 'x', name: 'موظف ٢' }],
+    permissions: [{ key: 'x', day: '2026-11-04', from: '00:00', to: late, reason: 'سيكشن' }, { key: 'nobody', day: '2026-11-04', from: '10:00', to: '11:00' }] };
+  assert.equal((await h.call(c.t.hr, 'POST', '/admin/import-permissions', body)).status, 403);
+  const dry = await h.call(c.t.owner, 'POST', '/admin/import-permissions', body);
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.plan.length, 1);
+  assert.equal(dry.body.plan[0].from, s, 'kept inside the working hours');
+  assert.equal(dry.body.skipped.length, 1);
+  const res = await h.call(c.t.owner, 'POST', '/admin/import-permissions', { ...body, dryRun: false });
+  assert.equal(res.body.imported, 1);
+  assert.equal((await h.call(c.t.owner, 'POST', '/admin/import-permissions', { ...body, dryRun: false })).body.imported, 0, 'no duplicates');
+  const after = (await h.call(c.t.hr, 'GET', `/attendance?employeeId=${c.ids.e2}&month=2026-11`)).body.summary;
+  assert.equal(after.lateMinutes, before - 180);
+  assert.equal(after.hourlyPermissions, 1);
+});

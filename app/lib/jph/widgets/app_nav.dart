@@ -19,7 +19,8 @@ class AppNav {
   /// how many home pages are alive (set by the two home pages) — the home is always the bottom of the stack
   static int homeAlive = 0;
 
-  static bool get seesEmployees => ApiService.can('employee.read_all') || ApiService.can('employee.read_team');
+  /// صفحة الموظفين: HR / the management only (a sales manager sees his team in the reports, not this page)
+  static bool get seesEmployees => ApiService.can('employee.read_all');
 
   static Widget home({required String uid, required String name, required String role, String photo = ''}) => adminHome
       ? DashboardPage(uid: uid, name: name, role: role, photo: photo)

@@ -1121,7 +1121,7 @@ class JphRouter {
       'nationalIdNo': _s(lf['nationalIdNo'], ''),
       'birthDate': _s(lf['birthDate'], ''),
       'active': e['status'] == 'active',
-      'status': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
+      'status': _s(lf['status'] ?? e['work_status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
       'salary': salary == null ? '0' : '$salary',
       'dailyRate': _s(lf['dailyRate'], '0'),
       'level': _s(lf['level'], '0%'),

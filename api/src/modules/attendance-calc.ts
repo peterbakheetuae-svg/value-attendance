@@ -100,6 +100,13 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
     const absence = abs.rows.find((x) => x.start_date <= d && x.end_date >= d);
     if (a) {
       const m = metrics(a, today);
+      // an approved hourly permission (إذن ساعات) covers late arrival first — the same rule as the payroll
+      if (entry.hourlyPermissionMinutes && m.isLate) {
+        const lateRaw = Math.max(0, local(new Date(a.check_in_at)).minutes - timeToMinutes(a.schedule_start));
+        const left = Math.max(0, lateRaw - entry.hourlyPermissionMinutes);
+        m.lateMinutes = left > a.late_grace_minutes ? left : 0;
+        m.isLate = m.lateMinutes > 0;
+      }
       entry.status = 'present';
       entry.attendance = { id: a.id, checkIn: a.check_in_at, checkOut: a.check_out_at, corrected: a.corrected, hasSelfie: (a as any).has_selfie === true, ...m };
     }

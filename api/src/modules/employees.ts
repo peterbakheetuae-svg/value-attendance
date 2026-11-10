@@ -554,8 +554,10 @@ export const employeesModule: Module = (r, { db, clock }) => {
 function teamCard(e: any) {
   const { id, code, full_name, job_title, department_id, department_name, team_id, team_name,
     sales_manager_id, sales_manager_name, role_key, role_name_ar, role_name_en, status, joining_date, has_photo } = e;
+  // work_status: على رأس العمل / مغادر / تم التصفيه / إجازة — so a team manager's lists show only those on duty
+  const work_status = typeof e.legacy_fields?.status === 'string' ? e.legacy_fields.status : null;
   return { id, code, full_name, job_title, department_id, department_name, team_id, team_name,
-    sales_manager_id, sales_manager_name, role_key, role_name_ar, role_name_en, status, joining_date, has_photo };
+    sales_manager_id, sales_manager_name, role_key, role_name_ar, role_name_en, status, joining_date, has_photo, work_status };
 }
 
 function diff(before: any, after: any) {

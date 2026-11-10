@@ -86,7 +86,7 @@ class GlassBottomNav extends StatelessWidget {
                             activeColor: activeColor,
                             inactiveColor: inactiveColor,
                           ),
-                        if (ApiService.can('employee.read_all') || ApiService.can('employee.read_team'))
+                        if (ApiService.can('employee.read_all'))
                         _Item(
                           icon: Icons.group_rounded,
                           label: AppLocalizations.of(context, 'Employees'),

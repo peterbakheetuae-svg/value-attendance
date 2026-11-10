@@ -10,11 +10,14 @@ class MonthlySection extends StatelessWidget {
   final String Function(dynamic) formatOvertime;
   /// salary slip printing (HR / salary readers only)
   final bool canPrint;
+  /// the money boxes (late deduction → arrears); off for a team manager looking at his team (first six boxes only)
+  final bool showMoney;
   final String employeeName;
   final String monthLabel;
 
   const MonthlySection({
     this.canPrint = false,
+    this.showMoney = true,
     this.employeeName = '',
     this.monthLabel = '',
     super.key,
@@ -212,6 +215,7 @@ class MonthlySection extends StatelessWidget {
                   isDark: isDark,
                 ),
               ),
+              if (showMoney) ...[
               const SizedBox(height: 12),
               MonthlyRow(
                 left: MonthlyMini(
@@ -302,6 +306,7 @@ class MonthlySection extends StatelessWidget {
                   isDark: isDark,
                 ),
               ),
+              ],
             ],
           ),
         ),
