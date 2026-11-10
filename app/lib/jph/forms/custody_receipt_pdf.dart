@@ -74,7 +74,6 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   // forms with dotted lines: the value takes the dots' place ("رقم الخط : 0100…" — no dots left around it),
   // on the label's baseline
   final erase = t.spec['eraseDots'] == true;
-  final paper = pw.Container(color: PdfColors.white);
 
   // a value written on its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
   pw.Widget field(List<double> b, String value) {
@@ -118,7 +117,8 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   // the dots under a filled value are covered with paper first
   void cover(List<double> b) {
     if (!erase) return;
-    children.add(pw.Positioned(left: b[0] - 0.6, top: b[3] - 4.6, child: pw.SizedBox(width: b[1] - b[0] + 1.2, height: 5.0, child: paper)));
+    children.add(pw.Positioned(left: b[0] - 0.6, top: b[3] - 4.6, child: pw.Container(width: b[1] - b[0] + 1.2, height: 5.0, color: PdfColors.white)));
+    // (a new widget each time: a pdf widget remembers where it was laid out, so one instance cannot be reused)
   }
   for (final e in text.entries) {
     var v = '${data[e.key] ?? ''}';
