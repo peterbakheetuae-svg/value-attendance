@@ -68,6 +68,8 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   final style = pw.TextStyle(font: t.arabic, fontFallback: [t.latin], fontSize: t.fontSize, color: PdfColors.black);
   // values next to a label (no dotted line) start right after its colon
   final align = t.spec['align'] == 'right' ? pw.Alignment.bottomRight : pw.Alignment.bottomCenter;
+  // room for one line of text (forms written in a bigger size give a taller line)
+  final lineH = ((t.spec['fieldHeight'] as num?) ?? 11.5).toDouble();
 
   // a value written over its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
   pw.Widget field(List<double> b, String value) {
@@ -75,10 +77,10 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     final w = b[1] - b[0];
     return pw.Positioned(
       left: b[0],
-      top: b[3] - 13.6, // baseline just above the dots, like writing on the line
+      top: b[3] - 2.1 - lineH, // baseline just above the dots, like writing on the line
       child: pw.SizedBox(
         width: w,
-        height: 11.5,
+        height: lineH,
         child: pw.FittedBox(
           fit: pw.BoxFit.scaleDown,
           alignment: align,

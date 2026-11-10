@@ -4,8 +4,9 @@
   "title": "استمارة بيانات وتعارف العميل",
   "source": "استمارة تعارف.docx (approved original, kept next to this file as original.docx); the sample zeros were removed from the background",
   "page": { "size": "a4", "widthPt": 595.304, "heightPt": 841.89, "background": "assets/forms/client_intro/v1/template.png" },
-  "font": { "sizePt": 11, "arabic": "assets/fonts/forms/ValueFormNaskh-Regular.ttf", "latin": "assets/fonts/forms/ArimoLatin-Regular.ttf" },
+  "font": { "sizePt": 12.5, "arabic": "assets/fonts/forms/ValueFormNaskh-Regular.ttf", "latin": "assets/fonts/forms/ArimoLatin-Regular.ttf" },
   "align": "right",
+  "fieldHeight": 16,
   "note": "Boxes are where each value is written, in points from the page's top-left corner: [x0, x1, top, bottom]; values sit right after the label's colon.",
   "text": {
     "date":          [60.0, 150.0, 170.0, 184.4],
