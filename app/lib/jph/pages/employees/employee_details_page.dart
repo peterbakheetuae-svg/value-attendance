@@ -40,6 +40,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _nationalIdController = TextEditingController();
+  final TextEditingController _birthDateController = TextEditingController();
   final TextEditingController _dailyRateController = TextEditingController();
   final TextEditingController _salaryController = TextEditingController();
   final TextEditingController _joinDateController = TextEditingController();
@@ -151,6 +153,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _nameController.text = _employeeData['name']?.toString() ?? '';
     _phoneController.text = _employeeData['phone']?.toString() ?? '';
     _emailController.text = _employeeData['email']?.toString() ?? '';
+    _nationalIdController.text = _employeeData['nationalIdNo']?.toString() ?? '';
+    _birthDateController.text = _employeeData['birthDate']?.toString() ?? '';
     _dailyRateController.text = _employeeData['dailyRate']?.toString() ?? '';
     _salaryController.text = _employeeData['salary']?.toString() ?? '';
     _joinDateController.text = _employeeData['joinDate']?.toString() ?? '';
@@ -253,6 +257,21 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     }
   }
 
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final cur = DateTime.tryParse(_birthDateController.text.trim());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: cur ?? DateTime(now.year - 25),
+      firstDate: DateTime(1940),
+      lastDate: DateTime(now.year - 14, 12, 31),
+    );
+    if (picked != null) {
+      setState(() => _birthDateController.text =
+          "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}");
+    }
+  }
+
   Future<void> _selectJoinDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -301,6 +320,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim(),
+        'nationalIdNo': _nationalIdController.text.trim(),
+        'birthDate': _birthDateController.text.trim(),
         'role': _selectedRole,
         'position': _positionKeyOf(_selectedPosition) ?? '',
         'dailyRate': _dailyRateController.text.trim(),
@@ -641,6 +662,24 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                               icon: Icons.email,
                               isEditable: _isEditing && canToggleEdit,
                               keyboardType: TextInputType.emailAddress,
+                            ),
+                            _buildInfoField(
+                              label: 'الرقم القومي',
+                              value: _nationalIdController,
+                              icon: Icons.badge_outlined,
+                              isEditable: _isEditing && canToggleEdit,
+                              keyboardType: TextInputType.number,
+                            ),
+                            GestureDetector(
+                              onTap: _isEditing && canToggleEdit ? _pickBirthDate : null,
+                              child: AbsorbPointer(
+                                child: _buildInfoField(
+                                  label: 'تاريخ الميلاد',
+                                  value: _birthDateController,
+                                  icon: Icons.cake_outlined,
+                                  isEditable: _isEditing && canToggleEdit,
+                                ),
+                              ),
                             ),
                             _buildDropdownField(
                               label: 'الوظيفة',

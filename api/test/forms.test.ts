@@ -69,3 +69,17 @@ test('laptop custody receipt: its own fields and numbering; prefill offers the e
   const list = (await h.call(c.t.hr, 'GET', '/forms/custody-receipts?device=laptop')).body.receipts;
   assert.equal(list.length, 1);
 });
+
+test('client intro form: any employee files it, his own name is the sales person; employees see only theirs', async () => {
+  const d = { date: '2026-11-10', clientName: 'محمد علي', phone: '01012345678', whatsapp: '01012345678', job: 'مهندس', residence: 'التجمع',
+    propertyTypes: ['residential', 'medical'] };
+  const r = await h.call(c.t.e1, 'POST', '/forms/client-intros', { data: d, salesEmployeeId: c.ids.e2 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.form.employeeId, c.ids.e1, 'an employee cannot file it under someone else');
+  assert.ok(r.body.form.data.salesName.length > 1);
+  assert.equal((await h.call(c.t.e1, 'POST', '/forms/client-intros', { data: { ...d, phone: '12' } })).status, 400);
+  const hr = await h.call(c.t.hr, 'POST', '/forms/client-intros', { data: d, salesEmployeeId: c.ids.e2 });
+  assert.equal(hr.body.form.employeeId, c.ids.e2);
+  assert.equal((await h.call(c.t.e1, 'GET', '/forms/client-intros')).body.forms.length, 1);
+  assert.equal((await h.call(c.t.hr, 'GET', '/forms/client-intros')).body.forms.length, 2);
+});

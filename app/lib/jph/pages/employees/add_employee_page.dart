@@ -39,6 +39,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _nationalIdController = TextEditingController();
+  final TextEditingController _birthDateController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
   final TextEditingController _dailyRateController = TextEditingController();
@@ -227,6 +229,21 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
     }
   }
 
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final cur = DateTime.tryParse(_birthDateController.text.trim());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: cur ?? DateTime(now.year - 25),
+      firstDate: DateTime(1940),
+      lastDate: DateTime(now.year - 14, 12, 31),
+    );
+    if (picked != null) {
+      setState(() => _birthDateController.text =
+          "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}");
+    }
+  }
+
   Future<void> _selectJoinDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -327,6 +344,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
         'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'email': _emailController.text.trim().isEmpty ? '' : _emailController.text.trim(),
+        'nationalIdNo': _nationalIdController.text.trim(),
+        'birthDate': _birthDateController.text.trim(),
         'password': _passwordController.text.trim(),
         'role': _selectedRole,
         'position': _positionKeyOf(_selectedPosition) ?? '',
@@ -567,6 +586,26 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                               isEditable: true,
                               keyboardType: TextInputType.emailAddress,
                               isDark: isDark,
+                            ),
+                            _buildInfoField(
+                              label: 'الرقم القومي',
+                              value: _nationalIdController,
+                              icon: Icons.badge_outlined,
+                              isEditable: true,
+                              keyboardType: TextInputType.number,
+                              isDark: isDark,
+                            ),
+                            GestureDetector(
+                              onTap: _pickBirthDate,
+                              child: AbsorbPointer(
+                                child: _buildInfoField(
+                                  label: 'تاريخ الميلاد',
+                                  value: _birthDateController,
+                                  icon: Icons.cake_outlined,
+                                  isEditable: true,
+                                  isDark: isDark,
+                                ),
+                              ),
                             ),
                             _buildInfoField(
                               label: 'كلمة المرور *',

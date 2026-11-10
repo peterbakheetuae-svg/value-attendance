@@ -710,6 +710,8 @@ class JphRouter {
       'name': _s(e['full_name']),
       'role': roleAr[role] ?? role,
       'email': _s(e['email']),
+      'nationalIdNo': _s(lf['nationalIdNo'], ''),
+      'birthDate': _s(lf['birthDate'], ''),
       'phone': _s(e['phone']),
       'joinDate': _date(e['joining_date']).isEmpty ? '--' : _date(e['joining_date']),
       'followToName': _s(e['manager_name'] ?? e['sales_manager_name']),
@@ -1113,6 +1115,8 @@ class JphRouter {
       'positionKey': _s(e['position_key'], role),
       'phone': _s(e['phone'], ''),
       'email': _s(e['email'], ''),
+      'nationalIdNo': _s(lf['nationalIdNo'], ''),
+      'birthDate': _s(lf['birthDate'], ''),
       'active': e['status'] == 'active',
       'status': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
       'salary': salary == null ? '0' : '$salary',
@@ -1152,7 +1156,7 @@ class JphRouter {
     return _ok({'employee': {..._employeeItem({...e, if (sal != null) 'base_salary': sal}, links)}});
   }
 
-  static const _legacyKeys = ['dailyRate', 'accounting', 'managedBy', 'managedByUid', 'foremanId', 'startSalary', 'increase',
+  static const _legacyKeys = ['nationalIdNo', 'birthDate', 'dailyRate', 'accounting', 'managedBy', 'managedByUid', 'foremanId', 'startSalary', 'increase',
     'leaveDay', 'workHours', 'absenceMultiplier', 'overtimeMultiplier', 'level', 'status', 'salary'];
 
   static Map<String, dynamic> _legacyOf(Map<String, dynamic> p) => {
@@ -1306,12 +1310,17 @@ class JphRouter {
   }
 
   static Future<Map<String, dynamic>> _sendNotification(Map<String, dynamic> p) async {
+    final raw = (p['recipients'] as List? ?? const []).map((e) => '$e').toList();
+    // "الجميع" = everyone the sender may message (the server decides who that is)
+    final all = raw.contains('الجميع');
     final ids = <String>[];
-    for (final u in (p['recipients'] as List? ?? const [])) {
-      ids.add(await _id(u));
+    if (!all) {
+      for (final u in raw) {
+        ids.add(await _id(u));
+      }
     }
     final r = await _api.post('/notifications/send', {
-      'recipientIds': ids,
+      if (all) 'all': true else 'recipientIds': ids,
       'title': (p['title'] ?? '').toString(),
       'content': (p['content'] ?? '').toString(),
       'category': (p['category'] ?? 'عام').toString(),

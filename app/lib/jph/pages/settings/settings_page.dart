@@ -37,12 +37,12 @@ import '../multi_company/company_info_page.dart';
 import '../multi_company/positions_page.dart';
 import 'late_rules_page.dart';
 import '../multi_company/kpi_page.dart';
-import '../multi_company/reports_page.dart';
 import '../multi_company/platform_dashboard_page.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../widgets/glass_dialog.dart';
 import '../custody/custody_assets_page.dart';
+import '../../forms/client_intro_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final String uid;
@@ -367,8 +367,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 14),
                     ],
 
-                    // ─── استمارات ← استمارة استلام عهدة ← موبايل / كمبيوتر محمول ───
-                    if (CustodyReceiptPage.canUse || ApiService.can('documents.read') || ApiService.can('employee.read_all')) ...[
+                    // ─── استمارات ← استمارة استلام عهدة (موبايل / كمبيوتر محمول) • استمارات عملاء (استمارة تعارف — for everyone) ───
+                    ...[
                       SettingsExpandableTile(
                         title: 'استمارات',
                         icon: Icons.description_rounded,
@@ -377,14 +377,23 @@ class _SettingsPageState extends State<SettingsPage> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                            if (CustodyReceiptPage.canUse || ApiService.can('documents.read') || ApiService.can('employee.read_all')) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8, right: 4),
+                                child: Text('استمارة استلام عهدة', style: TextStyle(fontWeight: FontWeight.w800,
+                                    color: appController.isDark ? Colors.white70 : Colors.black54)),
+                              ),
+                              _companyOption(appController, 'موبايل', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
+                              const SizedBox(height: 12),
+                              _companyOption(appController, 'كمبيوتر محمول', Icons.laptop_rounded, () => const CustodyReceiptPage(device: 'laptop')),
+                              const SizedBox(height: 16),
+                            ],
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8, right: 4),
-                              child: Text('استمارة استلام عهدة', style: TextStyle(fontWeight: FontWeight.w800,
+                              child: Text('استمارات عملاء', style: TextStyle(fontWeight: FontWeight.w800,
                                   color: appController.isDark ? Colors.white70 : Colors.black54)),
                             ),
-                            _companyOption(appController, 'موبايل', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
-                            const SizedBox(height: 12),
-                            _companyOption(appController, 'كمبيوتر محمول', Icons.laptop_rounded, () => const CustodyReceiptPage(device: 'laptop')),
+                            _companyOption(appController, 'استمارة تعارف', Icons.person_search_rounded, () => const ClientIntroPage()),
                           ]),
                         ),
                       ),
@@ -440,23 +449,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 14),
                     ],
 
-                    // Reports
-                    if (ApiService.can('report.read_all') || ApiService.can('report.read_team') || ApiService.can('report.payroll')) ...[
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'reports'),
-                      icon: Icons.assessment,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ReportsPage(),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-                    ],
 
                     // Platform Dashboard (only for Platform Owners)
                     if (appController.isPlatformOwner) ...[

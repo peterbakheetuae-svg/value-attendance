@@ -101,3 +101,12 @@ test('own profile: contact + bank details', async () => {
   assert.equal(p.bank_name, 'بنك مصر');
   assert.equal((await h.call(c.t.e1, 'PATCH', '/me/profile', { phone: 'abc' })).status, 400);
 });
+
+test('notifications: "الجميع" reaches everyone the sender may message; the sales manager only his team', async () => {
+  const all = await h.call(c.t.hr, 'POST', '/notifications/send', { all: true, title: 'اجتماع', content: 'الساعة 10' });
+  assert.equal(all.status, 201, JSON.stringify(all.body));
+  assert.ok(all.body.sent >= 2);
+  const mine = (await h.call(c.t.e1, 'GET', '/notifications')).body.notifications ?? (await h.call(c.t.e1, 'GET', '/notifications')).body.items;
+  assert.ok(JSON.stringify(mine).includes('اجتماع'));
+  assert.equal((await h.call(c.t.e1, 'POST', '/notifications/send', { all: true, title: 'xx', content: 'yy' })).status, 403);
+});

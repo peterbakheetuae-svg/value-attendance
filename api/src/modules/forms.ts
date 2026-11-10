@@ -211,4 +211,75 @@ export const formsModule: Module = (r, { db }) => {
     if (!canReadAll(a) && row.employee_id !== a.id) throw notFound();
     return ok({ receipt: shapeRecord(row) });
   });
+
+  // ------------------------------------------------------------------ استمارات عملاء ← استمارة تعارف
+  /**
+   * Any employee fills it for a client he met. The sales person on it is the employee who filled it (his own name,
+   * filled automatically); HR / the management may file it for a sales person they pick. Saved like the custody
+   * receipts: one permanent JSON record (employee_documents, under the sales person), numbered, never overwritten.
+   */
+  const CLIENT_PREFIX = 'client-intro-';
+  const CLIENT_TYPES = ['residential', 'commercial', 'residential_2', 'administrative', 'medical', 'operational', 'other'] as const;
+  const phone = (b: Record<string, unknown>, k: string, required = false) => {
+    const v = text(b, k, 20).replace(/\s+/g, '');
+    if (required && !v) throw invalid('Enter the phone number', { field: k });
+    if (v && !/^\+?\d{7,15}$/.test(v)) throw invalid('Enter a valid phone number', { field: k });
+    return v;
+  };
+
+  r.post('/forms/client-intros', async (req) => {
+    const a = await authenticate(db, req);
+    const b = obj(req.body);
+    const d = obj(b.data);
+    let salesId = a.id;
+    if (canManage(a) && typeof b.salesEmployeeId === 'string' && b.salesEmployeeId) {
+      if (!isUuid(b.salesEmployeeId)) throw invalid('Choose the sales person', { field: 'salesEmployeeId' });
+      salesId = b.salesEmployeeId;
+    }
+    const types = Array.isArray(d.propertyTypes) ? [...new Set(d.propertyTypes.map(String))] : [];
+    if (types.some((x) => !(CLIENT_TYPES as readonly string[]).includes(x))) throw invalid('Unknown property type', { field: 'propertyTypes' });
+    const data = {
+      date: isoDate(d, 'date'),
+      clientName: text(d, 'clientName', 80, true),
+      phone: phone(d, 'phone', true),
+      whatsapp: phone(d, 'whatsapp'),
+      job: text(d, 'job', 80),
+      residence: text(d, 'residence', 80),
+      propertyTypes: types,
+      propertyOther: text(d, 'propertyOther', 80),
+      salesName: '',
+    };
+    if (types.includes('other') && !data.propertyOther) throw invalid('Write the other type', { field: 'propertyOther' });
+    const row = await db.tx(async (q) => {
+      const emp = await one(q, `SELECT id, full_name FROM employees WHERE id = $1 AND status = 'active'`, [salesId]);
+      if (!emp) throw invalid('Choose the sales person', { field: 'salesEmployeeId' });
+      data.salesName = emp.full_name; // always the sales person's name from the system
+      await q.query(`SELECT pg_advisory_xact_lock(hashtext('forms:client_intro'))`);
+      const n = await one(q, `SELECT count(*)::int AS n FROM employee_documents WHERE kind = 'other' AND file_name LIKE $1`, [`${CLIENT_PREFIX}%`]);
+      const number = Number(n.n) + 1;
+      const body = { template: 'client_intro', templateVersion: 1, number, data, createdBy: a.id, createdAt: new Date().toISOString() };
+      const buf = Buffer.from(JSON.stringify(body), 'utf8');
+      const x = await one(q, `
+        INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by)
+        VALUES ($1, 'other', $2, $3, 'application/json', $4, $5, $6)
+        RETURNING id, employee_id, title, content, created_at`,
+        [salesId, `استمارة تعارف رقم ${number} — ${data.clientName}`, `${CLIENT_PREFIX}${number}.json`, buf.length, buf, a.id]);
+      await audit(q, a.id, 'forms.client_intro.create', 'employee_document', x.id, undefined, { number, salesId });
+      return { ...x, created_by_name: a.fullName };
+    });
+    return ok({ form: shapeRecord(row) }, 201);
+  });
+
+  /** Earlier forms, newest first: the employee sees the ones he is the sales person on; HR / the management all. */
+  r.get('/forms/client-intros', async (req) => {
+    const a = await authenticate(db, req);
+    const vals: unknown[] = [`${CLIENT_PREFIX}%`];
+    let where = `d.kind = 'other' AND d.file_name LIKE $1`;
+    if (!canReadAll(a)) { vals.push(a.id); where += ` AND (d.employee_id = $2 OR d.uploaded_by = $2)`; }
+    const rows = await db.query(`
+      SELECT d.id, d.employee_id, d.title, d.content, d.created_at, u.full_name AS created_by_name
+        FROM employee_documents d JOIN employees u ON u.id = d.uploaded_by
+       WHERE ${where} ORDER BY d.created_at DESC LIMIT 500`, vals);
+    return ok({ forms: rows.rows.map(shapeRecord), canPickSales: canManage(a) });
+  });
 };

@@ -1,0 +1,31 @@
+{
+  "template": "client_intro",
+  "version": 1,
+  "title": "استمارة بيانات وتعارف العميل",
+  "source": "استمارة تعارف.docx (approved original, kept next to this file as original.docx); the sample zeros were removed from the background",
+  "page": { "size": "a4", "widthPt": 595.304, "heightPt": 841.89, "background": "assets/forms/client_intro/v1/template.png" },
+  "font": { "sizePt": 11, "arabic": "assets/fonts/forms/ValueFormNaskh-Regular.ttf", "latin": "assets/fonts/forms/ArimoLatin-Regular.ttf" },
+  "align": "right",
+  "note": "Boxes are where each value is written, in points from the page's top-left corner: [x0, x1, top, bottom]; values sit right after the label's colon.",
+  "text": {
+    "date":          [60.0, 150.0, 170.0, 184.4],
+    "salesName":     [200.0, 402.0, 199.0, 213.7],
+    "clientName":    [200.0, 415.0, 288.0, 302.2],
+    "phone":         [200.0, 417.0, 317.0, 331.5],
+    "whatsapp":      [200.0, 405.0, 346.0, 360.8],
+    "job":           [150.0, 361.0, 375.0, 390.1],
+    "residence":     [200.0, 413.0, 405.0, 419.4],
+    "propertyOther": [250.0, 432.0, 623.0, 637.9]
+  },
+  "dates": {},
+  "dateText": { "date": "dd/MM/yyyy" },
+  "checks": {
+    "propertyTypes:residential":    [473.7, 485.9, 546.1, 558.4],
+    "propertyTypes:commercial":     [401.7, 413.9, 546.1, 558.4],
+    "propertyTypes:residential_2":  [325.6, 337.8, 546.1, 558.4],
+    "propertyTypes:administrative": [473.7, 485.9, 585.2, 597.5],
+    "propertyTypes:medical":        [397.6, 409.8, 585.2, 597.5],
+    "propertyTypes:operational":    [329.7, 341.9, 585.2, 597.5],
+    "propertyTypes:other":          [475.6, 486.4, 623.4, 634.2]
+  }
+}

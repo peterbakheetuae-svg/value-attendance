@@ -48,4 +48,14 @@ void main() {
     File('${out.path}/laptop_receipt_filled.pdf').writeAsBytesSync(filled);
     expect(String.fromCharCodes(filled.sublist(0, 5)), '%PDF-');
   });
+
+  test('client intro v1: filled sample is one A4 page', () async {
+    final out = Directory('build/form-samples')..createSync(recursive: true);
+    final filled = await buildCustodyReceiptPdf({
+      'date': '2026-11-10', 'salesName': 'أحمد محمد', 'clientName': 'محمد علي حسن', 'phone': '01012345678', 'whatsapp': '01098765432',
+      'job': 'مهندس مدني', 'residence': 'التجمع الخامس', 'propertyTypes': ['residential', 'medical', 'other'], 'propertyOther': 'فيلا',
+    }, loader: _file, template: 'client_intro');
+    File('${out.path}/client_intro_filled.pdf').writeAsBytesSync(filled);
+    expect(String.fromCharCodes(filled.sublist(0, 5)), '%PDF-');
+  });
 }

@@ -25,6 +25,7 @@ class CustodyReceiptTemplate {
   static const templates = {
     'custody_receipt': {1: 'assets/forms/custody_receipt/v1/fields.json'},
     'laptop_receipt': {1: 'assets/forms/laptop_receipt/v1/fields.json'},
+    'client_intro': {1: 'assets/forms/client_intro/v1/fields.json'},
   };
   static const versions = {1: 'assets/forms/custody_receipt/v1/fields.json'};
   static const latestVersion = 1;
@@ -65,6 +66,8 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     Future<ByteData> Function(String)? loader, String template = 'custody_receipt'}) async {
   final t = await CustodyReceiptTemplate.load(version, loader, template);
   final style = pw.TextStyle(font: t.arabic, fontFallback: [t.latin], fontSize: t.fontSize, color: PdfColors.black);
+  // values next to a label (no dotted line) start right after its colon
+  final align = t.spec['align'] == 'right' ? pw.Alignment.bottomRight : pw.Alignment.bottomCenter;
 
   // a value written over its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
   pw.Widget field(List<double> b, String value) {
@@ -78,7 +81,7 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
         height: 11.5,
         child: pw.FittedBox(
           fit: pw.BoxFit.scaleDown,
-          alignment: pw.Alignment.bottomCenter,
+          alignment: align,
           // Latin letters / digits are taller than the Arabic ones at the same size: one point smaller keeps the row even
           child: _arabic.hasMatch(v)
               ? pw.Text(v, style: style, textDirection: pw.TextDirection.rtl)
@@ -104,11 +107,16 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
     pw.Positioned(left: 0, top: 0, child: pw.Image(pw.MemoryImage(t.background), width: t.width, height: t.height, fit: pw.BoxFit.fill)),
   ];
   final text = (t.spec['text'] as Map<String, dynamic>);
+  final dateText = ((t.spec['dateText'] as Map?) ?? const {});
   for (final e in text.entries) {
-    final v = '${data[e.key] ?? ''}';
+    var v = '${data[e.key] ?? ''}';
+    if (dateText.containsKey(e.key)) {
+      final d = DateTime.tryParse(v);
+      if (d != null) v = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    }
     if (v.trim().isNotEmpty) children.add(field(_box(e.value), v));
   }
-  final dates = (t.spec['dates'] as Map<String, dynamic>);
+  final dates = ((t.spec['dates'] as Map?) ?? const {}).cast<String, dynamic>();
   for (final e in dates.entries) {
     final d = DateTime.tryParse('${data[e.key] ?? ''}');
     if (d == null) continue;
@@ -122,7 +130,13 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   final accessories = ((data['accessories'] as List?) ?? const []).map((e) => '$e').toSet();
   for (final e in checks.entries) {
     final k = e.key.split(':');
-    final on = k[0] == 'condition' ? data['condition'] == k[1] : accessories.contains(k[1]);
+    // condition:x → data['condition'] == x; accessory:x → in data['accessories']; any other list field:x → in data[field]
+    final v = k[0] == 'accessory' ? null : data[k[0]];
+    final on = k[0] == 'accessory'
+        ? accessories.contains(k[1])
+        : v is List
+            ? v.map((e) => '$e').contains(k[1])
+            : '${v ?? ''}' == k[1];
     if (on) children.add(tick(_box(e.value)));
   }
 

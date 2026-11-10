@@ -189,12 +189,14 @@ class _NewReceiptState extends State<_NewReceipt> {
     String? err;
     if (_employeeId == null) {
       err = 'اختار الموظف';
+    } else if (_itemId == null) {
+      err = 'اختار العهدة المسلَّمة للموظف';
     } else if (_name.text.trim().isEmpty) {
       err = 'اكتب اسم الموظف';
     } else if (_brand.text.trim().isEmpty) {
-      err = _laptop ? 'اكتب نوع / ماركة الجهاز' : 'اكتب نوع / ماركة الهاتف';
+      err = 'العهدة دي مالهاش نوع / ماركة';
     } else if (_imei.text.trim().isEmpty) {
-      err = _laptop ? 'اكتب سريل الجهاز / SN' : 'اكتب رقم الجهاز / IMEI';
+      err = _laptop ? 'العهدة دي متسجلة من غير سريل / SN — ضيفها تاني في الإعدادات ← العهدة بالسريل' : 'العهدة دي متسجلة من غير IMEI — ضيفها تاني في الإعدادات ← العهدة بالـ IMEI';
     } else if (_condition == 'other' && _condOther.text.trim().isEmpty) {
       err = 'اكتب حالة الجهاز';
     } else if (_acc.contains('other') && _accOther.text.trim().isEmpty) {
@@ -290,15 +292,18 @@ class _NewReceiptState extends State<_NewReceipt> {
         ),
         _gap(),
       ],
-      JphUi.input(isDark: isDark, label: 'نوع / الماركة *', controller: _brand,
-          icon: _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, big: false),
-      _gap(),
-      JphUi.input(isDark: isDark, label: _laptop ? 'سريل الجهاز / SN *' : 'رقم الجهاز / IMEI *', controller: _imei,
-          icon: Icons.qr_code_rounded, number: !_laptop, big: false),
-      _gap(),
-      if (!_laptop) ...[
-        JphUi.input(isDark: isDark, label: 'رقم الخط', controller: _line, icon: Icons.sim_card_rounded, number: true, big: false),
+      // the device data comes from the chosen custody item only (Settings → العهدة) — not typed by hand
+      if (_itemId != null) ...[
+        JphUi.readOnly(isDark: isDark, label: 'نوع / الماركة', value: _brand.text,
+            icon: _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, color: Colors.indigo),
         _gap(),
+        JphUi.readOnly(isDark: isDark, label: _laptop ? 'سريل الجهاز / SN' : 'رقم الجهاز / IMEI', value: _imei.text.isEmpty ? '—' : _imei.text,
+            icon: Icons.qr_code_rounded, color: Colors.indigo),
+        _gap(),
+        if (!_laptop) ...[
+          JphUi.readOnly(isDark: isDark, label: 'رقم الخط', value: _line.text.isEmpty ? '—' : _line.text, icon: Icons.sim_card_rounded, color: Colors.indigo),
+          _gap(),
+        ],
       ],
       Text('حالة الجهاز عند التسليم', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
       const SizedBox(height: 8),

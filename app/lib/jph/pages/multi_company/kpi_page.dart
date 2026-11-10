@@ -6,6 +6,8 @@ import '../../services/jph_bridge.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/jph_form_ui.dart';
+import '../../widgets/swipe_tabs.dart';
 
 /// KPI & performance evaluation — same glass layout and 3 tabs as the original screen:
 /// 1) KPIs per job position, 2) employee performance (targets, actuals, achievement, trend),
@@ -87,6 +89,23 @@ Widget _primaryButton(String label, VoidCallback onTap, {Color color = AppColors
       ),
     );
 
+/// Same picker + bottom-sheet list as every other list in the app.
+Widget _pick(BuildContext ctx, String label, IconData icon, String? value, Map<String, String> options, ValueChanged<String> onChanged) {
+  final isDark = Provider.of<AppController>(ctx, listen: false).isDark;
+  return JphUi.picker(
+    isDark: isDark,
+    icon: icon,
+    iconColor: Colors.indigo,
+    label: label,
+    value: options[value] ?? 'اختار',
+    onTap: () async {
+      final v = await JphUi.sheet<String>(ctx, isDark, label, [for (final e in options.entries) (e.key, e.value, icon)],
+          selected: value, icon: icon);
+      if (v != null) onChanged(v);
+    },
+  );
+}
+
 InputDecoration _input(String label) => InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
 
 class _KpiPageState extends State<KpiPage> with SingleTickerProviderStateMixin {
@@ -107,22 +126,29 @@ class _KpiPageState extends State<KpiPage> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Provider.of<AppController>(context).isDark;
+    // same header and bar as the attendance pages; swipe right / left between the tabs
     return AppBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
           backgroundColor: Colors.transparent,
-          elevation: 0,
-          title: const Text('مؤشرات الأداء والتقييم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).pop()),
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: const [Tab(text: 'مؤشرات الوظائف'), Tab(text: 'أداء الموظفين'), Tab(text: 'التقييمات')],
+          body: SafeArea(
+            child: Column(children: [
+              JphUi.header(context, isDark: isDark, isRTL: true, title: 'مؤشرات الأداء والتقييم'),
+              Expanded(
+                child: SwipeTabs(
+                  isDark: isDark,
+                  tabs: const [
+                    ('مؤشرات الوظائف', Icons.work_outline_rounded),
+                    ('أداء الموظفين', Icons.insights_rounded),
+                    ('التقييمات', Icons.star_rate_rounded),
+                  ],
+                  pages: [const _PositionsTab(), _PerformanceTab(key: _perfKey), const _EvaluationsTab()],
+                ),
+              ),
+            ]),
           ),
-        ),
-        body: TabBarView(
-          controller: _tabController,
-          children: [const _PositionsTab(), _PerformanceTab(key: _perfKey), const _EvaluationsTab()],
         ),
       ),
     );
@@ -232,12 +258,7 @@ class _PositionsTabState extends State<_PositionsTab> {
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => _sheet(ctx, 'مؤشر أداء جديد', [
             TextField(controller: name, decoration: _input('اسم المؤشر *')),
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              value: type,
-              decoration: _input('طريقة القياس'),
-              items: _measure.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
-              onChanged: (v) => set(() => type = v ?? type),
-            ),
+            _pick(ctx, 'طريقة القياس', Icons.straighten_rounded, type, _measure, (v) => set(() => type = v)),
             SwitchListTile(contentPadding: EdgeInsets.zero, value: higher, title: const Text('كل ما الرقم يزيد يبقى أحسن'), onChanged: (v) => set(() => higher = v)),
             const SizedBox(height: 12),
             _primaryButton('حفظ', () async {
@@ -566,16 +587,11 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
             const SizedBox(height: 10),
             TextField(controller: actual, keyboardType: TextInputType.number, decoration: _input('المحقق فعلياً')),
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              value: state,
-              decoration: _input('الحالة'),
-              items: const [
-                DropdownMenuItem(value: 'in_progress', child: Text('جاري (الشهر لسه)')),
-                DropdownMenuItem(value: 'completed', child: Text('مكتمل')),
-                DropdownMenuItem(value: 'not_evaluated', child: Text('مسح النتيجة (لم يُقيَّم)')),
-              ],
-              onChanged: (v) => set(() => state = v ?? state),
-            ),
+            _pick(ctx, 'الحالة', Icons.flag_rounded, state, const {
+              'in_progress': 'جاري (الشهر لسه)',
+              'completed': 'مكتمل',
+              'not_evaluated': 'مسح النتيجة (لم يُقيَّم)',
+            }, (v) => set(() => state = v)),
             const SizedBox(height: 14),
             _primaryButton('حفظ', () async {
               final v = double.tryParse(actual.text.trim());
@@ -728,21 +744,12 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
           }
         }
         return _sheet(ctx, 'تقييم أداء', [
-          DropdownButtonFormField<String>(
-            value: empId,
-            isExpanded: true,
-            decoration: _input('الموظف'),
-            items: emps.map((e) => DropdownMenuItem(value: '${e['id']}', child: Text('${e['full_name']}'))).toList(),
-            onChanged: (v) => set(() => empId = v ?? empId),
-          ),
+          _pick(ctx, 'الموظف', Icons.badge_rounded, empId, {for (final e in emps) '${e['id']}': '${e['full_name']}'},
+              (v) => set(() => empId = v)),
           const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            value: month,
-            decoration: _input('الشهر'),
-            items: List.generate(3, (i) => _monthKey(DateTime(now.year, now.month - i)))
-                .map((m) => DropdownMenuItem(value: m, child: Text(_monthLabel(m)))).toList(),
-            onChanged: (v) => set(() => month = v ?? month),
-          ),
+          _pick(ctx, 'الشهر', Icons.calendar_month_rounded, month, {
+            for (final m in List.generate(3, (i) => _monthKey(DateTime(now.year, now.month - i)))) m: _monthLabel(m),
+          }, (v) => set(() => month = v)),
           const SizedBox(height: 8),
           ..._dims.entries.map((d) => Row(children: [
                 Expanded(child: Text(d.value)),

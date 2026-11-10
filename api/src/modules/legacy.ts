@@ -5,6 +5,7 @@ import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts'
 import { audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
 import { daysBetween, local } from '../lib/time.ts';
 import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
+import { pushTo } from '../lib/fcm.ts';
 import { randomUUID } from 'node:crypto';
 import { signedMediaPath, verifyMedia } from '../lib/media.ts';
 
@@ -234,21 +235,40 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const title = reqStr(b, 'title', { min: 2, max: 150 });
     const body = reqStr(b, 'content', { min: 1, max: 2000 });
     const category = str(b, 'category', { optional: true, max: 60 }) ?? 'عام';
-    const list = Array.isArray(b.recipientIds) ? b.recipientIds.filter((x): x is string => typeof x === 'string' && isUuid(x)) : [];
-    if (!list.length || list.length > 500) throw invalid('Choose 1–500 recipients', { field: 'recipientIds' });
     const allowed = canAll ? null : await readableIds(db, a, 'employee');
+    // "الجميع": everyone this person may message (the whole company, or his team), never himself
+    let list: string[];
+    if (b.all === true) {
+      list = allowed ?? (await db.query(`SELECT id FROM employees WHERE status = 'active'`)).rows.map((x) => x.id);
+      list = list.filter((x) => x !== a.id);
+    } else {
+      list = Array.isArray(b.recipientIds) ? b.recipientIds.filter((x): x is string => typeof x === 'string' && isUuid(x)) : [];
+    }
+    if (!list.length || list.length > 500) throw invalid('Choose 1–500 recipients', { field: 'recipientIds' });
     const targets = allowed ? list.filter((x) => allowed.includes(x)) : list;
     if (!targets.length) throw forbidden();
     const batch = `msg:${randomUUID()}`;
-    await db.tx(async (q) => {
+    const created = await db.tx(async (q) => {
+      const out: { id: string; to: string }[] = [];
       for (const to of targets) {
-        await q.query(`INSERT INTO notifications (recipient_id, type, title, body, dedupe_key, sender_id, category)
-                       SELECT $1, 'message', $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')`,
+        const r = await q.query(`INSERT INTO notifications (recipient_id, type, title, body, dedupe_key, sender_id, category)
+                       SELECT $1, 'message', $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
+                       RETURNING id`,
           [to, title, body, batch, a.id, category]);
+        if (r.rows[0]) out.push({ id: r.rows[0].id, to });
       }
-      await audit(q, a.id, 'notification.send', 'notification', null, undefined, { batch, count: targets.length, title });
+      await audit(q, a.id, 'notification.send', 'notification', null, undefined, { batch, count: out.length, title });
+      return out;
     });
-    return ok({ sent: targets.length }, 201);
+    // the phone push (rings even when the app is closed) — a few at a time, after the messages are saved
+    let next = 0;
+    await Promise.all([0, 1, 2, 3].map(async () => {
+      while (next < created.length) {
+        const n = created[next++];
+        await pushTo(db, n.to, { id: n.id, type: 'message', title, body }).catch(() => {});
+      }
+    }));
+    return ok({ sent: created.length }, 201);
   });
 
   r.get('/notifications/sent', async (req) => {
