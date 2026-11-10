@@ -76,7 +76,7 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   final erase = t.spec['eraseDots'] == true;
 
   // a value written on its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
-  pw.Widget field(List<double> b, String value) {
+  pw.Widget field(List<double> b, String value, {bool centred = false}) {
     final v = value.trim();
     final w = b[1] - b[0];
     return pw.Positioned(
@@ -87,7 +87,7 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
         height: lineH,
         child: pw.FittedBox(
           fit: pw.BoxFit.scaleDown,
-          alignment: align,
+          alignment: centred ? pw.Alignment.bottomCenter : align,
           // written in the same size as the form's own printed text (Arabic and Latin / digits alike)
           child: _arabic.hasMatch(v)
               ? pw.Text(v, style: style, textDirection: pw.TextDirection.rtl)
@@ -140,9 +140,9 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
       cover(_box(parts[k]));
     }
     children
-      ..add(field(_box(parts['day']), d.day.toString().padLeft(2, '0')))
-      ..add(field(_box(parts['month']), d.month.toString().padLeft(2, '0')))
-      ..add(field(_box(parts['year']), '${d.year}'));
+      ..add(field(_box(parts['day']), d.day.toString().padLeft(2, '0'), centred: true))
+      ..add(field(_box(parts['month']), d.month.toString().padLeft(2, '0'), centred: true))
+      ..add(field(_box(parts['year']), '${d.year}', centred: true));
   }
   final checks = (t.spec['checks'] as Map<String, dynamic>);
   final accessories = ((data['accessories'] as List?) ?? const []).map((e) => '$e').toSet();
