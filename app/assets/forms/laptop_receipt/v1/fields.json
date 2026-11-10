@@ -3,6 +3,7 @@
   "version": 1,
   "title": "استمارة استلام عهدة كمبيوتر محمول",
   "source": "استلام العهدة للموظف كمبيوتر محمول.docx — the approved mobile form with the laptop wording (kept next to this file as original.docx)",
+  "eraseDots": true,
   "page": { "size": "letter", "widthPt": 612, "heightPt": 792, "background": "assets/forms/laptop_receipt/v1/template.png" },
   "font": { "sizePt": 10, "arabic": "assets/fonts/forms/ValueFormNaskh-Regular.ttf", "latin": "assets/fonts/forms/ArimoLatin-Regular.ttf" },
   "note": "Boxes are the dotted lines / check boxes of the original, in points from the page's top-left corner: [x0, x1, top, bottom].",

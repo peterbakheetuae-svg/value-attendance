@@ -71,13 +71,18 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   // room for one line of text (forms written in a bigger size give a taller line)
   final lineH = ((t.spec['fieldHeight'] as num?) ?? 11.5).toDouble();
 
-  // a value written over its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
+  // forms with dotted lines: the value takes the dots' place ("رقم الخط : 0100…" — no dots left around it),
+  // on the label's baseline
+  final erase = t.spec['eraseDots'] == true;
+  final paper = pw.Container(color: PdfColors.white);
+
+  // a value written on its dotted line: centred on it, on the same baseline, shrunk only if it does not fit
   pw.Widget field(List<double> b, String value) {
     final v = value.trim();
     final w = b[1] - b[0];
     return pw.Positioned(
       left: b[0],
-      top: b[3] - 2.1 - lineH, // baseline just above the dots, like writing on the line
+      top: b[3] - (erase ? 0 : 2.1) - lineH,
       child: pw.SizedBox(
         width: w,
         height: lineH,
@@ -110,19 +115,30 @@ Future<Uint8List> buildCustodyReceiptPdf(Map<String, dynamic> data, {int version
   ];
   final text = (t.spec['text'] as Map<String, dynamic>);
   final dateText = ((t.spec['dateText'] as Map?) ?? const {});
+  // the dots under a filled value are covered with paper first
+  void cover(List<double> b) {
+    if (!erase) return;
+    children.add(pw.Positioned(left: b[0] - 0.6, top: b[3] - 4.6, child: pw.SizedBox(width: b[1] - b[0] + 1.2, height: 5.0, child: paper)));
+  }
   for (final e in text.entries) {
     var v = '${data[e.key] ?? ''}';
     if (dateText.containsKey(e.key)) {
       final d = DateTime.tryParse(v);
       if (d != null) v = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
     }
-    if (v.trim().isNotEmpty) children.add(field(_box(e.value), v));
+    if (v.trim().isNotEmpty) {
+      cover(_box(e.value));
+      children.add(field(_box(e.value), v));
+    }
   }
   final dates = ((t.spec['dates'] as Map?) ?? const {}).cast<String, dynamic>();
   for (final e in dates.entries) {
     final d = DateTime.tryParse('${data[e.key] ?? ''}');
     if (d == null) continue;
     final parts = e.value as Map<String, dynamic>;
+    for (final k in const ['day', 'month', 'year']) {
+      cover(_box(parts[k]));
+    }
     children
       ..add(field(_box(parts['day']), d.day.toString().padLeft(2, '0')))
       ..add(field(_box(parts['month']), d.month.toString().padLeft(2, '0')))
