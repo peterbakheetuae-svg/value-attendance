@@ -716,7 +716,7 @@ class _SettingsPageState extends State<SettingsPage> {
         (CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
         if (ApiService.can('sales.view')) ('الأقساط والمبيعات', Icons.home_work_rounded, () => const SalesPage()),
-        ('عمولات المشاريع', Icons.handshake_rounded, () => const CommissionsPage()),
+        ('المشاريع والعمولات', Icons.handshake_rounded, () => const CommissionsPage()),
       ];
 
   List<(String, IconData, Widget Function())> _companyItems() => [

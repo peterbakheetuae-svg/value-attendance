@@ -346,7 +346,7 @@ class JphRouter {
           });
           return _ok({'message': 'تم تسليم العهدة'});
         case 'owner_dashboard':
-          return _ok((await _api.get('/dashboard/owner', {'range': '${p['range'] ?? 14}'})).cast<String, dynamic>());
+          return _ok((await _api.get('/dashboard/owner', {'range': '${p['range'] ?? 14}', 'view': '${p['view'] ?? 'finance'}'})).cast<String, dynamic>());
         case 'web_push_key':
           return _ok((await _api.get('/me/web-push')).cast<String, dynamic>());
         case 'web_push_save':
@@ -389,12 +389,12 @@ class JphRouter {
           return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody'].any(cp.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody', '/exclusive/'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'delete' && cp.startsWith('/forms/')
               ? await _api.delete(cp)
               : p['method'] == 'patch'

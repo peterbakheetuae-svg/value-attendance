@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import '../exclusive/exclusive_projects_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -30,9 +31,11 @@ class _CommissionsPageState extends State<CommissionsPage> {
 
   bool get _seeProjects => ApiService.can('commission.project_manage') || ApiService.can('commission.read_all') || ApiService.can('commission.read_team');
   bool get _approve => ApiService.can('commission.approve');
+  bool get _seeExclusive => ApiService.can('exclusive.reserve') || ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
 
   List<(String, String, IconData)> get _tabs => [
-        if (_seeProjects) ('projects', 'مشاريع', Icons.apartment_rounded),
+        if (_seeProjects) ('projects', 'تسويق بالعمولة', Icons.apartment_rounded),
+        if (_seeExclusive) ('exclusive', 'حصري', Icons.workspace_premium_outlined),
         if (_approve) ('approve', 'الاعتماد', Icons.fact_check_rounded),
         ('mine', 'عمولات', Icons.workspace_premium_rounded),
       ];
@@ -56,7 +59,7 @@ class _CommissionsPageState extends State<CommissionsPage> {
             backgroundColor: Colors.transparent,
             body: SafeArea(
               child: Column(children: [
-                JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'عمولات المشاريع'),
+                JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'المشاريع والعمولات'),
                 const SizedBox(height: 6),
                 Expanded(
                   child: Center(
@@ -71,6 +74,7 @@ class _CommissionsPageState extends State<CommissionsPage> {
                             switch (t.$1) {
                               'projects' => _ProjectsTab(isDark: isDark, onCan: (c) => _can = c, can: _can),
                               'approve' => _ApproveTab(isDark: isDark),
+                              'exclusive' => ExclusiveProjectsList(isDark: isDark),
                               _ => _MineTab(isDark: isDark),
                             },
                         ],
