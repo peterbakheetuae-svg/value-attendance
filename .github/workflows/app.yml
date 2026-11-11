@@ -127,6 +127,8 @@ jobs:
           # Phones update themselves from the *latest* release. A new Android version is published only when the commit
           # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
           WANT_APK=0; printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && WANT_APK=1
+          # a manual run (Actions → Run workflow) is an Android update too — it builds the APK for that
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && WANT_APK=1
           # without the signing key an Android update is never published (phones would refuse it); the web still goes out
           [ -f value-attendance.apk ] || WANT_APK=0
           if [ "$WANT_APK" = "1" ] && [ "$SIGNED" != "1" ]; then
