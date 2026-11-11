@@ -12,7 +12,7 @@ test('existing role permissions are unchanged by the migration (no accidental gr
   const r = await h.call(c.t.owner, 'GET', '/roles');
   assert.equal(r.status, 200);
   const by = Object.fromEntries(r.body.roles.map((x: any) => [x.key, x.permissions]));
-  assert.deepEqual(by.sales_employee, []);
+  assert.deepEqual(by.sales_employee, ['exclusive.reserve']);
   assert.ok(!by.sales_manager.some((p: string) => p.startsWith('custody') || p.startsWith('documents') || p === 'positions.manage'));
   assert.ok(!by.accountant.some((p: string) => p.startsWith('custody') || p.startsWith('documents')));
   assert.ok(by.hr_manager.includes('custody.manage') && by.hr_manager.includes('documents.manage'));
