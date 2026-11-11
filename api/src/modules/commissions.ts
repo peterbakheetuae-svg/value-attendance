@@ -157,7 +157,7 @@ export function parseCommissionRequest(b: Record<string, unknown>, a: Actor): Co
 export async function createCommissionRequest(q: Q, a: Actor, x0: CommissionRequestInput): Promise<string> {
   const { projectId, unitNo, price, area, note, employeeId } = x0;
   const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
-  if (!p) throw invalid('Choose the project', { field: 'projectId' });
+  if (!p || p.kind === 'exclusive') throw invalid('Choose the project', { field: 'projectId' });
   if (p.status !== 'active') throw new AppError('unprocessable', 'This project is not accepting deals now', { reason: 'project_inactive' });
   const dup = await one(q, `SELECT employee_id, status FROM commission_requests
                              WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('pending','approved')`,
@@ -197,7 +197,7 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     const manage = has(a, 'commission.project_manage');
     const seeAll = manage || canAll(a) || canTeam(a);
     const vals: unknown[] = [];
-    const where: string[] = [];
+    const where: string[] = [`p.kind = 'marketing'`]; // المشاريع الحصري have their own page
     if (!seeAll) where.push(`p.status = 'active'`);
     const st = req.query.get('status');
     if (st && (STATUS as readonly string[]).includes(st)) { vals.push(st); where.push(`p.status = $${vals.length}`); }

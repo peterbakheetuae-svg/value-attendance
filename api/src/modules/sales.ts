@@ -282,7 +282,7 @@ export const salesModule: Module = (r, { db, clock }) => {
     const lines = buildSchedule({ total, down, downDue, frequency, count, installmentAmount: instAmount, firstDue });
     const commission = b.withCommission === true ? parseCommissionRequest({ ...b, projectId, unitNo, note: b.commissionNote ?? '' }, a) : null;
     const id = await db.tx(async (q) => {
-      const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1`, [projectId]);
+      const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1 AND kind = 'marketing'`, [projectId]);
       if (!p) throw invalid('Choose the project', { field: 'projectId' });
       const live = await one(q, `SELECT ref_no FROM unit_sales WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('active','pending')`,
         [projectId, unitNo]);
