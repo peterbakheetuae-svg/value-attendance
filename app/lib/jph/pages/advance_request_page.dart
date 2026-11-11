@@ -13,7 +13,7 @@ import '../l10n/app_localizations.dart';
 import '../widgets/payouts_widgets.dart';
 import 'cash/cashbox_hub_page.dart';
 import '../widgets/jph_form_ui.dart';
-import '../widgets/sale_form.dart';
+import 'exclusive/exclusive_projects_page.dart' show UnifiedSalesTab;
 import '../widgets/swipe_tabs.dart';
 import '../widgets/adjustment_form.dart';
 
@@ -212,7 +212,8 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                         pages: [
                           _requestTab(isDark, isRTL, primaryColor, textColor, subduedTextColor),
                           if (AdjustmentsTab.visible) AdjustmentsTab(isDark: isDark),
-                          SalesTab(isDark: isDark),
+                          // المبيعات: حجز / تعاقد للمشاريع الحصري والتسويق في مكان واحد
+                          UnifiedSalesTab(isDark: isDark),
                         ],
                       ),
                     ),

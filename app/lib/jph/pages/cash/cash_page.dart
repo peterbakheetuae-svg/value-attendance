@@ -9,6 +9,7 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import 'cash_overview.dart';
 
 /// الخزينة — the office cashbox (المدير / owner only) and the HR cashbox.
 /// Tabs by permission: الأرصدة • الحركات • التحويلات • المصروفات • التحصيلات.
@@ -40,6 +41,7 @@ const _receiptKinds = {
   'installment': 'قسط',
   'settlement': 'تسوية',
   'other': 'تحصيل آخر',
+  'commission': 'عمولة مستلمة',
 };
 const _methods = {'cash': 'كاش', 'bank_transfer': 'تحويل بنكي', 'cheque': 'شيك', 'card': 'كارت', 'wallet': 'محفظة'};
 const _ledgerAr = {
@@ -323,10 +325,10 @@ class _SummaryTabState extends State<_SummaryTab> {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
+        // the office's way: المتاح (بنك / نقدي مكتب / نقدي محاسب) → الدخل (عمولات، مبيعات، ضخ، أمانات) → المصروفات → الصافي
+        CashOverview(isDark: isDark, month: widget.month, onChanged: _refresh),
         if (summary['office'] is Map) _box(context, 'office', (summary['office'] as Map).cast<String, dynamic>()),
         if (summary['hr'] is Map) _box(context, 'hr', (summary['hr'] as Map).cast<String, dynamic>()),
-        if (summary['total'] != null)
-          JphUi.stat(isDark, 'إجمالي الفلوس في الخزنتين', JphUi.money(summary['total']), Icons.savings_rounded, Colors.green),
         if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
         if (!_loading && _d['success'] == true) ...[
           _section('الشهر ده — دوس على أي مربع تشوف تفاصيله'),
@@ -854,12 +856,23 @@ class _ExpensesTabState extends State<_ExpensesTab> {
       _beneficiary = TextEditingController(), _notes = TextEditingController();
   String _ref = newClientRef();
   bool _saving = false;
+  String _method = 'cash';
+  Map<String, dynamic>? _mk; // the marketing company paid (its fee / its commission)
+  List<Map<String, dynamic>> _mks = [];
+  static const _cats = ['إيجار', 'نت', 'كهرباء', 'مياه', 'ضيافة', 'شركة تسويق', 'إعلانات', 'صيانة', 'أدوات مكتبية', 'مواصلات'];
+
+  Future<void> _loadMk() async {
+    if (_mks.isNotEmpty || widget.can['office'] != true) return;
+    final r = await _get('/marketing-companies');
+    if (mounted) setState(() => _mks = _list(r, 'companies').where((m) => m['status'] == 'active').toList());
+  }
 
   Future<void> _add() async {
     setState(() => _saving = true);
     final r = await _post('/cash/expenses', {
       'cashbox': _box, 'amount': num.tryParse(_amount.text.trim()), 'category': _category.text.trim(), 'reason': _reason.text.trim(),
-      'beneficiary': _beneficiary.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref,
+      'beneficiary': _beneficiary.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref, 'paymentMethod': _method,
+      if (_mk != null && _category.text.trim() == 'شركة تسويق') 'marketingCompanyId': _mk!['id'],
     }, ok: 'اتسجل المصروف ✅');
     if (!mounted) return;
     setState(() => _saving = false);
@@ -907,6 +920,27 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                 JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
                 const SizedBox(height: 14),
                 JphUi.input(isDark: isDark, label: 'البند * (إيجار، كهرباء، ضيافة...)', controller: _category, icon: Icons.category_rounded, big: false),
+                const SizedBox(height: 8),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final c in _cats)
+                    ChoiceChip(label: Text(c), selected: _category.text.trim() == c, onSelected: (_) {
+                      setState(() => _category.text = c);
+                      if (c == 'شركة تسويق') _loadMk();
+                    }),
+                ]),
+                if (_category.text.trim() == 'شركة تسويق' && _mks.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (final m in _mks)
+                      ChoiceChip(label: Text('${m['name']} (${m['kindAr']})'), selected: _mk?['id'] == m['id'], onSelected: (_) => setState(() {
+                        _mk = m;
+                        if (_beneficiary.text.trim().isEmpty) _beneficiary.text = '${m['name']}';
+                        if (_amount.text.trim().isEmpty && ((m['monthlyFee'] as num?) ?? 0) > 0) _amount.text = '${m['monthlyFee']}';
+                      })),
+                  ]),
+                ],
+                const SizedBox(height: 14),
+                _segmented(isDark, const {'cash': 'نقدي', 'bank': 'من البنك'}, _method, (v) => setState(() => _method = v)),
                 const SizedBox(height: 14),
                 JphUi.input(isDark: isDark, label: 'سبب الصرف *', controller: _reason, icon: Icons.notes_rounded, big: false),
                 const SizedBox(height: 14),

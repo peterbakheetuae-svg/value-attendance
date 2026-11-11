@@ -39,7 +39,8 @@ function pct(b: Record<string, unknown>, k: string, def: number) {
 /** Every unit of the given projects with what was collected / refunded and how many installments are fully paid. */
 async function loadUnits(q: Q, where: string, params: unknown[]) {
   const rows = await q.query(`
-    SELECT u.*, p.name AS project_name, p.owner_name, s.full_name AS sales_name, cb.full_name AS contracted_by_name,
+    SELECT u.*, p.name AS project_name, p.owner_name, p.kind AS project_kind, s.full_name AS sales_name, cb.full_name AS contracted_by_name,
+           mk.name AS mk_name,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'), 0) AS collected,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.payment_method <> 'cash'), 0) AS collected_bank,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind = 'reservation'), 0) AS deposit_paid,
@@ -51,7 +52,7 @@ async function loadUnits(q: Q, where: string, params: unknown[]) {
            (SELECT min(i.due_date) FROM ex_installments i WHERE i.unit_id = u.id AND i.amount_egp >
               COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0)) AS next_due
       FROM ex_units u JOIN commission_projects p ON p.id = u.project_id JOIN employees s ON s.id = u.sales_id
-      LEFT JOIN employees cb ON cb.id = u.contracted_by
+      LEFT JOIN employees cb ON cb.id = u.contracted_by LEFT JOIN marketing_companies mk ON mk.id = u.mk_company_id
      WHERE ${where} ORDER BY u.created_at DESC`, params);
   return rows.rows.map(withCommission);
 }
@@ -71,18 +72,24 @@ function withCommission(u: any) {
     potential = price * total / 100;
   }
   const completed = u.status === 'contracted' && n(u.collected) >= price;
-  return { ...u, earned: r2(earned), upcoming: r2(upcoming), potential: r2(potential), completed,
-    staff: u.status === 'contracted' ? r2(price * (n(u.sales_pct) + n(u.manager_pct)) / 100) : 0 };
+  const contracted = u.status === 'contracted';
+  // the commission's split (of the unit's total commission): السيلز / مدير السيلز / شركة التسويق / المكتب
+  const staff = contracted ? r2(price * (n(u.sales_pct) + n(u.manager_pct)) / 100) : 0;
+  const marketing = contracted ? r2(price * n(u.mk_pct) / 100) : 0;
+  return { ...u, earned: r2(earned), upcoming: r2(upcoming), potential: r2(potential), completed, staff, marketing,
+    office: contracted ? r2(price * Math.max(total - n(u.sales_pct) - n(u.manager_pct) - n(u.mk_pct), 0) / 100) : 0 };
 }
 
 function shapeUnit(u: any, a: Actor) {
   const status = u.completed ? 'completed' : u.status;
   const mine = u.sales_id === a.id;
   return {
-    id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, unitNo: u.unit_no,
+    id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
+    marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: n(u.mk_pct),
     clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
-    totalPct: n(u.total_pct), contractPct: n(u.contract_pct), salesPct: n(u.sales_pct), managerPct: n(u.manager_pct),
+    ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
+    salesPct: n(u.sales_pct),
     contract: u.payment_type ? {
       paymentType: u.payment_type, downPayment: n(u.down_payment), installmentsCount: u.installments_count, everyMonths: u.every_months,
       firstDueDate: u.first_due_date ? ds(u.first_due_date) : null, installmentPct: u.installment_pct == null ? null : n(u.installment_pct),
@@ -95,7 +102,8 @@ function shapeUnit(u: any, a: Actor) {
       remaining: r2(Math.max(n(u.unit_price) - n(u.collected), 0)) },
     installments: { total: u.inst_total, paid: u.inst_paid, nextDue: u.next_due ? ds(u.next_due) : null },
     // the commission figures are المالك / المدير العام's view
-    commission: canManage(a) ? { earned: u.earned, upcoming: u.upcoming, potential: u.potential, staff: u.staff } : undefined,
+    commission: canManage(a) ? { earned: u.earned, upcoming: u.upcoming, potential: u.potential, staff: u.staff,
+      marketing: u.marketing, office: u.office } : undefined,
     createdAt: u.created_at,
     can: {
       collect: hrDesk(a) && ['reserving', 'reserved', 'contract_pending', 'contracted'].includes(u.status),
@@ -135,7 +143,7 @@ async function projectStats(q: Q, projectIds: string[]) {
       },
       collected, bank: sum((u) => n(u.collected_bank)), refunded,
       commission: { earned, transferred, pending: r2(Math.max(earned - transferred, 0)), upcoming: sum((u) => u.upcoming),
-        potential: sum((u) => u.potential), staff: sum((u) => u.staff) },
+        potential: sum((u) => u.potential), staff: sum((u) => u.staff), marketing: sum((u) => u.marketing), office: sum((u) => u.office) },
       owner: { inTrust: trust, paid: ownerPaid, pendingPayout: r2(n(m.owner_pending)),
         due: r2(Math.max(trust - Math.max(earned - transferred, 0), 0)) },
       sales: sum((u) => (u.status === 'contracted' ? n(u.unit_price) : 0)),
@@ -144,7 +152,11 @@ async function projectStats(q: Q, projectIds: string[]) {
   return { stats: out, units };
 }
 
-function shapeProject(p: any, stats?: any) {
+function shapeProject(p: any, stats?: any, a?: Actor) {
+  // the office's figures (its % / the owner) are المالك / المدير العام's; the sales team sees its own % only
+  if (a && !canSeeAll(a)) {
+    return { id: p.id, name: p.name, kind: p.kind, status: p.status, salesPct: n(p.sales_pct), createdAt: p.created_at };
+  }
   return {
     id: p.id, name: p.name, kind: p.kind, status: p.status, ownerName: p.owner_name, ownerPhone: p.owner_phone,
     totalPct: n(p.total_pct), contractPct: n(p.contract_pct), installmentPct: n(p.installment_pct),
@@ -175,10 +187,12 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   r.get('/exclusive/projects', async (req) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
-    const rows = await db.query(`SELECT * FROM commission_projects WHERE kind = 'exclusive'
+    const kind = req.query.get('kind') ?? 'exclusive';
+    const kindSql = kind === 'all' ? 'true' : kind === 'marketing' ? `kind = 'marketing'` : `kind = 'exclusive'`;
+    const rows = await db.query(`SELECT * FROM commission_projects WHERE ${kindSql}
                                   ${canManage(a) ? '' : `AND status = 'active'`} ORDER BY status = 'active' DESC, created_at DESC`);
     const st = canManage(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
-    return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id])), canManage: canManage(a), canReserve: canReserve(a), canCollect: hrDesk(a) });
+    return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id], a)), canManage: canManage(a), canReserve: canReserve(a), canCollect: hrDesk(a) });
   });
 
   r.post('/exclusive/projects', async (req) => {
@@ -233,7 +247,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
-    const p = await one(db, `SELECT * FROM commission_projects WHERE id = $1 AND kind = 'exclusive'`, [req.params.id]);
+    const p = await one(db, `SELECT * FROM commission_projects WHERE id = $1`, [req.params.id]);
     if (!p) throw notFound();
     const { stats, units } = await projectStats(db, [p.id]);
     const visible = canSeeAll(a) ? units : units.filter((u) => u.sales_id === a.id);
@@ -255,7 +269,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       statement = st.rows.map((x) => ({ at: x.at, dir: x.dir, type: x.type, typeAr: TYPE_AR[x.type] ?? x.type, amount: n(x.amount),
         unitNo: x.unit_no, who: x.who, method: x.method, refNo: Number(x.ref_no) }));
     }
-    return ok({ project: shapeProject(p, canManage(a) ? stats[p.id] : undefined), units: visible.map((u) => shapeUnit(u, a)), statement,
+    return ok({ project: shapeProject(p, canManage(a) ? stats[p.id] : undefined, a), units: visible.map((u) => shapeUnit(u, a)), statement,
       can: { manage: canManage(a), reserve: canReserve(a) && p.status === 'active', collect: hrDesk(a) } });
   });
 
@@ -315,6 +329,11 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const conds = ['true'], params: unknown[] = [];
     if (pid && isUuid(pid)) { params.push(pid); conds.push(`u.project_id = $${params.length}`); }
     if (!canSeeAll(a) || req.query.get('mine') === '1') { params.push(a.id); conds.push(`u.sales_id = $${params.length}`); }
+    const stage = req.query.get('stage');
+    if (stage === 'reservation') conds.push(`u.status IN ('reserving','reserved','contract_pending','cancel_pending','cancelled')`);
+    if (stage === 'contract') conds.push(`u.status = 'contracted'`);
+    const kind = req.query.get('kind');
+    if (kind === 'exclusive' || kind === 'marketing') { params.push(kind); conds.push(`p.kind = $${params.length}`); }
     const units = await loadUnits(db, conds.join(' AND '), params);
     return ok({ units: units.map((u) => shapeUnit(u, a)) });
   });
@@ -353,15 +372,25 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
     const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
     const salesId = canManage(a) && typeof b.salesId === 'string' && isUuid(b.salesId) ? b.salesId : a.id;
+    const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
     const u = await db.tx(async (q) => {
-      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 AND kind = 'exclusive' FOR SHARE`, [projectId]);
+      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
       if (!p || p.status !== 'active') throw invalid('المشروع ده مش بيستقبل حجوزات دلوقتي', { field: 'projectId' });
       if (await one(q, `SELECT 1 FROM ex_units WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status <> 'cancelled'`, [p.id, unitNo])) {
         throw conflict('الوحدة دي محجوزة أو مباعة بالفعل في المشروع ده');
       }
+      let mkPct = 0;
+      if (mkId) {
+        const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active'`, [mkId]);
+        if (!mk) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
+        mkPct = num(b, 'marketingPct', { optional: true, min: 0, max: 100 }) ?? n(mk.default_pct);
+        if (mkPct > n(p.company_pct) + 0.00001) throw invalid(`نسبة شركة التسويق أكبر من نصيب المكتب (${n(p.company_pct)}٪)`, { field: 'marketingPct' });
+      }
+      // a marketing project earns its whole commission at the contract (no staging on installments)
+      const contractPct = p.kind === 'exclusive' ? p.contract_pct : p.total_pct;
       const x = await one(q, `INSERT INTO ex_units (project_id, unit_no, client_name, client_phone, unit_price, deposit_amount, sales_id,
-          total_pct, contract_pct, sales_pct, manager_pct, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-        [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, p.contract_pct, p.sales_pct, p.manager_pct, notes]);
+          total_pct, contract_pct, sales_pct, manager_pct, notes, mk_company_id, mk_pct) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+        [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, contractPct, p.sales_pct, p.manager_pct, notes, mkId, mkPct]);
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       for (const m of await holdersOf(q, 'cash.hr_operate', [a.id])) {
         await notify(q, { to: m, type: 'exclusive_deposit', title: `عربون حجز مستني التسجيل: ${fmt(deposit)}`,
@@ -446,7 +475,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         count = num(b, 'installmentsCount', { min: 1, max: 240, int: true })!;
         every = num(b, 'everyMonths', { min: 1, max: 12, int: true })!;
         first = date(b, 'firstDueDate')!;
-        instPct = num(b, 'installmentPct', { optional: true, min: 0, max: 100 }) ?? n(p.installment_pct);
+        instPct = p.kind === 'exclusive' ? (num(b, 'installmentPct', { optional: true, min: 0, max: 100 }) ?? n(p.installment_pct)) : 0;
         if (down >= price) throw invalid('مفيش باقي للأقساط — اختار كاش', { field: 'downPayment' });
       } else if (Math.abs(down - price) > 0.001) {
         throw invalid('البيع الكاش بيدفع السعر كله', { field: 'downPayment' });
@@ -497,11 +526,21 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
                                  LEFT JOIN employees m ON m.id = ${SM_OF} WHERE e.id = $1`, [u.sales_id]);
       const smId = sm?.id && sm.status === 'active' ? sm.id : null;
       const price = n(u.unit_price), sp = n(u.sales_pct), mp = smId ? n(u.manager_pct) : 0;
+      // the salesperson may already have filed this unit's commission (عمولة صفقة): keep that one, no second payout
+      const live = await one(q, `SELECT * FROM commission_requests WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2))
+                                    AND status IN ('pending','approved')`, [u.project_id, u.unit_no]);
+      if (live) {
+        await q.query(`UPDATE ex_units SET status = 'contracted', contracted_by = $2, contracted_at = $3, commission_request_id = $4 WHERE id = $1`, [u.id, a.id, now, live.id]);
+        await audit(q, a.id, 'exclusive.contract.approve', 'ex_unit', u.id, undefined, { commissionRequestId: live.id, existing: true });
+        await notify(q, { to: u.sales_id, type: 'exclusive_contract_approved', title: `اتوافق على التعاقد: وحدة ${u.unit_no}`,
+          body: p.name, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:${u.id}:contract:approved` });
+        return;
+      }
       const cr = await one(q, `INSERT INTO commission_requests (project_id, employee_id, sales_manager_id, unit_no, price_per_m2, area_m2, unit_value,
           total_pct, sales_pct, manager_pct, company_pct, sales_amount, manager_amount, company_amount, note, status, period, decided_by, decided_at, ex_unit_id)
         VALUES ($1,$2,$3,$4,$5,1,$5,$6,$7,$8,$9,$10,$11,$12,$13,'approved',$14,$15,$16,$17) RETURNING *`,
         [u.project_id, u.sales_id, smId, u.unit_no, price, n(u.total_pct), sp, mp, r2(n(u.total_pct) - sp - mp), r2(price * sp / 100), r2(price * mp / 100),
-          r2(price * (n(u.total_pct) - sp - mp) / 100), 'مشروع حصري', period, a.id, now, u.id]);
+          r2(price * (n(u.total_pct) - sp - mp) / 100), p.kind === 'exclusive' ? 'مشروع حصري' : 'تعاقد مشروع تسويق', period, a.id, now, u.id]);
       if (n(cr.sales_amount) > 0) {
         await q.query(`INSERT INTO commission_entitlements (request_id, employee_id, role, amount_egp, period, included_at) VALUES ($1,$2,'sales',$3,$4,$5)`,
           [cr.id, u.sales_id, cr.sales_amount, period, now]);
@@ -595,6 +634,121 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       return e;
     });
     return ok({ expense: { id: x.id, refNo: Number(x.ref_no) } }, 201);
+  });
+
+  // ------------------------------------------------------------------ الملاك (owners of the exclusive projects)
+  r.get('/exclusive/owners', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const ps = await db.query(`SELECT * FROM commission_projects WHERE kind = 'exclusive' ORDER BY created_at`);
+    const { stats } = await projectStats(db, ps.rows.map((p) => p.id));
+    const owners = new Map<string, any>();
+    for (const p of ps.rows) {
+      const key = `${String(p.owner_name).trim().toLowerCase()}|${String(p.owner_phone ?? '').replace(/\D/g, '')}`;
+      const st = stats[p.id];
+      const o = owners.get(key) ?? { name: p.owner_name, phone: p.owner_phone, projects: [], collected: 0, inTrust: 0, paid: 0, due: 0,
+        commissionTransferred: 0, units: 0, sales: 0 };
+      o.projects.push({ id: p.id, name: p.name, status: p.status, inTrust: st.owner.inTrust, paid: st.owner.paid, due: st.owner.due,
+        collected: st.collected, units: st.units });
+      o.collected = r2(o.collected + st.collected - st.refunded); o.inTrust = r2(o.inTrust + st.owner.inTrust);
+      o.paid = r2(o.paid + st.owner.paid); o.due = r2(o.due + st.owner.due);
+      o.commissionTransferred = r2(o.commissionTransferred + st.commission.transferred);
+      o.units += st.units.total - st.units.cancelled; o.sales = r2(o.sales + st.sales);
+      owners.set(key, o);
+    }
+    return ok({ owners: [...owners.values()].sort((x, y) => y.inTrust - x.inTrust) });
+  });
+
+  // ------------------------------------------------------------------ العملاء (every buyer: reservations + contracts)
+  r.get('/exclusive/clients', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    const mine = canSeeAll(a) ? '' : `AND u.sales_id = $1`;
+    const units = await loadUnits(db, `true ${mine}`, canSeeAll(a) ? [] : [a.id]);
+    const legacy = canSeeAll(a) ? (await db.query(`
+      SELECT s.id, s.buyer_name, s.buyer_phone, s.unit_no, s.total_price, s.status, s.created_at, p.name AS project_name, p.kind,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.sale_id = s.id AND r.status = 'posted'), 0) AS paid
+        FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id WHERE s.status IN ('pending','active')`)).rows : [];
+    const clients = new Map<string, any>();
+    const put = (name: string, phone: string, unit: any) => {
+      const digits = String(phone ?? '').replace(/\D/g, '');
+      const key = digits.length >= 8 ? digits.slice(-10) : String(name).trim().toLowerCase();
+      const c = clients.get(key) ?? { name, phone, units: [], total: 0, paid: 0, remaining: 0 };
+      c.units.push(unit);
+      if (unit.status !== 'cancelled') {
+        c.total = r2(c.total + unit.price); c.paid = r2(c.paid + unit.paid);
+        c.remaining = r2(c.remaining + Math.max(unit.price - unit.paid, 0));
+      }
+      if (!c.phone && phone) c.phone = phone;
+      clients.set(key, c);
+    };
+    for (const u of units) {
+      const status = u.completed ? 'completed' : u.status;
+      put(u.client_name, u.client_phone, { id: u.id, source: 'unit', projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
+        price: n(u.unit_price), paid: r2(n(u.collected) - n(u.refunded)), status, statusAr: STATUS_AR[status], salesName: u.sales_name, at: u.created_at });
+    }
+    for (const s of legacy) {
+      put(s.buyer_name, s.buyer_phone, { id: s.id, source: 'sale', projectName: s.project_name, projectKind: s.kind, unitNo: s.unit_no,
+        price: n(s.total_price), paid: n(s.paid), status: 'contracted', statusAr: 'متعاقد', at: s.created_at });
+    }
+    return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total) });
+  });
+
+  // ------------------------------------------------------------------ شركات التسويق
+  const shapeMk = (m: any) => ({ id: m.id, name: m.name, kind: m.kind, kindAr: m.kind === 'fixed' ? 'راتب ثابت' : 'عمولة على المبيعات',
+    defaultPct: n(m.default_pct), monthlyFee: n(m.monthly_fee), phone: m.phone, status: m.status });
+
+  r.get('/marketing-companies', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    const rows = await db.query(`SELECT * FROM marketing_companies ${canManage(a) ? '' : `WHERE status = 'active'`} ORDER BY status, name`);
+    let totals: Record<string, any> = {};
+    if (canManage(a)) {
+      const t = await db.query(`
+        SELECT m.id,
+          COALESCE((SELECT sum(u.unit_price * u.mk_pct / 100) FROM ex_units u WHERE u.mk_company_id = m.id AND u.status = 'contracted'), 0) AS earned,
+          COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.marketing_company_id = m.id AND x.status = 'posted'), 0) AS paid,
+          (SELECT count(*) FROM ex_units u WHERE u.mk_company_id = m.id AND u.status <> 'cancelled')::int AS units
+          FROM marketing_companies m`);
+      totals = Object.fromEntries(t.rows.map((x) => [x.id, { earned: r2(n(x.earned)), paid: r2(n(x.paid)), units: x.units,
+        due: r2(Math.max(n(x.earned) - n(x.paid), 0)) }]));
+    }
+    return ok({ companies: rows.rows.map((m) => ({ ...shapeMk(m), totals: totals[m.id] })), canManage: canManage(a) });
+  });
+
+  r.post('/marketing-companies', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const b = obj(req.body);
+    const name = str(b, 'name', { min: 2, max: 120 })!.trim();
+    const kind = oneOf(b, 'kind', ['fixed', 'commission'] as const)!;
+    const m = await db.tx(async (q) => {
+      if (await one(q, `SELECT 1 FROM marketing_companies WHERE lower(trim(name)) = lower(trim($1))`, [name])) throw conflict('فيه شركة بنفس الاسم');
+      const x = await one(q, `INSERT INTO marketing_companies (name, kind, default_pct, monthly_fee, phone, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [name, kind, kind === 'commission' ? pct(b, 'defaultPct', 0) : 0, kind === 'fixed' ? (num(b, 'monthlyFee', { optional: true, min: 0, max: 100_000_000 }) ?? 0) : 0,
+          (str(b, 'phone', { optional: true, max: 30 }) ?? '').trim(), a.id]);
+      await audit(q, a.id, 'marketing_company.create', 'marketing_company', x.id, undefined, x);
+      return x;
+    });
+    return ok({ company: shapeMk(m) }, 201);
+  });
+
+  r.patch('/marketing-companies/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    const m = await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!o) throw notFound();
+      const x = await one(q, `UPDATE marketing_companies SET name = $2, default_pct = $3, monthly_fee = $4, phone = $5, status = $6 WHERE id = $1 RETURNING *`,
+        [o.id, (str(b, 'name', { optional: true, min: 2, max: 120 }) ?? o.name).trim(), pct(b, 'defaultPct', n(o.default_pct)),
+          num(b, 'monthlyFee', { optional: true, min: 0, max: 100_000_000 }) ?? n(o.monthly_fee), (str(b, 'phone', { optional: true, max: 30 }) ?? o.phone).trim(),
+          oneOf(b, 'status', ['active', 'inactive'] as const, true) ?? o.status]);
+      await audit(q, a.id, 'marketing_company.update', 'marketing_company', o.id, o, x);
+      return x;
+    });
+    return ok({ company: shapeMk(m) });
   });
 };
 

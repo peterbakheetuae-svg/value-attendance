@@ -18,10 +18,11 @@ import { notify } from './notify.ts';
 
 export type Box = 'office' | 'hr';
 const BOXES = ['office', 'hr'] as const;
-const RECEIPT_KINDS = ['reservation', 'down_payment', 'installment', 'settlement', 'other'] as const;
+const RECEIPT_KINDS = ['reservation', 'down_payment', 'installment', 'settlement', 'other', 'commission'] as const;
 const METHODS = ['cash', 'bank_transfer', 'cheque', 'card', 'wallet'] as const;
 export const RECEIPT_KIND_AR: Record<string, string> = {
   reservation: 'مبلغ حجز', down_payment: 'مقدم وحدة', installment: 'قسط', settlement: 'تسوية', other: 'تحصيل آخر',
+  commission: 'عمولة مستلمة', injection: 'ضخ من المالك / المدير العام',
 };
 
 export const canOffice = (a: Actor) => has(a, 'cash.office');
@@ -102,6 +103,109 @@ export async function cashSummary(q: Q, a: Actor) {
   return out;
 }
 
+/**
+ * The cashbox the office's way (see migration 041):
+ *  المتاح = بنك + نقدي (خزنة المكتب + خزنة المحاسب); الدخل = عمولات / مبيعات / ضخ / أمانات; المصروفات = المرتبات + المصاريف بأنواعها.
+ * The bank part of a box = its non-cash receipts − its bank-paid expenses. HR (المحاسب) sees his own box only.
+ */
+export async function cashOverview(q: Q, a: Actor, from: string | null, to: string | null) {
+  const office = canOffice(a);
+  const boxes = office ? ['office', 'hr'] : ['hr'];
+  const N = (v: unknown) => Number(v ?? 0);
+  const bal = await q.query(`SELECT cashbox, COALESCE(sum(amount), 0) AS b FROM cash_ledger GROUP BY cashbox`);
+  const bank = await q.query(`
+    SELECT b.box,
+      COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE cashbox = b.box AND status = 'posted' AND payment_method <> 'cash'), 0)
+      - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = b.box AND status = 'posted' AND payment_method = 'bank'), 0) AS bank
+      FROM (VALUES ('office'), ('hr')) b(box)`);
+  const boxBal = (b: string) => r2(N(bal.rows.find((x) => x.cashbox === b)?.b));
+  const boxBank = (b: string) => r2(N(bank.rows.find((x) => x.box === b)?.bank));
+  const available: Record<string, unknown> = {
+    hr: { total: boxBal('hr'), cash: r2(boxBal('hr') - boxBank('hr')), bank: boxBank('hr') },
+  };
+  if (office) {
+    const officeCash = r2(boxBal('office') - boxBank('office')), hrCash = r2(boxBal('hr') - boxBank('hr'));
+    Object.assign(available, {
+      total: r2(boxBal('office') + boxBal('hr')), bank: r2(boxBank('office') + boxBank('hr')), cash: r2(officeCash + hrCash),
+      office: { total: boxBal('office'), cash: officeCash, bank: boxBank('office') },
+    });
+  }
+  // the period (Cairo days)
+  const vals: unknown[] = [boxes];
+  const range = (col: string) => {
+    const c: string[] = [];
+    if (from) { vals.push(from); c.push(`${col} >= ($${vals.length}::date AT TIME ZONE 'Africa/Cairo')`); }
+    if (to) { vals.push(to); c.push(`${col} < (($${vals.length}::date + 1) AT TIME ZONE 'Africa/Cairo')`); }
+    return c.length ? ' AND ' + c.join(' AND ') : '';
+  };
+  vals.length = 1;
+  const rcpt = await q.query(`
+    SELECT r.kind, COALESCE(p.kind, '') AS project_kind, (r.ex_unit_id IS NOT NULL OR r.sale_id IS NOT NULL) AS unit, sum(r.amount_egp) AS s
+      FROM cash_receipts r LEFT JOIN ex_units u ON u.id = r.ex_unit_id LEFT JOIN commission_projects p ON p.id = u.project_id
+     WHERE r.status = 'posted' AND r.cashbox = ANY($1::text[]) ${range('r.occurred_at')}
+     GROUP BY 1, 2, 3`, vals);
+  const sumR = (f: (x: any) => boolean) => r2(rcpt.rows.filter(f).reduce((t, x) => t + N(x.s), 0));
+  const isSale = (x: any) => ['reservation', 'down_payment', 'installment'].includes(x.kind);
+  vals.length = 1;
+  const exp = await q.query(`
+    SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, sum(x.amount_egp) AS s, count(*)::int AS c
+      FROM cash_expenses x WHERE x.status = 'posted' AND x.cashbox = ANY($1::text[]) ${range('COALESCE(x.approved_at, x.occurred_at)')}
+     GROUP BY 1, 2, 3`, vals);
+  vals.length = 1;
+  const pay = await q.query(`SELECT kind, sum(amount_egp) AS s FROM payouts WHERE status = 'received' AND kind <> 'fund' AND 'hr' = ANY($1::text[])
+                               ${range('received_at')} GROUP BY kind`, vals);
+  const payK = (k: string) => r2(N(pay.rows.find((x) => x.kind === k)?.s));
+  const trustOut = r2(exp.rows.filter((x) => x.ex_kind).reduce((t, x) => t + N(x.s), 0));
+  const costsRows = exp.rows.filter((x) => !x.ex_kind);
+  const byCat = new Map<string, { name: string; amount: number; count: number }>();
+  for (const x of costsRows) {
+    const name = x.mk ? 'شركة تسويق' : String(x.category).trim();
+    const c = byCat.get(name) ?? { name, amount: 0, count: 0 };
+    c.amount = r2(c.amount + N(x.s)); c.count += x.c; byCat.set(name, c);
+  }
+  const expensesTotal = r2([...byCat.values()].reduce((t, c) => t + c.amount, 0));
+  const payroll = { salary: payK('salary'), commission: payK('commission'), advance: payK('advance'), workExpense: payK('work_expense') };
+  const payrollTotal = r2(payroll.salary + payroll.commission + payroll.advance + payroll.workExpense);
+
+  const out: Record<string, unknown> = {
+    from, to, available,
+    income: {
+      sales: { total: sumR(isSale), reservation: sumR((x) => x.kind === 'reservation'), contract: sumR((x) => x.kind === 'down_payment'),
+        installment: sumR((x) => x.kind === 'installment') },
+      injection: sumR((x) => x.kind === 'injection'),
+      commissionReceived: sumR((x) => x.kind === 'commission'),
+      other: sumR((x) => ['settlement', 'other'].includes(x.kind)),
+    },
+    expenses: { total: r2(expensesTotal + payrollTotal), payroll, payrollTotal, other: expensesTotal,
+      byCategory: [...byCat.values()].sort((x, y) => y.amount - x.amount) },
+  };
+  if (office) {
+    // الأمانات: the exclusive projects' money (in − refunds − paid to the owner − commission moved to the office)
+    vals.length = 1;
+    const tr = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM ex_commission_transfers WHERE $1::text[] IS NOT NULL ${range('created_at')}`, vals);
+    const trustIn = sumR((x) => isSale(x) && x.project_kind === 'exclusive');
+    const allTrust = await one(q, `SELECT
+        COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r JOIN ex_units u ON u.id = r.ex_unit_id JOIN commission_projects p ON p.id = u.project_id
+                   WHERE r.status = 'posted' AND p.kind = 'exclusive'), 0)
+      - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND ex_kind IS NOT NULL), 0)
+      - COALESCE((SELECT sum(amount_egp) FROM ex_commission_transfers), 0) AS s`);
+    (out.income as any).trust = { in: trustIn, out: trustOut, commissionMoved: r2(N(tr.s)), balance: r2(N(allTrust.s)) };
+    (out.income as any).commissions = r2((out.income as any).commissionReceived + N(tr.s));
+    // the commission's split, as earned in the period (approved deals)
+    vals.length = 1;
+    const cm = await one(q, `SELECT COALESCE(sum(sales_amount), 0) AS s, COALESCE(sum(manager_amount), 0) AS m, COALESCE(sum(company_amount), 0) AS c,
+        count(*)::int AS n FROM commission_requests WHERE status = 'approved' AND $1::text[] IS NOT NULL ${range('decided_at')}`, vals);
+    vals.length = 1;
+    const mk = await one(q, `SELECT COALESCE(sum(unit_price * mk_pct / 100), 0) AS s FROM ex_units WHERE status = 'contracted' AND $1::text[] IS NOT NULL
+                               ${range('contracted_at')}`, vals);
+    const sales = r2(N(cm.s)), manager = r2(N(cm.m)), marketing = r2(N(mk.s)), officeShare = r2(N(cm.c) - N(mk.s));
+    out.commissionSplit = { total: r2(sales + manager + N(cm.c)), sales, manager, marketing, office: officeShare, deals: cm.n };
+    const commissions = (out.income as any).commissions;
+    out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
+  }
+  return out;
+}
+
 async function cashOfficers(q: Q, exceptId?: string) {
   const r = await q.query(`
     SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
@@ -123,7 +227,7 @@ const fmt = (n: number) => `${r2(n)} جنيه`;
 export interface ReceiptInput {
   box: Box; recipientId: string; kind: string; amount: number; payerName: string; payerPhone: string; purpose: string;
   method: string; externalNo: string | null; notes: string; ref: string | null; att: Buffer | null; occurred: Date;
-  saleId?: string | null; installmentId?: string | null;
+  saleId?: string | null; installmentId?: string | null; projectId?: string | null;
 }
 
 /**
@@ -160,7 +264,8 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
   if (!isUuid(recipientId)) throw invalid('recipientId is invalid', { field: 'recipientId' });
   const saleId = typeof b.saleId === 'string' && b.saleId ? b.saleId : null;
   const installmentId = typeof b.installmentId === 'string' && b.installmentId ? b.installmentId : null;
-  return { box, recipientId, kind, amount, payerName, payerPhone, purpose, method, externalNo, notes, ref, att, occurred, saleId, installmentId };
+  const projectId = typeof b.projectId === 'string' && isUuid(b.projectId) ? b.projectId : null;
+  return { box, recipientId, kind, amount, payerName, payerPhone, purpose, method, externalNo, notes, ref, att, occurred, saleId, installmentId, projectId };
 }
 
 /** Writes one numbered receipt (inside the caller's transaction); the same form sent twice gives the same receipt. */
@@ -178,10 +283,10 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   }
   const row = await one(q, `
     INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
-           external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id, ref_no`,
+           external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id, project_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id, ref_no`,
     [x.kind, x.amount, x.box, x.recipientId, x.payerName, x.payerPhone, x.purpose, x.method, x.externalNo, x.ref, x.notes, x.att,
-      x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null]);
+      x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null, x.projectId ?? null]);
   await audit(q, a.id, 'cash.receipt', 'cash_receipt', row.id, undefined,
     { kind: x.kind, amount: x.amount, cashbox: x.box, recipientId: x.recipientId, payerName: x.payerName, purpose: x.purpose,
       externalNo: x.externalNo, saleId: x.saleId ?? null, installmentId: x.installmentId ?? null });
@@ -210,6 +315,7 @@ function shapeExpense(x: any) {
     recordedBy: x.recorded_by, recordedByName: x.recorded_by_name, status: x.status, approvedAt: x.approved_at,
     approvedByName: x.approved_by_name, rejectReason: x.reject_reason, reviewedAt: x.reviewed_at, reviewedByName: x.reviewed_by_name,
     reversedAt: x.reversed_at, reverseReason: x.reverse_reason, createdAt: x.created_at,
+    paymentMethod: x.payment_method ?? 'cash', marketingCompanyId: x.marketing_company_id ?? null,
   };
 }
 
@@ -248,6 +354,51 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canHrView(a) && !canOffice(a)) throw forbidden();
     return ok(await cashSummary(db, a));
+  });
+
+  /** ضخ: المالك / المدير العام puts his own money in — نقدي في خزنة المكتب، في خزنة المحاسب، أو في البنك. */
+  r.post('/cash/injections', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden('الضخ للمالك / المدير العام بس');
+    const b = obj(req.body);
+    const target = oneOf(b, 'target', ['office', 'hr', 'bank'] as const)!;
+    const amount = money(b);
+    const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
+    const ref = clientRef(b);
+    const row = await db.tx(async (q) => {
+      if (ref) {
+        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [ref]);
+        if (dup) return dup;
+      }
+      let recipient = a.id;
+      if (target === 'hr') {
+        const ops = await hrOperators(q);
+        if (!ops.length) throw invalid('مفيش محاسب يستلم الفلوس', { field: 'target' });
+        recipient = typeof b.recipientId === 'string' && ops.includes(b.recipientId) ? b.recipientId : ops[0];
+      }
+      const x = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, purpose, payment_method,
+          client_ref, notes, occurred_at, recorded_by)
+        VALUES ('injection',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, ref_no`,
+        [amount, target === 'hr' ? 'hr' : 'office', recipient, a.fullName || 'المالك / المدير العام',
+          `ضخ من المالك / المدير العام — ${target === 'bank' ? 'بنك' : target === 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب'}`,
+          target === 'bank' ? 'bank_transfer' : 'cash', ref, note, clock(), a.id]);
+      await audit(q, a.id, 'cash.injection', 'cash_receipt', x.id, undefined, { amount, target, note });
+      if (target === 'hr') {
+        await notify(q, { to: recipient, type: 'cash_receipt', title: `ضخ في خزنة المحاسب: ${fmt(amount)}`, body: note || 'من المالك / المدير العام',
+          entity: 'cash_receipt', entityId: x.id, dedupeKey: `cash:receipt:${x.id}` });
+      }
+      return x;
+    });
+    return ok({ receipt: { id: row.id, receiptNo: `R-${String(row.ref_no).padStart(6, '0')}` } }, 201);
+  });
+
+  /** The cashbox read the office's way: what is available, where it came from and where it went. */
+  r.get('/cash/overview', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canHrView(a) && !canOffice(a)) throw forbidden();
+    const from = req.query.get('from'), to = req.query.get('to');
+    const ok1 = (d: string | null) => d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+    return ok(await cashOverview(db, a, ok1(from), ok1(to)));
   });
 
   r.get('/cash/ledger', async (req) => {
@@ -369,7 +520,10 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ref = clientRef(b);
     const att = attachment(b);
     const occurred = when(b, 'occurredAt', clock());
+    const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
+    const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
     const out = await db.tx(async (q) => {
+      if (mkId && !(await one(q, `SELECT 1 FROM marketing_companies WHERE id = $1`, [mkId]))) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
       if (ref) {
         const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
         if (dup) return { id: dup.id, duplicate: true };
@@ -380,10 +534,10 @@ export const cashModule: Module = (r, { db, clock }) => {
       const needsApproval = box === 'hr' && !canOffice(a) && amount > threshold;
       const x = await one(q, `
         INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, attachment, client_ref, occurred_at, recorded_by,
-               status, approved_by, approved_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, ref_no`,
+               status, approved_by, approved_at, payment_method, marketing_company_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, ref_no`,
         [box, amount, category, reason, beneficiary, notes, att, ref, occurred, a.id,
-          needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock()]);
+          needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock(), method, mkId]);
       await audit(q, a.id, 'cash.expense', 'cash_expense', x.id, undefined,
         { cashbox: box, amount, category, reason, beneficiary, status: needsApproval ? 'pending_approval' : 'posted', threshold });
       if (needsApproval) {

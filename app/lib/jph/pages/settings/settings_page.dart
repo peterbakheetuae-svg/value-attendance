@@ -4,7 +4,7 @@ import '../cash/cashbox_hub_page.dart';
 import '../../forms/custody_receipt_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
-import '../commissions/commissions_page.dart';
+import '../exclusive/exclusive_projects_page.dart';
 import '../../services/session_service.dart';
 import '../../services/api_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -65,6 +65,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool expandLanguage = false;
   bool _companyOpen = false;
   bool _financeOpen = false;
+  bool _projectsOpen = false;
   bool _formsOpen = false;
   bool _isCheckingUpdate = false;
   PackageInfo? _packageInfo;
@@ -356,6 +357,26 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+
+                    // ─── المشاريع: المشاريع / المبيعات / الخزنة / الملاك / العملاء ───
+                    if (_projectItems().isNotEmpty) ...[
+                      SettingsExpandableTile(
+                        title: 'المشاريع',
+                        icon: Icons.apartment_rounded,
+                        expanded: _projectsOpen,
+                        onToggle: () => setState(() => _projectsOpen = !_projectsOpen),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Column(children: [
+                            for (final (i, it) in _projectItems().indexed) ...[
+                              if (i > 0) const SizedBox(height: 12),
+                              _companyOption(appController, it.$1, it.$2, it.$3),
+                            ],
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
 
                     // ─── العهدة: the company's mobiles / laptops (add here, hand over from the employee's page) ───
                     if (CustodyAssetsPage.visible) ...[
@@ -715,9 +736,22 @@ class _SettingsPageState extends State<SettingsPage> {
         ('طلبات ومبيعات', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
         (CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
-        if (ApiService.can('sales.view')) ('الأقساط والمبيعات', Icons.home_work_rounded, () => const SalesPage()),
-        ('المشاريع والعمولات', Icons.handshake_rounded, () => const CommissionsPage()),
+        if (ApiService.can('sales.view')) ('الأقساط', Icons.event_note_rounded, () => const SalesPage()),
       ];
+
+  /// المشاريع (حصري + تسويق) والمبيعات (حجز / تعاقد) والخزنة والملاك والعملاء.
+  List<(String, IconData, Widget Function())> _projectItems() {
+    final office = ApiService.can('cash.office');
+    final sales = office || ApiService.can('exclusive.reserve') || ApiService.can('cash.hr_operate');
+    return [
+      ('المشاريع', Icons.apartment_rounded, () => const ProjectsPage()),
+      if (sales) ('المبيعات', Icons.sell_rounded, () => const SalesHubPage()),
+      if (CashboxHubPage.canCash) ('الخزنة', Icons.account_balance_wallet_rounded,
+          () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1)),
+      if (office) ('الملاك', Icons.real_estate_agent_rounded, () => const OwnersPage()),
+      if (sales) ('العملاء', Icons.people_alt_rounded, () => const ClientsPage()),
+    ];
+  }
 
   List<(String, IconData, Widget Function())> _companyItems() => [
         if (ApiService.can('settings.manage')) ('معلومات الشركة', Icons.business, () => const CompanyInfoPage()),

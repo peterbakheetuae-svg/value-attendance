@@ -8,6 +8,10 @@ import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/sale_form.dart';
+import '../commissions/commission_project_page.dart';
+
+part '../projects/projects_hub.dart';
 
 /// المشاريع الحصري — the office holds every payment for the project's owner and earns its commission in stages.
 ///  - السيلز: حجز وحدة، طلب تعاقد، طلب إلغاء.
@@ -301,15 +305,22 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
 Future<void> reserveUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects, {String? projectId, VoidCallback? then}) async {
   String? pid = projectId ?? (projects.length == 1 ? '${projects.first['id']}' : null);
   final unit = TextEditingController(), client = TextEditingController(), phone = TextEditingController(),
-      price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController();
+      price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController(), mkPct = TextEditingController();
+  // the client may come from a marketing company that takes a commission (its % comes out of the office share)
+  final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
+  Map<String, dynamic>? mk;
+  if (!context.mounted) return;
   final ok = await _form(context, isDark, 'حجز وحدة', (set) => [
         if (projectId == null)
           JphUi.picker(
             isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع',
             value: pid == null ? 'اختار المشروع' : '${projects.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {})['name'] ?? ''}',
             onTap: () async {
-              final v = await JphUi.sheet<String>(context, isDark, 'المشروع',
-                  [for (final p in projects.where((p) => p['status'] == 'active')) ('${p['id']}', '${p['name']}', Icons.apartment_rounded)], selected: pid);
+              final v = await JphUi.sheet<String>(context, isDark, 'المشروع', [
+                for (final p in projects.where((p) => p['status'] == 'active'))
+                  ('${p['id']}', '${p['name']} — ${p['kind'] == 'marketing' ? 'تسويق' : 'حصري'}',
+                      p['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded),
+              ], selected: pid);
               if (v != null) set(() => pid = v);
             },
           ),
@@ -318,6 +329,19 @@ Future<void> reserveUnit(BuildContext context, bool isDark, List<Map<String, dyn
         JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
         JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
         JphUi.input(isDark: isDark, label: 'العربون', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
+        if (mks.isNotEmpty) ...[
+          Text('العميل جاي منين؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            ChoiceChip(label: const Text('مباشر'), selected: mk == null, onSelected: (_) => set(() => mk = null)),
+            for (final m in mks)
+              ChoiceChip(label: Text('${m['name']}'), selected: mk?['id'] == m['id'], onSelected: (_) => set(() {
+                mk = m;
+                mkPct.text = '${m['defaultPct']}';
+              })),
+          ]),
+          if (mk != null)
+            JphUi.input(isDark: isDark, label: 'نسبة ${mk!['name']} ٪ (من نصيب المكتب)', controller: mkPct, icon: Icons.percent_rounded, number: true),
+        ],
         JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
       ], () async {
     if (pid == null) {
@@ -327,6 +351,7 @@ Future<void> reserveUnit(BuildContext context, bool isDark, List<Map<String, dyn
     final r = await _post('/exclusive/units', {
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
       'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')), 'notes': notes.text.trim(),
+      if (mk != null) ...{'marketingCompanyId': mk!['id'], 'marketingPct': num.tryParse(mkPct.text)},
     }, 'اتسجل الحجز — مستني المحاسب يسجل العربون ✅');
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
@@ -396,7 +421,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final isDark = context.watch<AppController>().isDark;
     final p = _m(_d?['project']);
     return _Shell(
-      title: p.isEmpty ? 'مشروع حصري' : '${p['name']}',
+      title: p.isEmpty ? 'المشروع' : '${p['name']}',
       child: _d == null
           ? const Center(child: CircularProgressIndicator())
           : _d!['error'] != null
@@ -411,8 +436,31 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final cm = _m(st['commission']), ow = _m(st['owner']), u = _m(st['units']);
     final units = _l(_d!['units']).where((x) => _filter.isEmpty || x['status'] == _filter).toList();
     final statement = _l(_d!['statement']);
+    final marketing = p['kind'] == 'marketing';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
-      if (st.isNotEmpty) ...[
+      if (marketing && st.isNotEmpty) ...[
+        _section(isDark, 'عمولة المشروع', [
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
+            _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Colors.blueGrey),
+            _pill('المكتب ${JphUi.pct(p['companyPct'])}', Colors.teal),
+          ]),
+          const SizedBox(height: 8),
+          _kv(isDark, 'مبيعات متعاقد عليها', _money(st['sales'])),
+          _kv(isDark, 'إجمالي العمولة', _money(cm['earned'])),
+          _kv(isDark, 'للسيلز ومدير المبيعات', _money(cm['staff'])),
+          _kv(isDark, 'لشركات التسويق', _money(cm['marketing'])),
+          _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Colors.teal),
+          _kv(isDark, 'محتملة من حجوزات', _money(cm['potential'])),
+        ]),
+      ],
+      if (marketing)
+        TextButton.icon(
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CommissionProjectPage(projectId: '${p['id']}'))),
+          icon: const Icon(Icons.receipt_long_rounded),
+          label: const Text('طلبات العمولة على المشروع', style: TextStyle(fontWeight: FontWeight.w800)),
+        ),
+      if (!marketing && st.isNotEmpty) ...[
         _section(isDark, 'أمانة المالك — ${p['ownerName'] ?? ''}', [
           _kv(isDark, 'اتحصّل', _money(st['collected'])),
           _kv(isDark, 'منه بنك', _money(st['bank'])),
@@ -431,6 +479,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
           _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
           _kv(isDark, 'محتملة من حجوزات', _money(cm['potential'])),
           _kv(isDark, 'منها للسيلز ومدير المبيعات', _money(cm['staff'])),
+          if (_n(cm['marketing']) > 0) _kv(isDark, 'منها لشركات التسويق', _money(cm['marketing'])),
         ]),
         if (can['manage'] == true) ...[
           _btn(isDark, 'تحويل عمولة من الأمانة', Icons.swap_horiz_rounded, () => _transfer(isDark, _n(cm['pending'])), color: Colors.green),
@@ -614,7 +663,8 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                 if (d != null) set(() => first = d);
               },
             ),
-            JphUi.input(isDark: isDark, label: 'نسبة عمولة كل قسط ٪ (حسب الاتفاق)', controller: pct, number: true, icon: Icons.percent_rounded),
+            if (_u['projectKind'] != 'marketing')
+              JphUi.input(isDark: isDark, label: 'نسبة عمولة كل قسط ٪ (حسب الاتفاق)', controller: pct, number: true, icon: Icons.percent_rounded),
           ],
           JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded),
         ], () async {
@@ -710,7 +760,9 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         Align(alignment: AlignmentDirectional.centerStart, child: _pill('${u['statusAr']}', _statusColor(st))),
         const SizedBox(height: 8),
         _kv(isDark, 'العميل', '${u['clientName']}${'${u['clientPhone'] ?? ''}'.isEmpty ? '' : ' · ${u['clientPhone']}'}'),
+        _kv(isDark, 'نوع المشروع', u['projectKind'] == 'marketing' ? 'تسويق' : 'حصري'),
         _kv(isDark, 'السيلز', '${u['salesName']}'),
+        if (u['marketingCompanyName'] != null) _kv(isDark, 'عن طريق', '${u['marketingCompanyName']} (${JphUi.pct(u['marketingPct'])})'),
         _kv(isDark, 'سعر الوحدة', _money(u['unitPrice'])),
         _kv(isDark, 'العربون', _money(u['depositAmount'])),
         if (c.isNotEmpty) ...[
@@ -720,7 +772,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           if (c['paymentType'] == 'installments') ...[
             _kv(isDark, 'الأقساط', '${c['installmentsCount']} قسط كل ${c['everyMonths']} شهر'),
             _kv(isDark, 'أول قسط', _date(c['firstDueDate'])),
-            _kv(isDark, 'عمولة كل قسط', JphUi.pct(c['installmentPct'])),
+            if (u['projectKind'] != 'marketing') _kv(isDark, 'عمولة كل قسط', JphUi.pct(c['installmentPct'])),
           ],
           if ('${c['rejectReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب رفض التعاقد', '${c['rejectReason']}', color: Colors.red),
         ],
@@ -739,6 +791,8 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
           _kv(isDark, 'محتملة', _money(cm['potential'])),
           _kv(isDark, 'للسيلز ومدير المبيعات', _money(cm['staff'])),
+          if (_n(cm['marketing']) > 0) _kv(isDark, 'لشركة التسويق', _money(cm['marketing'])),
+          if (_n(cm['office']) > 0) _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Colors.teal),
         ]),
       if (can['collect'] == true) _btn(isDark, 'تسجيل فلوس (عربون / مقدم / قسط)', Icons.add_card_rounded, () => _collect(isDark), color: Colors.green),
       if (can['requestContract'] == true) _btn(isDark, 'طلب تعاقد', Icons.handshake_rounded, () => _requestContract(isDark)),

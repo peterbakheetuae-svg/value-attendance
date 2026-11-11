@@ -6,13 +6,11 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
 import '../attendance/attendance_report_page.dart';
-import '../cash/cash_page.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../employees/employees_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
 import '../finance/finance_dashboard_page.dart';
 import '../multi_company/kpi_page.dart';
-import '../sales/sales_page.dart';
 import 'attendance_today_page.dart';
 
 /// The home of المالك / المدير العام — the Ignara overview, card for card and motion for motion, in the app's
@@ -134,15 +132,15 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     Widget? page;
     switch (route) {
       case 'cash':
-        page = const CashPage();
+        page = CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1);
       case 'finance':
         page = const FinanceDashboardPage();
       case 'finance_requests':
         page = CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role);
       case 'exclusive':
-        page = const ExclusiveProjectsPage();
+        page = const ProjectsPage();
       case 'sales':
-        page = const SalesPage();
+        page = const SalesHubPage();
       case 'attendance_today':
         page = AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role);
       case 'attendance_report':
