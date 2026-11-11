@@ -204,7 +204,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
     },
     ring: {
       title: 'تغطية المصاريف', sub: `الرواتب ${short(pay.due)} + المصاريف ${short(n(money.expenses))}`,
-      pct: costs > 0 ? Math.min(1, income / costs) : income > 0 ? 1 : 0, center: `${costs > 0 ? Math.round((income / costs) * 100) : 0}٪`,
+      pct: costs > 0 ? Math.min(1, income / costs) : income > 0 ? 1 : 0, center: costs > 0 ? (income / costs > 9.99 ? '+999٪' : `${Math.round((income / costs) * 100)}٪`) : (income > 0 ? '100٪' : '0٪'),
       centerSub: `${short(income)} من ${short(costs)}`,
       stats: [
         { label: net >= 0 ? 'الربح' : 'العجز', value: Math.abs(net), format: 'money', tone: net >= 0 ? 'good' : 'bad' },
