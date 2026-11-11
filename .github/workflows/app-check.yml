@@ -30,3 +30,6 @@ jobs:
           cp deploy/hostinger/.htaccess build/web/.htaccess
           grep -q '<base href="/value-attendance/">' build/web/index.html
           ls -la build/web build/web/assets/assets/bg build/web/assets/assets/sounds; du -sh build/web
+      - name: Keep the web build for a visual check (1 day)
+        uses: actions/upload-artifact@v4
+        with: { name: web-preview, path: app/build/web, retention-days: 1 }
