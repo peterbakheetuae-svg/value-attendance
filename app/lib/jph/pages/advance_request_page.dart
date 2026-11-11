@@ -13,7 +13,7 @@ import '../l10n/app_localizations.dart';
 import '../widgets/payouts_widgets.dart';
 import 'cash/cashbox_hub_page.dart';
 import '../widgets/jph_form_ui.dart';
-import 'exclusive/exclusive_projects_page.dart' show UnifiedSalesTab;
+import 'cash/cash_page.dart';
 import '../widgets/swipe_tabs.dart';
 import '../widgets/adjustment_form.dart';
 
@@ -45,6 +45,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   String _note = '';
   File? _selectedImage;
   bool _isSubmitting = false;
+  final _cashMonth = ValueNotifier<DateTime>(DateTime(DateTime.now().year, DateTime.now().month));
 
 
   // عمولة الصفقة اتنقلت لتبويب "مبيعات" (بيع + طلب عمولة)
@@ -91,6 +92,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   @override
   void dispose() {
     _amountController.dispose();
+    _cashMonth.dispose();
     super.dispose();
   }
 
@@ -153,7 +155,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           ),
                           const Spacer(),
                           Text(
-                            'طلبات المالية',
+                            'المالية',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -207,13 +209,13 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                         tabs: [
                           ('طلب', Icons.request_page_rounded),
                           if (AdjustmentsTab.visible) ('علاوة / خصم', Icons.tune_rounded),
-                          ('مبيعات', Icons.home_work_rounded),
+                          if (CashboxHubPage.canCash) ('الخزنة', Icons.account_balance_wallet_rounded),
                         ],
                         pages: [
                           _requestTab(isDark, isRTL, primaryColor, textColor, subduedTextColor),
                           if (AdjustmentsTab.visible) AdjustmentsTab(isDark: isDark),
-                          // المبيعات: حجز / تعاقد للمشاريع الحصري والتسويق في مكان واحد
-                          UnifiedSalesTab(isDark: isDark),
+                          // الخزنة: المتاح (بنك / نقدي) والدخل والمصروفات — المبيعات بقت في «المشاريع ← المبيعات»
+                          if (CashboxHubPage.canCash) CashPage(embedded: true, month: _cashMonth),
                         ],
                       ),
                     ),

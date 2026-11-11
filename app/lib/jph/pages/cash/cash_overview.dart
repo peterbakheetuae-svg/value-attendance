@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
-import '../projects/marketing_companies_page.dart';
 import 'cash_page.dart' show newClientRef;
 
 /// الخزنة the office's way (GET /cash/overview):
@@ -97,9 +96,6 @@ class _CashOverviewState extends State<CashOverview> {
           const SizedBox(width: 10),
           Expanded(child: _action(isDark, 'عمولة مستلمة', Icons.workspace_premium_rounded, Colors.amber.shade800, () => _commissionIn(isDark))),
         ]),
-        const SizedBox(height: 10),
-        _action(isDark, 'شركات التسويق', Icons.campaign_rounded, Colors.deepPurple,
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingCompaniesPage())).then((_) => _load())),
       ],
       const SizedBox(height: 6),
     ]);

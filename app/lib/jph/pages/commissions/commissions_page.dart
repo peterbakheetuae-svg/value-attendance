@@ -19,7 +19,9 @@ import '../../widgets/glass_dialog.dart';
 /// What each tab shows comes from the API already filtered by role; nothing is only hidden here.
 class CommissionsPage extends StatefulWidget {
   final String? initialTab;
-  const CommissionsPage({super.key, this.initialTab});
+  /// «العمولات» in the projects section: the approvals + my commissions only (the projects have their own page)
+  final bool requestsOnly;
+  const CommissionsPage({super.key, this.initialTab, this.requestsOnly = false});
 
   @override
   State<CommissionsPage> createState() => _CommissionsPageState();
@@ -34,8 +36,8 @@ class _CommissionsPageState extends State<CommissionsPage> {
   bool get _seeExclusive => ApiService.can('exclusive.reserve') || ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
 
   List<(String, String, IconData)> get _tabs => [
-        if (_seeProjects) ('projects', 'تسويق بالعمولة', Icons.apartment_rounded),
-        if (_seeExclusive) ('exclusive', 'حصري', Icons.workspace_premium_outlined),
+        if (_seeProjects && !widget.requestsOnly) ('projects', 'تسويق بالعمولة', Icons.apartment_rounded),
+        if (_seeExclusive && !widget.requestsOnly) ('exclusive', 'حصري', Icons.workspace_premium_outlined),
         if (_approve) ('approve', 'الاعتماد', Icons.fact_check_rounded),
         ('mine', 'عمولات', Icons.workspace_premium_rounded),
       ];
@@ -59,7 +61,7 @@ class _CommissionsPageState extends State<CommissionsPage> {
             backgroundColor: Colors.transparent,
             body: SafeArea(
               child: Column(children: [
-                JphUi.header(context, isDark: isDark, isRTL: isRTL, title: 'المشاريع والعمولات'),
+                JphUi.header(context, isDark: isDark, isRTL: isRTL, title: widget.requestsOnly ? 'العمولات' : 'المشاريع والعمولات'),
                 const SizedBox(height: 6),
                 Expanded(
                   child: Center(

@@ -4,7 +4,7 @@ import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { date, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
-import { canHrOperate, canOffice, hrDesk } from './cash.ts';
+import { canHrOperate, canOffice, hrDesk, hrOperators } from './cash.ts';
 import { holdersOf, notify } from './notify.ts';
 
 /**
@@ -46,6 +46,8 @@ async function loadUnits(q: Q, where: string, params: unknown[]) {
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind = 'reservation'), 0) AS deposit_paid,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind IN ('reservation','down_payment')), 0) AS down_paid,
            COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.ex_unit_id = u.id AND x.ex_kind = 'refund' AND x.status = 'posted'), 0) AS refunded,
+           COALESCE((SELECT sum(t.amount_egp) FROM ex_commission_transfers t WHERE t.unit_id = u.id), 0)
+             + COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.commission_unit_id = u.id AND r.status = 'posted'), 0) AS commission_collected,
            (SELECT count(*) FROM ex_installments i WHERE i.unit_id = u.id)::int AS inst_total,
            (SELECT count(*) FROM ex_installments i WHERE i.unit_id = u.id AND i.amount_egp <=
               COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0))::int AS inst_paid,
@@ -76,7 +78,9 @@ function withCommission(u: any) {
   // the commission's split (of the unit's total commission): السيلز / مدير السيلز / شركة التسويق / المكتب
   const staff = contracted ? r2(price * (n(u.sales_pct) + n(u.manager_pct)) / 100) : 0;
   const marketing = contracted ? r2(price * n(u.mk_pct) / 100) : 0;
+  const collected = r2(n(u.commission_collected));
   return { ...u, earned: r2(earned), upcoming: r2(upcoming), potential: r2(potential), completed, staff, marketing,
+    commissionCollected: collected, receivable: r2(Math.max(earned - collected, 0)),
     office: contracted ? r2(price * Math.max(total - n(u.sales_pct) - n(u.manager_pct) - n(u.mk_pct), 0) / 100) : 0 };
 }
 
@@ -102,12 +106,16 @@ function shapeUnit(u: any, a: Actor) {
       remaining: r2(Math.max(n(u.unit_price) - n(u.collected), 0)) },
     installments: { total: u.inst_total, paid: u.inst_paid, nextDue: u.next_due ? ds(u.next_due) : null },
     // the commission figures are المالك / المدير العام's view
+    // potential (محتملة) at the reservation → receivable (واجبة التحصيل) at the contract → collected (تم التحصيل)
     commission: canManage(a) ? { earned: u.earned, upcoming: u.upcoming, potential: u.potential, staff: u.staff,
-      marketing: u.marketing, office: u.office } : undefined,
+      marketing: u.marketing, office: u.office, collected: u.commissionCollected, receivable: u.receivable } : undefined,
+    myCommission: mine ? { amount: r2(n(u.unit_price) * n(u.sales_pct) / 100),
+      state: u.status === 'contracted' ? 'earned' : u.status === 'cancelled' ? 'cancelled' : 'potential' } : undefined,
     createdAt: u.created_at,
     can: {
-      collect: hrDesk(a) && ['reserving', 'reserved', 'contract_pending', 'contracted'].includes(u.status),
+      collect: hrDesk(a) && u.project_kind === 'exclusive' && ['reserving', 'reserved', 'contract_pending', 'contracted'].includes(u.status),
       requestContract: (mine || canManage(a)) && u.status === 'reserved',
+      collectCommission: canManage(a) && u.status === 'contracted' && u.receivable > 0,
       decideContract: canManage(a) && u.status === 'contract_pending' && !mine,
       requestCancel: (mine || canManage(a)) && ['reserving', 'reserved', 'contract_pending'].includes(u.status),
       decideCancel: canManage(a) && u.status === 'cancel_pending',
@@ -160,8 +168,8 @@ function shapeProject(p: any, stats?: any, a?: Actor) {
   return {
     id: p.id, name: p.name, kind: p.kind, status: p.status, ownerName: p.owner_name, ownerPhone: p.owner_phone,
     totalPct: n(p.total_pct), contractPct: n(p.contract_pct), installmentPct: n(p.installment_pct),
-    salesPct: n(p.sales_pct), managerPct: n(p.manager_pct), companyPct: n(p.company_pct), createdAt: p.created_at,
-    stats,
+    salesPct: n(p.sales_pct), managerPct: n(p.manager_pct), companyPct: n(p.company_pct), marketingPct: n(p.marketing_pct),
+    createdAt: p.created_at, stats,
   };
 }
 
@@ -203,7 +211,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const ownerName = str(b, 'ownerName', { min: 2, max: 120 })!.trim();
     const ownerPhone = (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim();
     const total = pct(b, 'totalPct', 5), contract = pct(b, 'contractPct', 3), sales = pct(b, 'salesPct', 0.2),
-      manager = pct(b, 'managerPct', 0.1), inst = pct(b, 'installmentPct', 0.5);
+      manager = pct(b, 'managerPct', 0.1), inst = pct(b, 'installmentPct', 0.5), mkPct = pct(b, 'marketingPct', 0);
+    if (mkPct > total - sales - manager) throw invalid('عمولة شركات التسويق أكبر من نصيب المكتب', { field: 'marketingPct' });
     if (contract > total) throw invalid('نسبة التعاقد مينفعش تكون أكبر من إجمالي العمولة', { field: 'contractPct' });
     if (sales + manager > contract) throw invalid('نسبة السيلز + المدير لازم تكون من ضمن نسبة التعاقد', { field: 'salesPct' });
     const p = await db.tx(async (q) => {
@@ -211,9 +220,9 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         throw invalid('فيه مشروع بنفس الاسم', { field: 'name' });
       }
       const x = await one(q, `INSERT INTO commission_projects (name, total_pct, sales_pct, manager_pct, company_pct, created_by, kind,
-          owner_name, owner_phone, contract_pct, installment_pct)
-        VALUES ($1,$2,$3,$4,$5,$6,'exclusive',$7,$8,$9,$10) RETURNING *`,
-        [name, total, sales, manager, r2(total - sales - manager), a.id, ownerName, ownerPhone, contract, inst]);
+          owner_name, owner_phone, contract_pct, installment_pct, marketing_pct)
+        VALUES ($1,$2,$3,$4,$5,$6,'exclusive',$7,$8,$9,$10,$11) RETURNING *`,
+        [name, total, sales, manager, r2(total - sales - manager), a.id, ownerName, ownerPhone, contract, inst, mkPct]);
       await audit(q, a.id, 'exclusive.project.create', 'commission_project', x.id, undefined, x);
       return x;
     });
@@ -229,13 +238,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       const o = await one(q, `SELECT * FROM commission_projects WHERE id = $1 AND kind = 'exclusive' FOR UPDATE`, [req.params.id]);
       if (!o) throw notFound();
       const total = pct(b, 'totalPct', n(o.total_pct)), contract = pct(b, 'contractPct', n(o.contract_pct)),
-        sales = pct(b, 'salesPct', n(o.sales_pct)), manager = pct(b, 'managerPct', n(o.manager_pct)), inst = pct(b, 'installmentPct', n(o.installment_pct));
-      if (contract > total || sales + manager > contract) throw invalid('راجع النسب', { field: 'contractPct' });
+        sales = pct(b, 'salesPct', n(o.sales_pct)), manager = pct(b, 'managerPct', n(o.manager_pct)), inst = pct(b, 'installmentPct', n(o.installment_pct)),
+        mkPct = pct(b, 'marketingPct', n(o.marketing_pct));
+      if (contract > total || sales + manager > contract || mkPct > total - sales - manager) throw invalid('راجع النسب', { field: 'contractPct' });
       const x = await one(q, `UPDATE commission_projects SET name = $2, owner_name = $3, owner_phone = $4, total_pct = $5, contract_pct = $6,
-          sales_pct = $7, manager_pct = $8, company_pct = $9, installment_pct = $10, status = $11, updated_at = now() WHERE id = $1 RETURNING *`,
+          sales_pct = $7, manager_pct = $8, company_pct = $9, installment_pct = $10, status = $11, marketing_pct = $12, updated_at = now() WHERE id = $1 RETURNING *`,
         [o.id, (str(b, 'name', { optional: true, min: 2, max: 120 }) ?? o.name).trim(), (str(b, 'ownerName', { optional: true, min: 2, max: 120 }) ?? o.owner_name).trim(),
           (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? o.owner_phone).trim(), total, contract, sales, manager, r2(total - sales - manager), inst,
-          oneOf(b, 'status', ['active', 'paused', 'closed'] as const, true) ?? o.status]);
+          oneOf(b, 'status', ['active', 'paused', 'closed'] as const, true) ?? o.status, mkPct]);
       await audit(q, a.id, 'exclusive.project.update', 'commission_project', o.id, o, x);
       return x;
     });
@@ -357,7 +367,119 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     });
   });
 
-  /** حجز: the salesperson reserves a unit; it is reserved once the accountant records the deposit. */
+  /**
+   * A payment the sales flow brings in itself (عربون الحجز / مقدم التعاقد of an exclusive unit): straight into the
+   * accountant's cashbox (نقدي أو بنك), the accountant as the one holding it, and he is told.
+   */
+  async function flowReceipt(q: Q, a: Actor, u: any, projectName: string, kind: 'reservation' | 'down_payment', amount: number, method: string) {
+    const ops = await hrOperators(q);
+    const holder = ops[0] ?? a.id;
+    const rc = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
+        notes, occurred_at, recorded_by, ex_unit_id)
+      VALUES ($1,$2,'hr',$3,$4,$5,$6,$7,'',$8,$9,$10) RETURNING id, ref_no`,
+      [kind, amount, holder, u.client_name, u.client_phone, `${KIND_AR[kind]} — ${projectName} — وحدة ${u.unit_no}`, method, clock(), a.id, u.id]);
+    await audit(q, a.id, 'exclusive.receipt', 'cash_receipt', rc.id, undefined, { unitId: u.id, kind, amount, method, flow: true });
+    for (const m of ops) {
+      await notify(q, { to: m, type: 'exclusive_payment', title: `${KIND_AR[kind]} دخل خزنتك: ${fmt(amount)}${method === 'cash' ? '' : ' (بنك)'}`,
+        body: `${projectName} — وحدة ${u.unit_no} — ${u.client_name}`, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:receipt:${rc.id}` });
+    }
+    return rc;
+  }
+
+  /**
+   * تعاقد: the salesperson (or المالك / المدير العام) turns a reservation into a contract. The down payment (cash: the
+   * whole price) of an exclusive unit goes into the cashbox, the installments are scheduled, the commission becomes
+   * receivable; the staff commission is a request المالك / المدير العام approves (at once when he made the contract).
+   */
+  async function makeContract(q: Q, a: Actor, u: any, p: any, b: Record<string, unknown>) {
+    if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
+    if (!['reserved', 'contract_pending'].includes(u.status)) throw conflict('الوحدة دي مش في مرحلة الحجز');
+    const now = clock();
+    const price = n(u.unit_price);
+    const note = (str(b, 'note', { optional: true, max: 1000 }) ?? '').trim();
+    const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
+    let type: 'cash' | 'installments' = 'cash', down = 0, count = null, every = null, first = null, instPct: number | null = null;
+    if (p.kind === 'exclusive') {
+      type = oneOf(b, 'paymentType', ['cash', 'installments'] as const)!;
+      down = num(b, 'downPayment', { min: 0, max: 10_000_000_000, optional: true }) ?? 0;
+      if (down > price) throw invalid('المقدم أكبر من سعر الوحدة', { field: 'downPayment' });
+      if (type === 'installments') {
+        count = num(b, 'installmentsCount', { min: 1, max: 240, int: true })!;
+        every = num(b, 'everyMonths', { min: 1, max: 12, int: true })!;
+        first = date(b, 'firstDueDate')!;
+        instPct = num(b, 'installmentPct', { optional: true, min: 0, max: 100 }) ?? n(p.installment_pct);
+        if (down >= price) throw invalid('مفيش باقي للأقساط — اختار كاش', { field: 'downPayment' });
+      } else {
+        down = price; // كاش: the whole price
+      }
+      const depositPaid = n((await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE ex_unit_id = $1 AND status = 'posted'
+                                            AND kind IN ('reservation','down_payment')`, [u.id])).s);
+      if (down < depositPaid) throw invalid(`المقدم لازم يكون أكبر من العربون (${fmt(depositPaid)})`, { field: 'downPayment' });
+    }
+    await q.query(`UPDATE ex_units SET status = 'contracted', payment_type = $2, down_payment = $3, installments_count = $4, every_months = $5,
+        first_due_date = $6, installment_pct = $7, contract_note = $8, contract_requested_at = COALESCE(contract_requested_at, $9),
+        contracted_by = $10, contracted_at = $9, reject_reason = NULL WHERE id = $1`,
+      [u.id, type, down, count, every, first, instPct, note, now, a.id]);
+    if (type === 'installments') {
+      for (const i of schedule(price, down, count!, every!, first!)) {
+        await q.query(`INSERT INTO ex_installments (unit_id, seq, due_date, amount_egp) VALUES ($1,$2,$3,$4)`, [u.id, i.seq, i.due, i.amount]);
+      }
+    }
+    // the money of the contract (the deposit already in counts toward it)
+    if (p.kind === 'exclusive') {
+      const paid = n((await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE ex_unit_id = $1 AND status = 'posted'
+                                     AND kind IN ('reservation','down_payment')`, [u.id])).s);
+      const rest = r2(down - paid);
+      if (rest > 0) await flowReceipt(q, a, u, p.name, 'down_payment', rest, method);
+    }
+    // the staff commission (السيلز + مدير السيلز) — a normal commission request
+    const live = await one(q, `SELECT * FROM commission_requests WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2))
+                                  AND status IN ('pending','approved')`, [u.project_id, u.unit_no]);
+    let crId = live?.id ?? null;
+    if (!live) {
+      const period = local(now).date.slice(0, 7) + '-01';
+      const sm = await one(q, `SELECT m.id, m.status FROM employees e LEFT JOIN teams t ON t.id = e.team_id
+                                 LEFT JOIN employees m ON m.id = ${SM_OF} WHERE e.id = $1`, [u.sales_id]);
+      const smId = sm?.id && sm.status === 'active' ? sm.id : null;
+      const sp = n(u.sales_pct), mp = smId ? n(u.manager_pct) : 0;
+      const approveNow = a.id !== u.sales_id; // المالك / المدير العام made it: approved at once
+      const cr = await one(q, `INSERT INTO commission_requests (project_id, employee_id, sales_manager_id, unit_no, price_per_m2, area_m2, unit_value,
+          total_pct, sales_pct, manager_pct, company_pct, sales_amount, manager_amount, company_amount, note, status, period, decided_by, decided_at, ex_unit_id)
+        VALUES ($1,$2,$3,$4,$5,1,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+        [u.project_id, u.sales_id, smId, u.unit_no, price, n(u.total_pct), sp, mp, r2(n(u.total_pct) - sp - mp), r2(price * sp / 100), r2(price * mp / 100),
+          r2(price * (n(u.total_pct) - sp - mp) / 100), p.kind === 'exclusive' ? 'تعاقد مشروع حصري' : 'تعاقد مشروع تسويق',
+          approveNow ? 'approved' : 'pending', approveNow ? period : null, approveNow ? a.id : null, approveNow ? now : null, u.id]);
+      if (approveNow) {
+        if (n(cr.sales_amount) > 0) {
+          await q.query(`INSERT INTO commission_entitlements (request_id, employee_id, role, amount_egp, period, included_at) VALUES ($1,$2,'sales',$3,$4,$5)`,
+            [cr.id, u.sales_id, cr.sales_amount, period, now]);
+        }
+        if (smId && n(cr.manager_amount) > 0) {
+          await q.query(`INSERT INTO commission_entitlements (request_id, employee_id, role, amount_egp, period, included_at) VALUES ($1,$2,'manager',$3,$4,$5)`,
+            [cr.id, smId, cr.manager_amount, period, now]);
+        }
+      } else {
+        for (const m of await holdersOf(q, 'commission.approve', [u.sales_id])) {
+          await notify(q, { to: m, type: 'commission_request', title: `عمولة تعاقد مستنية اعتمادك: وحدة ${u.unit_no}`,
+            body: `${p.name} — ${u.client_name}`, entity: 'commission_request', entityId: cr.id, dedupeKey: `commission:${cr.id}:new` });
+        }
+      }
+      crId = cr.id;
+    }
+    await q.query(`UPDATE ex_units SET commission_request_id = $2 WHERE id = $1`, [u.id, crId]);
+    await audit(q, a.id, 'exclusive.contract', 'ex_unit', u.id, undefined, { type, down, count, every, first, instPct, commissionRequestId: crId });
+    const commission = r2(price * n(u.total_pct) / 100);
+    for (const m of await holdersOf(q, 'cash.office', [a.id])) {
+      await notify(q, { to: m, type: 'exclusive_contract', title: `تعاقد: ${p.name} — وحدة ${u.unit_no}`,
+        body: `${u.client_name} — عمولة واجبة التحصيل ${fmt(commission)}`, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:${u.id}:contracted` });
+    }
+  }
+
+  /**
+   * حجز: the salesperson reserves a unit from «المبيعات». An exclusive unit's deposit goes into the cashbox at once;
+   * a marketing unit holds no money of ours. With `contract` it is a direct contract (تعاقد جديد) in one go.
+   * «مصدر العميل»: the office, or a marketing company paid by commission (the project's marketing %).
+   */
   r.post('/exclusive/units', async (req) => {
     const a = await authenticate(db, req);
     if (!canReserve(a)) throw forbidden();
@@ -368,34 +490,37 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const clientName = str(b, 'clientName', { min: 2, max: 120 })!.trim();
     const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? '').trim();
     const price = num(b, 'unitPrice', { min: 1, max: 10_000_000_000 })!;
-    const deposit = num(b, 'depositAmount', { min: 1, max: 10_000_000_000 })!;
-    if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
     const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
+    const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
     const salesId = canManage(a) && typeof b.salesId === 'string' && isUuid(b.salesId) ? b.salesId : a.id;
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
+    const contract = b.contract && typeof b.contract === 'object' ? obj(b.contract) : null;
     const u = await db.tx(async (q) => {
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
       if (!p || p.status !== 'active') throw invalid('المشروع ده مش بيستقبل حجوزات دلوقتي', { field: 'projectId' });
+      const exclusive = p.kind === 'exclusive';
+      const deposit = exclusive ? num(b, 'depositAmount', { min: contract ? 0 : 1, max: 10_000_000_000, optional: !!contract }) ?? 0
+        : num(b, 'depositAmount', { min: 0, max: 10_000_000_000, optional: true }) ?? 0;
+      if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
       if (await one(q, `SELECT 1 FROM ex_units WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status <> 'cancelled'`, [p.id, unitNo])) {
         throw conflict('الوحدة دي محجوزة أو مباعة بالفعل في المشروع ده');
       }
       let mkPct = 0;
       if (mkId) {
-        const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active'`, [mkId]);
+        const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active' AND kind = 'commission'`, [mkId]);
         if (!mk) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
-        mkPct = num(b, 'marketingPct', { optional: true, min: 0, max: 100 }) ?? n(mk.default_pct);
+        mkPct = n(p.marketing_pct) > 0 ? n(p.marketing_pct) : n(mk.default_pct);
+        if (canManage(a)) mkPct = num(b, 'marketingPct', { optional: true, min: 0, max: 100 }) ?? mkPct;
         if (mkPct > n(p.company_pct) + 0.00001) throw invalid(`نسبة شركة التسويق أكبر من نصيب المكتب (${n(p.company_pct)}٪)`, { field: 'marketingPct' });
       }
       // a marketing project earns its whole commission at the contract (no staging on installments)
-      const contractPct = p.kind === 'exclusive' ? p.contract_pct : p.total_pct;
+      const contractPct = exclusive ? p.contract_pct : p.total_pct;
       const x = await one(q, `INSERT INTO ex_units (project_id, unit_no, client_name, client_phone, unit_price, deposit_amount, sales_id,
-          total_pct, contract_pct, sales_pct, manager_pct, notes, mk_company_id, mk_pct) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+          total_pct, contract_pct, sales_pct, manager_pct, notes, mk_company_id, mk_pct, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'reserved') RETURNING *`,
         [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, contractPct, p.sales_pct, p.manager_pct, notes, mkId, mkPct]);
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
-      for (const m of await holdersOf(q, 'cash.hr_operate', [a.id])) {
-        await notify(q, { to: m, type: 'exclusive_deposit', title: `عربون حجز مستني التسجيل: ${fmt(deposit)}`,
-          body: `${p.name} — وحدة ${unitNo} — ${clientName}`, entity: 'ex_unit', entityId: x.id, dedupeKey: `ex:${x.id}:deposit` });
-      }
+      if (exclusive && deposit > 0) await flowReceipt(q, a, x, p.name, 'reservation', deposit, method);
+      if (contract) await makeContract(q, a, x, p, { paymentMethod: method, ...contract });
       return x;
     });
     const [full] = await loadUnits(db, 'u.id = $1', [u.id]);
@@ -454,44 +579,58 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     return ok({ receipt: { id: out.id, receiptNo: `R-${String(out.ref_no).padStart(6, '0')}` } }, 201);
   });
 
-  /** طلب تعاقد: the salesperson sends the contract terms; المالك / المدير العام approves. */
+  /** تعاقد: the salesperson turns his reservation into a contract (see makeContract). */
   r.post('/exclusive/units/:id/contract', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
-    const type = oneOf(b, 'paymentType', ['cash', 'installments'] as const)!;
-    const down = num(b, 'downPayment', { min: 0, max: 10_000_000_000 })!;
-    const note = (str(b, 'note', { optional: true, max: 1000 }) ?? '').trim();
     await db.tx(async (q) => {
       const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!u) throw notFound();
-      if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
-      if (u.status !== 'reserved') throw conflict('لازم العربون يتسجل الأول (الوحدة لسه مش محجوزة)');
-      const price = n(u.unit_price);
-      if (down > price) throw invalid('المقدم أكبر من سعر الوحدة', { field: 'downPayment' });
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1`, [u.project_id]);
-      let count = null, every = null, first = null, instPct = null;
-      if (type === 'installments') {
-        count = num(b, 'installmentsCount', { min: 1, max: 240, int: true })!;
-        every = num(b, 'everyMonths', { min: 1, max: 12, int: true })!;
-        first = date(b, 'firstDueDate')!;
-        instPct = p.kind === 'exclusive' ? (num(b, 'installmentPct', { optional: true, min: 0, max: 100 }) ?? n(p.installment_pct)) : 0;
-        if (down >= price) throw invalid('مفيش باقي للأقساط — اختار كاش', { field: 'downPayment' });
-      } else if (Math.abs(down - price) > 0.001) {
-        throw invalid('البيع الكاش بيدفع السعر كله', { field: 'downPayment' });
-      }
-      await q.query(`UPDATE ex_units SET status = 'contract_pending', payment_type = $2, down_payment = $3, installments_count = $4, every_months = $5,
-          first_due_date = $6, installment_pct = $7, contract_note = $8, contract_requested_at = $9, reject_reason = NULL WHERE id = $1`,
-        [u.id, type, down, count, every, first, instPct, note, clock()]);
-      await audit(q, a.id, 'exclusive.contract.request', 'ex_unit', u.id, undefined, { type, down, count, every, first, instPct });
-      for (const m of await holdersOf(q, 'cash.office', [u.sales_id])) {
-        await notify(q, { to: m, type: 'exclusive_contract', title: `طلب تعاقد محتاج موافقتك: ${p.name} — وحدة ${u.unit_no}`,
-          body: `${u.client_name} — ${type === 'cash' ? 'كاش' : `مقدم ${fmt(down)} + ${count} قسط`}`, entity: 'ex_unit', entityId: u.id,
-          dedupeKey: `ex:${u.id}:contract:${Date.now()}` });
-      }
+      await makeContract(q, a, u, p, b);
     });
     const [full] = await loadUnits(db, 'u.id = $1', [req.params.id]);
     return ok({ unit: shapeUnit(full, a) });
+  });
+
+  /**
+   * تم التحصيل: المالك / المدير العام marks a contracted unit's commission collected → it enters the commissions.
+   * Exclusive: it moves out of the owner's money (up to what the unit earned). Marketing: the developer's payment
+   * (نقدي في خزنة المكتب أو بنك).
+   */
+  r.post('/exclusive/units/:id/commission-collected', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    const out = await db.tx(async (q) => {
+      const u0 = await one(q, `SELECT id, project_id FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!u0) throw notFound();
+      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR UPDATE`, [u0.project_id]);
+      const [u] = await loadUnits(q, 'u.id = $1', [u0.id]);
+      if (u.status !== 'contracted') throw conflict('العمولة بتتحصّل بعد التعاقد');
+      const amount = num(b, 'amount', { optional: true, min: 0.01, max: 10_000_000_000 }) ?? u.receivable;
+      if (amount <= 0 || amount > u.receivable + 0.001) throw invalid(`العمولة الواجبة التحصيل ${fmt(u.receivable)}`, { field: 'amount', max: u.receivable });
+      const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
+      if (p.kind === 'exclusive') {
+        const st = (await projectStats(q, [p.id])).stats[p.id];
+        if (amount > st.owner.inTrust + 0.001) throw invalid(`اللي في أمانة المشروع ${fmt(st.owner.inTrust)} بس`, { field: 'amount' });
+        const t = await one(q, `INSERT INTO ex_commission_transfers (project_id, unit_id, amount_egp, note, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, ref_no`,
+          [p.id, u.id, amount, note || `وحدة ${u.unit_no}`, a.id, clock()]);
+        await audit(q, a.id, 'exclusive.commission.collected', 'ex_unit', u.id, undefined, { amount, transferId: t.id });
+        return t;
+      }
+      const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'bank_transfer';
+      const rc = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, purpose, payment_method, notes,
+          occurred_at, recorded_by, project_id, commission_unit_id)
+        VALUES ('commission',$1,'office',$2,$3,$4,$5,$6,$7,$2,$8,$9) RETURNING id, ref_no`,
+        [amount, a.id, p.name, `عمولة ${p.name} — وحدة ${u.unit_no}`, method, note, clock(), p.id, u.id]);
+      await audit(q, a.id, 'exclusive.commission.collected', 'ex_unit', u.id, undefined, { amount, receiptId: rc.id, method });
+      return rc;
+    });
+    const [full] = await loadUnits(db, 'u.id = $1', [req.params.id]);
+    return ok({ unit: shapeUnit(full, a), refNo: Number(out.ref_no) }, 201);
   });
 
   r.post('/exclusive/units/:id/contract/decision', async (req) => {

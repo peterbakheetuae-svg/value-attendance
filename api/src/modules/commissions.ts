@@ -45,7 +45,7 @@ function shapeProject(p: any, a: Actor, stats?: any) {
     out.managerPct = Number(p.manager_pct);
     out.updatedAt = p.updated_at;
   }
-  if (canCompany(a)) out.companyPct = Number(p.company_pct);
+  if (canCompany(a)) { out.companyPct = Number(p.company_pct); out.marketingPct = Number(p.marketing_pct ?? 0); }
   if (stats) {
     out.units = Number(stats.units ?? 0);
     out.salesValue = Number(stats.sales_value ?? 0);
@@ -256,6 +256,12 @@ export const commissionsModule: Module = (r, { db, clock }) => {
         [b.name, String(b.total), String(b.sales), String(b.manager), String(b.company), b.status ?? 'active', a.id]);
       await audit(q, a.id, 'commission.project.create', 'commission_project', p.id, undefined,
         { name: p.name, totalPct: b.total, salesPct: b.sales, managerPct: b.manager, companyPct: b.company });
+      // عمولة شركات التسويق: out of the office share
+      const mk = pct(obj(req.body), 'marketingPct', true);
+      if (mk !== undefined && mk > 0) {
+        if (mk > b.company!) throw invalid('عمولة شركات التسويق أكبر من نصيب المكتب', { field: 'marketingPct' });
+        return await one(q, `UPDATE commission_projects SET marketing_pct = $2 WHERE id = $1 RETURNING *`, [p.id, mk]);
+      }
       return p;
     });
     return ok({ project: shapeProject(row, a) }, 201);
@@ -277,9 +283,11 @@ export const commissionsModule: Module = (r, { db, clock }) => {
       if (await one(q, `SELECT 1 FROM commission_projects WHERE lower(trim(name)) = lower(trim($1)) AND id <> $2`, [name, old.id])) {
         throw conflict('A project with this name already exists');
       }
+      const mk = pct(obj(req.body), 'marketingPct', true) ?? Math.min(Number(old.marketing_pct ?? 0), c);
+      if (mk > c) throw invalid('عمولة شركات التسويق أكبر من نصيب المكتب', { field: 'marketingPct' });
       const p = await one(q, `UPDATE commission_projects SET name = trim($2), total_pct = $3, sales_pct = $4, manager_pct = $5,
-                                company_pct = $6, status = $7, updated_at = now() WHERE id = $1 RETURNING *`,
-        [old.id, name, String(t), String(s), String(m), String(c), b.status ?? old.status]);
+                                company_pct = $6, status = $7, marketing_pct = $8, updated_at = now() WHERE id = $1 RETURNING *`,
+        [old.id, name, String(t), String(s), String(m), String(c), b.status ?? old.status, mk]);
       await audit(q, a.id, 'commission.project.update', 'commission_project', old.id,
         { name: old.name, totalPct: Number(old.total_pct), salesPct: Number(old.sales_pct), managerPct: Number(old.manager_pct),
           companyPct: Number(old.company_pct), status: old.status },

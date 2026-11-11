@@ -5,6 +5,8 @@ import '../../forms/custody_receipt_page.dart';
 import '../sales/sales_page.dart';
 import '../cash/cash_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
+import '../commissions/commissions_page.dart';
+import '../projects/marketing_companies_page.dart';
 import '../../services/session_service.dart';
 import '../../services/api_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -378,6 +380,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(height: 14),
                     ],
 
+                    // ─── شركات التسويق: بند لوحده (راتب ثابت / عمولة على المبيعات) ───
+                    if (ApiService.can('cash.office')) ...[
+                      SettingsTile(
+                        title: 'شركات التسويق',
+                        icon: Icons.campaign_rounded,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingCompaniesPage())),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
                     // ─── العهدة: the company's mobiles / laptops (add here, hand over from the employee's page) ───
                     if (CustodyAssetsPage.visible) ...[
                       SettingsTile(
@@ -733,8 +745,10 @@ class _SettingsPageState extends State<SettingsPage> {
   /// Company settings shown only to the people who can change them (an employee sees none).
   /// المالية: طلبات ومبيعات + الخزنة (فيها صرف السلف والمرتبات والعمولات)؛ والأقساط لأصحاب الصلاحية، وعمولات المشاريع.
   List<(String, IconData, Widget Function())> _financeItems() => [
-        ('طلبات ومبيعات', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
-        (CashboxHubPage.canCash ? 'الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
+        // المالية: الطلبات + الخزنة (تبويب جوه الصفحة)
+        ('المالية', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
+        // صرف السلف والمرتبات والعمولات وسجل الخزنة
+        (CashboxHubPage.canCash ? 'الصرف وسجل الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
         if (ApiService.can('sales.view')) ('الأقساط', Icons.event_note_rounded, () => const SalesPage()),
       ];
@@ -746,8 +760,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return [
       ('المشاريع', Icons.apartment_rounded, () => const ProjectsPage()),
       if (sales) ('المبيعات', Icons.sell_rounded, () => const SalesHubPage()),
-      if (CashboxHubPage.canCash) ('الخزنة', Icons.account_balance_wallet_rounded,
-          () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1)),
+      ('العمولات', Icons.workspace_premium_rounded, () => const CommissionsPage(requestsOnly: true)),
       if (office) ('الملاك', Icons.real_estate_agent_rounded, () => const OwnersPage()),
       if (sales) ('العملاء', Icons.people_alt_rounded, () => const ClientsPage()),
     ];

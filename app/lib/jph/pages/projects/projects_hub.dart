@@ -24,7 +24,7 @@ class ProjectsList extends StatefulWidget {
 }
 
 class _ProjectsListState extends State<ProjectsList> {
-  bool _loading = true, _manage = false, _reserve = false;
+  bool _loading = true, _manage = false;
   List<Map<String, dynamic>> _items = [];
   String _kind = ''; // '' = المشاريع (الكل)
 
@@ -41,7 +41,6 @@ class _ProjectsListState extends State<ProjectsList> {
       _loading = false;
       _items = _l(r['projects']);
       _manage = r['canManage'] == true;
-      _reserve = r['canReserve'] == true;
     });
   }
 
@@ -50,7 +49,7 @@ class _ProjectsListState extends State<ProjectsList> {
     String kind = _kind.isEmpty ? 'exclusive' : _kind;
     final name = TextEditingController(), owner = TextEditingController(), phone = TextEditingController();
     final total = TextEditingController(text: '5'), contract = TextEditingController(text: '3'), sales = TextEditingController(text: '0.2'),
-        manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5');
+        manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5'), mkPct = TextEditingController(text: '0');
     num office() => (num.tryParse(total.text) ?? 0) - (num.tryParse(sales.text) ?? 0) - (num.tryParse(manager.text) ?? 0);
     final ok = await _form(context, isDark, 'إضافة مشروع', (set) => [
           SegmentedButton<String>(
@@ -79,6 +78,8 @@ class _ProjectsListState extends State<ProjectsList> {
             JphUi.input(isDark: isDark, label: 'منها عند التعاقد ٪', controller: contract, number: true, icon: Icons.handshake_rounded),
           JphUi.input(isDark: isDark, label: 'السيلز ٪', controller: sales, number: true, icon: Icons.person_outline_rounded),
           JphUi.input(isDark: isDark, label: 'مدير المبيعات ٪', controller: manager, number: true, icon: Icons.groups_rounded),
+          JphUi.input(isDark: isDark, label: 'عمولة شركات التسويق ٪ (لما العميل يجي من شركة بالعمولة)', controller: mkPct, number: true,
+              icon: Icons.campaign_rounded),
           if (kind == 'exclusive')
             JphUi.input(isDark: isDark, label: 'نسبة كل قسط ٪ (افتراضي — تتغير لكل وحدة)', controller: inst, number: true, icon: Icons.event_repeat_rounded),
           AnimatedBuilder(
@@ -92,13 +93,13 @@ class _ProjectsListState extends State<ProjectsList> {
         r = await _post('/exclusive/projects', {
           'name': name.text.trim(), 'ownerName': owner.text.trim(), 'ownerPhone': phone.text.trim(),
           'totalPct': num.tryParse(total.text), 'contractPct': num.tryParse(contract.text), 'salesPct': num.tryParse(sales.text),
-          'managerPct': num.tryParse(manager.text), 'installmentPct': num.tryParse(inst.text),
+          'managerPct': num.tryParse(manager.text), 'installmentPct': num.tryParse(inst.text), 'marketingPct': num.tryParse(mkPct.text) ?? 0,
         }, 'اتضاف المشروع ✅');
       } else {
         final t = num.tryParse(total.text) ?? 0, sp = num.tryParse(sales.text) ?? 0, mp = num.tryParse(manager.text) ?? 0;
         r = await _post('/commissions/projects', {
           'name': name.text.trim(), 'totalPct': t, 'salesPct': sp, 'managerPct': mp,
-          'companyPct': num.parse((t - sp - mp).toStringAsFixed(4)),
+          'companyPct': num.parse((t - sp - mp).toStringAsFixed(4)), 'marketingPct': num.tryParse(mkPct.text) ?? 0,
         }, 'اتضاف المشروع ✅');
       }
       if (mounted) JphUi.toast(context, r);
@@ -127,8 +128,6 @@ class _ProjectsListState extends State<ProjectsList> {
             onChanged: (v) => setState(() => _kind = v),
           ),
         ),
-        if (_reserve && shown.isNotEmpty)
-          _btn(isDark, 'حجز وحدة', Icons.bookmark_add_rounded, () => reserveUnit(context, isDark, shown, then: _load), color: Colors.teal),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
         if (!_loading && shown.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مشاريع', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -171,6 +170,7 @@ class _ProjectsListState extends State<ProjectsList> {
             if (!marketing && p['contractPct'] != null) _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Colors.teal),
             if (!marketing && p['installmentPct'] != null) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
             _pill('سيلز ${JphUi.pct(p['salesPct'])}${p['managerPct'] != null ? ' · مدير ${JphUi.pct(p['managerPct'])}' : ''}', Colors.blueGrey),
+            if (_n(p['marketingPct']) > 0) _pill('شركات التسويق ${JphUi.pct(p['marketingPct'])}', Colors.deepPurple),
           ]),
           if (st.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -322,16 +322,15 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
           ]),
         ),
         const SizedBox(height: 10),
-        if (_stage == 'reservation' && _reserve && _projects.isNotEmpty)
-          _btn(isDark, 'حجز وحدة', Icons.bookmark_add_rounded,
-              () => reserveUnit(context, isDark, _projects.where((p) => _kind.isEmpty || p['kind'] == _kind).toList(), then: _load), color: Colors.teal),
-        if (_stage == 'contract')
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _DirectSalePage())).then((_) => _load()),
-            icon: const Icon(Icons.post_add_rounded),
-            label: const Text('تسجيل بيعة مباشرة (من غير حجز) + طلب عمولة', style: TextStyle(fontWeight: FontWeight.w800)),
-            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+        if (_reserve && _projects.isNotEmpty)
+          _btn(isDark, _stage == 'reservation' ? 'حجز جديد' : 'تعاقد جديد', _stage == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded,
+              () => newUnit(context, isDark, _projects.where((p) => _kind.isEmpty || p['kind'] == _kind).toList(),
+                  contract: _stage == 'contract', then: _load),
+              color: _stage == 'reservation' ? Colors.teal : JphUi.primary(isDark)),
+        if (_stage == 'reservation')
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('الحجز بيتحوّل لتعاقد من صفحة الوحدة (دوس على الحجز).', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
           ),
         if (_stage == 'reservation' && waiting > 0)
           Padding(
@@ -375,25 +374,23 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
               Text('${x['clientName']} · ${x['salesName']}${x['marketingCompanyName'] != null ? ' · عن طريق ${x['marketingCompanyName']}' : ''}',
                   style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
               const SizedBox(height: 3),
-              Text('${_money(x['unitPrice'])} · اتحصّل ${_money(money['collected'])}'
+              Text('${_money(x['unitPrice'])}${marketing ? '' : ' · اتحصّل ${_money(money['collected'])}'}'
                   '${_n(inst['total']) > 0 ? ' · أقساط ${inst['paid']}/${inst['total']}' : ''}',
                   style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+              if (_m(x['commission']).isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Wrap(spacing: 6, children: [
+                  if (_n(_m(x['commission'])['potential']) > 0) _pill('عمولة محتملة ${_money(_m(x['commission'])['potential'])}', Colors.indigo),
+                  if (_n(_m(x['commission'])['receivable']) > 0) _pill('واجبة التحصيل ${_money(_m(x['commission'])['receivable'])}', Colors.orange),
+                  if (st != 'reserved' && _n(_m(x['commission'])['receivable']) == 0 && _n(_m(x['commission'])['collected']) > 0)
+                    _pill('العمولة اتحصّلت', Colors.green),
+                ]),
+              ],
             ]),
           ),
         ]),
       ),
     );
-  }
-}
-
-/// The old direct sale (a marketing unit sold without a reservation) + its commission request.
-class _DirectSalePage extends StatelessWidget {
-  const _DirectSalePage();
-
-  @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppController>();
-    return _Shell(title: 'تسجيل بيعة مباشرة', child: SalesTab(isDark: app.isDark));
   }
 }
 

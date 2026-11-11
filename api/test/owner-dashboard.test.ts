@@ -13,8 +13,8 @@ test('finance view: cashboxes (cash / bank), owners\' money, my commission, cove
   assert.equal((await h.call(c.t.hr, 'GET', '/dashboard/owner')).status, 403);
   assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/owner?view=employees')).status, 403);
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع لوحة', ownerName: 'مالك' })).body.project.id;
-  const u = (await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: '1', clientName: 'عميل', unitPrice: 1_000_000, depositAmount: 40_000 })).body.unit;
-  await h.call(c.t.hr, 'POST', `/exclusive/units/${u.id}/receipts`, { kind: 'reservation', amount: 40_000, paymentMethod: 'bank_transfer' });
+  const u = (await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: '1', clientName: 'عميل', unitPrice: 1_000_000, depositAmount: 40_000,
+    paymentMethod: 'bank_transfer' })).body.unit;
   const r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=finance&range=30');
   assert.equal(r.status, 200, JSON.stringify(r.body));
   for (const k of CARDS) assert.ok(k in r.body, k);

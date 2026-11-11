@@ -193,13 +193,16 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     (out.income as any).commissions = r2((out.income as any).commissionReceived + N(tr.s));
     // the commission's split, as earned in the period (approved deals)
     vals.length = 1;
+    // deals of the period: the contracted units (من المبيعات) + the commission requests filed without a unit (عمولة صفقة)
     const cm = await one(q, `SELECT COALESCE(sum(sales_amount), 0) AS s, COALESCE(sum(manager_amount), 0) AS m, COALESCE(sum(company_amount), 0) AS c,
-        count(*)::int AS n FROM commission_requests WHERE status = 'approved' AND $1::text[] IS NOT NULL ${range('decided_at')}`, vals);
+        count(*)::int AS n FROM commission_requests WHERE status = 'approved' AND ex_unit_id IS NULL AND $1::text[] IS NOT NULL ${range('decided_at')}`, vals);
     vals.length = 1;
-    const mk = await one(q, `SELECT COALESCE(sum(unit_price * mk_pct / 100), 0) AS s FROM ex_units WHERE status = 'contracted' AND $1::text[] IS NOT NULL
-                               ${range('contracted_at')}`, vals);
-    const sales = r2(N(cm.s)), manager = r2(N(cm.m)), marketing = r2(N(mk.s)), officeShare = r2(N(cm.c) - N(mk.s));
-    out.commissionSplit = { total: r2(sales + manager + N(cm.c)), sales, manager, marketing, office: officeShare, deals: cm.n };
+    const ux = await one(q, `SELECT COALESCE(sum(unit_price * sales_pct / 100), 0) AS s, COALESCE(sum(unit_price * manager_pct / 100), 0) AS m,
+        COALESCE(sum(unit_price * mk_pct / 100), 0) AS k, COALESCE(sum(unit_price * total_pct / 100), 0) AS t, count(*)::int AS n
+        FROM ex_units WHERE status = 'contracted' AND $1::text[] IS NOT NULL ${range('contracted_at')}`, vals);
+    const sales = r2(N(cm.s) + N(ux.s)), manager = r2(N(cm.m) + N(ux.m)), marketing = r2(N(ux.k));
+    const total = r2(N(cm.s) + N(cm.m) + N(cm.c) + N(ux.t));
+    out.commissionSplit = { total, sales, manager, marketing, office: r2(total - sales - manager - marketing), deals: cm.n + ux.n };
     const commissions = (out.income as any).commissions;
     out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
   }
@@ -214,7 +217,7 @@ async function cashOfficers(q: Q, exceptId?: string) {
   return r.rows.map((x) => x.id as string);
 }
 
-async function hrOperators(q: Q, exceptId?: string) {
+export async function hrOperators(q: Q, exceptId?: string) {
   const r = await q.query(`
     SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
      WHERE rp.perm_key = 'cash.hr_operate' AND e.status = 'active' AND e.role_key <> 'owner'

@@ -8,7 +8,6 @@ import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
-import '../../widgets/sale_form.dart';
 import '../commissions/commission_project_page.dart';
 
 part '../projects/projects_hub.dart';
@@ -240,7 +239,6 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
         if (_manage) _btn(isDark, 'إضافة مشروع حصري', Icons.add_rounded, _add),
-        if (_reserve && _items.isNotEmpty) _btn(isDark, 'حجز وحدة', Icons.bookmark_add_rounded, () => reserveUnit(context, isDark, _items, then: _load), color: Colors.teal),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
         if (!_loading && _items.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('لسه مفيش مشاريع حصري', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -301,61 +299,129 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
   }
 }
 
-/// حجز وحدة (the salesperson / the management).
-Future<void> reserveUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects, {String? projectId, VoidCallback? then}) async {
-  String? pid = projectId ?? (projects.length == 1 ? '${projects.first['id']}' : null);
-  final unit = TextEditingController(), client = TextEditingController(), phone = TextEditingController(),
-      price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController(), mkPct = TextEditingController();
-  // the client may come from a marketing company that takes a commission (its % comes out of the office share)
-  final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
-  Map<String, dynamic>? mk;
-  if (!context.mounted) return;
-  final ok = await _form(context, isDark, 'حجز وحدة', (set) => [
-        if (projectId == null)
+/// «المصدر»: the office (no marketing commission) or a marketing company paid by commission.
+Widget _sourcePicker(bool isDark, List<Map<String, dynamic>> mks, Map<String, dynamic>? mk, void Function(Map<String, dynamic>?) onPick) =>
+    Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('مصدر العميل', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+      const SizedBox(height: 6),
+      Wrap(spacing: 6, runSpacing: 6, children: [
+        ChoiceChip(label: const Text('المكتب'), avatar: const Icon(Icons.business_rounded, size: 18), selected: mk == null, onSelected: (_) => onPick(null)),
+        for (final m in mks)
+          ChoiceChip(label: Text('${m['name']}'), avatar: const Icon(Icons.campaign_rounded, size: 18), selected: mk?['id'] == m['id'], onSelected: (_) => onPick(m)),
+      ]),
+      if (mk == null) Padding(padding: const EdgeInsets.only(top: 4),
+          child: Text('المكتب = مفيش عمولة لشركة تسويق', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark)))),
+    ]);
+
+Widget _cashBankPicker(bool isDark, String method, ValueChanged<String> onPick) => Wrap(spacing: 8, children: [
+      ChoiceChip(label: const Text('نقدي'), avatar: const Icon(Icons.payments_rounded, size: 18), selected: method == 'cash', onSelected: (_) => onPick('cash')),
+      ChoiceChip(label: const Text('بنك'), avatar: const Icon(Icons.account_balance_rounded, size: 18), selected: method != 'cash',
+          onSelected: (_) => onPick('bank_transfer')),
+    ]);
+
+/// The contract terms of an exclusive unit (كاش / تقسيط); a marketing unit needs none (its money is the developer's).
+class _Terms {
+  String type = 'installments';
+  final down = TextEditingController(), count = TextEditingController(text: '8'), every = TextEditingController(text: '3'),
+      pct = TextEditingController(text: '0.5'), note = TextEditingController();
+  DateTime first = DateTime.now().add(const Duration(days: 90));
+
+  List<Widget> fields(BuildContext context, bool isDark, StateSetter set, {required num? price, num? installmentPct}) => [
+        SegmentedButton<String>(
+          segments: const [ButtonSegment(value: 'installments', label: Text('تقسيط')), ButtonSegment(value: 'cash', label: Text('كاش'))],
+          selected: {type},
+          onSelectionChanged: (s) => set(() => type = s.first),
+        ),
+        if (type == 'cash')
+          Text('الكاش: السعر كله بيدخل الخزنة${price != null && price > 0 ? ' (${_money(price)})' : ''}', style: TextStyle(color: JphUi.sub(isDark)))
+        else ...[
+          JphUi.input(isDark: isDark, label: 'مقدم التعاقد (العربون محسوب منه)', controller: down, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+          JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: count, number: true, icon: Icons.format_list_numbered_rounded),
+          JphUi.input(isDark: isDark, label: 'كل كام شهر', controller: every, number: true, icon: Icons.event_repeat_rounded),
           JphUi.picker(
-            isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع',
-            value: pid == null ? 'اختار المشروع' : '${projects.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {})['name'] ?? ''}',
+            isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: 'أول قسط', value: _date(first.toIso8601String()),
             onTap: () async {
-              final v = await JphUi.sheet<String>(context, isDark, 'المشروع', [
-                for (final p in projects.where((p) => p['status'] == 'active'))
-                  ('${p['id']}', '${p['name']} — ${p['kind'] == 'marketing' ? 'تسويق' : 'حصري'}',
-                      p['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded),
-              ], selected: pid);
-              if (v != null) set(() => pid = v);
+              final d = await showDatePicker(context: context, initialDate: first, firstDate: DateTime.now(), lastDate: DateTime(DateTime.now().year + 15));
+              if (d != null) set(() => first = d);
             },
           ),
-        JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
-        JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
-        JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
-        JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
-        JphUi.input(isDark: isDark, label: 'العربون', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
-        if (mks.isNotEmpty) ...[
-          Text('العميل جاي منين؟', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            ChoiceChip(label: const Text('مباشر'), selected: mk == null, onSelected: (_) => set(() => mk = null)),
-            for (final m in mks)
-              ChoiceChip(label: Text('${m['name']}'), selected: mk?['id'] == m['id'], onSelected: (_) => set(() {
-                mk = m;
-                mkPct.text = '${m['defaultPct']}';
-              })),
-          ]),
-          if (mk != null)
-            JphUi.input(isDark: isDark, label: 'نسبة ${mk!['name']} ٪ (من نصيب المكتب)', controller: mkPct, icon: Icons.percent_rounded, number: true),
+          JphUi.input(isDark: isDark, label: 'نسبة عمولة كل قسط ٪ (حسب الاتفاق)', controller: pct, number: true, icon: Icons.percent_rounded),
         ],
-        JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
-      ], () async {
+      ];
+
+  Map<String, dynamic> body() {
+    final f = '${first.year}-${first.month.toString().padLeft(2, '0')}-${first.day.toString().padLeft(2, '0')}';
+    return {
+      'paymentType': type, 'note': note.text.trim(),
+      if (type == 'installments') ...{'downPayment': num.tryParse(down.text.replaceAll(',', '')), 'installmentsCount': int.tryParse(count.text),
+        'everyMonths': int.tryParse(every.text), 'firstDueDate': f, 'installmentPct': num.tryParse(pct.text)},
+    };
+  }
+}
+
+/// حجز جديد / تعاقد جديد — from «المبيعات» only.
+///  حصري: العربون بيدخل خزنة المحاسب على طول (نقدي أو بنك)؛ تعاقد جديد = حجز + تعاقد مرة واحدة.
+///  تسويق: مفيش فلوس بتدخل عندنا — عمولة محتملة لحد التعاقد.
+Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects, {bool contract = false, VoidCallback? then}) async {
+  final active = projects.where((p) => p['status'] == 'active').toList();
+  String? pid = active.length == 1 ? '${active.first['id']}' : null;
+  final unit = TextEditingController(), client = TextEditingController(), phone = TextEditingController(),
+      price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController();
+  final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
+  Map<String, dynamic>? mk;
+  String method = 'cash';
+  final terms = _Terms();
+  Map<String, dynamic> project() => active.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {});
+  if (!context.mounted) return;
+  final ok = await _form(context, isDark, contract ? 'تعاقد جديد' : 'حجز جديد', (set) {
+    final p = project();
+    final exclusive = p['kind'] == 'exclusive';
+    return [
+      JphUi.picker(
+        isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع',
+        value: p.isEmpty ? 'اختار المشروع' : '${p['name']} — ${exclusive ? 'حصري' : 'تسويق'}',
+        onTap: () async {
+          final v = await JphUi.sheet<String>(context, isDark, 'المشروع', [
+            for (final x in active)
+              ('${x['id']}', '${x['name']} — ${x['kind'] == 'marketing' ? 'تسويق' : 'حصري'}',
+                  x['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded),
+          ], selected: pid);
+          if (v != null) set(() => pid = v);
+        },
+      ),
+      JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
+      JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
+      JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
+      JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
+      _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
+      if (exclusive && !contract)
+        JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
+      if (exclusive && contract) ...terms.fields(context, isDark, set, price: num.tryParse(price.text.replaceAll(',', ''))),
+      if (exclusive) ...[
+        Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+        _cashBankPicker(isDark, method, (v) => set(() => method = v)),
+      ],
+      if (!exclusive && p.isNotEmpty)
+        Text(contract ? 'التعاقد بيخلّي العمولة واجبة التحصيل من المطور.' : 'الحجز في مشروع تسويق: عمولة محتملة لحد التعاقد — مفيش فلوس بتدخل عندنا.',
+            style: TextStyle(color: JphUi.sub(isDark))),
+      JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
+    ];
+  }, () async {
     if (pid == null) {
       JphUi.toast(context, {'success': false, 'message': 'اختار المشروع'});
       return false;
     }
+    final exclusive = project()['kind'] == 'exclusive';
     final r = await _post('/exclusive/units', {
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
-      'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')), 'notes': notes.text.trim(),
-      if (mk != null) ...{'marketingCompanyId': mk!['id'], 'marketingPct': num.tryParse(mkPct.text)},
-    }, 'اتسجل الحجز — مستني المحاسب يسجل العربون ✅');
+      'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(), 'paymentMethod': method,
+      if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
+      if (mk != null) 'marketingCompanyId': mk!['id'],
+      if (contract) 'contract': exclusive ? terms.body() : {'paymentType': 'cash'},
+    }, contract ? 'اتسجل التعاقد ✅' : 'اتسجل الحجز ✅');
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
-  }, saveLabel: 'حجز');
+  }, saveLabel: contract ? 'تعاقد' : 'حجز');
   if (ok) then?.call();
 }
 
@@ -487,7 +553,6 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
               () => _payout(isDark, _n(ow['due']) - _n(ow['pendingPayout'])), color: Colors.indigo),
         ],
       ],
-      if (can['reserve'] == true) _btn(isDark, 'حجز وحدة', Icons.bookmark_add_rounded, () => reserveUnit(context, isDark, [p], projectId: '${p['id']}', then: _load), color: Colors.teal),
       if (statement.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
@@ -636,47 +701,55 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     if (ok) _load();
   }
 
+  /// تحويل لتعاقد: by the salesperson himself — the contract money goes into the cashbox, the commission becomes receivable.
   Future<void> _requestContract(bool isDark) async {
-    String type = 'installments';
-    final price = _n(_u['unitPrice']);
-    final down = TextEditingController(), count = TextEditingController(text: '8'), every = TextEditingController(text: '3'),
-        pct = TextEditingController(text: '0.5'), note = TextEditingController();
-    DateTime first = DateTime.now().add(const Duration(days: 90));
-    final ok = await _form(context, isDark, 'طلب تعاقد — وحدة ${_u['unitNo']}', (set) => [
-          SegmentedButton<String>(
-            segments: const [ButtonSegment(value: 'installments', label: Text('تقسيط')), ButtonSegment(value: 'cash', label: Text('كاش'))],
-            selected: {type},
-            onSelectionChanged: (s) => set(() {
-              type = s.first;
-              if (type == 'cash') down.text = '$price';
-            }),
-          ),
-          JphUi.input(isDark: isDark, label: type == 'cash' ? 'المبلغ (السعر كله)' : 'مقدم التعاقد (العربون محسوب منه)', controller: down,
-              number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-          if (type == 'installments') ...[
-            JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: count, number: true, icon: Icons.format_list_numbered_rounded),
-            JphUi.input(isDark: isDark, label: 'كل كام شهر', controller: every, number: true, icon: Icons.event_repeat_rounded),
-            JphUi.picker(
-              isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: 'أول قسط', value: _date(first.toIso8601String()),
-              onTap: () async {
-                final d = await showDatePicker(context: context, initialDate: first, firstDate: DateTime.now(), lastDate: DateTime(DateTime.now().year + 15));
-                if (d != null) set(() => first = d);
-              },
-            ),
-            if (_u['projectKind'] != 'marketing')
-              JphUi.input(isDark: isDark, label: 'نسبة عمولة كل قسط ٪ (حسب الاتفاق)', controller: pct, number: true, icon: Icons.percent_rounded),
+    final marketing = _u['projectKind'] == 'marketing';
+    final terms = _Terms();
+    String method = 'cash';
+    final ok = await _form(context, isDark, 'تحويل لتعاقد — وحدة ${_u['unitNo']}', (set) => [
+          if (marketing)
+            Text('العمولة هتبقى واجبة التحصيل من المطور (${_money(_n(_u['unitPrice']))} سعر الوحدة).', style: TextStyle(color: JphUi.sub(isDark)))
+          else ...[
+            ...terms.fields(context, isDark, set, price: _n(_u['unitPrice'])),
+            Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            _cashBankPicker(isDark, method, (v) => set(() => method = v)),
           ],
-          JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded),
+          JphUi.input(isDark: isDark, label: 'ملاحظة', controller: terms.note, icon: Icons.notes_rounded),
         ], () async {
-      final f = '${first.year}-${first.month.toString().padLeft(2, '0')}-${first.day.toString().padLeft(2, '0')}';
       final r = await _post('/exclusive/units/${widget.unitId}/contract', {
-        'paymentType': type, 'downPayment': num.tryParse(down.text.replaceAll(',', '')), 'note': note.text.trim(),
-        if (type == 'installments') ...{'installmentsCount': int.tryParse(count.text), 'everyMonths': int.tryParse(every.text),
-          'firstDueDate': f, 'installmentPct': num.tryParse(pct.text)},
-      }, 'اتبعت طلب التعاقد — مستني موافقة المالك / المدير العام ✅');
+        ...(marketing ? {'paymentType': 'cash', 'note': terms.note.text.trim()} : terms.body()), 'paymentMethod': method,
+      }, 'اتسجل التعاقد ✅');
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
-    }, saveLabel: 'إرسال');
+    }, saveLabel: 'تعاقد');
+    if (ok) _load();
+  }
+
+  /// تم التحصيل: المالك / المدير العام — the commission enters the commissions.
+  Future<void> _collectCommission(bool isDark) async {
+    final cm = _m(_u['commission']);
+    final marketing = _u['projectKind'] == 'marketing';
+    final amount = TextEditingController(text: '${cm['receivable'] ?? ''}');
+    String method = 'bank_transfer';
+    final ok = await _form(context, isDark, 'تم تحصيل العمولة — وحدة ${_u['unitNo']}', (set) => [
+          Text(marketing ? 'العمولة اللي دفعها المطور بتدخل العمولات.' : 'العمولة بتطلع من أمانة المالك وتدخل العمولات.',
+              style: TextStyle(color: JphUi.sub(isDark))),
+          JphUi.input(isDark: isDark, label: 'المبلغ (واجب التحصيل ${_money(cm['receivable'])})', controller: amount, number: true, suffix: 'جنيه',
+              icon: Icons.workspace_premium_rounded),
+          if (marketing) ...[
+            Text('اتحصّلت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            Wrap(spacing: 8, children: [
+              ChoiceChip(label: const Text('بنك'), selected: method == 'bank_transfer', onSelected: (_) => set(() => method = 'bank_transfer')),
+              ChoiceChip(label: const Text('نقدي — خزنة المكتب'), selected: method == 'cash', onSelected: (_) => set(() => method = 'cash')),
+              ChoiceChip(label: const Text('شيك'), selected: method == 'cheque', onSelected: (_) => set(() => method = 'cheque')),
+            ]),
+          ],
+        ], () async {
+      final r = await _post('/exclusive/units/${widget.unitId}/commission-collected',
+          {'amount': num.tryParse(amount.text.replaceAll(',', '')), if (marketing) 'paymentMethod': method}, 'اتسجل تحصيل العمولة ✅');
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    }, saveLabel: 'تم التحصيل');
     if (ok) _load();
   }
 
@@ -786,16 +859,27 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         _kv(isDark, 'الباقي من السعر', _money(money['remaining'])),
       ]),
       if (cm.isNotEmpty)
-        _section(isDark, 'عمولة المكتب على الوحدة', [
-          _kv(isDark, 'مستحقة', _money(cm['earned']), color: Colors.green),
-          _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
-          _kv(isDark, 'محتملة', _money(cm['potential'])),
+        _section(isDark, 'عمولة الوحدة', [
+          if (_n(cm['potential']) > 0) _kv(isDark, 'محتملة (لحد التعاقد)', _money(cm['potential']), color: Colors.indigo),
+          if (st == 'contracted' || st == 'completed') ...[
+            _kv(isDark, 'واجبة التحصيل', _money(cm['receivable']), color: Colors.orange),
+            _kv(isDark, 'اتحصّلت', _money(cm['collected']), color: Colors.green),
+          ],
+          if (_n(cm['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
           _kv(isDark, 'للسيلز ومدير المبيعات', _money(cm['staff'])),
           if (_n(cm['marketing']) > 0) _kv(isDark, 'لشركة التسويق', _money(cm['marketing'])),
           if (_n(cm['office']) > 0) _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Colors.teal),
         ]),
-      if (can['collect'] == true) _btn(isDark, 'تسجيل فلوس (عربون / مقدم / قسط)', Icons.add_card_rounded, () => _collect(isDark), color: Colors.green),
-      if (can['requestContract'] == true) _btn(isDark, 'طلب تعاقد', Icons.handshake_rounded, () => _requestContract(isDark)),
+      if (can['collect'] == true && st == 'contracted' && c['paymentType'] == 'installments')
+        _btn(isDark, 'تحصيل قسط', Icons.add_card_rounded, () => _collect(isDark, kind: 'installment'), color: Colors.green),
+      if (_m(u['myCommission']).isNotEmpty)
+        _section(isDark, 'عمولتك', [
+          _kv(isDark, _m(u['myCommission'])['state'] == 'earned' ? 'مستحقة (بعد اعتماد المدير)' : 'محتملة (لحد التعاقد)',
+              _money(_m(u['myCommission'])['amount']), color: Colors.teal),
+        ]),
+      if (can['requestContract'] == true) _btn(isDark, 'تحويل لتعاقد', Icons.handshake_rounded, () => _requestContract(isDark)),
+      if (can['collectCommission'] == true)
+        _btn(isDark, 'تم تحصيل العمولة', Icons.workspace_premium_rounded, () => _collectCommission(isDark), color: Colors.amber.shade800),
       if (can['decideContract'] == true) _btn(isDark, 'موافقة / رفض التعاقد', Icons.fact_check_rounded, () => _decide(isDark, 'contract'), color: Colors.deepOrange),
       if (can['decideCancel'] == true) _btn(isDark, 'موافقة / رفض الإلغاء', Icons.fact_check_rounded, () => _decide(isDark, 'cancel'), color: Colors.deepOrange),
       if (can['refund'] == true) _btn(isDark, 'رد العربون للعميل', Icons.undo_rounded, () => _refund(isDark), color: Colors.red),
