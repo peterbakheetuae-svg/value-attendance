@@ -281,15 +281,7 @@ class _ClientsTabState extends State<_ClientsTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        if (ApiService.can('sales.manage'))
-          cashBigButton(isDark, 'تسجيل بيع وحدة', Icons.add_home_work_rounded, () async {
-            final id = await Navigator.push<String>(context, MaterialPageRoute(builder: (_) => const NewSalePage()));
-            await _load();
-            if (id != null && context.mounted) {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: id)));
-              _load();
-            }
-          }),
+        // البيع والحجز من «المشاريع ← المبيعات» بس
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: JphUi.box(isDark),
