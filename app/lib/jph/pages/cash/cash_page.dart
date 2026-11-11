@@ -35,13 +35,10 @@ String newClientRef() {
 }
 
 const _boxAr = {'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'};
+// فلوس المبيعات (حجز / تعاقد / أقساط) والعمولات بتدخل من «المبيعات» بزرار «تم الاستلام» — مش يدوي
 const _receiptKinds = {
-  'reservation': 'مبلغ حجز',
-  'down_payment': 'مقدم وحدة',
-  'installment': 'قسط',
-  'settlement': 'تسوية',
   'other': 'تحصيل آخر',
-  'commission': 'عمولة مستلمة',
+  'settlement': 'تسوية',
 };
 const _methods = {'cash': 'كاش', 'bank_transfer': 'تحويل بنكي', 'cheque': 'شيك', 'card': 'كارت', 'wallet': 'محفظة'};
 const _ledgerAr = {
@@ -1038,7 +1035,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
 
   // HR: the HR cashbox only; المدير / المالك: the office cashbox only (neither collects into the other's cashbox)
   late final String _recipient = widget.can['hrDesk'] == true ? 'hr' : 'manager';
-  String _kind = 'reservation', _method = 'cash';
+  String _kind = 'other', _method = 'cash';
   final _amount = TextEditingController(), _payer = TextEditingController(), _phone = TextEditingController(),
       _purpose = TextEditingController(), _extNo = TextEditingController(), _notes = TextEditingController();
   String _ref = newClientRef();

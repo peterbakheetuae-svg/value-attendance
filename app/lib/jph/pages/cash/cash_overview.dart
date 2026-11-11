@@ -91,11 +91,8 @@ class _CashOverviewState extends State<CashOverview> {
       ],
       if (_office) ...[
         const SizedBox(height: 14),
-        Row(children: [
-          Expanded(child: _action(isDark, 'ضخ فلوس', Icons.add_card_rounded, Colors.indigo, () => _inject(isDark))),
-          const SizedBox(width: 10),
-          Expanded(child: _action(isDark, 'عمولة مستلمة', Icons.workspace_premium_rounded, Colors.amber.shade800, () => _commissionIn(isDark))),
-        ]),
+        // العمولات بتدخل من «تم التحصيل» على الوحدة في المبيعات — مفيش إدخال يدوي
+        _action(isDark, 'ضخ فلوس', Icons.add_card_rounded, Colors.indigo, () => _inject(isDark)),
       ],
       const SizedBox(height: 6),
     ]);

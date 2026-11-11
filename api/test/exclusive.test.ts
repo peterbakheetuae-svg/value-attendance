@@ -25,16 +25,29 @@ test('exclusive project: reservation → contract → collected → owner payout
     [5, 3, 0.2, 0.1, 0.5]);
   assert.ok(!(await h.call(c.t.owner, 'GET', '/commissions/projects')).body.projects.some((p: any) => p.id === pid), 'not in the marketing list');
 
-  // حجز: the deposit is in the accountant's cashbox at once (bank), the unit is reserved, the commission potential
+  // حجز: the deposit waits for «تم استلام المبلغ» (the accountant / المدير العام are told); nobody types an amount
   assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000 })).status, 400,
     'an exclusive reservation needs its deposit');
   const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000,
     depositAmount: 50_000, paymentMethod: 'bank_transfer' });
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
-  assert.equal(u.body.unit.status, 'reserved');
-  assert.equal(u.body.unit.money.bank, 50_000);
+  assert.equal(u.body.unit.status, 'reserving');
+  assert.equal(u.body.unit.money.pending, 50_000);
+  assert.equal(u.body.unit.money.collected, 0);
   assert.deepEqual(u.body.unit.myCommission, { amount: 6000, state: 'potential' });
+  const told = await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE type = 'exclusive_payment_pending'`);
+  assert.ok(told.rows[0].n >= 2, 'the accountant and the managers are told');
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${uid}/contract`, { paymentType: 'cash' })).status, 409, 'not before the deposit is received');
+  const pend = await h.call(c.t.hr, 'GET', '/exclusive/payments');
+  assert.equal(pend.body.payments.length, 1);
+  assert.equal(pend.body.payments[0].amount, 50_000);
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/payments/${pend.body.payments[0].id}/receive`, {})).status, 403);
+  const rcv = await h.call(c.t.hr, 'POST', `/exclusive/payments/${pend.body.payments[0].id}/receive`, {});
+  assert.equal(rcv.status, 200, JSON.stringify(rcv.body));
+  assert.equal(rcv.body.unit.status, 'reserved');
+  assert.equal(rcv.body.unit.money.bank, 50_000);
+  assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${pend.body.payments[0].id}/receive`, {})).status, 409, 'once');
   const box = await h.db.query(`SELECT cashbox, kind, amount_egp, payment_method FROM cash_receipts WHERE ex_unit_id = $1`, [uid]);
   assert.deepEqual(box.rows.map((x) => [x.cashbox, x.kind, Number(x.amount_egp), x.payment_method]), [['hr', 'reservation', 50000, 'bank_transfer']]);
   let d = await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`);
@@ -50,7 +63,14 @@ test('exclusive project: reservation → contract → collected → owner payout
     installmentsCount: 8, everyMonths: 3, firstDueDate: '2027-02-01', installmentPct: 0.5 });
   assert.equal(k.status, 200, JSON.stringify(k.body));
   assert.equal(k.body.unit.status, 'contracted');
-  assert.equal(k.body.unit.money.collected, 250_000, 'the rest of the down payment went into the cashbox');
+  assert.equal(k.body.unit.money.pending, 200_000, 'the rest of the down payment (the deposit counts) waits for «تم استلام المبلغ»');
+  const dp = (await h.call(c.t.owner, 'GET', '/exclusive/payments')).body.payments[0];
+  assert.equal(dp.kind, 'down_payment');
+  const r2 = await h.call(c.t.owner, 'POST', `/exclusive/payments/${dp.id}/receive`, {});
+  assert.equal(r2.status, 200, JSON.stringify(r2.body));
+  assert.equal(r2.body.unit.money.collected, 250_000);
+  assert.equal((await h.db.query(`SELECT cashbox FROM cash_receipts WHERE ex_unit_id = $1 AND kind = 'down_payment'`, [uid])).rows[0].cashbox, 'office',
+    'received by المدير العام → خزنة المكتب');
   assert.equal(k.body.unit.myCommission.state, 'earned');
   // the staff commission waits for المالك / المدير العام's approval
   const cr = (await h.db.query(`SELECT id, status, sales_amount, manager_amount FROM commission_requests WHERE ex_unit_id = $1`, [uid])).rows[0];
@@ -71,7 +91,7 @@ test('exclusive project: reservation → contract → collected → owner payout
   assert.equal(unit.body.installments[1].dueDate, '2027-05-01');
   // the accountant collects 5 installments → +0.5% each, capped at the 5%
   for (let i = 0; i < 5; i++) {
-    assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/units/${uid}/receipts`, { kind: 'installment', amount: 343_750 })).status, 201);
+    assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/units/${uid}/receipts`, { kind: 'installment' })).status, 201, 'the installment\'s own amount');
   }
   s = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`)).body.project.stats;
   assert.equal(s.commission.earned, 150_000, '3% + 4 × 0.5% = 5%, capped');
@@ -108,8 +128,12 @@ test('a direct cash contract (تعاقد جديد): the whole price in, 5% at on
   const u = await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V1', clientName: 'عميل كاش', unitPrice: 1_000_000,
     contract: { paymentType: 'cash' } });
   assert.equal(u.status, 201, JSON.stringify(u.body));
-  assert.equal(u.body.unit.status, 'completed', 'cash and fully paid');
-  assert.equal(u.body.unit.money.collected, 1_000_000, 'cash: the whole price into the cashbox');
+  assert.equal(u.body.unit.status, 'contracted');
+  assert.equal(u.body.unit.money.pending, 1_000_000, 'cash: the whole price waits for «تم استلام المبلغ»');
+  const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === u.body.unit.id);
+  const got = await h.call(c.t.hr, 'POST', `/exclusive/payments/${pay.id}/receive`, {});
+  assert.equal(got.body.unit.status, 'completed', 'cash and fully paid');
+  assert.equal(got.body.unit.money.collected, 1_000_000);
   let s = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`)).body.project.stats;
   assert.equal(s.commission.earned, 50_000, '5% at once');
   assert.equal(s.commission.staff, 3_000, '0.2% + 0.1% even for cash');
@@ -118,10 +142,14 @@ test('a direct cash contract (تعاقد جديد): the whole price in, 5% at on
   const m = await h.call(owner2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V3', clientName: 'عميل المدير', unitPrice: 500_000,
     depositAmount: 10_000, salesId: c.ids.e2 });
   assert.equal(m.status, 201, JSON.stringify(m.body));
+  const mp = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === m.body.unit.id);
+  assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${mp.id}/receive`, {})).status, 200);
   assert.equal((await h.call(owner2, 'POST', `/exclusive/units/${m.body.unit.id}/contract`, { paymentType: 'cash' })).status, 200);
   assert.equal((await h.db.query(`SELECT status FROM commission_requests WHERE ex_unit_id = $1`, [m.body.unit.id])).rows[0].status, 'approved');
 
   const v = (await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V2', clientName: 'عميل لغى', unitPrice: 800_000, depositAmount: 30_000 })).body.unit;
+  const vp = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === v.id);
+  assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${vp.id}/receive`, {})).status, 200);
   assert.equal((await h.call(c.t.e2, 'POST', `/exclusive/units/${v.id}/cancel`, { reason: 'العميل اعتذر' })).status, 200);
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/units/${v.id}/refund`, { amount: 30_000 })).status, 409, 'not before the cancel is approved');
   assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/units/${v.id}/cancel/decision`, { decision: 'approve' })).status, 200);

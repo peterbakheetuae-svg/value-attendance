@@ -266,7 +266,9 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
   String _stage = 'reservation';
   String _kind = '';
   bool _loading = true, _reserve = false;
-  List<Map<String, dynamic>> _units = [], _projects = [];
+  List<Map<String, dynamic>> _units = [], _projects = [], _pending = [];
+  bool _canReceive = false;
+  String _into = '';
 
   @override
   void initState() {
@@ -278,15 +280,19 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
     setState(() => _loading = true);
     final r = await Future.wait([
       _get('/exclusive/units', {'stage': _stage, if (_kind.isNotEmpty) 'kind': _kind}),
+      _get('/exclusive/payments'),
       if (_projects.isEmpty) _get('/exclusive/projects', {'kind': 'all'}),
     ]);
     if (!mounted) return;
     setState(() {
       _loading = false;
       _units = _l(r[0]['units']);
-      if (r.length > 1) {
-        _projects = _l(r[1]['projects']);
-        _reserve = r[1]['canReserve'] == true;
+      _pending = _l(r[1]['payments']);
+      _canReceive = r[1]['canReceive'] == true;
+      _into = '${r[1]['into'] ?? ''}';
+      if (r.length > 2) {
+        _projects = _l(r[2]['projects']);
+        _reserve = r[2]['canReserve'] == true;
       }
     });
   }
@@ -308,6 +314,30 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
           },
         ),
         const SizedBox(height: 10),
+        // the money the sales brought in, waiting for «تم استلام المبلغ»
+        if (_pending.isNotEmpty) ...[
+          _section(isDark, _canReceive ? 'مبالغ مستنية تأكيد الاستلام (${_pending.length})' : 'مستني تأكيد الاستلام', [
+            for (final x in _pending)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(children: [
+                  const Icon(Icons.hourglass_top_rounded, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('${x['kindAr']} — ${x['projectName']} · وحدة ${x['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                      Text('${x['clientName']} · ${x['salesName']} · ${x['methodAr']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                    ]),
+                  ),
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    if (_canReceive)
+                      TextButton(onPressed: () => _receive(isDark, x), child: const Text('تم الاستلام', style: TextStyle(fontWeight: FontWeight.w900))),
+                  ]),
+                ]),
+              ),
+          ]),
+        ],
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(children: [
@@ -345,6 +375,25 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
         for (final u in _units) _unitCard(isDark, u),
       ]),
     );
+  }
+
+  Future<void> _receive(bool isDark, Map<String, dynamic> x) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => GlassAlertDialog(
+        title: Text('تم استلام ${x['kindAr']}'),
+        content: Text('${_money(x['amount'])} — ${x['methodAr']}\n${x['projectName']} · وحدة ${x['unitNo']} · ${x['clientName']}\nهيدخل $_into',
+            textAlign: TextAlign.center),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لسه')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('تم الاستلام')),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    final r = await _post('/exclusive/payments/${x['id']}/receive', {}, 'اتأكد الاستلام ✅');
+    if (mounted) JphUi.toast(context, r);
+    _load();
   }
 
   Widget _unitCard(bool isDark, Map<String, dynamic> x) {
