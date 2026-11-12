@@ -177,3 +177,41 @@ test('a direct cash contract (تعاقد جديد): the whole price in, 5% at on
   assert.equal(mine.body.units[0].commission, undefined);
   assert.equal((await h.call(c.t.e1, 'GET', `/exclusive/projects/${pid}`)).body.units.length, 0);
 });
+
+test('a direct contract for a client / unit that has a reservation is refused; the salesperson edits his reservation', async () => {
+  const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج الأمل', ownerName: 'أ. كريم' })).body.project.id;
+  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'B-1', clientName: 'أحمد سمير', clientPhone: '0101 222 3333',
+    unitPrice: 900_000, depositAmount: 20_000, expectedContractDate: '2027-01-10' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const uid = r.body.unit.id;
+  for (const [what, body] of [
+    ['same unit', { unitNo: 'b-1 ', clientName: 'حد تاني', clientPhone: '0109' }],
+    ['same client name', { unitNo: 'B-2', clientName: ' أحمد سمير', clientPhone: '0109' }],
+    ['same phone', { unitNo: 'B-3', clientName: 'اسم مختلف', clientPhone: '+20 101 222 3333' }],
+  ] as const) {
+    const k = await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitPrice: 900_000, contract: { paymentType: 'cash' }, ...body });
+    assert.equal(k.status, 409, what);
+    assert.match(k.body.error?.message ?? k.body.message ?? JSON.stringify(k.body), /حجز|حوّل/, what);
+  }
+  // another project: fine
+  const other = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج تاني', ownerName: 'أ. كريم' })).body.project.id;
+  assert.equal((await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: other, unitNo: 'B-1', clientName: 'أحمد سمير', unitPrice: 900_000,
+    contract: { paymentType: 'cash' } })).status, 201);
+
+  // edit: only his own; the deposit while it waits; nothing financial after the contract
+  assert.equal((await h.call(c.t.e2, 'PATCH', `/exclusive/units/${uid}`, { clientName: 'مش بتاعه' })).status, 403);
+  const ed = await h.call(c.t.e1, 'PATCH', `/exclusive/units/${uid}`, { clientName: 'أحمد سمير علي', unitNo: 'B-10', unitPrice: 950_000,
+    depositAmount: 25_000, expectedContractDate: '2027-02-01' });
+  assert.equal(ed.status, 200, JSON.stringify(ed.body));
+  assert.deepEqual([ed.body.unit.clientName, ed.body.unit.unitNo, ed.body.unit.unitPrice, ed.body.unit.depositAmount, ed.body.unit.expectedContractDate],
+    ['أحمد سمير علي', 'B-10', 950_000, 25_000, '2027-02-01']);
+  const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === uid);
+  assert.equal(pay.amount, 25_000, 'the waiting deposit follows the edit');
+  assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${pay.id}/receive`, {})).status, 200);
+  assert.equal((await h.call(c.t.e1, 'PATCH', `/exclusive/units/${uid}`, { depositAmount: 30_000 })).status, 409, 'received: fixed');
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${uid}/contract`, { paymentType: 'cash' })).status, 200);
+  const after = await h.call(c.t.e1, 'PATCH', `/exclusive/units/${uid}`, { clientPhone: '01099998888', unitPrice: 1 });
+  assert.equal(after.status, 200);
+  assert.equal(after.body.unit.clientPhone, '01099998888');
+  assert.equal(after.body.unit.unitPrice, 950_000, 'the price is fixed after the contract');
+});

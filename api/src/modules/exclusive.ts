@@ -124,6 +124,8 @@ function shapeUnit(u: any, a: Actor) {
       decideContract: canManage(a) && u.status === 'contract_pending' && !mine,
       requestCancel: (mine || canManage(a)) && ['reserving', 'reserved', 'contract_pending'].includes(u.status),
       decideCancel: canManage(a) && u.status === 'cancel_pending',
+      // السيلز (or the management) edits the reservation / the contract's client details
+      edit: (mine || canManage(a)) && ['reserving', 'reserved', 'contracted'].includes(u.status),
       refund: hrDesk(a) && u.status === 'cancelled' && n(u.collected) - n(u.refunded) > 0,
     },
   };
@@ -485,6 +487,27 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   }
 
   /**
+   * One unit / one client per project: the unit number is never taken twice; a contract (تعاقد جديد) for a client or
+   * a unit that already has an open reservation is refused — that reservation is the one to turn into the contract.
+   */
+  async function noDuplicate(q: Q, projectId: string, x: { unitNo: string; clientName: string; clientPhone: string }, exceptId: string | null, contract: boolean) {
+    const others = (await q.query(`SELECT id, unit_no, client_name, client_phone, status FROM ex_units
+                                    WHERE project_id = $1 AND status <> 'cancelled' AND ($2::uuid IS NULL OR id <> $2)`, [projectId, exceptId])).rows;
+    const digits = (v: string) => String(v ?? '').replace(/\D/g, '').slice(-10);
+    const same = (a: string, b: string) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+    if (others.some((o) => same(o.unit_no, x.unitNo))) {
+      const o = others.find((o) => same(o.unit_no, x.unitNo))!;
+      throw conflict(['contracted'].includes(o.status) ? 'الوحدة دي متعاقد عليها بالفعل في المشروع ده'
+        : contract ? 'الوحدة دي عليها حجز — حوّل الحجز لتعاقد من صفحة الحجز' : 'الوحدة دي محجوزة بالفعل في المشروع ده');
+    }
+    if (!contract) return;
+    const open = others.filter((o) => ['reserving', 'reserved', 'contract_pending', 'cancel_pending'].includes(o.status));
+    const phone = digits(x.clientPhone);
+    const hit = open.find((o) => same(o.client_name, x.clientName) || (phone.length >= 8 && digits(o.client_phone) === phone));
+    if (hit) throw conflict(`العميل ده عليه حجز في المشروع ده (وحدة ${hit.unit_no}) — حوّل الحجز لتعاقد من صفحة الحجز`);
+  }
+
+  /**
    * حجز: the salesperson reserves a unit from «المبيعات». An exclusive unit's deposit goes into the cashbox at once;
    * a marketing unit holds no money of ours. With `contract` it is a direct contract (تعاقد جديد) in one go.
    * «مصدر العميل»: the office, or a marketing company paid by commission (the project's marketing %).
@@ -514,9 +537,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       const deposit = contract ? 0 : exclusive ? num(b, 'depositAmount', { min: 1, max: 10_000_000_000 }) ?? 0
         : num(b, 'depositAmount', { min: 0, max: 10_000_000_000, optional: true }) ?? 0;
       if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
-      if (await one(q, `SELECT 1 FROM ex_units WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status <> 'cancelled'`, [p.id, unitNo])) {
-        throw conflict('الوحدة دي محجوزة أو مباعة بالفعل في المشروع ده');
-      }
+      await noDuplicate(q, p.id, { unitNo, clientName, clientPhone }, null, !!contract);
       let mkPct = 0;
       if (mkId) {
         const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active' AND kind = 'commission'`, [mkId]);
@@ -595,6 +616,64 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       return rc;
     });
     return ok({ receipt: { id: out.id, receiptNo: `R-${String(out.ref_no).padStart(6, '0')}` } }, 201);
+  });
+
+  /**
+   * تعديل: the salesperson (or the management) edits his reservation — unit, client, price, expected contract date,
+   * client source, and the deposit while it still waits for «تم استلام المبلغ». After the contract only the client's
+   * details and the notes (the money and the installments are fixed).
+   */
+  r.patch('/exclusive/units/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    await db.tx(async (q) => {
+      const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!u) throw notFound();
+      if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
+      if (!['reserving', 'reserved', 'contracted'].includes(u.status)) throw conflict('الوحدة دي مش بتتعدّل دلوقتي');
+      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1`, [u.project_id]);
+      const clientName = (str(b, 'clientName', { optional: true, min: 2, max: 120 }) ?? u.client_name).trim();
+      const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? u.client_phone).trim();
+      const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? u.notes).trim();
+      const contracted = u.status === 'contracted';
+      let unitNo = u.unit_no, price = n(u.unit_price), expected = u.expected_contract_date, mkId = u.mk_company_id, mkPct = n(u.mk_pct), deposit = n(u.deposit_amount);
+      if (!contracted) {
+        unitNo = (str(b, 'unitNo', { optional: true, min: 1, max: 60 }) ?? u.unit_no).trim();
+        price = num(b, 'unitPrice', { optional: true, min: 1, max: 10_000_000_000 }) ?? price;
+        if (b.expectedContractDate !== undefined) expected = date(b, 'expectedContractDate', true) ?? null;
+        if (b.marketingCompanyId !== undefined) {
+          mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
+          mkPct = 0;
+          if (mkId) {
+            const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active' AND kind = 'commission'`, [mkId]);
+            if (!mk) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
+            mkPct = n(p.marketing_pct) > 0 ? n(p.marketing_pct) : n(mk.default_pct);
+          }
+        }
+        if (b.depositAmount !== undefined && p.kind === 'exclusive') {
+          const pend = await one(q, `SELECT * FROM ex_payments WHERE unit_id = $1 AND kind = 'reservation' AND status = 'pending' FOR UPDATE`, [u.id]);
+          const d = num(b, 'depositAmount', { min: 1, max: 10_000_000_000 })!;
+          if (d !== deposit) {
+            if (!pend) throw conflict('العربون اتأكد استلامه — مايتغيرش');
+            await q.query(`UPDATE ex_payments SET amount_egp = $2 WHERE id = $1`, [pend.id, d]);
+            deposit = d;
+          }
+        }
+        if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
+      }
+      await noDuplicate(q, u.project_id, { unitNo, clientName, clientPhone }, u.id, false);
+      await q.query(`UPDATE ex_units SET unit_no = $2, client_name = $3, client_phone = $4, unit_price = $5, deposit_amount = $6, notes = $7,
+          expected_contract_date = $8, mk_company_id = $9, mk_pct = $10, contract_note = CASE WHEN $11::text IS NULL THEN contract_note ELSE $11 END
+        WHERE id = $1`,
+        [u.id, unitNo, clientName, clientPhone, price, deposit, notes, expected, mkId, mkPct,
+          contracted ? (str(b, 'contractNote', { optional: true, max: 1000 }) ?? null) : null]);
+      await audit(q, a.id, 'exclusive.unit.edit', 'ex_unit', u.id,
+        { unitNo: u.unit_no, clientName: u.client_name, clientPhone: u.client_phone, price: n(u.unit_price), deposit: n(u.deposit_amount) },
+        { unitNo, clientName, clientPhone, price, deposit });
+    });
+    const [full] = await loadUnits(db, 'u.id = $1', [req.params.id]);
+    return ok({ unit: shapeUnit(full, a) });
   });
 
   /** تعاقد: the salesperson turns his reservation into a contract (see makeContract). */

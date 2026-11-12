@@ -64,8 +64,8 @@ String _date(Object? v) {
 
 Future<Map<String, dynamic>> _get(String path, [Map<String, String>? q]) =>
     ApiService.post({'action': 'cash_get', 'path': path, if (q != null) 'query': q});
-Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body, String ok) =>
-    ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok});
+Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body, String ok, {String? method}) =>
+    ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok, if (method != null) 'method': method});
 
 Widget _kv(bool isDark, String k, String v, {Color? color}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
@@ -740,6 +740,62 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     if (ok) _load();
   }
 
+  /// تعديل الحجز / التعاقد: before the contract everything of the reservation; after it the client's details only.
+  Future<void> _edit(bool isDark) async {
+    final u = _u;
+    final contracted = '${u['status']}' == 'contracted';
+    final exclusive = u['projectKind'] != 'marketing';
+    final depositPending = _l(_d!['pendingPayments']).any((x) => x['kind'] == 'reservation');
+    final unit = TextEditingController(text: '${u['unitNo']}'), client = TextEditingController(text: '${u['clientName']}'),
+        phone = TextEditingController(text: '${u['clientPhone'] ?? ''}'), price = TextEditingController(text: '${u['unitPrice']}'),
+        deposit = TextEditingController(text: '${u['depositAmount']}'), notes = TextEditingController(text: '${u['notes'] ?? ''}');
+    DateTime? expected = u['expectedContractDate'] != null ? DateTime.tryParse('${u['expectedContractDate']}') : null;
+    final mks = contracted ? <Map<String, dynamic>>[] : _l((await _get('/marketing-companies'))['companies'])
+        .where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
+    Map<String, dynamic>? mk;
+    for (final m in mks) {
+      if (m['id'] == u['marketingCompanyId']) mk = m;
+    }
+    if (!mounted) return;
+    final ok = await _form(context, isDark, contracted ? 'تعديل التعاقد' : 'تعديل الحجز', (set) => [
+          if (!contracted) JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
+          JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
+          JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
+          if (!contracted) ...[
+            JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
+            if (exclusive && depositPending)
+              JphUi.input(isDark: isDark, label: 'العربون (لسه مستني تأكيد الاستلام)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
+            if (exclusive && !depositPending) _kv(isDark, 'العربون (اتأكد استلامه — مايتغيرش)', _money(u['depositAmount'])),
+            JphUi.picker(
+              isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.indigo, label: 'التاريخ المتوقع للتعاقد',
+              value: expected == null ? 'اختار التاريخ' : _date(expected!.toIso8601String()),
+              onTap: () async {
+                final d = await showDatePicker(context: context, initialDate: expected ?? DateTime.now(), firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                    lastDate: DateTime(DateTime.now().year + 5));
+                if (d != null) set(() => expected = d);
+              },
+            ),
+            _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
+          ],
+          if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
+          JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
+        ], () async {
+      final r = await _post('/exclusive/units/${widget.unitId}', {
+        'clientName': client.text.trim(), 'clientPhone': phone.text.trim(), 'notes': notes.text.trim(),
+        if (!contracted) ...{
+          'unitNo': unit.text.trim(), 'unitPrice': num.tryParse(price.text.replaceAll(',', '')),
+          if (exclusive && depositPending) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
+          if (expected != null)
+            'expectedContractDate': '${expected!.year}-${expected!.month.toString().padLeft(2, '0')}-${expected!.day.toString().padLeft(2, '0')}',
+          'marketingCompanyId': mk?['id'],
+        },
+      }, 'اتحفظ التعديل ✅', method: 'patch');
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    }, saveLabel: 'حفظ');
+    if (ok) _load();
+  }
+
   /// «تم استلام المبلغ»: the amount on the reservation / contract, nobody types it.
   Future<void> _receive(bool isDark, Map<String, dynamic> x) async {
     final yes = await showDialog<bool>(
@@ -975,18 +1031,55 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           _kv(isDark, _m(u['myCommission'])['state'] == 'earned' ? 'مستحقة (بعد اعتماد المدير)' : 'محتملة (لحد التعاقد)',
               _money(_m(u['myCommission'])['amount']), color: Colors.teal),
         ]),
-      if (can['requestContract'] == true) _btn(isDark, 'تعاقد', Icons.handshake_rounded, () => _requestContract(isDark)),
-      if (st == 'reserving' && _m(u['myCommission']).isNotEmpty)
+      if (can['edit'] == true)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: OutlinedButton.icon(
+            onPressed: () => _edit(isDark),
+            icon: const Icon(Icons.edit_rounded),
+            label: Text(st == 'contracted' ? 'تعديل التعاقد' : 'تعديل الحجز', style: const TextStyle(fontWeight: FontWeight.w800)),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+          ),
+        ),
+      // the reservation's two buttons: إلغاء الحجز / تعاقد
+      if (['reserving', 'reserved', 'contract_pending'].includes(st) && (can['requestCancel'] == true || can['requestContract'] == true || st == 'reserving'))
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(children: [
+            if (can['requestCancel'] == true)
+              Expanded(
+                child: SizedBox(
+                  height: 54,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _cancel(isDark),
+                    icon: const Icon(Icons.cancel_rounded, color: Colors.red),
+                    label: const Text('إلغاء الحجز', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w900, fontSize: 16)),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                  ),
+                ),
+              ),
+            if (can['requestCancel'] == true) const SizedBox(width: 10),
+            Expanded(
+              child: SizedBox(
+                height: 54,
+                child: FilledButton.icon(
+                  onPressed: can['requestContract'] == true ? () => _requestContract(isDark) : null,
+                  icon: const Icon(Icons.handshake_rounded),
+                  label: const Text('تعاقد', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  style: FilledButton.styleFrom(backgroundColor: JphUi.primary(isDark), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      if (st == 'reserving')
         Padding(padding: const EdgeInsets.only(bottom: 10),
-            child: Text('زرار التعاقد هيظهر بعد ما المحاسب / المدير يأكد استلام العربون.', style: TextStyle(color: JphUi.sub(isDark)))),
+            child: Text('التعاقد بيتفتح بعد ما المحاسب / المدير يأكد استلام العربون.', style: TextStyle(color: JphUi.sub(isDark)))),
       if (can['collectCommission'] == true)
         _btn(isDark, 'تم تحصيل العمولة', Icons.workspace_premium_rounded, () => _collectCommission(isDark), color: Colors.amber.shade800),
       if (can['decideContract'] == true) _btn(isDark, 'موافقة / رفض التعاقد', Icons.fact_check_rounded, () => _decide(isDark, 'contract'), color: Colors.deepOrange),
       if (can['decideCancel'] == true) _btn(isDark, 'موافقة / رفض الإلغاء', Icons.fact_check_rounded, () => _decide(isDark, 'cancel'), color: Colors.deepOrange),
       if (can['refund'] == true) _btn(isDark, 'رد العربون للعميل', Icons.undo_rounded, () => _refund(isDark), color: Colors.red),
-      if (can['requestCancel'] == true)
-        TextButton.icon(onPressed: () => _cancel(isDark), icon: const Icon(Icons.cancel_rounded, color: Colors.red),
-            label: const Text('إلغاء الحجز', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w800))),
       if (inst.isNotEmpty)
         _section(isDark, 'الأقساط', [
           for (final i in inst)
