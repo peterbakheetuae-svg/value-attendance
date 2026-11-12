@@ -393,6 +393,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
   Map<String, dynamic>? mk;
   String method = 'cash';
   final terms = _Terms();
+  DateTime? expected; // التاريخ المتوقع للتعاقد — the expected commission falls in that month
   Map<String, dynamic> project() => active.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {});
   if (!context.mounted) return;
   final ok = await _form(context, isDark, contract ? 'تعاقد جديد' : 'حجز جديد', (set) {
@@ -418,6 +419,16 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
       if (exclusive && !contract)
         JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
+      if (!contract)
+        JphUi.picker(
+          isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.indigo, label: 'التاريخ المتوقع للتعاقد',
+          value: expected == null ? 'اختار التاريخ' : _date(expected!.toIso8601String()),
+          onTap: () async {
+            final d = await showDatePicker(context: context, initialDate: expected ?? DateTime.now().add(const Duration(days: 30)),
+                firstDate: DateTime.now(), lastDate: DateTime(DateTime.now().year + 5));
+            if (d != null) set(() => expected = d);
+          },
+        ),
       if (exclusive && contract) ...terms.fields(context, isDark, set, price: num.tryParse(price.text.replaceAll(',', ''))),
       if (exclusive) ...[
         Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
@@ -433,12 +444,18 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       JphUi.toast(context, {'success': false, 'message': 'اختار المشروع'});
       return false;
     }
+    if (!contract && expected == null) {
+      JphUi.toast(context, {'success': false, 'message': 'اختار التاريخ المتوقع للتعاقد'});
+      return false;
+    }
     final exclusive = project()['kind'] == 'exclusive';
     final r = await _post('/exclusive/units', {
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
       'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(), 'paymentMethod': method,
       if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
       if (mk != null) 'marketingCompanyId': mk!['id'],
+      if (!contract && expected != null)
+        'expectedContractDate': '${expected!.year}-${expected!.month.toString().padLeft(2, '0')}-${expected!.day.toString().padLeft(2, '0')}',
       if (contract) 'contract': exclusive ? terms.body() : {'paymentType': 'cash'},
     }, contract ? 'اتسجل التعاقد ✅' : 'اتسجل الحجز ✅');
     if (context.mounted) JphUi.toast(context, r);
@@ -896,6 +913,8 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         const SizedBox(height: 8),
         _kv(isDark, 'العميل', '${u['clientName']}${'${u['clientPhone'] ?? ''}'.isEmpty ? '' : ' · ${u['clientPhone']}'}'),
         _kv(isDark, 'نوع المشروع', u['projectKind'] == 'marketing' ? 'تسويق' : 'حصري'),
+        if (u['expectedContractDate'] != null && !['contracted', 'cancelled'].contains(st))
+          _kv(isDark, 'التاريخ المتوقع للتعاقد', _date('${u['expectedContractDate']}')),
         _kv(isDark, 'السيلز', '${u['salesName']}'),
         if (u['marketingCompanyName'] != null) _kv(isDark, 'عن طريق', '${u['marketingCompanyName']} (${JphUi.pct(u['marketingPct'])})'),
         _kv(isDark, 'سعر الوحدة', _money(u['unitPrice'])),

@@ -746,7 +746,7 @@ class _SettingsPageState extends State<SettingsPage> {
   /// المالية: طلبات ومبيعات + الخزنة (فيها صرف السلف والمرتبات والعمولات)؛ والأقساط لأصحاب الصلاحية، وعمولات المشاريع.
   List<(String, IconData, Widget Function())> _financeItems() => [
         // المالية: الطلبات + الخزنة (تبويب جوه الصفحة)
-        ('المالية', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
+        ('طلبات مالية', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
         // صرف السلف والمرتبات والعمولات وسجل الخزنة
         (CashboxHubPage.canCash ? 'الصرف وسجل الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),

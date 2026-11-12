@@ -44,6 +44,8 @@ async function loadUnits(q: Q, where: string, params: unknown[]) {
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'), 0) AS collected,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.payment_method <> 'cash'), 0) AS collected_bank,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind = 'reservation'), 0) AS deposit_paid,
+           COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind = 'down_payment'), 0) AS contract_paid,
+           COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind = 'installment'), 0) AS installments_paid,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.kind IN ('reservation','down_payment')), 0) AS down_paid,
            COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.ex_unit_id = u.id AND x.ex_kind = 'refund' AND x.status = 'posted'), 0) AS refunded,
            COALESCE((SELECT sum(t.amount_egp) FROM ex_commission_transfers t WHERE t.unit_id = u.id), 0)
@@ -91,6 +93,7 @@ function shapeUnit(u: any, a: Actor) {
   return {
     id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
     marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: n(u.mk_pct),
+    expectedContractDate: u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null,
     clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
     ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
@@ -501,6 +504,9 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const salesId = canManage(a) && typeof b.salesId === 'string' && isUuid(b.salesId) ? b.salesId : a.id;
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
     const contract = b.contract && typeof b.contract === 'object' ? obj(b.contract) : null;
+    // «التاريخ المتوقع للتعاقد»: the expected commission falls in that month
+    const expected = contract ? null : date(b, 'expectedContractDate', true) ?? null;
+    if (expected && expected < local(clock()).date) throw invalid('التاريخ المتوقع للتعاقد لازم يكون النهارده أو بعده', { field: 'expectedContractDate' });
     const u = await db.tx(async (q) => {
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
       if (!p || p.status !== 'active') throw invalid('المشروع ده مش بيستقبل حجوزات دلوقتي', { field: 'projectId' });
@@ -525,6 +531,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
           total_pct, contract_pct, sales_pct, manager_pct, notes, mk_company_id, mk_pct, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
         [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, contractPct, p.sales_pct, p.manager_pct, notes, mkId, mkPct,
           exclusive && deposit > 0 && !contract ? 'reserving' : 'reserved']);
+      if (expected) await q.query(`UPDATE ex_units SET expected_contract_date = $2 WHERE id = $1`, [x.id, expected]);
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       // a direct contract: the deposit is part of its down payment (one pending payment for the whole of it)
       if (exclusive && deposit > 0 && !contract) await requestPayment(q, a, x, p.name, 'reservation', deposit, method);
@@ -949,6 +956,56 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 };
 
 /** For the owner's dashboard: every exclusive project's totals in one go. */
+/**
+ * For the cashbox (المالك / المدير العام):
+ *  خزنة المشاريع — the owners' money held, per exclusive project (حجز / تعاقد / أقساط in, paid to the owner, commission moved);
+ *  العمولات — due (earned) / entered the commissions / still to collect;
+ *  عمولات متوقعة — the reservations' commissions, in the month each is expected to become a contract.
+ */
+export async function salesMoneyOverview(q: Q) {
+  const ps = await q.query(`SELECT * FROM commission_projects ORDER BY created_at`);
+  const { stats, units } = await projectStats(q, ps.rows.map((p) => p.id));
+  const projects = ps.rows.filter((p) => p.kind === 'exclusive').map((p) => {
+    const us = units.filter((u) => u.project_id === p.id);
+    const sum = (f: (u: any) => number) => r2(us.reduce((t, u) => t + f(u), 0));
+    const st = stats[p.id];
+    return { id: p.id, name: p.name, ownerName: p.owner_name, status: p.status,
+      reservation: sum((u) => n(u.deposit_paid)), contract: sum((u) => n(u.contract_paid)), installments: sum((u) => n(u.installments_paid)),
+      collected: st.collected, refunded: st.refunded, commissionMoved: st.commission.transferred, paidToOwner: st.owner.paid,
+      pendingPayout: st.owner.pendingPayout, inTrust: st.owner.inTrust, ownerDue: st.owner.due, units: st.units };
+  }).sort((a, b) => b.inTrust - a.inTrust);
+  // العمولات: the units' + the commission requests filed without a unit (عمولة صفقة قديمة)
+  const contracted = units.filter((u) => u.status === 'contracted');
+  const legacy = await one(q, `SELECT
+      COALESCE((SELECT sum(sales_amount + manager_amount + company_amount) FROM commission_requests WHERE status = 'approved' AND ex_unit_id IS NULL), 0) AS due,
+      COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE kind = 'commission' AND status = 'posted' AND commission_unit_id IS NULL), 0) AS got`);
+  const due = r2(contracted.reduce((t, u) => t + u.earned, 0) + n(legacy.due));
+  const collected = r2(contracted.reduce((t, u) => t + u.commissionCollected, 0) + n(legacy.got));
+  const byProject = ps.rows.map((p) => {
+    const us = contracted.filter((u) => u.project_id === p.id);
+    const d = r2(us.reduce((t, u) => t + u.earned, 0)), c = r2(us.reduce((t, u) => t + u.commissionCollected, 0));
+    return { id: p.id, name: p.name, kind: p.kind, due: d, collected: c, remaining: r2(Math.max(d - c, 0)), upcoming: r2(us.reduce((t, u) => t + u.upcoming, 0)) };
+  }).filter((x) => x.due > 0 || x.upcoming > 0);
+  // عمولات متوقعة: by the month the reservation is expected to become a contract
+  const open = units.filter((u) => ['reserving', 'reserved', 'contract_pending'].includes(u.status));
+  const months = new Map<string, { month: string; amount: number; units: any[] }>();
+  for (const u of open) {
+    const d = u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 7) : '';
+    const m = months.get(d) ?? { month: d, amount: 0, units: [] };
+    m.amount = r2(m.amount + u.potential);
+    m.units.push({ id: u.id, projectName: u.project_name, unitNo: u.unit_no, clientName: u.client_name, salesName: u.sales_name,
+      amount: u.potential, expectedContractDate: d ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null });
+    months.set(d, m);
+  }
+  const expected = [...months.values()].sort((a, b) => (a.month || '9999').localeCompare(b.month || '9999'));
+  return {
+    projectsBox: { total: r2(projects.reduce((t, p) => t + p.inTrust, 0)), projects },
+    commissions: { due, collected, remaining: r2(Math.max(due - collected, 0)),
+      upcoming: r2(contracted.reduce((t, u) => t + u.upcoming, 0)), byProject },
+    expectedCommissions: { total: r2(expected.reduce((t, m) => t + m.amount, 0)), months: expected },
+  };
+}
+
 export async function exclusiveTotals(q: Q) {
   const ps = await q.query(`SELECT * FROM commission_projects WHERE kind = 'exclusive' ORDER BY created_at`);
   const { stats } = await projectStats(q, ps.rows.map((p) => p.id));

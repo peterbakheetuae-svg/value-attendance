@@ -155,7 +155,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           ),
                           const Spacer(),
                           Text(
-                            'المالية',
+                            'طلبات مالية',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,

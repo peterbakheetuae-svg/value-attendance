@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm install",
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run migrate && npm run seed:dev -- --if-empty; fi && node scripts/vercel-build.mjs",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run migrate && npm run seed:dev -- --if-empty; elif [ \"$VA_PREVIEW_DB\" = \"1\" ]; then npm run migrate && npm run seed:dev -- --demo --if-empty; fi && node scripts/vercel-build.mjs",
   "outputDirectory": "public"
 }

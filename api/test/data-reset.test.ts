@@ -8,7 +8,7 @@ before(async () => { h = await harness('2026-11-10T13:00:00Z'); c = await cast(h
 after(async () => { await h.close(); });
 
 test('owner only; dry run changes nothing; the reset keeps employees + custody and imports the old attendance', async () => {
-  await h.db.query(`UPDATE employees SET phone = '01097790378' WHERE id = $1`, [c.ids.e1]);
+  await h.db.query(`UPDATE employees SET phone = '01000000077' WHERE id = $1`, [c.ids.e1]);
   // some activity to wipe
   assert.equal((await h.call(c.t.hr, 'POST', '/attendance/corrections', { employeeId: c.ids.e2, workDate: '2026-11-03', checkIn: '10:00', checkOut: '18:00', reason: 'test' })).status, 201);
   const asset = await h.call(c.t.hr, 'POST', '/custody/assets', { assetType: 'mobile', name: 'Samsung A15', serialNo: 'IMEI-1' });
@@ -18,7 +18,7 @@ test('owner only; dry run changes nothing; the reset keeps employees + custody a
   const empsBefore = (await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows;
 
   const body = {
-    employees: [{ key: 'old1', name: 'بلال عبدالله', phone: '01097790378' }, { key: 'old2', name: 'موظف ٢' }, { key: 'old3', name: 'مش موجود' }],
+    employees: [{ key: 'old1', name: 'بلال عبدالله', phone: '01000000077' }, { key: 'old2', name: 'موظف ٢' }, { key: 'old3', name: 'مش موجود' }],
     attendance: [
       { key: 'old1', day: '2026-11-01', in: '12:50', out: '20:36' },
       { key: 'old1', day: '2026-11-10', in: '12:23', out: null },

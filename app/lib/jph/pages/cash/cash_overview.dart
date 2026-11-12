@@ -73,6 +73,10 @@ class _CashOverviewState extends State<CashOverview> {
     final exp = _m(_o['expenses']);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _available(isDark, av),
+      if (_office && _o['projectsBox'] is Map) ...[
+        const SizedBox(height: 14),
+        _projectsCards(isDark),
+      ],
       const SizedBox(height: 14),
       _title(isDark, 'الدخل — ${JphUi.monthsAr[_month.month - 1]}'),
       JphUi.statGrid([
@@ -267,6 +271,116 @@ class _CashOverviewState extends State<CashOverview> {
         const SizedBox(height: 8),
         Text('فلوس الوحدات مش ربح: الحصري منها أمانة للمالك، والربح هو العمولة بس.', style: TextStyle(color: JphUi.sub(isDark))),
       ]);
+
+  // ------------------------------------------------------------------ خزنة المشاريع / العمولات / عمولات متوقعة
+  Widget _projectsCards(bool isDark) {
+    final box = _m(_o['projectsBox']), cm = _m(_o['commissions']), ex = _m(_o['expectedCommissions']);
+    Widget card(String title, Object? value, String sub, IconData icon, Color color, VoidCallback onTap) => GestureDetector(
+          onTap: onTap,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(16),
+            decoration: JphUi.box(isDark),
+            child: Row(children: [
+              JphUi.iconTile(isDark, icon, color),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                  const SizedBox(height: 2),
+                  Text(sub, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                ]),
+              ),
+              Text(JphUi.money(value), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+              Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+            ]),
+          ),
+        );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      card('خزنة المشاريع', box['total'], 'أمانات المشاريع الحصري (${_l(box['projects']).length} مشروع)', Icons.real_estate_agent_rounded, Colors.purple,
+          () => _projectsBoxSheet(isDark, box)),
+      card('عمولات', cm['remaining'], 'مستحقة ${JphUi.money(cm['due'])} · دخلت ${JphUi.money(cm['collected'])}', Icons.workspace_premium_rounded,
+          Colors.amber.shade800, () => _commissionsDueSheet(isDark, cm)),
+      card('عمولات متوقعة', ex['total'], 'من الحجوزات، في شهر التعاقد المتوقع', Icons.event_available_rounded, Colors.indigo,
+          () => _expectedSheet(isDark, ex)),
+    ]);
+  }
+
+  void _projectsBoxSheet(bool isDark, Map<String, dynamic> box) => _sheet(isDark, 'خزنة المشاريع', [
+        _row(isDark, 'إجمالي الأمانات', box['total'], bold: true),
+        const Divider(),
+        for (final p in _l(box['projects']))
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.apartment_rounded, color: Colors.purple),
+            title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            subtitle: Text('المالك: ${p['ownerName'] ?? '—'}', style: TextStyle(color: JphUi.sub(isDark))),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(JphUi.money(p['inTrust']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+              Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+            ]),
+            onTap: () => _projectBoxSheet(isDark, p),
+          ),
+        if (_l(box['projects']).isEmpty)
+          Padding(padding: const EdgeInsets.all(16), child: Text('مفيش مشاريع حصري', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      ]);
+
+  void _projectBoxSheet(bool isDark, Map<String, dynamic> p) => _sheet(isDark, '${p['name']}', [
+        Text('دخل كأمانة', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        _row(isDark, 'من الحجوزات (عربون)', p['reservation'], color: Colors.green),
+        _row(isDark, 'من التعاقد (مقدمات)', p['contract'], color: Colors.green),
+        _row(isDark, 'من الأقساط', p['installments'], color: Colors.green),
+        if (_n(p['refunded']) > 0) _row(isDark, 'اترد لعملاء لغوا', p['refunded'], color: Colors.red),
+        const Divider(),
+        _row(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], color: Colors.red),
+        if (_n(p['pendingPayout']) > 0) _row(isDark, 'صرف مستني الموافقة', p['pendingPayout'], color: Colors.orange),
+        _row(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], color: Colors.amber.shade800),
+        const Divider(),
+        _row(isDark, 'موجود أمانات دلوقتي', p['inTrust'], bold: true),
+        _row(isDark, 'الصافي للمالك / المطور', p['ownerDue'], color: Colors.teal),
+      ]);
+
+  void _commissionsDueSheet(bool isDark, Map<String, dynamic> c) => _sheet(isDark, 'العمولات', [
+        _row(isDark, 'عمولة مستحقة', c['due']),
+        _row(isDark, 'دخلت خزنة العمولات', c['collected'], color: Colors.green),
+        _row(isDark, 'متبقي لم يتم أخذه', c['remaining'], color: Colors.orange, bold: true),
+        if (_n(c['upcoming']) > 0) _row(isDark, 'جاية من أقساط لسه', c['upcoming']),
+        const Divider(),
+        for (final p in _l(c['byProject']))
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('${p['name']} — ${p['kind'] == 'marketing' ? 'تسويق' : 'حصري'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              _row(isDark, 'مستحقة', p['due']),
+              _row(isDark, 'دخلت', p['collected'], color: Colors.green),
+              _row(isDark, 'متبقي', p['remaining'], color: Colors.orange),
+            ]),
+          ),
+      ]);
+
+  void _expectedSheet(bool isDark, Map<String, dynamic> e) => _sheet(isDark, 'عمولات متوقعة', [
+        Text('بتتحسب من الحجوزات على تاريخ التعاقد المتوقع في فورم الحجز', style: TextStyle(color: JphUi.sub(isDark))),
+        const SizedBox(height: 8),
+        for (final m in _l(e['months'])) ...[
+          _row(isDark, _monthName('${m['month']}'), m['amount'], bold: true, color: Colors.indigo),
+          for (final u in _l(m['units']))
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 12),
+              child: _row(isDark, '${u['projectName']} · وحدة ${u['unitNo']} · ${u['clientName']}${u['expectedContractDate'] != null ? ' · ${u['expectedContractDate']}' : ''}',
+                  u['amount']),
+            ),
+          const Divider(),
+        ],
+        if (_l(e['months']).isEmpty)
+          Padding(padding: const EdgeInsets.all(16), child: Text('مفيش حجوزات مفتوحة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        _row(isDark, 'الإجمالي', e['total'], bold: true),
+      ]);
+
+  String _monthName(String ym) {
+    if (ym.length < 7) return 'من غير تاريخ متوقع';
+    final m = int.tryParse(ym.substring(5, 7)) ?? 1;
+    return '${JphUi.monthsAr[m - 1]} ${ym.substring(0, 4)}';
+  }
 
   void _trustSheet(bool isDark, Map<String, dynamic> t) => _sheet(isDark, 'الأمانات — فلوس ملاك المشاريع الحصري', [
         _row(isDark, 'دخل الشهر (حجز / تعاقد / أقساط)', t['in'], color: Colors.green),
