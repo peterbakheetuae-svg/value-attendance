@@ -60,7 +60,7 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
                   onFilter: () => _filter(isDark),
                   isRTL: app.isRTL,
                   isDark: isDark,
-                  title: cash ? 'الخزنة' : 'ملخص المالية',
+                  title: cash ? 'المالية' : 'ملخص المالية',
                 ),
                 ValueListenableBuilder<DateTime>(
                   valueListenable: _month,

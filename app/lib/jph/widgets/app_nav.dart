@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../pages/attendance/attendance_report_page.dart';
+import '../pages/cash/cashbox_hub_page.dart';
 import '../pages/dashboard_employees/dashboard_page_team.dart';
 import '../pages/dashboard_employers/dashboard_page.dart';
 import '../pages/employees/employees_page.dart';
@@ -26,7 +27,10 @@ class AppNav {
       ? DashboardPage(uid: uid, name: name, role: role, photo: photo)
       : DashboardPageTeam(uid: uid, name: name, role: role, photo: photo);
 
-  /// Tabs: 0 home · 1 attendance report · 2 employees · 3 settings · 4 profile.
+  /// المالك / المدير العام and the accountant: «المالية» (the cashbox: payouts + ledger) instead of «الشخصي».
+  static bool get financeTab => ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
+
+  /// Tabs: 0 home · 5 المالية (finance users) · 1 attendance report · 2 employees · 3 settings · 4 profile (others).
   static void go(BuildContext context, int index,
       {required int current, required String uid, required String name, required String role, String photo = ''}) {
     if (index == current) return;
@@ -45,6 +49,7 @@ class AppNav {
       2 => seesEmployees ? EmployeesPage(currentUserId: uid, currentUserName: name, currentUserRole: role) : null,
       3 => SettingsPage(uid: uid, name: name, role: role),
       4 => ProfilePage(uid: uid, name: name, role: role, photo: photo),
+      5 => financeTab ? CashboxHubPage(uid: uid, name: name, role: role) : null,
       _ => null,
     };
     if (page != null) Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));

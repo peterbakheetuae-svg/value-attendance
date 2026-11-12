@@ -748,7 +748,7 @@ class _SettingsPageState extends State<SettingsPage> {
         // المالية: الطلبات + الخزنة (تبويب جوه الصفحة)
         ('طلبات مالية', Icons.request_page_rounded, () => AdvanceRequestPage(uid: widget.uid, name: widget.name, role: widget.role)),
         // صرف السلف والمرتبات والعمولات وسجل الخزنة
-        (CashboxHubPage.canCash ? 'الصرف وسجل الخزنة' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
+        (CashboxHubPage.canCash ? 'المالية' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
         if (ApiService.can('sales.view')) ('الأقساط', Icons.event_note_rounded, () => const SalesPage()),
       ];

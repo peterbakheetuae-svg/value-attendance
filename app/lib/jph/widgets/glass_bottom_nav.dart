@@ -8,6 +8,7 @@ import '../theme/app_colors.dart';
 import '../pages/attendance/attendance_report_page.dart'; // 🔥 استيراد صفحة تقارير الحضور الجديدة
 import '../services/api_service.dart';
 import '../pages/employees/employees_page.dart'; // أو المسار الصحيح
+import 'app_nav.dart';
 
 class GlassBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -77,6 +78,17 @@ class GlassBottomNav extends StatelessWidget {
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,
                         ),
+                        // المالك / المدير العام and the accountant: «المالية» right after the home
+                        if (AppNav.financeTab)
+                          _Item(
+                            icon: Icons.account_balance_wallet_rounded,
+                            label: 'المالية',
+                            active: currentIndex == 5,
+                            onTap: () => onTap(5),
+                            isDark: isDark,
+                            activeColor: activeColor,
+                            inactiveColor: inactiveColor,
+                          ),
                         _Item(
                             icon: Icons.assignment_rounded,
                             label: AppLocalizations.of(context, 'attendance_report'),
@@ -105,6 +117,7 @@ class GlassBottomNav extends StatelessWidget {
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,
                         ),
+                        if (!AppNav.financeTab)
                         _Item(
                           icon: Icons.person_rounded,
                           label: AppLocalizations.of(context, 'profile'),
