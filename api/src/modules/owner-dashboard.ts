@@ -53,7 +53,8 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
     exclusiveTotals(db),
     one(db, `SELECT
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND payment_method <> 'cash'), 0)
-          - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND payment_method = 'bank'), 0) AS bank_in,
+          - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND payment_method = 'bank'), 0)
+          - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves), 0) AS bank_in,
         COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND ex_kind IS NULL AND ${IN_RANGE('COALESCE(approved_at, occurred_at)', '$1', '$2')}), 0) AS expenses,
         COALESCE((SELECT sum(company_amount) FROM commission_requests WHERE status = 'approved' AND period = $1 AND ex_unit_id IS NULL), 0) AS marketing,
         COALESCE((SELECT sum(amount_egp) FROM ex_commission_transfers WHERE ${IN_RANGE('created_at', '$1', '$2')}), 0) AS ex_moved_month`, [month, t]),

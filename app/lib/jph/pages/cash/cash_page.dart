@@ -1,14 +1,17 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../forms/payment_voucher_pdf.dart';
 import 'cash_overview.dart';
 
 /// الخزينة — the office cashbox (المدير / owner only) and the HR cashbox.
@@ -714,9 +717,41 @@ class _TransfersTabState extends State<_TransfersTab> {
   bool _saving = false;
 
   Map<String, (String, IconData)> get _kinds => {
-        if (widget.can['hrDesk'] == true) 'office_to_hr': ('طلب تحويل', Icons.call_received_rounded),
-        if (widget.can['office'] == true) 'hr_to_office': ('طلب توريد', Icons.call_made_rounded),
+        if (widget.can['office'] == true) 'hr_to_office': ('طلب توريد أموال', Icons.call_made_rounded),
+        if (widget.can['hrDesk'] == true || widget.can['office'] == true) 'office_to_hr': ('طلب تحويل أموال', Icons.call_received_rounded),
       };
+  List<Map<String, dynamic>> _moves = [];
+
+  /// طلب توريد / تحويل أموال — each from its own button (the form in a sheet).
+  Future<void> _request(String dir) async {
+    final isDark = widget.isDark;
+    final amount = TextEditingController(), reason = TextEditingController();
+    await _formSheet(context, isDark, dir == 'office_to_hr' ? 'طلب تحويل أموال من خزنة المكتب إلى المحاسب' : 'طلب توريد أموال من خزنة المحاسب للمكتب',
+        (setS) => [
+              JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+              const SizedBox(height: 14),
+              JphUi.input(isDark: isDark, label: 'السبب *', controller: reason, icon: Icons.notes_rounded, big: false),
+            ],
+        () => _post('/cash/transfers', {'direction': dir, 'amount': num.tryParse(amount.text.trim()), 'reason': reason.text.trim()},
+            ok: 'اتبعت الطلب ✅'));
+    await _load();
+    await widget.onChanged();
+  }
+
+  /// نقل أموال من البنك إلى خزنة المكتب: the box's total stays, only its bank part becomes cash.
+  Future<void> _bankMove() async {
+    final isDark = widget.isDark;
+    final amount = TextEditingController(), note = TextEditingController();
+    await _formSheet(context, isDark, 'نقل أموال من البنك إلى خزنة المكتب', (setS) => [
+          Text('الرصيد الإجمالي مش بيتغير — بس الفلوس بتتنقل من رصيد البنك للنقدي.', style: TextStyle(color: JphUi.sub(isDark))),
+          const SizedBox(height: 12),
+          JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded, big: false),
+        ], () => _post('/cash/bank-moves', {'amount': num.tryParse(amount.text.trim()), 'note': note.text.trim()}, ok: 'اتنقلت الفلوس للنقدي ✅'));
+    await _load();
+    await widget.onChanged();
+  }
 
   Future<void> _send() async {
     setState(() => _saving = true);
@@ -741,10 +776,12 @@ class _TransfersTabState extends State<_TransfersTab> {
 
   Future<void> _load() async {
     final r = await _get('/cash/transfers');
+    final m = widget.can['office'] == true ? await _get('/cash/bank-moves') : const <String, dynamic>{};
     if (!mounted) return;
     setState(() {
       _loading = false;
       _items = _list(r, 'transfers');
+      _moves = _list(m, 'moves');
     });
   }
 
@@ -762,24 +799,55 @@ class _TransfersTabState extends State<_TransfersTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
+        // طلب توريد أموال | طلب تحويل أموال — side by side; نقل من البنك under them (المالك / المدير العام)
         if (_kinds.isNotEmpty)
-          _inlineForm(isDark,
-              title: _dir == 'office_to_hr' ? 'طلب تحويل من خزنة المكتب لخزنة المحاسب' : 'طلب توريد من خزنة المحاسب للمكتب',
-              opener: _kinds.length > 1 ? 'طلب توريد / تحويل أموال' : (_kinds.containsKey('hr_to_office') ? 'طلب توريد أموال' : 'طلب تحويل أموال'),
-              icon: _kinds[_dir]?.$2 ?? Icons.swap_horiz_rounded,
-              button: 'إرسال الطلب',
-              saving: _saving,
-              onSubmit: _send,
-              children: [
-                if (_kinds.length > 1) ...[
-                  JphUi.tabs(isDark, [for (final k in _kinds.values) k], _kinds.keys.toList().indexOf(_dir),
-                      (i) => setState(() => _dir = _kinds.keys.elementAt(i))),
-                  const SizedBox(height: 14),
-                ],
-                JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-                const SizedBox(height: 14),
-                JphUi.input(isDark: isDark, label: 'السبب *', controller: _reason, icon: Icons.notes_rounded, big: false),
+          Row(children: [
+            for (final (i, k) in _kinds.entries.indexed) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _request(k.key),
+                    icon: Icon(k.value.$2),
+                    label: FittedBox(fit: BoxFit.scaleDown, child: Text(k.value.$1, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900))),
+                    style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                  ),
+                ),
+              ),
+            ],
+          ]),
+        if (widget.can['office'] == true) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 54,
+            child: OutlinedButton.icon(
+              onPressed: _bankMove,
+              icon: const Icon(Icons.account_balance_rounded),
+              label: const Text('نقل أموال من البنك إلى خزنة المكتب', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
+              style: OutlinedButton.styleFrom(side: BorderSide(color: JphUi.primary(isDark), width: 1.4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        if (_moves.isNotEmpty) ...[
+          Text('نقل من البنك للنقدي', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          const SizedBox(height: 6),
+          for (final m in _moves.take(10))
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                const Icon(Icons.account_balance_rounded, color: Colors.teal, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('${m['byName']} · ${'${m['at'] ?? ''}'.length >= 10 ? '${m['at']}'.substring(0, 10) : ''}${'${m['note'] ?? ''}'.isEmpty ? '' : ' · ${m['note']}'}',
+                    style: TextStyle(color: JphUi.sub(isDark)))),
+                Text(JphUi.money(m['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
+            ),
+          const SizedBox(height: 12),
+        ],
         Text('التحويلات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         const SizedBox(height: 8),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
@@ -911,6 +979,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
   String _ref = newClientRef();
   bool _saving = false;
   String _method = 'cash';
+  int _view = 0; // 0 مصاريف • 1 مصاريف ثابتة
   Map<String, dynamic>? _mk; // the marketing company paid (its fee / its commission)
   List<Map<String, dynamic>> _mks = [];
   static const _cats = ['إيجار', 'نت', 'كهرباء', 'مياه', 'ضيافة', 'شركة تسويق', 'إعلانات', 'صيانة', 'أدوات مكتبية', 'مواصلات'];
@@ -964,6 +1033,17 @@ class _ExpensesTabState extends State<_ExpensesTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
+        if (_canRecord) ...[
+          JphUi.tabs(isDark, const [('مصاريف', Icons.shopping_bag_rounded), ('مصاريف ثابتة', Icons.event_repeat_rounded)], _view,
+              (i) => setState(() => _view = i)),
+          const SizedBox(height: 14),
+        ],
+        if (_canRecord && _view == 1)
+          _FixedExpenses(isDark: isDark, can: widget.can, onChanged: () async {
+            await _load();
+            await widget.onChanged();
+          })
+        else ...[
         if (_canRecord)
           _inlineForm(isDark,
               title: 'تسجيل مصروف', opener: 'تسجيل مصروف', icon: Icons.shopping_bag_rounded, button: 'تسجيل المصروف', saving: _saving, onSubmit: _add,
@@ -1052,10 +1132,283 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                     TextButton(onPressed: () => _withReason('عكس المصروف', '/cash/expenses/${x['id']}/reverse', {}, 'اتعكس'),
                         child: const Text('عكس', style: TextStyle(color: Colors.red))),
                 ]),
+              if (x['status'] == 'posted' || x['status'] == 'pending_approval')
+                _receiptActions(context, isDark, x, x['hasAttachment'] == true, _load),
             ]),
           ),
+        ],
       ]),
     );
+  }
+}
+
+/// «طباعة إيصال» (يمضي عليه المستلم) و«صورة الإيصال الموقّع» (إضافة / عرض) لأي مصروف.
+Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x, bool hasPhoto, Future<void> Function() reload) {
+  return Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 6, children: [
+      OutlinedButton.icon(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: x))),
+        icon: const Icon(Icons.print_rounded, size: 18),
+        label: const Text('طباعة إيصال'),
+      ),
+      if (hasPhoto)
+        OutlinedButton.icon(
+          onPressed: () => _viewReceiptPhoto(context, '${x['id']}'),
+          icon: const Icon(Icons.image_rounded, size: 18, color: Colors.green),
+          label: const Text('صورة الإيصال'),
+        ),
+      OutlinedButton.icon(
+        onPressed: () async {
+          if (await _uploadReceiptPhoto(context, '${x['id']}')) await reload();
+        },
+        icon: const Icon(Icons.add_a_photo_rounded, size: 18),
+        label: Text(hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال الموقّع'),
+      ),
+    ]),
+  );
+}
+
+Future<bool> _uploadReceiptPhoto(BuildContext context, String expenseId) async {
+  XFile? f;
+  try {
+    f = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 60, maxWidth: 1400, maxHeight: 1400);
+  } catch (_) {
+    f = null;
+  }
+  if (f == null) return false;
+  final bytes = await f.readAsBytes();
+  if (!context.mounted) return false;
+  if (bytes.length > 600000) {
+    JphUi.toast(context, {'success': false, 'message': 'الصورة كبيرة — اختار صورة أصغر من 600 KB'});
+    return false;
+  }
+  final r = await _post('/cash/expenses/$expenseId/attachment', {'attachment': base64Encode(bytes)}, ok: 'اتضافت صورة الإيصال ✅');
+  if (!context.mounted) return false;
+  JphUi.toast(context, r);
+  return r['success'] == true;
+}
+
+Future<void> _viewReceiptPhoto(BuildContext context, String expenseId) async {
+  final r = await _get('/cash/expenses/$expenseId/attachment');
+  if (!context.mounted) return;
+  final b64 = r['attachment'];
+  if (r['success'] == false || b64 is! String) {
+    JphUi.toast(context, r);
+    return;
+  }
+  await showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(child: InteractiveViewer(child: Image.memory(base64Decode(b64), fit: BoxFit.contain))),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('قفل')),
+      ]),
+    ),
+  );
+}
+
+// ==================================================================== مصاريف ثابتة
+class _FixedExpenses extends StatefulWidget {
+  final bool isDark;
+  final Map<String, dynamic> can;
+  final Future<void> Function() onChanged;
+  const _FixedExpenses({required this.isDark, required this.can, required this.onChanged});
+
+  @override
+  State<_FixedExpenses> createState() => _FixedExpensesState();
+}
+
+class _FixedExpensesState extends State<_FixedExpenses> {
+  List<Map<String, dynamic>> _items = [];
+  List<String> _boxes = [];
+  bool _loading = true;
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  static const _months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  static const _cats = ['إيجار', 'مرتب أوفيس بوي', 'نت', 'كهرباء', 'مياه', 'تليفون', 'نظافة', 'أمن', 'اشتراكات'];
+
+  String get _m => '${_month.year}-${_month.month.toString().padLeft(2, '0')}';
+  String get _monthAr => '${_months[_month.month - 1]} ${_month.year}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/cash/fixed-expenses', {'month': _m});
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _items = _list(r, 'fixed');
+      _boxes = ((r['boxes'] as List?) ?? const []).map((e) => '$e').toList();
+    });
+  }
+
+  Future<void> _edit([Map<String, dynamic>? f]) async {
+    final isDark = widget.isDark;
+    final name = TextEditingController(text: f?['name'] ?? ''), category = TextEditingController(text: f?['category'] ?? ''),
+        amount = TextEditingController(text: f == null ? '' : '${f['amount']}'), beneficiary = TextEditingController(text: f?['beneficiary'] ?? ''),
+        notes = TextEditingController(text: f?['notes'] ?? '');
+    String box = f?['cashbox'] ?? (widget.can['hrDesk'] == true && _boxes.contains('hr') ? 'hr' : (_boxes.isNotEmpty ? _boxes.first : 'office'));
+    String method = f?['paymentMethod'] ?? 'cash';
+    bool active = f?['active'] != false;
+    await _formSheet(context, isDark, f == null ? 'إضافة مصروف ثابت' : 'تعديل المصروف الثابت', (setS) => [
+          JphUi.input(isDark: isDark, label: 'الاسم * (إيجار المكتب، الأوفيس بوي...)', controller: name, icon: Icons.label_rounded, big: false),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'البند *', controller: category, icon: Icons.category_rounded, big: false),
+          const SizedBox(height: 8),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final c in _cats) ChoiceChip(label: Text(c), selected: category.text.trim() == c, onSelected: (_) => setS(() => category.text = c)),
+          ]),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'المبلغ الشهري *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'المستلم * (صاحب الشقة، الأوفيس بوي...)', controller: beneficiary, icon: Icons.person_rounded, big: false),
+          const SizedBox(height: 14),
+          if (_boxes.length > 1) ...[
+            _segmented(isDark, const {'office': 'خزنة المكتب', 'hr': 'خزنة المحاسب'}, box, (v) => setS(() => box = v)),
+            const SizedBox(height: 14),
+          ],
+          _segmented(isDark, const {'cash': 'نقدي', 'bank': 'من البنك'}, method, (v) => setS(() => method = v)),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: notes, icon: Icons.edit_note_rounded, big: false),
+          if (f != null)
+            SwitchListTile(
+              value: active,
+              onChanged: (v) => setS(() => active = v),
+              title: Text(active ? 'شغّال (بيتصرف كل شهر)' : 'موقوف', style: TextStyle(color: JphUi.text(isDark), fontWeight: FontWeight.w700)),
+            ),
+        ], () {
+      final body = {
+        'name': name.text.trim(), 'category': category.text.trim(), 'amount': num.tryParse(amount.text.trim()),
+        'beneficiary': beneficiary.text.trim(), 'cashbox': box, 'paymentMethod': method, 'notes': notes.text.trim(),
+        if (f != null) 'active': active,
+      };
+      return f == null
+          ? _post('/cash/fixed-expenses', body, ok: 'اتضاف المصروف الثابت ✅')
+          : _post('/cash/fixed-expenses/${f['id']}', body, ok: 'اتعدل ✅', patch: true);
+    });
+    await _load();
+  }
+
+  Future<void> _pay(Map<String, dynamic> f) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('صرف المصروف الثابت'),
+          content: Text('هيتسجل مصروف «${f['name']}» عن $_monthAr بمبلغ ${JphUi.money(f['amount'])} لـ ${f['beneficiary']} '
+              'من ${_boxAr[f['cashbox']]} (${f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي'}).'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('صرف')),
+          ],
+        ),
+      ),
+    );
+    if (yes != true || !mounted) return;
+    final r = await _post('/cash/fixed-expenses/${f['id']}/pay', {'month': _m}, ok: 'اتصرف ✅ — اطبع الإيصال وخلّي المستلم يمضي');
+    if (!mounted) return;
+    JphUi.toast(context, r);
+    if (r['success'] == true) {
+      await _load();
+      await widget.onChanged();
+      final e = r['expense'];
+      if (e is Map && mounted) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: e.cast<String, dynamic>())));
+      }
+    }
+  }
+
+  Map<String, dynamic> _voucher(Map<String, dynamic> f, Map paid) => {
+        'id': paid['expenseId'], 'refNo': paid['refNo'], 'amount': f['amount'], 'beneficiary': f['beneficiary'], 'category': f['category'],
+        'reason': '${f['name']} — $_monthAr', 'cashbox': f['cashbox'], 'paymentMethod': f['paymentMethod'], 'notes': f['notes'],
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final total = _items.where((f) => f['active'] != false).fold<num>(0, (s, f) => s + ((f['amount'] as num?) ?? 0));
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ElevatedButton.icon(
+        onPressed: () => _edit(),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('إضافة مصروف ثابت', style: TextStyle(fontWeight: FontWeight.w900)),
+        style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+      ),
+      const SizedBox(height: 14),
+      Row(children: [
+        Expanded(child: Text('المصاريف الثابتة • ${JphUi.money(total)} شهريًا',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+        TextButton.icon(
+          onPressed: () async {
+            final m = await JphUi.pickMonth(context, isDark, _month);
+            if (m == null) return;
+            setState(() {
+              _month = DateTime(m.year, m.month);
+              _loading = true;
+            });
+            await _load();
+          },
+          icon: const Icon(Icons.calendar_month_rounded, size: 18),
+          label: Text(_monthAr),
+        ),
+      ]),
+      const SizedBox(height: 8),
+      if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
+      if (!_loading && _items.isEmpty)
+        Padding(padding: const EdgeInsets.all(30),
+            child: Text('مفيش مصاريف ثابتة — ضيف الإيجار أو الأوفيس بوي أو الفواتير الثابتة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final f in _items)
+        Builder(builder: (context) {
+          final paid = f['paid'] is Map ? f['paid'] as Map : null;
+          final active = f['active'] != false;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: JphUi.box(isDark),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                JphUi.iconTile(isDark, Icons.event_repeat_rounded, active ? Colors.indigo : Colors.grey),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${f['name']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    Text('${f['category']} • ${f['beneficiary']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                    Text('${_boxAr[f['cashbox']]} • ${f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي'}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                  ]),
+                ),
+                Text(JphUi.money(f['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                if (!active) JphUi.chip('موقوف', Colors.grey),
+                if (paid != null && paid['status'] == 'posted') JphUi.chip('اتصرف $_monthAr • #${paid['refNo']}', Colors.green),
+                if (paid != null && paid['status'] == 'pending_approval') JphUi.chip('مستني موافقة المدير', Colors.orange),
+                if (paid == null && active) JphUi.chip('لسه متصرفش $_monthAr', Colors.deepOrange),
+                if (paid != null && paid['hasAttachment'] == true) JphUi.chip('الإيصال الموقّع متصوّر', Colors.teal),
+              ]),
+              const SizedBox(height: 6),
+              Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 6, children: [
+                TextButton.icon(onPressed: () => _edit(f), icon: const Icon(Icons.edit_rounded, size: 18), label: const Text('تعديل')),
+                if (paid == null && active)
+                  ElevatedButton.icon(
+                    onPressed: () => _pay(f),
+                    icon: const Icon(Icons.payments_rounded, size: 18),
+                    label: const Text('صرف'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                  ),
+              ]),
+              if (paid != null) _receiptActions(context, isDark, _voucher(f, paid), paid['hasAttachment'] == true, _load),
+            ]),
+          );
+        }),
+    ]);
   }
 }
 

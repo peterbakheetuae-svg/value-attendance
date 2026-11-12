@@ -170,3 +170,33 @@ test('ضخ أموال: the injections, each owner\'s share and his part of the n
   assert.ok(r.body.injections.length >= 3);
   assert.equal(me.profit, Math.round(r.body.net * 50) / 100);
 });
+
+test('مصروفات ثابتة (once a month, the signed receipt photo after) and moving money from the bank to the office cash', async () => {
+  const f = await h.call(c.t.owner, 'POST', '/cash/fixed-expenses', { name: 'إيجار المكتب', category: 'إيجار', amount: 20_000, beneficiary: 'أ. صاحب العقار',
+    cashbox: 'office', paymentMethod: 'cash' });
+  assert.equal(f.status, 201, JSON.stringify(f.body));
+  const pay = await h.call(c.t.owner, 'POST', `/cash/fixed-expenses/${f.body.fixed.id}/pay`, {});
+  assert.equal(pay.status, 201, JSON.stringify(pay.body));
+  assert.equal(pay.body.expense.fixedExpenseId, f.body.fixed.id);
+  assert.equal((await h.call(c.t.owner, 'POST', `/cash/fixed-expenses/${f.body.fixed.id}/pay`, {})).status, 409, 'once a month');
+  const list = await h.call(c.t.owner, 'GET', '/cash/fixed-expenses');
+  assert.equal(list.body.fixed[0].paid.status, 'posted');
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/cash/fixed-expenses/${f.body.fixed.id}`, { amount: 22_000 })).body.fixed.amount, 22_000);
+  assert.equal((await h.call(c.t.e1, 'GET', '/cash/fixed-expenses')).status, 403);
+  // the signed receipt's photo
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  assert.equal((await h.call(c.t.owner, 'POST', `/cash/expenses/${pay.body.expense.id}/attachment`, { attachment: png })).status, 200);
+  assert.equal((await h.call(c.t.owner, 'GET', `/cash/expenses/${pay.body.expense.id}/attachment`)).body.attachment, png);
+
+  // bank → office cash: the box total stays, only its bank part becomes cash
+  const before = (await h.call(c.t.owner, 'GET', '/cash/overview')).body.available;
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/bank-moves', { amount: before.bank + 1 })).status, 400);
+  assert.equal((await h.call(c.t.hr, 'POST', '/cash/bank-moves', { amount: 1000 })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/bank-moves', { amount: 10_000, note: 'سحب' })).status, 201);
+  const after = (await h.call(c.t.owner, 'GET', '/cash/overview')).body.available;
+  assert.equal(after.total, before.total);
+  assert.equal(after.bank, before.bank - 10_000);
+  assert.equal(after.office.cash, before.office.cash + 10_000);
+  // المدير العام can ask for money to go to the accountant too
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/transfers', { direction: 'office_to_hr', amount: 500, reason: 'مصاريف' })).status, 201);
+});

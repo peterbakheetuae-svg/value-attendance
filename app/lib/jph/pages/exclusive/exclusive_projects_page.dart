@@ -306,15 +306,25 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
 }
 
 /// «المصدر»: the office (no marketing commission) or a marketing company paid by commission.
-Widget _sourcePicker(bool isDark, List<Map<String, dynamic>> mks, Map<String, dynamic>? mk, void Function(Map<String, dynamic>?) onPick) =>
+/// «مصدر العميل» — the same picker as «اختار الموظف» in تقرير الحضور: the office or a marketing company paid by commission.
+Widget _sourcePicker(BuildContext context, bool isDark, List<Map<String, dynamic>> mks, Map<String, dynamic>? mk,
+        void Function(Map<String, dynamic>?) onPick) =>
     Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('مصدر العميل', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-      const SizedBox(height: 6),
-      Wrap(spacing: 6, runSpacing: 6, children: [
-        ChoiceChip(label: const Text('المكتب'), avatar: const Icon(Icons.business_rounded, size: 18), selected: mk == null, onSelected: (_) => onPick(null)),
-        for (final m in mks)
-          ChoiceChip(label: Text('${m['name']}'), avatar: const Icon(Icons.campaign_rounded, size: 18), selected: mk?['id'] == m['id'], onSelected: (_) => onPick(m)),
-      ]),
+      JphUi.picker(
+        isDark: isDark,
+        icon: Icons.campaign_rounded,
+        iconColor: Colors.teal,
+        label: 'مصدر العميل',
+        value: mk == null ? 'المكتب' : '${mk['name']}',
+        onTap: () async {
+          final v = await JphUi.sheet<String>(context, isDark, 'مصدر العميل', [
+            ('office', 'المكتب', Icons.business_rounded),
+            for (final m in mks) ('${m['id']}', '${m['name']}', Icons.campaign_rounded),
+          ], selected: mk == null ? 'office' : '${mk['id']}', icon: Icons.campaign_rounded);
+          if (v == null) return;
+          onPick(v == 'office' ? null : mks.firstWhere((m) => '${m['id']}' == v));
+        },
+      ),
       if (mk == null && _seesKind()) Padding(padding: const EdgeInsets.only(top: 4),
           child: Text('المكتب = مفيش عمولة لشركة تسويق', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark)))),
     ]);
@@ -499,7 +509,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
       JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
       JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
-      _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
+      _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
       if (exclusive && !contract)
         JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
       if (!contract)
@@ -882,7 +892,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                 if (d != null) set(() => expected = d);
               },
             ),
-            _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
+            _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
           ],
           if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والاستمارة والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
           rf.section(context, isDark, set),

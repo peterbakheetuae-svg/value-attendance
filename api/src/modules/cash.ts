@@ -1,5 +1,6 @@
 import { salesMoneyOverview } from './exclusive.ts';
 import { ok, type Module } from '../ctx.ts';
+import { local } from '../lib/time.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
@@ -117,7 +118,8 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
   const bank = await q.query(`
     SELECT b.box,
       COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE cashbox = b.box AND status = 'posted' AND payment_method <> 'cash'), 0)
-      - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = b.box AND status = 'posted' AND payment_method = 'bank'), 0) AS bank
+      - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = b.box AND status = 'posted' AND payment_method = 'bank'), 0)
+      - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves WHERE cashbox = b.box), 0) AS bank
       FROM (VALUES ('office'), ('hr')) b(box)`);
   const boxBal = (b: string) => r2(N(bal.rows.find((x) => x.cashbox === b)?.b));
   const boxBank = (b: string) => r2(N(bank.rows.find((x) => x.box === b)?.bank));
@@ -321,6 +323,7 @@ function shapeExpense(x: any) {
     approvedByName: x.approved_by_name, rejectReason: x.reject_reason, reviewedAt: x.reviewed_at, reviewedByName: x.reviewed_by_name,
     reversedAt: x.reversed_at, reverseReason: x.reverse_reason, createdAt: x.created_at,
     paymentMethod: x.payment_method ?? 'cash', marketingCompanyId: x.marketing_company_id ?? null,
+    fixedExpenseId: x.fixed_expense_id ?? null,
   };
 }
 
@@ -627,6 +630,163 @@ export const cashModule: Module = (r, { db, clock }) => {
     return ok({ currency: 'EGP', expenses: rows.rows.map(shapeExpense) });
   });
 
+  // ------------------------------------------------------------------ مصروفات ثابتة
+  const canBox = (a: Actor, box: string) => (box === 'office' ? canOffice(a) : hrDesk(a) || canOffice(a));
+  const shapeFixed = (f: any) => ({ id: f.id, name: f.name, category: f.category, amount: Number(f.amount_egp), beneficiary: f.beneficiary,
+    cashbox: f.cashbox, paymentMethod: f.payment_method, notes: f.notes, active: f.active,
+    paid: f.exp_id ? { expenseId: f.exp_id, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true } : null });
+
+  r.get('/cash/fixed-expenses', async (req) => {
+    const a = await authenticate(db, req);
+    const boxes = (['office', 'hr'] as const).filter((b) => canBox(a, b));
+    if (!boxes.length) throw forbidden();
+    const m = req.query.get('month');
+    const period = m && /^\d{4}-\d{2}$/.test(m) ? `${m}-01` : local(clock()).date.slice(0, 7) + '-01';
+    const rows = await db.query(`
+      SELECT f.*, x.id AS exp_id, x.status AS exp_status, x.ref_no AS exp_ref, (x.attachment IS NOT NULL) AS exp_att
+        FROM fixed_expenses f
+        LEFT JOIN LATERAL (SELECT * FROM cash_expenses e WHERE e.fixed_expense_id = f.id AND e.fixed_period = $2::date
+                             AND e.status IN ('pending_approval','posted') ORDER BY e.created_at DESC LIMIT 1) x ON true
+       WHERE f.cashbox = ANY($1::text[]) ORDER BY f.active DESC, f.name`, [boxes, period]);
+    return ok({ period, fixed: rows.rows.map(shapeFixed), boxes });
+  });
+
+  function fixedBody(b: Record<string, unknown>, old?: any) {
+    const box = (oneOf(b, 'cashbox', ['office', 'hr'] as const, true) ?? old?.cashbox ?? 'office') as 'office' | 'hr';
+    return {
+      name: (str(b, 'name', { optional: !!old, min: 2, max: 120 }) ?? old?.name ?? '').trim(),
+      category: (str(b, 'category', { optional: !!old, min: 2, max: 80 }) ?? old?.category ?? '').trim(),
+      amount: b.amount === undefined && old ? Number(old.amount_egp) : money(b),
+      beneficiary: (str(b, 'beneficiary', { optional: !!old, min: 2, max: 120 }) ?? old?.beneficiary ?? '').trim(),
+      box, method: oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? old?.payment_method ?? 'cash',
+      notes: (str(b, 'notes', { optional: true, max: 1000 }) ?? old?.notes ?? '').trim(),
+      active: typeof b.active === 'boolean' ? b.active : old?.active ?? true,
+    };
+  }
+
+  r.post('/cash/fixed-expenses', async (req) => {
+    const a = await authenticate(db, req);
+    const f = fixedBody(obj(req.body));
+    if (!canBox(a, f.box)) throw forbidden();
+    const x = await db.tx(async (q) => {
+      const row = await one(q, `INSERT INTO fixed_expenses (name, category, amount_egp, beneficiary, cashbox, payment_method, notes, active, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active, a.id]);
+      await audit(q, a.id, 'cash.fixed_expense.create', 'fixed_expense', row.id, undefined, row);
+      return row;
+    });
+    return ok({ fixed: shapeFixed(x) }, 201);
+  });
+
+  r.patch('/cash/fixed-expenses/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM fixed_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!o) throw notFound();
+      const f = fixedBody(obj(req.body), o);
+      if (!canBox(a, o.cashbox) || !canBox(a, f.box)) throw forbidden();
+      const row = await one(q, `UPDATE fixed_expenses SET name = $2, category = $3, amount_egp = $4, beneficiary = $5, cashbox = $6, payment_method = $7,
+          notes = $8, active = $9 WHERE id = $1 RETURNING *`, [o.id, f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active]);
+      await audit(q, a.id, 'cash.fixed_expense.update', 'fixed_expense', o.id, o, row);
+      return row;
+    });
+    return ok({ fixed: shapeFixed(x) });
+  });
+
+  /** «صرف»: this month's expense of a fixed one (once a month), recorded like any expense. */
+  r.post('/cash/fixed-expenses/:id/pay', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    const m = typeof b.month === 'string' && /^\d{4}-\d{2}$/.test(b.month) ? b.month : local(clock()).date.slice(0, 7);
+    const period = `${m}-01`;
+    const out = await db.tx(async (q) => {
+      const f = await one(q, `SELECT * FROM fixed_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!f) throw notFound();
+      if (!f.active) throw conflict('المصروف الثابت ده موقوف');
+      if (!canBox(a, f.cashbox) || (f.cashbox === 'hr' && !hrDesk(a) && !canOffice(a))) throw forbidden();
+      if (await one(q, `SELECT 1 FROM cash_expenses WHERE fixed_expense_id = $1 AND fixed_period = $2 AND status IN ('pending_approval','posted')`, [f.id, period])) {
+        throw conflict('المصروف ده اتصرف الشهر ده بالفعل');
+      }
+      const s = await one(q, `SELECT expense_approval_threshold FROM company_settings LIMIT 1`);
+      const threshold = Number(s?.expense_approval_threshold ?? 1000);
+      const amount = Number(f.amount_egp);
+      const needsApproval = f.cashbox === 'hr' && !canOffice(a) && amount > threshold;
+      const monthAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'][Number(m.slice(5, 7)) - 1];
+      const x = await one(q, `
+        INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, occurred_at, recorded_by, status, approved_by, approved_at,
+               payment_method, fixed_expense_id, fixed_period)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, ref_no`,
+        [f.cashbox, amount, f.category, `${f.name} — ${monthAr} ${m.slice(0, 4)}`, f.beneficiary, f.notes, clock(), a.id,
+          needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock(), f.payment_method, f.id, period]);
+      await audit(q, a.id, 'cash.fixed_expense.pay', 'cash_expense', x.id, undefined, { fixedExpenseId: f.id, period, amount });
+      if (needsApproval) {
+        for (const o of await cashOfficers(q, a.id)) {
+          await notify(q, { to: o, type: 'cash_expense_awaiting', title: `مصروف ثابت محتاج موافقتك: ${fmt(amount)}`, body: `${f.name} — ${f.beneficiary}`,
+            entity: 'cash_expense', entityId: x.id, dedupeKey: `cash:expense:${x.id}:awaiting` });
+        }
+      }
+      return x;
+    });
+    const full = await one(db, `${EXPENSE_SELECT} WHERE x.id = $1`, [out.id]);
+    return ok({ expense: shapeExpense(full) }, 201);
+  });
+
+  /** The signed receipt's photo, added after the beneficiary signs (once). */
+  r.post('/cash/expenses/:id/attachment', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const att = attachment(obj(req.body));
+    if (!att) throw invalid('ارفع صورة الإيصال', { field: 'attachment' });
+    await db.tx(async (q) => {
+      const x = await one(q, `SELECT id, cashbox, recorded_by, attachment IS NOT NULL AS has FROM cash_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!x) throw notFound();
+      if (!canBox(a, x.cashbox)) throw forbidden();
+      await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
+      await audit(q, a.id, 'cash.expense.attachment', 'cash_expense', x.id, undefined, { replaced: x.has });
+    });
+    return ok({ ok: true });
+  });
+
+  r.get('/cash/expenses/:id/attachment', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await one(db, `SELECT cashbox, attachment FROM cash_expenses WHERE id = $1`, [req.params.id]);
+    if (!x || !x.attachment) throw notFound();
+    if (!canSee(a, x.cashbox)) throw forbidden();
+    return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+  });
+
+  // ------------------------------------------------------------------ نقل من البنك إلى خزنة المكتب
+  r.get('/cash/bank-moves', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden();
+    const rows = await db.query(`SELECT m.*, e.full_name AS by_name FROM cash_bank_moves m JOIN employees e ON e.id = m.created_by
+                                  ORDER BY m.created_at DESC LIMIT 200`);
+    return ok({ moves: rows.rows.map((m) => ({ id: m.id, refNo: Number(m.ref_no), cashbox: m.cashbox, direction: m.direction,
+      amount: Number(m.amount_egp), note: m.note, at: m.created_at, byName: m.by_name })) });
+  });
+
+  r.post('/cash/bank-moves', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden('نقل الفلوس من البنك للمالك / المدير العام');
+    const b = obj(req.body);
+    const amount = money(b);
+    const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
+    const row = await db.tx(async (q) => {
+      const bank = await one(q, `SELECT
+          COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE cashbox = 'office' AND status = 'posted' AND payment_method <> 'cash'), 0)
+        - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = 'office' AND status = 'posted' AND payment_method = 'bank'), 0)
+        - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves WHERE cashbox = 'office'), 0) AS s`);
+      if (amount > Number(bank.s) + 0.001) throw invalid(`رصيد البنك ${fmt(Number(bank.s))} بس`, { field: 'amount' });
+      const x = await one(q, `INSERT INTO cash_bank_moves (cashbox, direction, amount_egp, note, created_by, created_at) VALUES ('office','bank_to_cash',$1,$2,$3,$4)
+                               RETURNING id, ref_no`, [amount, note, a.id, clock()]);
+      await audit(q, a.id, 'cash.bank_move', 'cash_bank_move', x.id, undefined, { amount, note });
+      return x;
+    });
+    return ok({ move: { id: row.id, refNo: Number(row.ref_no) } }, 201);
+  });
+
   async function expenseStep(id: string, a: Actor, fn: (q: Q, x: any) => Promise<void>) {
     if (!isUuid(id)) throw notFound();
     await db.tx(async (q) => {
@@ -702,7 +862,8 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
     const direction = oneOf(b, 'direction', ['office_to_hr', 'hr_to_office'] as const)!;
-    if (direction === 'office_to_hr' ? !canHrOperate(a) : !canOffice(a)) throw forbidden();
+    // طلب تحويل أموال للمحاسب: the accountant or المالك / المدير العام; طلب توريد: المالك / المدير العام
+    if (direction === 'office_to_hr' ? !canHrOperate(a) && !canOffice(a) : !canOffice(a)) throw forbidden();
     const amount = money(b);
     const reason = str(b, 'reason', { min: 2, max: 500 })!.trim();
     const row = await db.tx(async (q) => {

@@ -373,7 +373,11 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                       SingleChildScrollView(
                         controller: _scrollController,
                         physics: const BouncingScrollPhysics(),
-                        child: Column(
+                        // a phone-sized form on computers and tablets too
+                        child: Center(
+                          child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 440),
+                          child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 6),
@@ -385,6 +389,8 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                             const SizedBox(height: 0),
                             _buildFooter(subduedTextColor),
                           ],
+                        ),
+                          ),
                         ),
                       ),
                       Positioned(top: 0, right: 2, child: _buildLanguageButton(currentLanguage, isDark)),

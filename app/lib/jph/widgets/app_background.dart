@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
+import 'web_frame.dart';
 
 class AppBackground extends StatelessWidget {
   final Widget child;
@@ -47,8 +48,9 @@ class AppBackground extends StatelessWidget {
                   _BackgroundOverlay(isDark: isDark),
 
                 // 3. المحتوى مع SafeArea
+                // the website: the background fills the screen, the content keeps its width in the middle
                 Positioned.fill(
-                  child: safeArea ? SafeArea(child: child) : child,
+                  child: WebFrame(child: safeArea ? SafeArea(child: child) : child),
                 ),
               ],
             ),

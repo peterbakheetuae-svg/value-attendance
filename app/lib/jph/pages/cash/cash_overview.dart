@@ -420,10 +420,10 @@ Future<void> showInjectSheet(BuildContext context, bool isDark) async {
                   const SizedBox(height: 4),
                   Text('لما الشركة متجيبش أرباح تكفي المرتبات والمصاريف', style: TextStyle(color: JphUi.sub(isDark))),
                   const SizedBox(height: 14),
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    for (final t in const [('office', 'نقدي — خزنة المكتب'), ('hr', 'نقدي — خزنة المحاسب'), ('bank', 'البنك')])
-                      ChoiceChip(label: Text(t.$2), selected: target == t.$1, onSelected: (_) => set(() => target = t.$1)),
-                  ]),
+                  // the same bar as the home's الحضور / الاستراحة / الإجازة
+                  JphUi.tabs(isDark, const [('البنك', Icons.account_balance_rounded), ('خزنة المكتب', Icons.business_center_rounded),
+                    ('خزنة المحاسب', Icons.account_balance_wallet_rounded)], const ['bank', 'office', 'hr'].indexOf(target),
+                      (i) => set(() => target = const ['bank', 'office', 'hr'][i])),
                   const SizedBox(height: 12),
                   JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
                   const SizedBox(height: 10),
