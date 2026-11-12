@@ -1042,7 +1042,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           ),
         ),
       // the reservation's two buttons: إلغاء الحجز / تعاقد
-      if (['reserving', 'reserved', 'contract_pending'].includes(st) && (can['requestCancel'] == true || can['requestContract'] == true || st == 'reserving'))
+      if (['reserving', 'reserved', 'contract_pending'].contains(st) && (can['requestCancel'] == true || can['requestContract'] == true || st == 'reserving'))
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(children: [
