@@ -90,20 +90,21 @@ test('a marketing project: reservation → contract, a marketing company takes i
 
 test('injection + the cashbox overview: available (bank / office cash / accountant cash) and income by kind', async () => {
   assert.equal((await h.call(c.t.hr, 'POST', '/cash/injections', { target: 'office', amount: 1000 })).status, 403, 'owner only');
-  for (const [target, amount] of [['bank', 100_000], ['office', 30_000], ['hr', 10_000]] as const) {
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/injections', { target: 'hr', amount: 10_000 })).status, 400, 'no injection into the accountant box');
+  for (const [target, amount] of [['bank', 100_000], ['office', 30_000]] as const) {
     const r = await h.call(c.t.owner, 'POST', '/cash/injections', { target, amount, note: 'تكملة المرتبات' });
     assert.equal(r.status, 201, JSON.stringify(r.body));
   }
   const o = await h.call(c.t.owner, 'GET', '/cash/overview?from=2026-11-01&to=2026-11-30');
   assert.equal(o.status, 200, JSON.stringify(o.body));
   const v = o.body.available;
-  // bank: 100k injection + 60k commission − 15k fee = 145k; office cash 30k; accountant cash 10k
+  // bank: 100k injection + 60k commission − 15k fee = 145k; office cash 30k; accountant cash 0
   assert.equal(v.bank, 145_000);
   assert.equal(v.office.cash, 30_000);
-  assert.equal(v.hr.cash, 10_000);
-  assert.equal(v.cash, 40_000);
-  assert.equal(v.total, 185_000);
-  assert.equal(o.body.income.injection, 140_000);
+  assert.equal(v.hr.cash, 0);
+  assert.equal(v.cash, 30_000);
+  assert.equal(v.total, 175_000);
+  assert.equal(o.body.income.injection, 130_000);
   assert.equal(o.body.income.sales.reservation, 0);
   assert.equal(o.body.income.commissions, 60_000);
   assert.equal(o.body.commissionSplit.marketing, 10_000);
@@ -116,7 +117,7 @@ test('injection + the cashbox overview: available (bank / office cash / accounta
   assert.equal(acc.status, 200);
   assert.equal(acc.body.available.office, undefined);
   assert.equal(acc.body.available.total, undefined);
-  assert.equal(acc.body.available.hr.cash, 10_000);
+  assert.equal(acc.body.available.hr.cash, 0);
   assert.equal(acc.body.commissionSplit, undefined);
 });
 
@@ -167,7 +168,7 @@ test('ضخ أموال: the injections, each owner\'s share and his part of the n
   const me = r.body.owners.find((o: any) => o.id === ownerId);
   assert.equal(me.pct, 50);
   assert.equal(me.injected, r.body.total, 'every injection here was his');
-  assert.ok(r.body.injections.length >= 3);
+  assert.ok(r.body.injections.length >= 2);
   assert.equal(me.profit, Math.round(r.body.net * 50) / 100);
 });
 
@@ -178,9 +179,17 @@ test('مصروفات ثابتة (once a month, the signed receipt photo after) a
   const pay = await h.call(c.t.owner, 'POST', `/cash/fixed-expenses/${f.body.fixed.id}/pay`, {});
   assert.equal(pay.status, 201, JSON.stringify(pay.body));
   assert.equal(pay.body.expense.fixedExpenseId, f.body.fixed.id);
+  assert.equal(pay.body.expense.cashbox, 'office', 'المدير pays from the office box');
+  // the accountant pays a fixed expense from his own box (the same list for both)
+  const ob = await h.call(c.t.hr, 'POST', '/cash/fixed-expenses', { name: 'الأوفيس بوي', category: 'مرتب أوفيس بوي', amount: 500, beneficiary: 'عم سيد' });
+  assert.equal(ob.status, 201, JSON.stringify(ob.body));
+  const hp = await h.call(c.t.hr, 'POST', `/cash/fixed-expenses/${ob.body.fixed.id}/pay`, {});
+  assert.equal(hp.status, 201, JSON.stringify(hp.body));
+  assert.equal(hp.body.expense.cashbox, 'hr');
+  assert.equal((await h.call(c.t.hr, 'GET', '/cash/fixed-expenses')).body.fixed.length, 2);
   assert.equal((await h.call(c.t.owner, 'POST', `/cash/fixed-expenses/${f.body.fixed.id}/pay`, {})).status, 409, 'once a month');
   const list = await h.call(c.t.owner, 'GET', '/cash/fixed-expenses');
-  assert.equal(list.body.fixed[0].paid.status, 'posted');
+  assert.ok(list.body.fixed.every((x: any) => x.paid?.status === 'posted'));
   assert.equal((await h.call(c.t.owner, 'PATCH', `/cash/fixed-expenses/${f.body.fixed.id}`, { amount: 22_000 })).body.fixed.amount, 22_000);
   assert.equal((await h.call(c.t.e1, 'GET', '/cash/fixed-expenses')).status, 403);
   // the signed receipt's photo

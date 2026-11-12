@@ -1210,6 +1210,36 @@ Future<void> _viewReceiptPhoto(BuildContext context, String expenseId) async {
 }
 
 // ==================================================================== مصاريف ثابتة
+IconData _catIcon(String c) => switch (c) {
+      'إيجار' => Icons.home_work_rounded,
+      'مرتب أوفيس بوي' => Icons.person_rounded,
+      'نت' => Icons.wifi_rounded,
+      'كهرباء' => Icons.bolt_rounded,
+      'مياه' => Icons.water_drop_rounded,
+      'تليفون' => Icons.phone_rounded,
+      'نظافة' => Icons.cleaning_services_rounded,
+      'أمن' => Icons.security_rounded,
+      _ => Icons.category_rounded,
+    };
+
+Future<String?> _askText(BuildContext context, bool isDark, String title, String initial) {
+  final c = TextEditingController(text: initial);
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => Directionality(
+      textDirection: ui.TextDirection.rtl,
+      child: AlertDialog(
+        title: Text(title),
+        content: TextField(controller: c, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, c.text), child: const Text('تمام')),
+        ],
+      ),
+    ),
+  );
+}
+
 class _FixedExpenses extends StatefulWidget {
   final bool isDark;
   final Map<String, dynamic> can;
@@ -1222,7 +1252,7 @@ class _FixedExpenses extends StatefulWidget {
 
 class _FixedExpensesState extends State<_FixedExpenses> {
   List<Map<String, dynamic>> _items = [];
-  List<String> _boxes = [];
+  String _payFrom = 'office'; // «صرف» بيتخصم من خزنة اللي داس (المحاسب ← خزنته، المدير ← خزنة المكتب)
   bool _loading = true;
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   static const _months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -1243,7 +1273,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
     setState(() {
       _loading = false;
       _items = _list(r, 'fixed');
-      _boxes = ((r['boxes'] as List?) ?? const []).map((e) => '$e').toList();
+      _payFrom = r['payFrom'] == 'hr' ? 'hr' : 'office';
     });
   }
 
@@ -1252,26 +1282,40 @@ class _FixedExpensesState extends State<_FixedExpenses> {
     final name = TextEditingController(text: f?['name'] ?? ''), category = TextEditingController(text: f?['category'] ?? ''),
         amount = TextEditingController(text: f == null ? '' : '${f['amount']}'), beneficiary = TextEditingController(text: f?['beneficiary'] ?? ''),
         notes = TextEditingController(text: f?['notes'] ?? '');
-    String box = f?['cashbox'] ?? (widget.can['hrDesk'] == true && _boxes.contains('hr') ? 'hr' : (_boxes.isNotEmpty ? _boxes.first : 'office'));
     String method = f?['paymentMethod'] ?? 'cash';
     bool active = f?['active'] != false;
     await _formSheet(context, isDark, f == null ? 'إضافة مصروف ثابت' : 'تعديل المصروف الثابت', (setS) => [
           JphUi.input(isDark: isDark, label: 'الاسم * (إيجار المكتب، الأوفيس بوي...)', controller: name, icon: Icons.label_rounded, big: false),
           const SizedBox(height: 14),
-          JphUi.input(isDark: isDark, label: 'البند *', controller: category, icon: Icons.category_rounded, big: false),
-          const SizedBox(height: 8),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            for (final c in _cats) ChoiceChip(label: Text(c), selected: category.text.trim() == c, onSelected: (_) => setS(() => category.text = c)),
-          ]),
+          // the same picker as «اختار الموظف» in تقرير الحضور
+          JphUi.picker(
+            isDark: isDark,
+            icon: Icons.category_rounded,
+            iconColor: Colors.indigo,
+            label: 'البند *',
+            value: category.text.trim().isEmpty ? 'اختار البند' : category.text.trim(),
+            onTap: () async {
+              final cur = category.text.trim();
+              final v = await JphUi.sheet<String>(context, isDark, 'البند', [
+                for (final c in _cats) (c, c, _catIcon(c)),
+                if (cur.isNotEmpty && !_cats.contains(cur)) (cur, cur, Icons.category_rounded),
+                ('__other', 'بند تاني…', Icons.edit_rounded),
+              ], selected: cur, icon: Icons.category_rounded);
+              if (v == null) return;
+              if (v == '__other') {
+                if (!context.mounted) return;
+                final t = await _askText(context, isDark, 'اسم البند', cur);
+                if (t != null && t.trim().isNotEmpty) setS(() => category.text = t.trim());
+              } else {
+                setS(() => category.text = v);
+              }
+            },
+          ),
           const SizedBox(height: 14),
           JphUi.input(isDark: isDark, label: 'المبلغ الشهري *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
           const SizedBox(height: 14),
           JphUi.input(isDark: isDark, label: 'المستلم * (صاحب الشقة، الأوفيس بوي...)', controller: beneficiary, icon: Icons.person_rounded, big: false),
           const SizedBox(height: 14),
-          if (_boxes.length > 1) ...[
-            _segmented(isDark, const {'office': 'خزنة المكتب', 'hr': 'خزنة المحاسب'}, box, (v) => setS(() => box = v)),
-            const SizedBox(height: 14),
-          ],
           _segmented(isDark, const {'cash': 'نقدي', 'bank': 'من البنك'}, method, (v) => setS(() => method = v)),
           const SizedBox(height: 14),
           JphUi.input(isDark: isDark, label: 'ملاحظات (اختياري)', controller: notes, icon: Icons.edit_note_rounded, big: false),
@@ -1284,7 +1328,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
         ], () {
       final body = {
         'name': name.text.trim(), 'category': category.text.trim(), 'amount': num.tryParse(amount.text.trim()),
-        'beneficiary': beneficiary.text.trim(), 'cashbox': box, 'paymentMethod': method, 'notes': notes.text.trim(),
+        'beneficiary': beneficiary.text.trim(), 'paymentMethod': method, 'notes': notes.text.trim(),
         if (f != null) 'active': active,
       };
       return f == null
@@ -1302,7 +1346,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
         child: AlertDialog(
           title: const Text('صرف المصروف الثابت'),
           content: Text('هيتسجل مصروف «${f['name']}» عن $_monthAr بمبلغ ${JphUi.money(f['amount'])} لـ ${f['beneficiary']} '
-              'من ${_boxAr[f['cashbox']]} (${f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي'}).'),
+              'من ${_boxAr[_payFrom]} (${f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي'}).'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
             ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('صرف')),
@@ -1326,7 +1370,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
 
   Map<String, dynamic> _voucher(Map<String, dynamic> f, Map paid) => {
         'id': paid['expenseId'], 'refNo': paid['refNo'], 'amount': f['amount'], 'beneficiary': f['beneficiary'], 'category': f['category'],
-        'reason': '${f['name']} — $_monthAr', 'cashbox': f['cashbox'], 'paymentMethod': f['paymentMethod'], 'notes': f['notes'],
+        'reason': '${f['name']} — $_monthAr', 'cashbox': paid['cashbox'] ?? _payFrom, 'paymentMethod': f['paymentMethod'], 'notes': f['notes'],
       };
 
   @override
@@ -1380,7 +1424,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('${f['name']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                     Text('${f['category']} • ${f['beneficiary']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-                    Text('${_boxAr[f['cashbox']]} • ${f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي'}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                    Text(f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
                 ),
                 Text(JphUi.money(f['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -1388,7 +1432,8 @@ class _FixedExpensesState extends State<_FixedExpenses> {
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 6, children: [
                 if (!active) JphUi.chip('موقوف', Colors.grey),
-                if (paid != null && paid['status'] == 'posted') JphUi.chip('اتصرف $_monthAr • #${paid['refNo']}', Colors.green),
+                if (paid != null && paid['status'] == 'posted')
+                  JphUi.chip('اتصرف $_monthAr من ${_boxAr[paid['cashbox']] ?? ''} • #${paid['refNo']}', Colors.green),
                 if (paid != null && paid['status'] == 'pending_approval') JphUi.chip('مستني موافقة المدير', Colors.orange),
                 if (paid == null && active) JphUi.chip('لسه متصرفش $_monthAr', Colors.deepOrange),
                 if (paid != null && paid['hasAttachment'] == true) JphUi.chip('الإيصال الموقّع متصوّر', Colors.teal),

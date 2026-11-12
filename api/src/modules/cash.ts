@@ -427,7 +427,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canOffice(a)) throw forbidden('الضخ للمالك / المدير العام بس');
     const b = obj(req.body);
-    const target = oneOf(b, 'target', ['office', 'hr', 'bank'] as const)!;
+    const target = oneOf(b, 'target', ['office', 'bank'] as const)! as 'office' | 'hr' | 'bank';
     const amount = money(b);
     const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
     const ref = clientRef(b);
@@ -632,27 +632,29 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   // ------------------------------------------------------------------ مصروفات ثابتة
   const canBox = (a: Actor, box: string) => (box === 'office' ? canOffice(a) : hrDesk(a) || canOffice(a));
+  // a fixed expense belongs to no cashbox: whoever presses «صرف» pays it from his own (المحاسب ← خزنة المحاسب، المدير ← خزنة المكتب)
+  const canFixed = (a: Actor) => hrDesk(a) || canOffice(a);
+  const ownBox = (a: Actor): 'hr' | 'office' => (hrDesk(a) ? 'hr' : 'office');
   const shapeFixed = (f: any) => ({ id: f.id, name: f.name, category: f.category, amount: Number(f.amount_egp), beneficiary: f.beneficiary,
     cashbox: f.cashbox, paymentMethod: f.payment_method, notes: f.notes, active: f.active,
-    paid: f.exp_id ? { expenseId: f.exp_id, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true } : null });
+    paid: f.exp_id ? { expenseId: f.exp_id, cashbox: f.exp_box, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true } : null });
 
   r.get('/cash/fixed-expenses', async (req) => {
     const a = await authenticate(db, req);
-    const boxes = (['office', 'hr'] as const).filter((b) => canBox(a, b));
-    if (!boxes.length) throw forbidden();
+    if (!canFixed(a)) throw forbidden();
     const m = req.query.get('month');
     const period = m && /^\d{4}-\d{2}$/.test(m) ? `${m}-01` : local(clock()).date.slice(0, 7) + '-01';
     const rows = await db.query(`
-      SELECT f.*, x.id AS exp_id, x.status AS exp_status, x.ref_no AS exp_ref, (x.attachment IS NOT NULL) AS exp_att
+      SELECT f.*, x.id AS exp_id, x.cashbox AS exp_box, x.status AS exp_status, x.ref_no AS exp_ref, (x.attachment IS NOT NULL) AS exp_att
         FROM fixed_expenses f
-        LEFT JOIN LATERAL (SELECT * FROM cash_expenses e WHERE e.fixed_expense_id = f.id AND e.fixed_period = $2::date
+        LEFT JOIN LATERAL (SELECT * FROM cash_expenses e WHERE e.fixed_expense_id = f.id AND e.fixed_period = $1::date
                              AND e.status IN ('pending_approval','posted') ORDER BY e.created_at DESC LIMIT 1) x ON true
-       WHERE f.cashbox = ANY($1::text[]) ORDER BY f.active DESC, f.name`, [boxes, period]);
-    return ok({ period, fixed: rows.rows.map(shapeFixed), boxes });
+       ORDER BY f.active DESC, f.name`, [period]);
+    return ok({ period, fixed: rows.rows.map(shapeFixed), payFrom: ownBox(a) });
   });
 
   function fixedBody(b: Record<string, unknown>, old?: any) {
-    const box = (oneOf(b, 'cashbox', ['office', 'hr'] as const, true) ?? old?.cashbox ?? 'office') as 'office' | 'hr';
+    const box = (old?.cashbox ?? 'office') as 'office' | 'hr';
     return {
       name: (str(b, 'name', { optional: !!old, min: 2, max: 120 }) ?? old?.name ?? '').trim(),
       category: (str(b, 'category', { optional: !!old, min: 2, max: 80 }) ?? old?.category ?? '').trim(),
@@ -666,8 +668,8 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.post('/cash/fixed-expenses', async (req) => {
     const a = await authenticate(db, req);
+    if (!canFixed(a)) throw forbidden();
     const f = fixedBody(obj(req.body));
-    if (!canBox(a, f.box)) throw forbidden();
     const x = await db.tx(async (q) => {
       const row = await one(q, `INSERT INTO fixed_expenses (name, category, amount_egp, beneficiary, cashbox, payment_method, notes, active, created_by)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active, a.id]);
@@ -684,7 +686,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       const o = await one(q, `SELECT * FROM fixed_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!o) throw notFound();
       const f = fixedBody(obj(req.body), o);
-      if (!canBox(a, o.cashbox) || !canBox(a, f.box)) throw forbidden();
+      if (!canFixed(a)) throw forbidden();
       const row = await one(q, `UPDATE fixed_expenses SET name = $2, category = $3, amount_egp = $4, beneficiary = $5, cashbox = $6, payment_method = $7,
           notes = $8, active = $9 WHERE id = $1 RETURNING *`, [o.id, f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active]);
       await audit(q, a.id, 'cash.fixed_expense.update', 'fixed_expense', o.id, o, row);
@@ -704,22 +706,23 @@ export const cashModule: Module = (r, { db, clock }) => {
       const f = await one(q, `SELECT * FROM fixed_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!f) throw notFound();
       if (!f.active) throw conflict('المصروف الثابت ده موقوف');
-      if (!canBox(a, f.cashbox) || (f.cashbox === 'hr' && !hrDesk(a) && !canOffice(a))) throw forbidden();
+      if (!canFixed(a)) throw forbidden();
+      const box = ownBox(a);
       if (await one(q, `SELECT 1 FROM cash_expenses WHERE fixed_expense_id = $1 AND fixed_period = $2 AND status IN ('pending_approval','posted')`, [f.id, period])) {
         throw conflict('المصروف ده اتصرف الشهر ده بالفعل');
       }
       const s = await one(q, `SELECT expense_approval_threshold FROM company_settings LIMIT 1`);
       const threshold = Number(s?.expense_approval_threshold ?? 1000);
       const amount = Number(f.amount_egp);
-      const needsApproval = f.cashbox === 'hr' && !canOffice(a) && amount > threshold;
+      const needsApproval = box === 'hr' && !canOffice(a) && amount > threshold;
       const monthAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'][Number(m.slice(5, 7)) - 1];
       const x = await one(q, `
         INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, occurred_at, recorded_by, status, approved_by, approved_at,
                payment_method, fixed_expense_id, fixed_period)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, ref_no`,
-        [f.cashbox, amount, f.category, `${f.name} — ${monthAr} ${m.slice(0, 4)}`, f.beneficiary, f.notes, clock(), a.id,
+        [box, amount, f.category, `${f.name} — ${monthAr} ${m.slice(0, 4)}`, f.beneficiary, f.notes, clock(), a.id,
           needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock(), f.payment_method, f.id, period]);
-      await audit(q, a.id, 'cash.fixed_expense.pay', 'cash_expense', x.id, undefined, { fixedExpenseId: f.id, period, amount });
+      await audit(q, a.id, 'cash.fixed_expense.pay', 'cash_expense', x.id, undefined, { fixedExpenseId: f.id, period, amount, cashbox: box });
       if (needsApproval) {
         for (const o of await cashOfficers(q, a.id)) {
           await notify(q, { to: o, type: 'cash_expense_awaiting', title: `مصروف ثابت محتاج موافقتك: ${fmt(amount)}`, body: `${f.name} — ${f.beneficiary}`,
