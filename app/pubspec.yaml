@@ -68,6 +68,7 @@ flutter:
     - assets/forms/laptop_receipt/v1/template.png
     - assets/forms/client_intro/v1/fields.json
     - assets/forms/client_intro/v1/template.png
+    - assets/forms/reservation/value_group_logo.png
     - assets/fonts/forms/ValueFormNaskh-Regular.ttf
     - assets/fonts/forms/ArimoLatin-Regular.ttf
   fonts:

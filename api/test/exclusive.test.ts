@@ -29,10 +29,14 @@ test('exclusive project: reservation → contract → collected → owner payout
   assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000 })).status, 400,
     'an exclusive reservation needs its deposit');
   const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000,
-    depositAmount: 50_000, paymentMethod: 'bank_transfer', expectedContractDate: '2026-12-15' });
+    depositAmount: 50_000, paymentMethod: 'bank_transfer', expectedContractDate: '2026-12-15',
+    unitType: 'تجاري', floor: 'أرضي', areaM2: 42.5, clientNationalId: '29001011234567', clientAddress: 'المعادي', maintenanceDeposit: 150_000,
+    plannedDownPayment: 250_000, downPaymentDue: '2026-12-01', plannedInstallments: 8, depositPaidOn: '2026-11-10' });
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
   assert.equal(u.body.unit.status, 'reserving');
+  assert.deepEqual([u.body.unit.form.unitType, u.body.unit.form.areaM2, u.body.unit.form.plannedInstallments, u.body.unit.form.downPaymentDue],
+    ['تجاري', 42.5, 8, '2026-12-01']);
   assert.equal(u.body.unit.money.pending, 50_000);
   assert.equal(u.body.unit.money.collected, 0);
   assert.deepEqual(u.body.unit.myCommission, { amount: 6000, state: 'potential' });
@@ -50,6 +54,14 @@ test('exclusive project: reservation → contract → collected → owner payout
   const ov0 = (await h.call(c.t.owner, 'GET', '/cash/overview')).body;
   assert.deepEqual(ov0.expectedCommissions.months.map((m: any) => [m.month, m.amount]), [['2026-12', 150_000]], 'expected in the contract\'s month');
   assert.equal(ov0.projectsBox.total, 50_000);
+  // a month filter: the expected commission falls in December; November's flows hold the deposit
+  const dec = (await h.call(c.t.owner, 'GET', '/cash/overview?from=2026-12-01&to=2026-12-31')).body;
+  assert.equal(dec.expectedCommissions.total, 150_000);
+  assert.equal(dec.projectsBox.projects.find((x: any) => x.id === pid).reservation, 0, 'nothing came in during December');
+  assert.equal(dec.projectsBox.total, 50_000, 'the money held is always today\'s');
+  const nov = (await h.call(c.t.owner, 'GET', '/cash/overview?from=2026-11-01&to=2026-11-30')).body;
+  assert.equal(nov.expectedCommissions.total, 0);
+  assert.equal(nov.projectsBox.projects.find((x: any) => x.id === pid).reservation, 50_000);
   assert.equal(rcv.body.unit.money.bank, 50_000);
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${pend.body.payments[0].id}/receive`, {})).status, 409, 'once');
   const box = await h.db.query(`SELECT cashbox, kind, amount_egp, payment_method FROM cash_receipts WHERE ex_unit_id = $1`, [uid]);
@@ -130,6 +142,8 @@ test('exclusive project: reservation → contract → collected → owner payout
   assert.equal(pbox.inTrust, collected - 150_000 - 500_000);
   assert.deepEqual([ovEnd.commissions.due, ovEnd.commissions.collected, ovEnd.commissions.remaining], [150_000, 150_000, 0]);
   assert.equal(ovEnd.expectedCommissions.total, 0, 'contracted: no longer expected');
+  const decEnd = (await h.call(c.t.owner, 'GET', '/cash/overview?from=2026-12-01&to=2026-12-31')).body;
+  assert.deepEqual([decEnd.commissions.due, decEnd.commissions.collected], [0, 0], 'nothing contracted / collected in December');
   assert.equal((await h.call(c.t.hr, 'GET', '/cash/overview')).body.projectsBox, undefined, 'the accountant does not see it');
   const st = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`)).body.statement;
   assert.ok(st.some((x: any) => x.type === 'owner_payout') && st.some((x: any) => x.type === 'commission_transfer'));

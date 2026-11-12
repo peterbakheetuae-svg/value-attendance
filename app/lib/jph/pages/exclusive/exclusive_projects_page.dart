@@ -10,6 +10,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../commissions/commission_project_page.dart';
+import '../../forms/reservation_form_pdf.dart';
 
 part '../projects/projects_hub.dart';
 
@@ -382,6 +383,83 @@ class _Terms {
   }
 }
 
+/// «استمارة حجز وحدة» — the extra details the printed form carries (all optional, editable later).
+class _ResForm {
+  String unitType = '', floor = '';
+  final area = TextEditingController(), activity = TextEditingController(), maintenance = TextEditingController(),
+      nationalId = TextEditingController(), address = TextEditingController(), plannedDown = TextEditingController(),
+      plannedInst = TextEditingController();
+  DateTime? downDue;
+  DateTime? paidOn = DateTime.now();
+
+  _ResForm([Map<String, dynamic>? f]) {
+    if (f == null) return;
+    unitType = '${f['unitType'] ?? ''}';
+    floor = '${f['floor'] ?? ''}';
+    area.text = f['areaM2'] == null ? '' : '${f['areaM2']}';
+    activity.text = '${f['activity'] ?? ''}';
+    maintenance.text = _n(f['maintenanceDeposit']) > 0 ? '${f['maintenanceDeposit']}' : '';
+    nationalId.text = '${f['clientNationalId'] ?? ''}';
+    address.text = '${f['clientAddress'] ?? ''}';
+    plannedDown.text = f['plannedDownPayment'] == null ? '' : '${f['plannedDownPayment']}';
+    plannedInst.text = f['plannedInstallments'] == null ? '' : '${f['plannedInstallments']}';
+    downDue = DateTime.tryParse('${f['downPaymentDue'] ?? ''}');
+    paidOn = DateTime.tryParse('${f['depositPaidOn'] ?? ''}');
+  }
+
+  static String _iso(DateTime? d) => d == null ? '' : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Widget section(BuildContext context, bool isDark, StateSetter set, {bool reservation = true}) {
+    Widget chips(String label, List<String> opts, String v, ValueChanged<String> pick) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+          const SizedBox(height: 4),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final o in opts) ChoiceChip(label: Text(o), selected: v == o, onSelected: (_) => set(() => pick(v == o ? '' : o))),
+          ]),
+        ]);
+    Widget date(String label, DateTime? v, ValueChanged<DateTime> pick) => JphUi.picker(
+          isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: label, value: v == null ? 'اختار التاريخ' : _date(v.toIso8601String()),
+          onTap: () async {
+            final d = await showDatePicker(context: context, initialDate: v ?? DateTime.now(), firstDate: DateTime(DateTime.now().year - 2),
+                lastDate: DateTime(DateTime.now().year + 5));
+            if (d != null) set(() => pick(d));
+          },
+        );
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        leading: const Icon(Icons.description_rounded, color: Colors.indigo),
+        title: Text('بيانات استمارة الحجز (للطباعة)', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        children: [
+          for (final w in [
+            chips('نوع الوحدة', const ['تجاري', 'إداري', 'سكني', 'طبي'], unitType, (x) => unitType = x),
+            chips('الدور', const ['أرضي', 'أول علوي', 'ثاني علوي', 'ثالث علوي', 'بدروم'], floor, (x) => floor = x),
+            JphUi.input(isDark: isDark, label: 'المساحة (متر)', controller: area, icon: Icons.square_foot_rounded, number: true),
+            JphUi.input(isDark: isDark, label: 'النشاط', controller: activity, icon: Icons.storefront_rounded),
+            JphUi.input(isDark: isDark, label: 'وديعة الصيانة', controller: maintenance, icon: Icons.build_rounded, number: true, suffix: 'جنيه'),
+            JphUi.input(isDark: isDark, label: 'إجمالي المقدم المتفق عليه', controller: plannedDown, icon: Icons.payments_rounded, number: true, suffix: 'جنيه'),
+            date('آخر موعد لاستكمال المقدم', downDue, (d) => downDue = d),
+            JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: plannedInst, icon: Icons.format_list_numbered_rounded, number: true),
+            if (reservation) date('تاريخ سداد دفعة الحجز', paidOn, (d) => paidOn = d),
+            JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
+            JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
+          ]) Padding(padding: const EdgeInsets.only(top: 10), child: w),
+        ],
+      ),
+    );
+  }
+
+  Map<String, dynamic> body() => {
+        'unitType': unitType, 'floor': floor, 'areaM2': num.tryParse(area.text.replaceAll(',', '')), 'activity': activity.text.trim(),
+        'maintenanceDeposit': num.tryParse(maintenance.text.replaceAll(',', '')) ?? 0, 'clientNationalId': nationalId.text.trim(),
+        'clientAddress': address.text.trim(), 'plannedDownPayment': num.tryParse(plannedDown.text.replaceAll(',', '')),
+        'downPaymentDue': downDue == null ? null : _iso(downDue), 'plannedInstallments': int.tryParse(plannedInst.text),
+        'depositPaidOn': paidOn == null ? null : _iso(paidOn),
+      };
+}
+
 /// حجز جديد / تعاقد جديد — from «المبيعات» only.
 ///  حصري: العربون بيدخل خزنة المحاسب على طول (نقدي أو بنك)؛ تعاقد جديد = حجز + تعاقد مرة واحدة.
 ///  تسويق: مفيش فلوس بتدخل عندنا — عمولة محتملة لحد التعاقد.
@@ -395,6 +473,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
   String method = 'cash';
   final terms = _Terms();
   DateTime? expected; // التاريخ المتوقع للتعاقد — the expected commission falls in that month
+  final rf = _ResForm();
   Map<String, dynamic> project() => active.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {});
   if (!context.mounted) return;
   final ok = await _form(context, isDark, contract ? 'تعاقد جديد' : 'حجز جديد', (set) {
@@ -438,6 +517,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       if (!exclusive && p.isNotEmpty)
         Text(contract ? 'التعاقد بيخلّي العمولة واجبة التحصيل من المطور.' : 'الحجز في مشروع تسويق: عمولة محتملة لحد التعاقد — مفيش فلوس بتدخل عندنا.',
             style: TextStyle(color: JphUi.sub(isDark))),
+      rf.section(context, isDark, set, reservation: !contract),
       JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
     ];
   }, () async {
@@ -453,6 +533,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
     final r = await _post('/exclusive/units', {
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
       'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(), 'paymentMethod': method,
+      ...rf.body(),
       if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
       if (mk != null) 'marketingCompanyId': mk!['id'],
       if (!contract && expected != null)
@@ -753,6 +834,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     DateTime? expected = u['expectedContractDate'] != null ? DateTime.tryParse('${u['expectedContractDate']}') : null;
     final mks = contracted ? <Map<String, dynamic>>[] : _l((await _get('/marketing-companies'))['companies'])
         .where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
+    final rf = _ResForm(_m(u['form']));
     Map<String, dynamic>? mk;
     for (final m in mks) {
       if (m['id'] == u['marketingCompanyId']) mk = m;
@@ -778,11 +860,13 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             ),
             _sourcePicker(isDark, mks, mk, (m) => set(() => mk = m)),
           ],
-          if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
+          if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والاستمارة والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
+          rf.section(context, isDark, set),
           JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
         ], () async {
       final r = await _post('/exclusive/units/${widget.unitId}', {
         'clientName': client.text.trim(), 'clientPhone': phone.text.trim(), 'notes': notes.text.trim(),
+        ...rf.body(),
         if (!contracted) ...{
           'unitNo': unit.text.trim(), 'unitPrice': num.tryParse(price.text.replaceAll(',', '')),
           if (exclusive && depositPending) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
@@ -1039,6 +1123,16 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             onPressed: () => _edit(isDark),
             icon: const Icon(Icons.edit_rounded),
             label: Text(st == 'contracted' ? 'تعديل التعاقد' : 'تعديل الحجز', style: const TextStyle(fontWeight: FontWeight.w800)),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+          ),
+        ),
+      if (st != 'cancelled')
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReservationFormPage(unit: u))),
+            icon: const Icon(Icons.print_rounded),
+            label: const Text('طباعة استمارة الحجز', style: TextStyle(fontWeight: FontWeight.w800)),
             style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
           ),
         ),

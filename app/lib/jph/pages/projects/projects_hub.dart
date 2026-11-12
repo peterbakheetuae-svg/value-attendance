@@ -586,7 +586,55 @@ class _ClientsPageState extends State<ClientsPage> {
 // ==================================================================== الخزنة: خزنة المشاريع / العمولات / عمولات متوقعة
 // Each tile on the cashbox opens a full page (not a sheet) with all the details.
 
-Future<Map<String, dynamic>> _overview() => _get('/cash/overview');
+Future<Map<String, dynamic>> _overview([DateTime? month]) => _get('/cash/overview', monthQuery(month));
+
+/// null = كل الشهور; a month → its first..last day.
+Map<String, String> monthQuery(DateTime? m) {
+  if (m == null) return {};
+  String d(DateTime x) => '${x.year}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+  return {'from': d(DateTime(m.year, m.month)), 'to': d(DateTime(m.year, m.month + 1, 0))};
+}
+
+String monthLabel(DateTime? m) => m == null ? 'كل الشهور' : '${JphUi.monthsAr[m.month - 1]} ${m.year}';
+
+/// The month filter of the cashbox tiles and their pages: «كل الشهور» by default, or one month.
+class MonthFilterBar extends StatelessWidget {
+  final bool isDark;
+  final DateTime? month;
+  final ValueChanged<DateTime?> onChanged;
+  const MonthFilterBar({super.key, required this.isDark, required this.month, required this.onChanged});
+
+  Future<void> _pick(BuildContext context) async {
+    final now = DateTime.now();
+    final months = [for (var i = -24; i <= 12; i++) DateTime(now.year, now.month + i)].reversed.toList();
+    final v = await JphUi.sheet<String>(context, isDark, 'اختار الشهر', [
+      for (final m in months) ('${m.year}-${m.month}', monthLabel(m), m.year == now.year && m.month == now.month ? Icons.today_rounded : Icons.calendar_month_rounded),
+    ], selected: month == null ? null : '${month!.year}-${month!.month}');
+    if (v == null) return;
+    final p = v.split('-');
+    onChanged(DateTime(int.parse(p[0]), int.parse(p[1])));
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(children: [
+          ChoiceChip(
+            label: const Text('كل الشهور', style: TextStyle(fontWeight: FontWeight.w800)),
+            avatar: const Icon(Icons.all_inclusive_rounded, size: 18),
+            selected: month == null,
+            onSelected: (_) => onChanged(null),
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: Text(month == null ? 'اختار شهر' : monthLabel(month), style: const TextStyle(fontWeight: FontWeight.w800)),
+            avatar: const Icon(Icons.calendar_month_rounded, size: 18),
+            selected: month != null,
+            onSelected: (_) => _pick(context),
+          ),
+        ]),
+      );
+}
 
 Widget _tile(bool isDark, String label, Object? value, IconData icon, Color color, {VoidCallback? onTap}) =>
     GestureDetector(onTap: onTap, child: JphUi.stat(isDark, label, _money(value), icon, color));
@@ -608,16 +656,27 @@ String _ym(String ym) {
 
 abstract class _OverviewPageState<T extends StatefulWidget> extends State<T> {
   Map<String, dynamic>? o;
+  DateTime? month; // null = كل الشهور
+  DateTime? get initialMonth => null;
   @override
   void initState() {
     super.initState();
+    month = initialMonth;
     load();
   }
 
   Future<void> load() async {
-    final r = await _overview();
+    final r = await _overview(month);
     if (mounted) setState(() => o = r);
   }
+
+  Widget filter(bool isDark) => MonthFilterBar(isDark: isDark, month: month, onChanged: (m) {
+        setState(() {
+          month = m;
+          o = null;
+        });
+        load();
+      });
 
   String get title;
   List<Widget> body(bool isDark);
@@ -631,19 +690,22 @@ abstract class _OverviewPageState<T extends StatefulWidget> extends State<T> {
           ? const Center(child: CircularProgressIndicator())
           : o!['success'] != true
               ? Center(child: Text('${o!['message'] ?? 'مش متاح'}'))
-              : RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: body(isDark))),
+              : RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [filter(isDark), ...body(isDark)])),
     );
   }
 }
 
 // -------------------------------------------------------------------- خزنة المشاريع
 class ProjectsBoxPage extends StatefulWidget {
-  const ProjectsBoxPage({super.key});
+  final DateTime? month;
+  const ProjectsBoxPage({super.key, this.month});
   @override
   State<ProjectsBoxPage> createState() => _ProjectsBoxPageState();
 }
 
 class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
+  @override
+  DateTime? get initialMonth => widget.month;
   @override
   String get title => 'خزنة المشاريع';
 
@@ -668,7 +730,7 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
         Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مشاريع حصري', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
       for (final p in ps)
         GestureDetector(
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectTrustPage(project: p))).then((_) => load()),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectTrustPage(project: p, month: month))).then((_) => load()),
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(16),
@@ -697,94 +759,101 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
 /// One project's trust in full: what came in (حجز / تعاقد / أقساط), what went to the owner, the owner's statement and units.
 class ProjectTrustPage extends StatefulWidget {
   final Map<String, dynamic> project;
-  const ProjectTrustPage({super.key, required this.project});
+  final DateTime? month;
+  const ProjectTrustPage({super.key, required this.project, this.month});
   @override
   State<ProjectTrustPage> createState() => _ProjectTrustPageState();
 }
 
-class _ProjectTrustPageState extends State<ProjectTrustPage> {
+class _ProjectTrustPageState extends _OverviewPageState<ProjectTrustPage> {
   Map<String, dynamic>? _d;
+  @override
+  DateTime? get initialMonth => widget.month;
+  @override
+  String get title => '${widget.project['name']}';
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final r = await _get('/exclusive/projects/${widget.project['id']}');
-    if (mounted) setState(() => _d = r);
+  Future<void> load() async {
+    final r = await Future.wait([_overview(month), _get('/exclusive/projects/${widget.project['id']}')]);
+    if (mounted) {
+      setState(() {
+        o = r[0];
+        _d = r[1];
+      });
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final isDark = context.watch<AppController>().isDark;
-    final p = widget.project;
+  List<Widget> body(bool isDark) {
+    final p = _l(_m(o!['projectsBox'])['projects']).firstWhere((x) => x['id'] == widget.project['id'], orElse: () => widget.project);
     final units = _l(_d?['units']);
-    final statement = _l(_d?['statement']);
-    return _Shell(
-      title: '${p['name']}',
-      child: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
-          Text('المالك / المطور: ${p['ownerName'] ?? '—'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
-          const SizedBox(height: 10),
-          JphUi.statGrid([
-            _tile(isDark, 'موجود أمانات', p['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
-            _tile(isDark, 'من الحجز', p['reservation'], Icons.bookmark_rounded, Colors.teal),
-            _tile(isDark, 'من التعاقد', p['contract'], Icons.handshake_rounded, Colors.indigo),
-            _tile(isDark, 'من الأقساط', p['installments'], Icons.event_repeat_rounded, Colors.blue),
-            _tile(isDark, 'للمالك / المطور (صافي)', p['ownerDue'], Icons.account_balance_rounded, Colors.green),
-            _tile(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], Icons.outbox_rounded, Colors.red),
-            _tile(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-            if (_n(p['refunded']) > 0) _tile(isDark, 'اترد لعملاء لغوا', p['refunded'], Icons.undo_rounded, Colors.orange),
-            if (_n(p['pendingPayout']) > 0) _tile(isDark, 'صرف مستني الموافقة', p['pendingPayout'], Icons.hourglass_top_rounded, Colors.orange),
-          ]),
-          const SizedBox(height: 16),
-          if (_d == null) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
-          if (units.isNotEmpty)
-            _section(isDark, 'الوحدات (${units.length})', [
-              for (final u in units)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.home_work_rounded, color: _statusColor('${u['status']}')),
-                  title: Text('وحدة ${u['unitNo']} — ${u['clientName']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-                  subtitle: Text('${u['statusAr']} · دفع ${_money(_m(u['money'])['collected'])} من ${_money(u['unitPrice'])}',
-                      style: TextStyle(color: JphUi.sub(isDark))),
-                  trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load()),
-                ),
-            ]),
-          if (statement.isNotEmpty)
-            _section(isDark, 'كشف حساب المالك', [
-              for (final s in statement)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Row(children: [
-                    Icon(s['dir'] == 'in' ? Icons.south_west_rounded : Icons.north_east_rounded, color: s['dir'] == 'in' ? Colors.green : Colors.red, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('${s['typeAr']}${s['unitNo'] != null ? ' — وحدة ${s['unitNo']}' : ''} · ${_date(s['at'])}',
-                          style: TextStyle(color: JphUi.text(isDark))),
-                    ),
-                    Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Colors.green : Colors.red)),
-                  ]),
-                ),
-            ]),
+    final range = monthQuery(month);
+    final statement = _l(_d?['statement']).where((s) {
+      if (range.isEmpty) return true;
+      final d = '${s['at'] ?? ''}';
+      final day = d.length >= 10 ? (DateTime.tryParse(d)?.toLocal().toIso8601String().substring(0, 10) ?? d.substring(0, 10)) : '';
+      return day.compareTo(range['from']!) >= 0 && day.compareTo(range['to']!) <= 0;
+    }).toList();
+    return [
+      Text('المالك / المطور: ${p['ownerName'] ?? '—'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+      const SizedBox(height: 10),
+      JphUi.statGrid([
+        _tile(isDark, 'موجود أمانات (دلوقتي)', p['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
+        _tile(isDark, 'من الحجز', p['reservation'], Icons.bookmark_rounded, Colors.teal),
+        _tile(isDark, 'من التعاقد', p['contract'], Icons.handshake_rounded, Colors.indigo),
+        _tile(isDark, 'من الأقساط', p['installments'], Icons.event_repeat_rounded, Colors.blue),
+        _tile(isDark, 'للمالك / المطور (صافي دلوقتي)', p['ownerDue'], Icons.account_balance_rounded, Colors.green),
+        _tile(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], Icons.outbox_rounded, Colors.red),
+        _tile(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+        if (_n(p['refunded']) > 0) _tile(isDark, 'اترد لعملاء لغوا', p['refunded'], Icons.undo_rounded, Colors.orange),
+        if (_n(p['pendingPayout']) > 0) _tile(isDark, 'صرف مستني الموافقة', p['pendingPayout'], Icons.hourglass_top_rounded, Colors.orange),
+      ]),
+      const SizedBox(height: 16),
+      if (_d == null) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
+      if (units.isNotEmpty)
+        _section(isDark, 'الوحدات (${units.length})', [
+          for (final u in units)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.home_work_rounded, color: _statusColor('${u['status']}')),
+              title: Text('وحدة ${u['unitNo']} — ${u['clientName']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              subtitle: Text('${u['statusAr']} · دفع ${_money(_m(u['money'])['collected'])} من ${_money(u['unitPrice'])}',
+                  style: TextStyle(color: JphUi.sub(isDark))),
+              trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+            ),
         ]),
-      ),
-    );
+      _section(isDark, 'كشف حساب المالك${month == null ? '' : ' — ${monthLabel(month)}'}', [
+        if (statement.isEmpty) Text('مفيش حركات', style: TextStyle(color: JphUi.sub(isDark))),
+        for (final s in statement)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(children: [
+              Icon(s['dir'] == 'in' ? Icons.south_west_rounded : Icons.north_east_rounded, color: s['dir'] == 'in' ? Colors.green : Colors.red, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('${s['typeAr']}${s['unitNo'] != null ? ' — وحدة ${s['unitNo']}' : ''} · ${_date(s['at'])}',
+                    style: TextStyle(color: JphUi.text(isDark))),
+              ),
+              Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Colors.green : Colors.red)),
+            ]),
+          ),
+      ]),
+    ];
   }
 }
 
 // -------------------------------------------------------------------- العمولات
 class CommissionsDuePage extends StatefulWidget {
-  const CommissionsDuePage({super.key});
+  final DateTime? month;
+  const CommissionsDuePage({super.key, this.month});
   @override
   State<CommissionsDuePage> createState() => _CommissionsDuePageState();
 }
 
 class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
+  @override
+  DateTime? get initialMonth => widget.month;
   @override
   String get title => 'العمولات';
 
@@ -803,7 +872,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
       const SizedBox(height: 8),
       for (final p in _l(c['byProject']))
         GestureDetector(
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectCommissionsPage(project: p))).then((_) => load()),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectCommissionsPage(project: p, month: month))).then((_) => load()),
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(14),
@@ -847,12 +916,15 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
 
 // -------------------------------------------------------------------- عمولات متوقعة
 class ExpectedCommissionsPage extends StatefulWidget {
-  const ExpectedCommissionsPage({super.key});
+  final DateTime? month;
+  const ExpectedCommissionsPage({super.key, this.month});
   @override
   State<ExpectedCommissionsPage> createState() => _ExpectedCommissionsPageState();
 }
 
 class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissionsPage> {
+  @override
+  DateTime? get initialMonth => widget.month;
   @override
   String get title => 'عمولات متوقعة';
 
@@ -1018,12 +1090,15 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
 // ==================================================================== عمولات مشروع واحد (كل المشاريع: حصري + تسويق)
 class ProjectCommissionsPage extends StatefulWidget {
   final Map<String, dynamic> project; // one of /cash/overview commissions.byProject
-  const ProjectCommissionsPage({super.key, required this.project});
+  final DateTime? month;
+  const ProjectCommissionsPage({super.key, required this.project, this.month});
   @override
   State<ProjectCommissionsPage> createState() => _ProjectCommissionsPageState();
 }
 
 class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissionsPage> {
+  @override
+  DateTime? get initialMonth => widget.month;
   @override
   String get title => 'عمولات ${widget.project['name']}';
 

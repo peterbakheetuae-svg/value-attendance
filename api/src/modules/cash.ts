@@ -204,7 +204,7 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     const sales = r2(N(cm.s) + N(ux.s)), manager = r2(N(cm.m) + N(ux.m)), marketing = r2(N(ux.k));
     const total = r2(N(cm.s) + N(cm.m) + N(cm.c) + N(ux.t));
     out.commissionSplit = { total, sales, manager, marketing, office: r2(total - sales - manager - marketing), deals: cm.n + ux.n };
-    Object.assign(out, await salesMoneyOverview(q));
+    Object.assign(out, await salesMoneyOverview(q, from, to));
     const commissions = (out.income as any).commissions;
     out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
   }

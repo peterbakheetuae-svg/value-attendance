@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'cash_page.dart' show newClientRef;
-import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard;
+import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard, MonthFilterBar, monthQuery, monthLabel;
 
 /// الخزنة the office's way (GET /cash/overview):
 ///   المتاح = بنك + نقدي (نقدي = خزنة المكتب + خزنة المحاسب)
@@ -33,25 +33,17 @@ class _CashOverviewState extends State<CashOverview> {
   bool _loading = true;
 
   bool get _office => ApiService.can('cash.office');
-  DateTime get _month => widget.month?.value ?? DateTime(DateTime.now().year, DateTime.now().month);
+  /// The cashbox tiles: every month by default (null), or one month picked on the filter.
+  DateTime? _filter;
 
   @override
   void initState() {
     super.initState();
-    widget.month?.addListener(_load);
     _load();
   }
 
-  @override
-  void dispose() {
-    widget.month?.removeListener(_load);
-    super.dispose();
-  }
-
   Future<void> _load() async {
-    final m = _month;
-    final r = await ApiService.post({'action': 'cash_get', 'path': '/cash/overview',
-      'query': {'from': _d(m), 'to': _d(DateTime(m.year, m.month + 1, 0))}});
+    final r = await ApiService.post({'action': 'cash_get', 'path': '/cash/overview', 'query': monthQuery(_filter)});
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -74,13 +66,17 @@ class _CashOverviewState extends State<CashOverview> {
     final exp = _m(_o['expenses']);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       PendingSalesMoneyCard(onChanged: _changed),
+      MonthFilterBar(isDark: isDark, month: _filter, onChanged: (m) {
+        setState(() => _filter = m);
+        _load();
+      }),
       _available(isDark, av),
       if (_office && _o['projectsBox'] is Map) ...[
         const SizedBox(height: 14),
         _projectsCards(isDark),
       ],
       const SizedBox(height: 14),
-      _title(isDark, 'الدخل — ${JphUi.monthsAr[_month.month - 1]}'),
+      _title(isDark, 'الدخل — ${monthLabel(_filter)}'),
       JphUi.statGrid([
         if (_office) _tap(JphUi.stat(isDark, 'عمولات (ربحي)', JphUi.money(inc['commissions']), Icons.workspace_premium_rounded, Colors.amber.shade700),
             () => _commissionSheet(isDark)),
@@ -280,11 +276,11 @@ class _CashOverviewState extends State<CashOverview> {
     final box = _m(_o['projectsBox']), cm = _m(_o['commissions']), ex = _m(_o['expectedCommissions']);
     Future<void> open(Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page)).then((_) => _load());
     return JphUi.statGrid([
-      GestureDetector(onTap: () => open(const ProjectsBoxPage()),
+      GestureDetector(onTap: () => open(ProjectsBoxPage(month: _filter)),
           child: JphUi.stat(isDark, 'خزنة المشاريع', JphUi.money(box['total']), Icons.real_estate_agent_rounded, Colors.purple)),
-      GestureDetector(onTap: () => open(const CommissionsDuePage()),
+      GestureDetector(onTap: () => open(CommissionsDuePage(month: _filter)),
           child: JphUi.stat(isDark, 'عمولات (متبقي)', JphUi.money(cm['remaining']), Icons.workspace_premium_rounded, Colors.amber.shade800)),
-      GestureDetector(onTap: () => open(const ExpectedCommissionsPage()),
+      GestureDetector(onTap: () => open(ExpectedCommissionsPage(month: _filter)),
           child: JphUi.stat(isDark, 'عمولات متوقعة', JphUi.money(ex['total']), Icons.event_available_rounded, Colors.indigo)),
     ]);
   }

@@ -51,6 +51,7 @@ async function loadUnits(q: Q, where: string, params: unknown[]) {
            COALESCE((SELECT sum(t.amount_egp) FROM ex_commission_transfers t WHERE t.unit_id = u.id), 0)
              + COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.commission_unit_id = u.id AND r.status = 'posted'), 0) AS commission_collected,
            COALESCE((SELECT sum(x.amount_egp) FROM ex_payments x WHERE x.unit_id = u.id AND x.status = 'pending'), 0) AS pending_money,
+           (SELECT x.payment_method FROM ex_payments x WHERE x.unit_id = u.id AND x.kind = 'reservation' ORDER BY x.created_at LIMIT 1) AS deposit_method,
            (SELECT count(*) FROM ex_installments i WHERE i.unit_id = u.id)::int AS inst_total,
            (SELECT count(*) FROM ex_installments i WHERE i.unit_id = u.id AND i.amount_egp <=
               COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0))::int AS inst_paid,
@@ -94,6 +95,11 @@ function shapeUnit(u: any, a: Actor) {
     id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
     marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: n(u.mk_pct),
     expectedContractDate: u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null,
+    depositMethod: u.deposit_method ?? null,
+    form: { unitType: u.unit_type, floor: u.floor, areaM2: u.area_m2 == null ? null : n(u.area_m2), activity: u.activity,
+      maintenanceDeposit: n(u.maintenance_deposit), clientNationalId: u.client_national_id, clientAddress: u.client_address,
+      plannedDownPayment: u.planned_down_payment == null ? null : n(u.planned_down_payment), downPaymentDue: isoDay(u.down_payment_due),
+      plannedInstallments: u.planned_installments, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at) },
     clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
     ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
@@ -166,6 +172,39 @@ async function projectStats(q: Q, projectIds: string[]) {
   }
   return { stats: out, units };
 }
+
+/** «استمارة حجز وحدة» fields (all optional) from a request body → column values. */
+function formFields(b: Record<string, unknown>, old?: any) {
+  const s = (k: string, max: number) => (b[k] === undefined ? (old ? old[snake(k)] : '') : String(b[k] ?? '').trim().slice(0, max));
+  const num0 = (k: string, min: number, max: number) => {
+    if (b[k] === undefined || b[k] === null || b[k] === '') return b[k] === undefined && old ? old[snake(k)] : null;
+    const v = Number(b[k]);
+    if (!Number.isFinite(v) || v < min || v > max) throw invalid('راجع الرقم', { field: k });
+    return v;
+  };
+  const d = (k: string) => {
+    if (b[k] === undefined) return old ? old[snake(k)] : null;
+    if (b[k] === null || b[k] === '') return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b[k]))) throw invalid('راجع التاريخ', { field: k });
+    return String(b[k]);
+  };
+  return {
+    unit_type: s('unitType', 60), floor: s('floor', 60), area_m2: num0('areaM2', 0.0001, 1_000_000), activity: s('activity', 200),
+    maintenance_deposit: num0('maintenanceDeposit', 0, 10_000_000_000) ?? 0, client_national_id: s('clientNationalId', 20),
+    client_address: s('clientAddress', 300), planned_down_payment: num0('plannedDownPayment', 0, 10_000_000_000),
+    down_payment_due: d('downPaymentDue'), planned_installments: num0('plannedInstallments', 0, 240), deposit_paid_on: d('depositPaidOn'),
+  };
+}
+const snake = (k: string) => ({ unitType: 'unit_type', floor: 'floor', areaM2: 'area_m2', activity: 'activity', maintenanceDeposit: 'maintenance_deposit',
+  clientNationalId: 'client_national_id', clientAddress: 'client_address', plannedDownPayment: 'planned_down_payment',
+  downPaymentDue: 'down_payment_due', plannedInstallments: 'planned_installments', depositPaidOn: 'deposit_paid_on' } as Record<string, string>)[k] ?? k;
+async function saveForm(q: Q, id: string, f: ReturnType<typeof formFields>) {
+  await q.query(`UPDATE ex_units SET unit_type = $2, floor = $3, area_m2 = $4, activity = $5, maintenance_deposit = $6, client_national_id = $7,
+      client_address = $8, planned_down_payment = $9, down_payment_due = $10, planned_installments = $11, deposit_paid_on = $12 WHERE id = $1`,
+    [id, f.unit_type, f.floor, f.area_m2, f.activity, f.maintenance_deposit, f.client_national_id, f.client_address, f.planned_down_payment,
+      f.down_payment_due, f.planned_installments, f.deposit_paid_on]);
+}
+const isoDay = (v: unknown) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : null);
 
 function shapePayment(x: any) {
   return { id: x.id, refNo: Number(x.ref_no), unitId: x.unit_id, kind: x.kind, kindAr: x.kind === 'reservation' ? 'عربون الحجز' : 'مقدم التعاقد',
@@ -553,6 +592,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, contractPct, p.sales_pct, p.manager_pct, notes, mkId, mkPct,
           exclusive && deposit > 0 && !contract ? 'reserving' : 'reserved']);
       if (expected) await q.query(`UPDATE ex_units SET expected_contract_date = $2 WHERE id = $1`, [x.id, expected]);
+      await saveForm(q, x.id, formFields(b));
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       // a direct contract: the deposit is part of its down payment (one pending payment for the whole of it)
       if (exclusive && deposit > 0 && !contract) await requestPayment(q, a, x, p.name, 'reservation', deposit, method);
@@ -668,6 +708,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         WHERE id = $1`,
         [u.id, unitNo, clientName, clientPhone, price, deposit, notes, expected, mkId, mkPct,
           contracted ? (str(b, 'contractNote', { optional: true, max: 1000 }) ?? null) : null]);
+      await saveForm(q, u.id, formFields(b, u));
       await audit(q, a.id, 'exclusive.unit.edit', 'ex_unit', u.id,
         { unitNo: u.unit_no, clientName: u.client_name, clientPhone: u.client_phone, price: n(u.unit_price), deposit: n(u.deposit_amount) },
         { unitNo, clientName, clientPhone, price, deposit });
@@ -1041,54 +1082,92 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
  *  العمولات — due (earned) / entered the commissions / still to collect;
  *  عمولات متوقعة — the reservations' commissions, in the month each is expected to become a contract.
  */
-export async function salesMoneyOverview(q: Q) {
+export async function salesMoneyOverview(q: Q, from: string | null = null, to: string | null = null) {
   const ps = await q.query(`SELECT * FROM commission_projects ORDER BY created_at`);
   const { stats, units } = await projectStats(q, ps.rows.map((p) => p.id));
+  // a period (Cairo days) or every month; the money held now (في الأمانة / المستحق) is always today's
+  const vals: unknown[] = [];
+  const range = (col: string) => {
+    const c: string[] = [];
+    if (from) { vals.push(from); c.push(`${col} >= ($${vals.length}::date AT TIME ZONE 'Africa/Cairo')`); }
+    if (to) { vals.push(to); c.push(`${col} < (($${vals.length}::date + 1) AT TIME ZONE 'Africa/Cairo')`); }
+    return c.length ? ' AND ' + c.join(' AND ') : '';
+  };
+  const inDay = (v: unknown) => {
+    if (!v) return false;
+    const d = local(v instanceof Date ? v : new Date(String(v))).date;
+    return (!from || d >= from) && (!to || d <= to);
+  };
+  vals.length = 0;
+  const rin = await q.query(`SELECT u.project_id, r.kind, sum(r.amount_egp) AS s FROM cash_receipts r JOIN ex_units u ON u.id = r.ex_unit_id
+                              WHERE r.status = 'posted' ${range('r.occurred_at')} GROUP BY 1, 2`, vals);
+  vals.length = 0;
+  const xout = await q.query(`SELECT COALESCE(x.ex_project_id, u.project_id) AS project_id, x.ex_kind, sum(x.amount_egp) AS s
+                                FROM cash_expenses x LEFT JOIN ex_units u ON u.id = x.ex_unit_id
+                               WHERE x.status = 'posted' AND x.ex_kind IS NOT NULL ${range('COALESCE(x.approved_at, x.occurred_at)')} GROUP BY 1, 2`, vals);
+  vals.length = 0;
+  const tr = await q.query(`SELECT project_id, unit_id, sum(amount_egp) AS s FROM ex_commission_transfers WHERE true ${range('created_at')} GROUP BY 1, 2`, vals);
+  vals.length = 0;
+  const cr = await q.query(`SELECT project_id, commission_unit_id AS unit_id, sum(amount_egp) AS s FROM cash_receipts
+                             WHERE kind = 'commission' AND status = 'posted' ${range('occurred_at')} GROUP BY 1, 2`, vals);
+  const pick = (rows: any[], f: (x: any) => boolean) => r2(rows.filter(f).reduce((t, x) => t + n(x.s), 0));
   const projects = ps.rows.filter((p) => p.kind === 'exclusive').map((p) => {
-    const us = units.filter((u) => u.project_id === p.id);
-    const sum = (f: (u: any) => number) => r2(us.reduce((t, u) => t + f(u), 0));
     const st = stats[p.id];
+    const kin = (k: string) => pick(rin.rows, (x) => x.project_id === p.id && x.kind === k);
     return { id: p.id, name: p.name, ownerName: p.owner_name, status: p.status,
-      reservation: sum((u) => n(u.deposit_paid)), contract: sum((u) => n(u.contract_paid)), installments: sum((u) => n(u.installments_paid)),
-      collected: st.collected, refunded: st.refunded, commissionMoved: st.commission.transferred, paidToOwner: st.owner.paid,
-      pendingPayout: st.owner.pendingPayout, inTrust: st.owner.inTrust, ownerDue: st.owner.due, units: st.units };
+      reservation: kin('reservation'), contract: kin('down_payment'), installments: kin('installment'),
+      refunded: pick(xout.rows, (x) => x.project_id === p.id && x.ex_kind === 'refund'),
+      paidToOwner: pick(xout.rows, (x) => x.project_id === p.id && x.ex_kind === 'owner_payout'),
+      commissionMoved: pick(tr.rows, (x) => x.project_id === p.id),
+      collected: st.collected, pendingPayout: st.owner.pendingPayout, inTrust: st.owner.inTrust, ownerDue: st.owner.due, units: st.units };
   }).sort((a, b) => b.inTrust - a.inTrust);
-  // العمولات: the units' + the commission requests filed without a unit (عمولة صفقة قديمة)
-  const contracted = units.filter((u) => u.status === 'contracted');
+  // العمولات: due = what the units contracted in the period earned; entered = what came in during the period
+  const contracted = units.filter((u) => u.status === 'contracted' && (!from && !to ? true : inDay(u.contracted_at)));
+  vals.length = 0;
   const legacy = await one(q, `SELECT
-      COALESCE((SELECT sum(sales_amount + manager_amount + company_amount) FROM commission_requests WHERE status = 'approved' AND ex_unit_id IS NULL), 0) AS due,
-      COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE kind = 'commission' AND status = 'posted' AND commission_unit_id IS NULL), 0) AS got`);
+      COALESCE((SELECT sum(sales_amount + manager_amount + company_amount) FROM commission_requests WHERE status = 'approved' AND ex_unit_id IS NULL
+                ${range('decided_at')}), 0) AS due`, vals);
+  const legacyGot = pick(cr.rows, (x) => !x.unit_id);
+  const unitGot = (id: string) => pick(tr.rows, (x) => x.unit_id === id) + pick(cr.rows, (x) => x.unit_id === id);
+  const periodic = !!(from || to);
   const due = r2(contracted.reduce((t, u) => t + u.earned, 0) + n(legacy.due));
-  const collected = r2(contracted.reduce((t, u) => t + u.commissionCollected, 0) + n(legacy.got));
+  const collected = r2(pick(tr.rows, () => true) + pick(cr.rows, () => true));
+  const remaining = r2(contracted.reduce((t, u) => t + u.receivable, 0) + Math.max(n(legacy.due) - legacyGot, 0));
   // every project (حصري + تسويق), the busiest first
+  const open = units.filter((u) => ['reserving', 'reserved', 'contract_pending'].includes(u.status));
+  const ymOf = (v: unknown) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 7) : '');
+  const expectedIn = (u: any) => {
+    if (!periodic) return true;
+    const m = ymOf(u.expected_contract_date);
+    return !!m && (!from || m >= from.slice(0, 7)) && (!to || m <= to.slice(0, 7));
+  };
   const byProject = ps.rows.map((p) => {
     const us = contracted.filter((u) => u.project_id === p.id);
-    const d = r2(us.reduce((t, u) => t + u.earned, 0)), c = r2(us.reduce((t, u) => t + u.commissionCollected, 0));
-    const expected = r2(units.filter((u) => u.project_id === p.id && ['reserving', 'reserved', 'contract_pending'].includes(u.status))
-      .reduce((t, u) => t + u.potential, 0));
-    return { id: p.id, name: p.name, kind: p.kind, status: p.status, due: d, collected: c, remaining: r2(Math.max(d - c, 0)),
+    const d = r2(us.reduce((t, u) => t + u.earned, 0));
+    const c = r2(pick(tr.rows, (x) => x.project_id === p.id) + pick(cr.rows, (x) => x.project_id === p.id && x.unit_id));
+    const expected = r2(open.filter((u) => u.project_id === p.id && expectedIn(u)).reduce((t, u) => t + u.potential, 0));
+    return { id: p.id, name: p.name, kind: p.kind, status: p.status, due: d, collected: c, remaining: r2(us.reduce((t, u) => t + u.receivable, 0)),
       upcoming: r2(us.reduce((t, u) => t + u.upcoming, 0)), expected, units: us.length };
   }).sort((a, b) => b.remaining - a.remaining || b.due - a.due || b.expected - a.expected);
   // عمولات متوقعة: by the month the reservation is expected to become a contract
-  const open = units.filter((u) => ['reserving', 'reserved', 'contract_pending'].includes(u.status));
   const months = new Map<string, { month: string; amount: number; units: any[] }>();
-  for (const u of open) {
-    const d = u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 7) : '';
+  for (const u of open.filter(expectedIn)) {
+    const d = ymOf(u.expected_contract_date);
     const m = months.get(d) ?? { month: d, amount: 0, units: [] };
     m.amount = r2(m.amount + u.potential);
-    m.units.push({ id: u.id, projectName: u.project_name, unitNo: u.unit_no, clientName: u.client_name, salesName: u.sales_name,
-      amount: u.potential, expectedContractDate: d ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null });
+    m.units.push({ id: u.id, projectId: u.project_id, projectName: u.project_name, unitNo: u.unit_no, clientName: u.client_name, salesName: u.sales_name,
+      amount: u.potential, expectedContractDate: isoDay(u.expected_contract_date) });
     months.set(d, m);
   }
   const expected = [...months.values()].sort((a, b) => (a.month || '9999').localeCompare(b.month || '9999'));
   return {
+    period: { from, to },
     projectsBox: { total: r2(projects.reduce((t, p) => t + p.inTrust, 0)), projects },
-    commissions: { due, collected, remaining: r2(Math.max(due - collected, 0)),
-      upcoming: r2(contracted.reduce((t, u) => t + u.upcoming, 0)), byProject,
-      units: contracted.map((u) => ({ id: u.id, projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no, clientName: u.client_name,
-        salesName: u.sales_name, due: r2(u.earned), collected: r2(u.commissionCollected), remaining: r2(u.receivable), upcoming: r2(u.upcoming),
-        contractedAt: u.contracted_at })).sort((x, y) => y.remaining - x.remaining),
-      legacy: { due: r2(n(legacy.due)), collected: r2(n(legacy.got)) } },
+    commissions: { due, collected, remaining, upcoming: r2(contracted.reduce((t, u) => t + u.upcoming, 0)), byProject,
+      units: contracted.map((u) => ({ id: u.id, projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
+        clientName: u.client_name, salesName: u.sales_name, due: r2(u.earned), collected: r2(periodic ? unitGot(u.id) : u.commissionCollected),
+        remaining: r2(u.receivable), upcoming: r2(u.upcoming), contractedAt: u.contracted_at })).sort((x, y) => y.remaining - x.remaining),
+      legacy: { due: r2(n(legacy.due)), collected: legacyGot } },
     expectedCommissions: { total: r2(expected.reduce((t, m) => t + m.amount, 0)), months: expected },
   };
 }
