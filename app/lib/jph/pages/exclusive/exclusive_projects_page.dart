@@ -617,6 +617,17 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     );
   }
 
+  Future<void> _changeDeveloper(bool isDark, Map<String, dynamic> p) async {
+    final devs = _l((await _get('/exclusive/developers'))['developers']);
+    if (!mounted) return;
+    final v = await JphUi.sheet<String>(context, isDark, 'المطور', [for (final d in devs) ('${d['id']}', '${d['name']}', Icons.business_rounded)],
+        selected: p['developerId'] == null ? null : '${p['developerId']}');
+    if (v == null) return;
+    final r = await _post('/exclusive/projects/${p['id']}/developer', {'developerId': v}, 'اتغيّر المطور ✅');
+    if (mounted) JphUi.toast(context, r);
+    _load();
+  }
+
   Widget _body(bool isDark, Map<String, dynamic> p) {
     final st = _m(p['stats']);
     final can = _m(_d!['can']);
@@ -625,6 +636,16 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final statement = _l(_d!['statement']);
     final marketing = p['kind'] == 'marketing';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+      if (_m(_d!['can'])['manage'] == true || p['developerName'] != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            const Icon(Icons.business_rounded, color: Colors.indigo),
+            const SizedBox(width: 8),
+            Expanded(child: Text('المطور: ${p['developerName'] ?? 'مش محدد'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+            if (_m(_d!['can'])['manage'] == true) TextButton(onPressed: () => _changeDeveloper(isDark, p), child: const Text('تغيير')),
+          ]),
+        ),
       if (marketing && st.isNotEmpty) ...[
         _section(isDark, 'عمولة المشروع', [
           Wrap(spacing: 6, runSpacing: 6, children: [

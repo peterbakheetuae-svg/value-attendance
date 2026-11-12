@@ -119,3 +119,30 @@ test('injection + the cashbox overview: available (bank / office cash / accounta
   assert.equal(acc.body.available.hr.cash, 10_000);
   assert.equal(acc.body.commissionSplit, undefined);
 });
+
+test('المطورين: every project belongs to a developer, with his accounts per kind', async () => {
+  const ex = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج المطور', developerName: 'شركة المستقبل', developerPhone: '0122' });
+  assert.equal(ex.status, 201, JSON.stringify(ex.body));
+  assert.equal(ex.body.project.ownerName, 'شركة المستقبل', 'an exclusive project\'s developer is its owner');
+  const mk = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'كمبوند المستقبل', totalPct: 3, salesPct: 0.2, managerPct: 0.1, companyPct: 2.7,
+    developerName: 'شركة المستقبل' });
+  assert.equal(mk.status, 201, JSON.stringify(mk.body));
+  const list = await h.call(c.t.owner, 'GET', '/exclusive/developers');
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const dev = list.body.developers.find((d: any) => d.name === 'شركة المستقبل');
+  assert.equal(dev.exclusive.projects, 1);
+  assert.equal(dev.marketing.projects, 1, 'one developer, both kinds');
+  assert.equal((await h.call(c.t.e1, 'GET', '/exclusive/developers')).status, 403);
+  // a marketing sale of his: the commission he owes
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: mk.body.project.id, unitNo: 'D-1', clientName: 'عميل المطور', unitPrice: 1_000_000,
+    contract: { paymentType: 'cash' } });
+  assert.equal(u.status, 201, JSON.stringify(u.body));
+  const one = await h.call(c.t.owner, 'GET', `/exclusive/developers/${dev.id}`);
+  assert.equal(one.body.developer.marketing.commissionRemaining, 30_000);
+  // a project moves to another developer; renaming the developer renames the exclusive owner
+  const other = (await h.call(c.t.owner, 'POST', '/exclusive/developers', { name: 'مطور تاني' })).body.developer;
+  assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/projects/${ex.body.project.id}/developer`, { developerId: other.id })).status, 200);
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/exclusive/developers/${other.id}`, { name: 'مطور تاني جديد' })).status, 200);
+  const p = await h.call(c.t.owner, 'GET', `/exclusive/projects/${ex.body.project.id}`);
+  assert.deepEqual([p.body.project.developerName, p.body.project.ownerName], ['مطور تاني جديد', 'مطور تاني جديد']);
+});

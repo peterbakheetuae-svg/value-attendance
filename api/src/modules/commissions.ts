@@ -5,6 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 import { notify } from './notify.ts';
+import { resolveDeveloper } from './exclusive.ts';
 
 /**
  * إدارة عمولات المشاريع — projects with a commission split, "عمولة صفقة" requests by salespeople, approval by
@@ -256,6 +257,9 @@ export const commissionsModule: Module = (r, { db, clock }) => {
         [b.name, String(b.total), String(b.sales), String(b.manager), String(b.company), b.status ?? 'active', a.id]);
       await audit(q, a.id, 'commission.project.create', 'commission_project', p.id, undefined,
         { name: p.name, totalPct: b.total, salesPct: b.sales, managerPct: b.manager, companyPct: b.company });
+      // the developer (المطور) the project belongs to
+      const dev = await resolveDeveloper(q, a, obj(req.body));
+      if (dev) await q.query(`UPDATE commission_projects SET developer_id = $2 WHERE id = $1`, [p.id, dev.id]);
       // عمولة شركات التسويق: out of the office share
       const mk = pct(obj(req.body), 'marketingPct', true);
       if (mk !== undefined && mk > 0) {

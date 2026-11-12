@@ -48,6 +48,10 @@ class _ProjectsListState extends State<ProjectsList> {
     final isDark = widget.isDark;
     String kind = _kind.isEmpty ? 'exclusive' : _kind;
     final name = TextEditingController(), owner = TextEditingController(), phone = TextEditingController();
+    // المطور: an existing one or a new name
+    final devs = _l((await _get('/exclusive/developers'))['developers']);
+    Map<String, dynamic>? dev;
+    if (!mounted) return;
     final total = TextEditingController(text: '5'), contract = TextEditingController(text: '3'), sales = TextEditingController(text: '0.2'),
         manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5'), mkPct = TextEditingController(text: '0');
     num office() => (num.tryParse(total.text) ?? 0) - (num.tryParse(sales.text) ?? 0) - (num.tryParse(manager.text) ?? 0);
@@ -69,9 +73,21 @@ class _ProjectsListState extends State<ProjectsList> {
                   : 'المكتب بيسوّق لمطور، وعمولته كلها عند التعاقد.',
               style: TextStyle(color: JphUi.sub(isDark), fontSize: 13)),
           JphUi.input(isDark: isDark, label: 'اسم المشروع', controller: name, icon: Icons.apartment_rounded),
+          Text(kind == 'exclusive' ? 'المطور (مالك المشروع)' : 'المطور', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          if (devs.isNotEmpty)
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final d in devs)
+                ChoiceChip(label: Text('${d['name']}'), selected: dev?['id'] == d['id'], onSelected: (_) => set(() {
+                  dev = dev?['id'] == d['id'] ? null : d;
+                  if (dev != null) owner.clear();
+                })),
+            ]),
+          if (dev == null) ...[
+            JphUi.input(isDark: isDark, label: devs.isEmpty ? 'اسم المطور' : 'أو مطور جديد — اسمه', controller: owner, icon: Icons.business_rounded),
+            JphUi.input(isDark: isDark, label: 'تليفون المطور', controller: phone, icon: Icons.phone_rounded, number: true),
+          ],
           if (kind == 'exclusive') ...[
-            JphUi.input(isDark: isDark, label: 'اسم مالك العقار', controller: owner, icon: Icons.person_rounded),
-            JphUi.input(isDark: isDark, label: 'تليفون المالك', controller: phone, icon: Icons.phone_rounded, number: true),
+            const SizedBox.shrink(),
           ],
           JphUi.input(isDark: isDark, label: 'إجمالي العمولة ٪', controller: total, number: true, icon: Icons.percent_rounded),
           if (kind == 'exclusive')
@@ -91,7 +107,7 @@ class _ProjectsListState extends State<ProjectsList> {
       final Map<String, dynamic> r;
       if (kind == 'exclusive') {
         r = await _post('/exclusive/projects', {
-          'name': name.text.trim(), 'ownerName': owner.text.trim(), 'ownerPhone': phone.text.trim(),
+          'name': name.text.trim(), if (dev != null) 'developerId': dev!['id'] else ...{'developerName': owner.text.trim(), 'developerPhone': phone.text.trim()},
           'totalPct': num.tryParse(total.text), 'contractPct': num.tryParse(contract.text), 'salesPct': num.tryParse(sales.text),
           'managerPct': num.tryParse(manager.text), 'installmentPct': num.tryParse(inst.text), 'marketingPct': num.tryParse(mkPct.text) ?? 0,
         }, 'اتضاف المشروع ✅');
@@ -99,6 +115,7 @@ class _ProjectsListState extends State<ProjectsList> {
         final t = num.tryParse(total.text) ?? 0, sp = num.tryParse(sales.text) ?? 0, mp = num.tryParse(manager.text) ?? 0;
         r = await _post('/commissions/projects', {
           'name': name.text.trim(), 'totalPct': t, 'salesPct': sp, 'managerPct': mp,
+          if (dev != null) 'developerId': dev!['id'] else ...{'developerName': owner.text.trim(), 'developerPhone': phone.text.trim()},
           'companyPct': num.parse((t - sp - mp).toStringAsFixed(4)), 'marketingPct': num.tryParse(mkPct.text) ?? 0,
         }, 'اتضاف المشروع ✅');
       }
@@ -156,8 +173,8 @@ class _ProjectsListState extends State<ProjectsList> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${p['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                if (!marketing && p['ownerName'] != null)
-                  Text('المالك: ${p['ownerName']}', style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
+                if (p['developerName'] != null || (!marketing && p['ownerName'] != null))
+                  Text('المطور: ${p['developerName'] ?? p['ownerName']}', style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
               ]),
             ),
             _pill(marketing ? 'تسويق' : 'حصري', marketing ? Colors.deepPurple : Colors.indigo),
@@ -1149,5 +1166,269 @@ class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissions
           ),
         ),
     ];
+  }
+}
+
+
+// ==================================================================== المطورين (حصري / تسويق)
+class DevelopersPage extends StatefulWidget {
+  const DevelopersPage({super.key});
+  @override
+  State<DevelopersPage> createState() => _DevelopersPageState();
+}
+
+Future<bool> _editDeveloper(BuildContext context, bool isDark, [Map<String, dynamic>? d]) async {
+  final name = TextEditingController(text: '${d?['name'] ?? ''}'), phone = TextEditingController(text: '${d?['phone'] ?? ''}'),
+      notes = TextEditingController(text: '${d?['notes'] ?? ''}');
+  return _form(context, isDark, d == null ? 'مطور جديد' : 'تعديل المطور', (set) => [
+        JphUi.input(isDark: isDark, label: 'اسم المطور', controller: name, icon: Icons.business_rounded),
+        JphUi.input(isDark: isDark, label: 'التليفون', controller: phone, icon: Icons.phone_rounded, number: true),
+        JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
+      ], () async {
+    final body = {'name': name.text.trim(), 'phone': phone.text.trim(), 'notes': notes.text.trim()};
+    final r = d == null ? await _post('/exclusive/developers', body, 'اتضاف المطور ✅')
+        : await _post('/exclusive/developers/${d['id']}', body, 'اتحفظ ✅', method: 'patch');
+    if (context.mounted) JphUi.toast(context, r);
+    return r['success'] == true;
+  });
+}
+
+class _DevelopersPageState extends State<DevelopersPage> {
+  Map<String, dynamic>? _d;
+  String _kind = 'exclusive';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/exclusive/developers');
+    if (mounted) setState(() => _d = r);
+  }
+
+  Future<void> _link(bool isDark, Map<String, dynamic> project) async {
+    final devs = _l(_d?['developers']);
+    final v = await JphUi.sheet<String>(context, isDark, 'مطور «${project['name']}»',
+        [for (final d in devs) ('${d['id']}', '${d['name']}', Icons.business_rounded)]);
+    if (v == null) return;
+    final r = await _post('/exclusive/projects/${project['id']}/developer', {'developerId': v}, 'اتربط المشروع بالمطور ✅');
+    if (mounted) JphUi.toast(context, r);
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    final devs = _l(_d?['developers']);
+    final shown = devs.where((d) => _n(_m(d[_kind])['projects']) > 0 ||
+        (_n(_m(d['exclusive'])['projects']) == 0 && _n(_m(d['marketing'])['projects']) == 0)).toList();
+    final unlinked = _l(_d?['unlinked']).where((p) => p['kind'] == _kind).toList();
+    return _Shell(
+      title: 'المطورين',
+      child: _d == null
+          ? const Center(child: CircularProgressIndicator())
+          : _d!['success'] != true
+              ? Center(child: Text('${_d!['message'] ?? 'مش متاح'}'))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+                    _btn(isDark, 'إضافة مطور', Icons.add_business_rounded, () async {
+                      if (await _editDeveloper(context, isDark)) _load();
+                    }),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _KindBar(
+                        isDark: isDark,
+                        value: _kind,
+                        options: const [('exclusive', 'حصري'), ('marketing', 'تسويق')],
+                        counts: {
+                          'exclusive': devs.where((d) => _n(_m(d['exclusive'])['projects']) > 0).length,
+                          'marketing': devs.where((d) => _n(_m(d['marketing'])['projects']) > 0).length,
+                        },
+                        onChanged: (v) => setState(() => _kind = v),
+                      ),
+                    ),
+                    if (unlinked.isNotEmpty)
+                      _section(isDark, 'مشاريع من غير مطور (${unlinked.length})', [
+                        for (final p in unlinked)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.link_off_rounded, color: Colors.orange),
+                            title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                            trailing: TextButton(onPressed: () => _link(isDark, p), child: const Text('اربطه بمطور')),
+                          ),
+                      ]),
+                    if (shown.isEmpty)
+                      Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مطورين', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+                    for (final d in shown) _card(isDark, d),
+                  ]),
+                ),
+    );
+  }
+
+  Widget _card(bool isDark, Map<String, dynamic> d) {
+    final k = _m(d[_kind]);
+    final exclusive = _kind == 'exclusive';
+    return GestureDetector(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DeveloperPage(id: '${d['id']}', kind: _kind))).then((_) => _load()),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: JphUi.box(isDark),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            JphUi.iconTile(isDark, Icons.business_rounded, exclusive ? Colors.indigo : Colors.deepPurple),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${d['name']}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                Text('${k['projects']} مشروع${'${d['phone'] ?? ''}'.isNotEmpty ? ' · ${d['phone']}' : ''}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+              ]),
+            ),
+            Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: exclusive
+              ? [
+                  Expanded(child: _mini(isDark, 'في الأمانة', k['inTrust'], Colors.purple)),
+                  const SizedBox(width: 6),
+                  Expanded(child: _mini(isDark, 'اتصرفله', k['paid'], Colors.red)),
+                  const SizedBox(width: 6),
+                  Expanded(child: _mini(isDark, 'الصافي له', k['due'], Colors.green)),
+                ]
+              : [
+                  Expanded(child: _mini(isDark, 'عمولة مستحقة', k['commissionDue'], Colors.amber.shade800)),
+                  const SizedBox(width: 6),
+                  Expanded(child: _mini(isDark, 'اتحصّل', k['commissionCollected'], Colors.green)),
+                  const SizedBox(width: 6),
+                  Expanded(child: _mini(isDark, 'متبقي عليه', k['commissionRemaining'], Colors.orange)),
+                ]),
+        ]),
+      ),
+    );
+  }
+}
+
+/// One developer: his accounts (حصري: his money we hold; تسويق: the commission he owes) and every project of his.
+class DeveloperPage extends StatefulWidget {
+  final String id;
+  final String kind;
+  const DeveloperPage({super.key, required this.id, this.kind = 'exclusive'});
+  @override
+  State<DeveloperPage> createState() => _DeveloperPageState();
+}
+
+class _DeveloperPageState extends State<DeveloperPage> {
+  Map<String, dynamic>? _d;
+  late String _kind = widget.kind;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/exclusive/developers/${widget.id}');
+    if (mounted) setState(() => _d = r);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    final d = _m(_d?['developer']);
+    final k = _m(d[_kind]);
+    final exclusive = _kind == 'exclusive';
+    return _Shell(
+      title: d.isEmpty ? 'المطور' : '${d['name']}',
+      child: _d == null
+          ? const Center(child: CircularProgressIndicator())
+          : _d!['success'] != true
+              ? Center(child: Text('${_d!['message'] ?? 'مش متاح'}'))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text('${'${d['phone'] ?? ''}'.isEmpty ? '' : '📞 ${d['phone']}  '}${d['notes'] ?? ''}',
+                            style: TextStyle(color: JphUi.sub(isDark), fontWeight: FontWeight.w700)),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          if (await _editDeveloper(context, isDark, d)) _load();
+                        },
+                        icon: const Icon(Icons.edit_rounded),
+                        label: const Text('تعديل'),
+                      ),
+                    ]),
+                    const SizedBox(height: 6),
+                    _KindBar(
+                      isDark: isDark,
+                      value: _kind,
+                      options: const [('exclusive', 'حصري'), ('marketing', 'تسويق')],
+                      counts: {'exclusive': _n(_m(d['exclusive'])['projects']).toInt(), 'marketing': _n(_m(d['marketing'])['projects']).toInt()},
+                      onChanged: (v) => setState(() => _kind = v),
+                    ),
+                    const SizedBox(height: 12),
+                    JphUi.statGrid(exclusive
+                        ? [
+                            _tile(isDark, 'اتحصّل (أمانة)', k['collected'], Icons.savings_rounded, Colors.teal),
+                            _tile(isDark, 'في الأمانة دلوقتي', k['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
+                            _tile(isDark, 'اتصرفله', k['paid'], Icons.outbox_rounded, Colors.red),
+                            _tile(isDark, 'الصافي المستحق له', k['due'], Icons.account_balance_rounded, Colors.green),
+                            _tile(isDark, 'عمولة اتحوّلت للمكتب', k['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Colors.indigo),
+                          ]
+                        : [
+                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Colors.indigo),
+                            _tile(isDark, 'عمولة مستحقة', k['commissionDue'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+                            _tile(isDark, 'اتحصّل منه', k['commissionCollected'], Icons.savings_rounded, Colors.green),
+                            _tile(isDark, 'متبقي عليه', k['commissionRemaining'], Icons.hourglass_top_rounded, Colors.orange),
+                            _tile(isDark, 'عمولة متوقعة', k['commissionExpected'], Icons.event_available_rounded, Colors.teal),
+                          ]),
+                    const SizedBox(height: 16),
+                    Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    const SizedBox(height: 8),
+                    if (_l(k['list']).isEmpty)
+                      Padding(padding: const EdgeInsets.all(24), child: Text('مفيش مشاريع ${exclusive ? 'حصري' : 'تسويق'}',
+                          textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+                    for (final p in _l(k['list']))
+                      GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}'))).then((_) => _load()),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          decoration: JphUi.box(isDark),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                            Row(children: [
+                              JphUi.iconTile(isDark, exclusive ? Icons.apartment_rounded : Icons.storefront_rounded, exclusive ? Colors.indigo : Colors.deepPurple),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text('${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+                              Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+                            ]),
+                            const SizedBox(height: 8),
+                            Row(children: exclusive
+                                ? [
+                                    Expanded(child: _mini(isDark, 'في الأمانة', p['inTrust'], Colors.purple)),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: _mini(isDark, 'اتصرفله', p['paid'], Colors.red)),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: _mini(isDark, 'الصافي له', p['due'], Colors.green)),
+                                  ]
+                                : [
+                                    Expanded(child: _mini(isDark, 'مستحقة', p['commissionDue'], Colors.amber.shade800)),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: _mini(isDark, 'اتحصّل', p['commissionCollected'], Colors.green)),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: _mini(isDark, 'متبقي', p['commissionRemaining'], Colors.orange)),
+                                  ]),
+                          ]),
+                        ),
+                      ),
+                  ]),
+                ),
+    );
   }
 }

@@ -212,6 +212,24 @@ function shapePayment(x: any) {
     unitNo: x.unit_no, clientName: x.client_name, projectName: x.project_name, salesName: x.sales_name };
 }
 
+/** The developer a project belongs to: an existing one (developerId) or a new name (developerName) — created once. */
+export async function resolveDeveloper(q: Q, a: Actor, b: Record<string, unknown>) {
+  if (typeof b.developerId === 'string' && isUuid(b.developerId)) {
+    const d = await one(q, `SELECT * FROM developers WHERE id = $1`, [b.developerId]);
+    if (!d) throw invalid('اختار المطور', { field: 'developerId' });
+    return d;
+  }
+  const name = typeof b.developerName === 'string' ? b.developerName.trim() : '';
+  if (name.length < 2) return null;
+  if (name.length > 120) throw invalid('اسم المطور طويل', { field: 'developerName' });
+  const old = await one(q, `SELECT * FROM developers WHERE lower(trim(name)) = lower(trim($1))`, [name]);
+  if (old) return old;
+  const phone = typeof b.developerPhone === 'string' ? b.developerPhone.trim().slice(0, 30) : '';
+  const d = await one(q, `INSERT INTO developers (name, phone, created_by) VALUES ($1,$2,$3) RETURNING *`, [name, phone, a.id]);
+  await audit(q, a.id, 'developer.create', 'developer', d.id, undefined, d);
+  return d;
+}
+
 function shapeProject(p: any, stats?: any, a?: Actor) {
   // the office's figures (its % / the owner) are المالك / المدير العام's; the sales team sees its own % only
   if (a && !canSeeAll(a)) {
@@ -219,6 +237,7 @@ function shapeProject(p: any, stats?: any, a?: Actor) {
   }
   return {
     id: p.id, name: p.name, kind: p.kind, status: p.status, ownerName: p.owner_name, ownerPhone: p.owner_phone,
+    developerId: p.developer_id ?? null, developerName: p.developer_name ?? null,
     totalPct: n(p.total_pct), contractPct: n(p.contract_pct), installmentPct: n(p.installment_pct),
     salesPct: n(p.sales_pct), managerPct: n(p.manager_pct), companyPct: n(p.company_pct), marketingPct: n(p.marketing_pct),
     createdAt: p.created_at, stats,
@@ -249,8 +268,9 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     const kind = req.query.get('kind') ?? 'exclusive';
     const kindSql = kind === 'all' ? 'true' : kind === 'marketing' ? `kind = 'marketing'` : `kind = 'exclusive'`;
-    const rows = await db.query(`SELECT * FROM commission_projects WHERE ${kindSql}
-                                  ${canManage(a) ? '' : `AND status = 'active'`} ORDER BY status = 'active' DESC, created_at DESC`);
+    const rows = await db.query(`SELECT p.*, d.name AS developer_name FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+                                  WHERE ${kindSql.replace(/\bkind\b/g, 'p.kind')}
+                                  ${canManage(a) ? '' : `AND p.status = 'active'`} ORDER BY p.status = 'active' DESC, p.created_at DESC`);
     const st = canManage(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
     return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id], a)), canManage: canManage(a), canReserve: canReserve(a), canCollect: hrDesk(a) });
   });
@@ -260,8 +280,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!canManage(a)) throw forbidden();
     const b = obj(req.body);
     const name = str(b, 'name', { min: 2, max: 120 })!.trim();
-    const ownerName = str(b, 'ownerName', { min: 2, max: 120 })!.trim();
-    const ownerPhone = (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim();
+    let ownerName = (str(b, 'ownerName', { optional: true, max: 120 }) ?? '').trim();
+    let ownerPhone = (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim();
     const total = pct(b, 'totalPct', 5), contract = pct(b, 'contractPct', 3), sales = pct(b, 'salesPct', 0.2),
       manager = pct(b, 'managerPct', 0.1), inst = pct(b, 'installmentPct', 0.5), mkPct = pct(b, 'marketingPct', 0);
     if (mkPct > total - sales - manager) throw invalid('عمولة شركات التسويق أكبر من نصيب المكتب', { field: 'marketingPct' });
@@ -271,10 +291,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (await one(q, `SELECT 1 FROM commission_projects WHERE lower(trim(name)) = lower(trim($1))`, [name])) {
         throw invalid('فيه مشروع بنفس الاسم', { field: 'name' });
       }
+      // the developer (المالك / المطور) of the exclusive project
+      const dev = await resolveDeveloper(q, a, { developerName: ownerName, developerPhone: ownerPhone, ...b });
+      if (!dev) throw invalid('اختار المطور (المالك)', { field: 'developerName' });
+      ownerName = dev.name; ownerPhone = ownerPhone || dev.phone;
       const x = await one(q, `INSERT INTO commission_projects (name, total_pct, sales_pct, manager_pct, company_pct, created_by, kind,
-          owner_name, owner_phone, contract_pct, installment_pct, marketing_pct)
-        VALUES ($1,$2,$3,$4,$5,$6,'exclusive',$7,$8,$9,$10,$11) RETURNING *`,
-        [name, total, sales, manager, r2(total - sales - manager), a.id, ownerName, ownerPhone, contract, inst, mkPct]);
+          owner_name, owner_phone, contract_pct, installment_pct, marketing_pct, developer_id)
+        VALUES ($1,$2,$3,$4,$5,$6,'exclusive',$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [name, total, sales, manager, r2(total - sales - manager), a.id, ownerName, ownerPhone, contract, inst, mkPct, dev.id]);
       await audit(q, a.id, 'exclusive.project.create', 'commission_project', x.id, undefined, x);
       return x;
     });
@@ -309,7 +333,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
-    const p = await one(db, `SELECT * FROM commission_projects WHERE id = $1`, [req.params.id]);
+    const p = await one(db, `SELECT p.*, d.name AS developer_name FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+                              WHERE p.id = $1`, [req.params.id]);
     if (!p) throw notFound();
     const { stats, units } = await projectStats(db, [p.id]);
     const visible = canSeeAll(a) ? units : units.filter((u) => u.sales_id === a.id);
@@ -957,6 +982,111 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     });
     const [full] = await loadUnits(db, 'u.id = $1', [out.unitId]);
     return ok({ unit: shapeUnit(full, a), receiptNo: `R-${String(out.ref).padStart(6, '0')}` });
+  });
+
+  // ------------------------------------------------------------------ المطورين
+  /** A project's developer is changed / set (حصري: he is its owner too). */
+  r.post('/exclusive/projects/:id/developer', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    await db.tx(async (q) => {
+      const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!p) throw notFound();
+      const d = await resolveDeveloper(q, a, b);
+      if (!d) throw invalid('اختار المطور', { field: 'developerId' });
+      await q.query(`UPDATE commission_projects SET developer_id = $2,
+          owner_name = CASE WHEN kind = 'exclusive' THEN $3 ELSE owner_name END,
+          owner_phone = CASE WHEN kind = 'exclusive' AND $4 <> '' THEN $4 ELSE owner_phone END WHERE id = $1`, [p.id, d.id, d.name, d.phone]);
+      await audit(q, a.id, 'project.developer', 'commission_project', p.id, { developerId: p.developer_id }, { developerId: d.id });
+    });
+    return ok({ ok: true });
+  });
+
+  async function developerAccounts(q: Q, devId: string | null) {
+    const devs = (await q.query(`SELECT * FROM developers ${devId ? 'WHERE id = $1' : ''} ORDER BY name`, devId ? [devId] : [])).rows;
+    const ps = (await q.query(`SELECT * FROM commission_projects WHERE developer_id IS NOT NULL ${devId ? 'AND developer_id = $1' : ''} ORDER BY created_at`,
+      devId ? [devId] : [])).rows;
+    const { stats, units } = await projectStats(q, ps.map((p) => p.id));
+    const project = (p: any) => {
+      const st = stats[p.id];
+      const us = units.filter((u) => u.project_id === p.id);
+      const contracted = us.filter((u) => u.status === 'contracted');
+      const sum = (arr: any[], f: (u: any) => number) => r2(arr.reduce((t, u) => t + f(u), 0));
+      return { id: p.id, name: p.name, kind: p.kind, status: p.status, units: st.units, sales: st.sales,
+        // حصري: the developer's money we hold
+        collected: r2(st.collected - st.refunded), inTrust: st.owner.inTrust, paid: st.owner.paid, due: st.owner.due,
+        pendingPayout: st.owner.pendingPayout, commissionMoved: st.commission.transferred,
+        // the commission (حصري: out of his money; تسويق: he pays it)
+        commissionDue: sum(contracted, (u) => u.earned), commissionCollected: sum(contracted, (u) => u.commissionCollected),
+        commissionRemaining: sum(contracted, (u) => u.receivable),
+        commissionExpected: sum(us.filter((u) => ['reserving', 'reserved', 'contract_pending'].includes(u.status)), (u) => u.potential) };
+    };
+    const totals = (list: any[]) => {
+      const t = (k: string) => r2(list.reduce((s, p) => s + n(p[k]), 0));
+      return { projects: list.length, sales: t('sales'), collected: t('collected'), inTrust: t('inTrust'), paid: t('paid'), due: t('due'),
+        commissionMoved: t('commissionMoved'), commissionDue: t('commissionDue'), commissionCollected: t('commissionCollected'),
+        commissionRemaining: t('commissionRemaining'), commissionExpected: t('commissionExpected') };
+    };
+    return devs.map((d) => {
+      const mine = ps.filter((p) => p.developer_id === d.id).map(project);
+      const ex = mine.filter((p) => p.kind === 'exclusive'), mk = mine.filter((p) => p.kind === 'marketing');
+      return { id: d.id, name: d.name, phone: d.phone, notes: d.notes, exclusive: { ...totals(ex), list: ex }, marketing: { ...totals(mk), list: mk } };
+    });
+  }
+
+  r.get('/exclusive/developers', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const developers = await developerAccounts(db, null);
+    const unlinked = (await db.query(`SELECT id, name, kind FROM commission_projects WHERE developer_id IS NULL ORDER BY created_at`)).rows;
+    return ok({ developers, unlinked });
+  });
+
+  r.get('/exclusive/developers/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const [d] = await developerAccounts(db, req.params.id);
+    if (!d) throw notFound();
+    return ok({ developer: d });
+  });
+
+  r.post('/exclusive/developers', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    const b = obj(req.body);
+    const name = str(b, 'name', { min: 2, max: 120 })!.trim();
+    const d = await db.tx(async (q) => {
+      if (await one(q, `SELECT 1 FROM developers WHERE lower(trim(name)) = lower(trim($1))`, [name])) throw conflict('فيه مطور بنفس الاسم');
+      const x = await one(q, `INSERT INTO developers (name, phone, notes, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [name, (str(b, 'phone', { optional: true, max: 30 }) ?? '').trim(), (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim(), a.id]);
+      await audit(q, a.id, 'developer.create', 'developer', x.id, undefined, x);
+      return x;
+    });
+    return ok({ developer: { id: d.id, name: d.name, phone: d.phone, notes: d.notes } }, 201);
+  });
+
+  r.patch('/exclusive/developers/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canManage(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM developers WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!o) throw notFound();
+      const name = (str(b, 'name', { optional: true, min: 2, max: 120 }) ?? o.name).trim();
+      if (await one(q, `SELECT 1 FROM developers WHERE lower(trim(name)) = lower(trim($1)) AND id <> $2`, [name, o.id])) throw conflict('فيه مطور بنفس الاسم');
+      const phone = (str(b, 'phone', { optional: true, max: 30 }) ?? o.phone).trim();
+      await q.query(`UPDATE developers SET name = $2, phone = $3, notes = $4 WHERE id = $1`,
+        [o.id, name, phone, (str(b, 'notes', { optional: true, max: 1000 }) ?? o.notes).trim()]);
+      // the exclusive projects carry his name as their owner
+      await q.query(`UPDATE commission_projects SET owner_name = $2, owner_phone = CASE WHEN $3 <> '' THEN $3 ELSE owner_phone END
+                      WHERE developer_id = $1 AND kind = 'exclusive'`, [o.id, name, phone]);
+      await audit(q, a.id, 'developer.update', 'developer', o.id, o, { name, phone });
+    });
+    return ok({ ok: true });
   });
 
   // ------------------------------------------------------------------ الملاك (owners of the exclusive projects)
