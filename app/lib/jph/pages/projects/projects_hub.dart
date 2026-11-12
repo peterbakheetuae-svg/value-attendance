@@ -51,6 +51,7 @@ class _ProjectsListState extends State<ProjectsList> {
     // المطور: an existing one or a new name
     final devs = _l((await _get('/exclusive/developers'))['developers']);
     Map<String, dynamic>? dev;
+    bool newDev = false;
     if (!mounted) return;
     final total = TextEditingController(text: '5'), contract = TextEditingController(text: '3'), sales = TextEditingController(text: '0.2'),
         manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5'), mkPct = TextEditingController(text: '0');
@@ -73,17 +74,28 @@ class _ProjectsListState extends State<ProjectsList> {
                   : 'المكتب بيسوّق لمطور، وعمولته كلها عند التعاقد.',
               style: TextStyle(color: JphUi.sub(isDark), fontSize: 13)),
           JphUi.input(isDark: isDark, label: 'اسم المشروع', controller: name, icon: Icons.apartment_rounded),
-          Text(kind == 'exclusive' ? 'المطور (مالك المشروع)' : 'المطور', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-          if (devs.isNotEmpty)
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final d in devs)
-                ChoiceChip(label: Text('${d['name']}'), selected: dev?['id'] == d['id'], onSelected: (_) => set(() {
-                  dev = dev?['id'] == d['id'] ? null : d;
-                  if (dev != null) owner.clear();
-                })),
-            ]),
-          if (dev == null) ...[
-            JphUi.input(isDark: isDark, label: devs.isEmpty ? 'اسم المطور' : 'أو مطور جديد — اسمه', controller: owner, icon: Icons.business_rounded),
+          // the same picker as «اختار الموظف» in تقرير الحضور
+          JphUi.picker(
+            isDark: isDark,
+            icon: Icons.business_rounded,
+            iconColor: Colors.teal,
+            label: kind == 'exclusive' ? 'المطور (مالك المشروع)' : 'المطور',
+            value: dev != null ? '${dev!['name']}' : (newDev ? 'مطور جديد' : 'اختار المطور'),
+            onTap: () async {
+              final v = await JphUi.sheet<String>(context, isDark, kind == 'exclusive' ? 'المطور (مالك المشروع)' : 'المطور', [
+                ('__new__', '+ مطور جديد', Icons.add_business_rounded),
+                for (final d in devs) ('${d['id']}', '${d['name']}', Icons.business_rounded),
+              ], selected: dev == null ? (newDev ? '__new__' : null) : '${dev!['id']}', icon: Icons.business_rounded);
+              if (v == null) return;
+              set(() {
+                newDev = v == '__new__';
+                dev = newDev ? null : devs.firstWhere((d) => '${d['id']}' == v);
+                if (dev != null) owner.clear();
+              });
+            },
+          ),
+          if (newDev || devs.isEmpty) ...[
+            JphUi.input(isDark: isDark, label: 'اسم المطور الجديد', controller: owner, icon: Icons.business_rounded),
             JphUi.input(isDark: isDark, label: 'تليفون المطور', controller: phone, icon: Icons.phone_rounded, number: true),
           ],
           if (kind == 'exclusive') ...[
@@ -356,19 +368,17 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
               ),
           ]),
         ],
-        if (_seesKind()) SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            for (final f in const [('', 'كل المشاريع'), ('exclusive', 'حصري'), ('marketing', 'تسويق')])
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: 6),
-                child: ChoiceChip(label: Text(f.$2), selected: _kind == f.$1, onSelected: (_) {
-                  setState(() => _kind = f.$1);
-                  _load();
-                }),
-              ),
-          ]),
-        ),
+        // the same bar as حجز / تعاقد (حصري / تسويق: المالك / المدير العام and the accountant only)
+        if (_seesKind())
+          _KindBar(
+            isDark: isDark,
+            value: _kind,
+            options: const [('', 'كل المشاريع'), ('exclusive', 'حصري'), ('marketing', 'تسويق')],
+            onChanged: (v) {
+              setState(() => _kind = v);
+              _load();
+            },
+          ),
         const SizedBox(height: 10),
         if (_reserve && _projects.isNotEmpty)
           _btn(isDark, _stage == 'reservation' ? 'حجز جديد' : 'تعاقد جديد', _stage == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded,
