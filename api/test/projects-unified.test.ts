@@ -39,12 +39,13 @@ test('a marketing project: reservation → contract, a marketing company takes i
   const uid = u.body.unit.id;
   assert.equal(u.body.unit.status, 'reserved');
   assert.equal(u.body.unit.projectKind, 'marketing');
-  assert.equal(u.body.unit.marketingPct, 0.5);
+  assert.equal(u.body.unit.marketingPct, undefined, 'the marketing company % is hidden from the salesperson');
   assert.equal(u.body.unit.money.collected, 0);
   assert.equal(u.body.unit.contractPct, undefined, 'the office figures are not the salesperson\'s');
   assert.equal(u.body.unit.can.collect, false, 'nothing to collect on a marketing unit');
   const asOwner = await h.call(c.t.owner, 'GET', `/exclusive/units/${uid}`);
   assert.equal(asOwner.body.unit.contractPct, 3, 'a marketing unit earns all its commission at the contract');
+  assert.equal(asOwner.body.unit.marketingPct, 0.5);
   assert.equal(asOwner.body.unit.commission.potential, 60_000);
   const seen = (await h.call(c.t.e1, 'GET', '/exclusive/projects?kind=all')).body.projects;
   assert.ok(seen.every((x: any) => x.companyPct === undefined && x.totalPct === undefined));

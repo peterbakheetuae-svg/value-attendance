@@ -95,7 +95,7 @@ function shapeUnit(u: any, a: Actor) {
   const mine = u.sales_id === a.id;
   return {
     id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
-    marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: n(u.mk_pct),
+    marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: canSeeAll(a) ? n(u.mk_pct) : undefined,
     expectedContractDate: u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null,
     depositMethod: u.deposit_method ?? null,
     form: { unitType: u.unit_type, floor: u.floor, areaM2: u.area_m2 == null ? null : n(u.area_m2), activity: u.activity,
@@ -108,7 +108,7 @@ function shapeUnit(u: any, a: Actor) {
     salesPct: n(u.sales_pct),
     contract: u.payment_type ? {
       paymentType: u.payment_type, downPayment: n(u.down_payment), installmentsCount: u.installments_count, everyMonths: u.every_months,
-      firstDueDate: u.first_due_date ? ds(u.first_due_date) : null, installmentPct: u.installment_pct == null ? null : n(u.installment_pct),
+      firstDueDate: u.first_due_date ? ds(u.first_due_date) : null, installmentPct: !canSeeAll(a) || u.installment_pct == null ? undefined : n(u.installment_pct),
       note: u.contract_note, requestedAt: u.contract_requested_at, approvedAt: u.contracted_at, approvedByName: u.contracted_by_name,
       rejectReason: u.reject_reason,
     } : null,
@@ -1130,7 +1130,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const mine = canSeeAll(a) ? '' : `AND u.sales_id = $1`;
     const units = await loadUnits(db, `true ${mine}`, canSeeAll(a) ? [] : [a.id]);
     const legacy = canSeeAll(a) ? (await db.query(`
-      SELECT s.id, s.buyer_name, s.buyer_phone, s.unit_no, s.total_price, s.status, s.created_at, p.name AS project_name, p.kind,
+      SELECT s.id, s.project_id, s.buyer_name, s.buyer_phone, s.unit_no, s.total_price, s.status, s.created_at, p.name AS project_name, p.kind,
              COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.sale_id = s.id AND r.status = 'posted'), 0) AS paid
         FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id WHERE s.status IN ('pending','active')`)).rows : [];
     const clients = new Map<string, any>();
@@ -1149,13 +1149,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     for (const u of units) {
       const status = u.completed ? 'completed' : u.status;
       put(u.client_name, u.client_phone, { id: u.id, source: 'unit', projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
-        price: n(u.unit_price), paid: r2(n(u.collected) - n(u.refunded)), status, statusAr: STATUS_AR[status], salesName: u.sales_name, at: u.created_at });
+        price: n(u.unit_price), paid: r2(n(u.collected) - n(u.refunded)), status, statusAr: STATUS_AR[status], salesId: u.sales_id, salesName: u.sales_name,
+        projectId: u.project_id, at: u.created_at });
     }
     for (const s of legacy) {
       put(s.buyer_name, s.buyer_phone, { id: s.id, source: 'sale', projectName: s.project_name, projectKind: s.kind, unitNo: s.unit_no,
-        price: n(s.total_price), paid: n(s.paid), status: 'contracted', statusAr: 'متعاقد', at: s.created_at });
+        price: n(s.total_price), paid: n(s.paid), status: 'contracted', statusAr: 'متعاقد', projectId: s.project_id, at: s.created_at });
     }
-    return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total) });
+    return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total), seesAll: canSeeAll(a) });
   });
 
   // ------------------------------------------------------------------ شركات التسويق

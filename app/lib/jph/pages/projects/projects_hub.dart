@@ -198,9 +198,9 @@ class _ProjectsListState extends State<ProjectsList> {
           Wrap(spacing: 6, runSpacing: 6, children: [
             if (p['totalPct'] != null) _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
             if (!marketing && p['contractPct'] != null) _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Colors.teal),
-            if (!marketing && p['installmentPct'] != null) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
+            if (!marketing && p['installmentPct'] != null && _seesKind()) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
             _pill('سيلز ${JphUi.pct(p['salesPct'])}${p['managerPct'] != null ? ' · مدير ${JphUi.pct(p['managerPct'])}' : ''}', Colors.blueGrey),
-            if (_n(p['marketingPct']) > 0) _pill('شركات التسويق ${JphUi.pct(p['marketingPct'])}', Colors.deepPurple),
+            if (_n(p['marketingPct']) > 0 && _seesKind()) _pill('شركات التسويق ${JphUi.pct(p['marketingPct'])}', Colors.deepPurple),
           ]),
           if (st.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -549,6 +549,9 @@ class ClientsPage extends StatefulWidget {
 class _ClientsPageState extends State<ClientsPage> {
   Map<String, dynamic>? _d;
   final _q = TextEditingController();
+  // المدير العام / المحاسب: فلتر بالسيلز والمشروع والشهر
+  String? _sales, _project;
+  DateTime? _month;
 
   @override
   void initState() {
@@ -567,13 +570,69 @@ class _ClientsPageState extends State<ClientsPage> {
     if (mounted) setState(() => _d = r);
   }
 
+  /// every client on his own card: one card per client per unit (never merged)
+  List<Map<String, dynamic>> get _rows => [
+        for (final c in _l(_d?['clients']))
+          for (final u in _l(c['units'])) {...u, 'clientName': c['name'], 'clientPhone': c['phone']},
+      ]..sort((a, b) => '${b['at'] ?? ''}'.compareTo('${a['at'] ?? ''}'));
+
+  bool _inMonth(Map<String, dynamic> u) {
+    if (_month == null) return true;
+    final d = DateTime.tryParse('${u['at'] ?? ''}')?.toLocal();
+    return d != null && d.year == _month!.year && d.month == _month!.month;
+  }
+
+  Future<void> _filter(bool isDark) async {
+    final rows = _rows;
+    final sales = <String, String>{for (final u in rows) if (u['salesId'] != null) '${u['salesId']}': '${u['salesName'] ?? ''}'};
+    final projects = <String, String>{for (final u in rows) if (u['projectId'] != null) '${u['projectId']}': '${u['projectName'] ?? ''}'};
+    final v = await JphUi.sheet<String>(context, isDark, 'الفلتر', [
+      ('sales', 'السيلز: ${_sales == null ? 'الكل' : sales[_sales] ?? ''}', Icons.person_rounded),
+      ('project', 'المشروع: ${_project == null ? 'الكل' : projects[_project] ?? ''}', Icons.apartment_rounded),
+      ('month', 'الشهر: ${monthLabel(_month)}', Icons.calendar_month_rounded),
+      if (_sales != null || _project != null || _month != null) ('clear', 'مسح الفلتر', Icons.filter_alt_off_rounded),
+    ], icon: Icons.filter_list_rounded);
+    if (v == null || !mounted) return;
+    switch (v) {
+      case 'sales':
+        final s = await JphUi.sheet<String>(context, isDark, 'السيلز', [
+          ('all', 'كل السيلز', Icons.groups_rounded),
+          for (final e in sales.entries) (e.key, e.value, Icons.person_rounded),
+        ], selected: _sales ?? 'all', icon: Icons.person_rounded);
+        if (s != null) setState(() => _sales = s == 'all' ? null : s);
+      case 'project':
+        final s = await JphUi.sheet<String>(context, isDark, 'المشروع', [
+          ('all', 'كل المشاريع', Icons.all_inclusive_rounded),
+          for (final e in projects.entries) (e.key, e.value, Icons.apartment_rounded),
+        ], selected: _project ?? 'all', icon: Icons.apartment_rounded);
+        if (s != null) setState(() => _project = s == 'all' ? null : s);
+      case 'month':
+        final m = await JphUi.pickMonthOrAll(context, isDark, _month);
+        if (m != null) setState(() => _month = identical(m, JphUi.allMonths) ? null : m);
+      case 'clear':
+        setState(() {
+          _sales = null;
+          _project = null;
+          _month = null;
+        });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
     final q = _q.text.trim();
-    final clients = _l(_d?['clients']).where((c) => q.isEmpty || '${c['name']}'.contains(q) || '${c['phone'] ?? ''}'.contains(q)).toList();
+    final seesAll = _d?['seesAll'] == true;
+    final rows = _rows
+        .where((u) => q.isEmpty || '${u['clientName']}'.contains(q) || '${u['clientPhone'] ?? ''}'.contains(q))
+        .where((u) => _sales == null || '${u['salesId']}' == _sales)
+        .where((u) => _project == null || '${u['projectId']}' == _project)
+        .where(_inMonth)
+        .toList();
+    final filtered = _sales != null || _project != null || _month != null;
     return _Shell(
       title: 'العملاء',
+      action: seesAll ? SquareIconButton(icon: Icons.filter_list_rounded, onTap: () => _filter(isDark), isDark: isDark) : null,
       child: _d == null
           ? const Center(child: CircularProgressIndicator())
           : _d!['success'] != true
@@ -582,29 +641,40 @@ class _ClientsPageState extends State<ClientsPage> {
                   onRefresh: _load,
                   child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
                     JphUi.input(isDark: isDark, label: 'دوّر باسم العميل أو تليفونه', controller: _q, icon: Icons.search_rounded, onChanged: (_) => setState(() {})),
+                    if (filtered)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                            [
+                              if (_sales != null) 'السيلز: ${rows.isNotEmpty ? rows.first['salesName'] : ''}',
+                              if (_project != null) 'المشروع: ${rows.isNotEmpty ? rows.first['projectName'] : ''}',
+                              if (_month != null) monthLabel(_month),
+                            ].join(' • '),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+                      ),
                     const SizedBox(height: 12),
-                    if (clients.isEmpty)
+                    Text('${rows.length} عميل', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+                    const SizedBox(height: 8),
+                    if (rows.isEmpty)
                       Padding(padding: const EdgeInsets.all(30), child: Text('مفيش عملاء', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
-                    for (final c in clients)
-                      _section(isDark, '${c['name']}', [
-                        if ('${c['phone'] ?? ''}'.isNotEmpty) _kv(isDark, 'التليفون', '${c['phone']}'),
-                        _kv(isDark, 'إجمالي الوحدات', _money(c['total'])),
-                        _kv(isDark, 'دفع', _money(c['paid']), color: Colors.green),
-                        _kv(isDark, 'الباقي', _money(c['remaining']), color: Colors.orange),
-                        const SizedBox(height: 4),
-                        for (final u in _l(c['units']))
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(u['projectKind'] == 'marketing' && _seesKind() ? Icons.storefront_rounded : Icons.home_work_rounded,
-                                color: _statusColor('${u['status']}')),
-                            title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-                            subtitle: Text('${u['statusAr']} · ${_money(u['price'])} · دفع ${_money(u['paid'])}', style: TextStyle(color: JphUi.sub(isDark))),
-                            trailing: u['source'] == 'unit' ? Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)) : null,
-                            onTap: u['source'] == 'unit'
-                                ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load())
-                                : null,
-                          ),
-                      ]),
+                    for (final u in rows)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: u['source'] == 'unit'
+                            ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load())
+                            : null,
+                        child: _section(isDark, '${u['clientName']}', [
+                          if ('${u['clientPhone'] ?? ''}'.isNotEmpty) _kv(isDark, 'التليفون', '${u['clientPhone']}'),
+                          _kv(isDark, 'الوحدة', '${u['projectName']} — وحدة ${u['unitNo']}'),
+                          _kv(isDark, 'الحالة', '${u['statusAr']}', color: _statusColor('${u['status']}')),
+                          if (seesAll && '${u['salesName'] ?? ''}'.isNotEmpty) _kv(isDark, 'السيلز', '${u['salesName']}'),
+                          _kv(isDark, 'السعر', _money(u['price'])),
+                          _kv(isDark, 'دفع', _money(u['paid']), color: Colors.green),
+                          _kv(isDark, 'الباقي', _money((_n(u['price']) - _n(u['paid'])).clamp(0, double.infinity)), color: Colors.orange),
+                          if (u['at'] != null) _kv(isDark, 'التاريخ', _date('${u['at']}')),
+                        ]),
+                      ),
                   ]),
                 ),
     );

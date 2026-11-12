@@ -283,7 +283,7 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
           Wrap(spacing: 6, runSpacing: 6, children: [
             _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
             _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Colors.teal),
-            _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
+            if (_seesKind()) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
             _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Colors.blueGrey),
           ]),
           if (st.isNotEmpty) ...[
@@ -339,7 +339,7 @@ Widget _cashBankPicker(bool isDark, String method, ValueChanged<String> onPick) 
 class _Terms {
   String type = 'installments';
   final down = TextEditingController(), count = TextEditingController(text: '8'), every = TextEditingController(text: '3'),
-      pct = TextEditingController(text: '0.5'), note = TextEditingController();
+      note = TextEditingController();
   DateTime first = DateTime.now().add(const Duration(days: 90));
 
   List<Widget> fields(BuildContext context, bool isDark, StateSetter set, {required num? price, num deposit = 0}) => [
@@ -383,7 +383,6 @@ class _Terms {
               if (d != null) set(() => first = d);
             },
           ),
-          JphUi.input(isDark: isDark, label: 'نسبة عمولة كل قسط ٪ (حسب الاتفاق)', controller: pct, number: true, icon: Icons.percent_rounded),
         ],
       ];
 
@@ -392,7 +391,7 @@ class _Terms {
     return {
       'paymentType': type, 'note': note.text.trim(),
       if (type == 'installments') ...{'downPayment': num.tryParse(down.text.replaceAll(',', '')), 'installmentsCount': int.tryParse(count.text),
-        'everyMonths': int.tryParse(every.text), 'firstDueDate': f, 'installmentPct': num.tryParse(pct.text)},
+        'everyMonths': int.tryParse(every.text), 'firstDueDate': f},
     };
   }
 }
@@ -1092,7 +1091,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         if (u['expectedContractDate'] != null && !['contracted', 'cancelled'].contains(st))
           _kv(isDark, 'التاريخ المتوقع للتعاقد', _date('${u['expectedContractDate']}')),
         _kv(isDark, 'السيلز', '${u['salesName']}'),
-        if (u['marketingCompanyName'] != null) _kv(isDark, 'عن طريق', '${u['marketingCompanyName']} (${JphUi.pct(u['marketingPct'])})'),
+        if (u['marketingCompanyName'] != null) _kv(isDark, 'عن طريق', _seesKind() ? '${u['marketingCompanyName']} (${JphUi.pct(u['marketingPct'])})' : '${u['marketingCompanyName']}'),
         _kv(isDark, 'سعر الوحدة', _money(u['unitPrice'])),
         _kv(isDark, 'العربون', _money(u['depositAmount'])),
         if (c.isNotEmpty) ...[
@@ -1102,7 +1101,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           if (c['paymentType'] == 'installments') ...[
             _kv(isDark, 'الأقساط', '${c['installmentsCount']} قسط كل ${c['everyMonths']} شهر'),
             _kv(isDark, 'أول قسط', _date(c['firstDueDate'])),
-            if (u['projectKind'] != 'marketing') _kv(isDark, 'عمولة كل قسط', JphUi.pct(c['installmentPct'])),
+            if (u['projectKind'] != 'marketing' && _seesKind()) _kv(isDark, 'عمولة كل قسط', JphUi.pct(c['installmentPct'])),
           ],
           if ('${c['rejectReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب رفض التعاقد', '${c['rejectReason']}', color: Colors.red),
         ],
