@@ -98,11 +98,6 @@ class _CashOverviewState extends State<CashOverview> {
         const SizedBox(height: 14),
         _result(isDark, _m(_o['result'])),
       ],
-      if (_office) ...[
-        const SizedBox(height: 14),
-        // العمولات بتدخل من «تم التحصيل» على الوحدة في المبيعات — مفيش إدخال يدوي
-        _action(isDark, 'ضخ فلوس', Icons.add_card_rounded, Colors.indigo, () => _inject(isDark)),
-      ],
       const SizedBox(height: 6),
     ]);
   }
@@ -329,63 +324,6 @@ class _CashOverviewState extends State<CashOverview> {
   }
 
   // ------------------------------------------------------------------ actions
-  Future<void> _inject(bool isDark) async {
-    String target = 'office';
-    final amount = TextEditingController(), note = TextEditingController();
-    final ref = newClientRef(); // pressing the button twice records one injection
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Directionality(
-        textDirection: ui.TextDirection.rtl,
-        child: StatefulBuilder(builder: (ctx, set) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-            child: Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
-              child: SingleChildScrollView(
-                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Text('ضخ فلوس في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                  const SizedBox(height: 4),
-                  Text('لما الشركة متجيبش أرباح تكفي المرتبات والمصاريف', style: TextStyle(color: JphUi.sub(isDark))),
-                  const SizedBox(height: 14),
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    for (final t in const [('office', 'نقدي — خزنة المكتب'), ('hr', 'نقدي — خزنة المحاسب'), ('bank', 'البنك')])
-                      ChoiceChip(label: Text(t.$2), selected: target == t.$1, onSelected: (_) => set(() => target = t.$1)),
-                  ]),
-                  const SizedBox(height: 12),
-                  JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-                  const SizedBox(height: 10),
-                  JphUi.input(isDark: isDark, label: 'ملاحظة (مثلاً: تكملة مرتبات)', controller: note, icon: Icons.notes_rounded),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 50,
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        final r = await ApiService.post({'action': 'cash_post', 'path': '/cash/injections', 'ok': 'اتسجل الضخ ✅', 'body': {
-                          'target': target, 'amount': num.tryParse(amount.text.replaceAll(',', '')), 'note': note.text.trim(),
-                          'clientRef': ref,
-                        }});
-                        if (ctx.mounted) JphUi.toast(ctx, r);
-                        if (r['success'] == true && ctx.mounted) Navigator.pop(ctx);
-                      },
-                      icon: const Icon(Icons.check_rounded),
-                      label: const Text('تسجيل الضخ', style: TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-    await _changed();
-  }
-
   Future<void> _commissionIn(bool isDark) async {
     final pr = await ApiService.post({'action': 'cash_get', 'path': '/exclusive/projects', 'query': {'kind': 'marketing'}});
     if (!mounted) return;
@@ -457,3 +395,223 @@ class _CashOverviewState extends State<CashOverview> {
   }
 }
 
+
+/// ضخ أموال — المالك / المدير العام puts money in (نقدي مكتب / خزنة المحاسب / بنك).
+Future<void> showInjectSheet(BuildContext context, bool isDark) async {
+    String target = 'office';
+    final amount = TextEditingController(), note = TextEditingController();
+    final ref = newClientRef(); // pressing the button twice records one injection
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: StatefulBuilder(builder: (ctx, set) {
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Text('ضخ فلوس في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                  const SizedBox(height: 4),
+                  Text('لما الشركة متجيبش أرباح تكفي المرتبات والمصاريف', style: TextStyle(color: JphUi.sub(isDark))),
+                  const SizedBox(height: 14),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final t in const [('office', 'نقدي — خزنة المكتب'), ('hr', 'نقدي — خزنة المحاسب'), ('bank', 'البنك')])
+                      ChoiceChip(label: Text(t.$2), selected: target == t.$1, onSelected: (_) => set(() => target = t.$1)),
+                  ]),
+                  const SizedBox(height: 12),
+                  JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+                  const SizedBox(height: 10),
+                  JphUi.input(isDark: isDark, label: 'ملاحظة (مثلاً: تكملة مرتبات)', controller: note, icon: Icons.notes_rounded),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 50,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        final r = await ApiService.post({'action': 'cash_post', 'path': '/cash/injections', 'ok': 'اتسجل الضخ ✅', 'body': {
+                          'target': target, 'amount': num.tryParse(amount.text.replaceAll(',', '')), 'note': note.text.trim(),
+                          'clientRef': ref,
+                        }});
+                        if (ctx.mounted) JphUi.toast(ctx, r);
+                        if (r['success'] == true && ctx.mounted) Navigator.pop(ctx);
+                      },
+                      icon: const Icon(Icons.check_rounded),
+                      label: const Text('تسجيل الضخ', style: TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+}
+
+
+/// «ضخ أموال» tab (المالك / المدير العام only): every injection, the button, and per owner his share (نسبة الملكية),
+/// what he injected, and his part of the office's net profit (commissions after salaries and expenses).
+class InjectionsTab extends StatefulWidget {
+  final bool isDark;
+  final ValueListenable<DateTime>? month;
+  final ValueListenable<bool>? allMonths;
+  final Future<void> Function()? onChanged;
+  const InjectionsTab({super.key, required this.isDark, this.month, this.allMonths, this.onChanged});
+  @override
+  State<InjectionsTab> createState() => _InjectionsTabState();
+}
+
+class _InjectionsTabState extends State<InjectionsTab> {
+  Map<String, dynamic>? _d;
+  DateTime? get _filter => (widget.allMonths?.value ?? true) ? null : widget.month?.value;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.month?.addListener(_load);
+    widget.allMonths?.addListener(_load);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    widget.month?.removeListener(_load);
+    widget.allMonths?.removeListener(_load);
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final r = await ApiService.post({'action': 'cash_get', 'path': '/cash/injections', 'query': monthQuery(_filter)});
+    if (mounted) setState(() => _d = r);
+  }
+
+  Future<void> _shares(bool isDark) async {
+    final owners = _l(_d?['owners']);
+    final ctrls = {for (final o in owners) '${o['id']}': TextEditingController(text: _n(o['pct']) == 0 ? '' : '${o['pct']}')};
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('نسب الملكية في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                const SizedBox(height: 12),
+                for (final o in owners) ...[
+                  JphUi.input(isDark: isDark, label: '${o['name']} ٪', controller: ctrls['${o['id']}']!, number: true, icon: Icons.pie_chart_rounded),
+                  const SizedBox(height: 10),
+                ],
+                SizedBox(
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: () async {
+                      final r = await ApiService.post({'action': 'cash_post', 'method': 'put', 'path': '/cash/owners', 'ok': 'اتحفظت النسب ✅', 'body': {
+                        'owners': [for (final e in ctrls.entries) {'employeeId': e.key, 'pct': num.tryParse(e.value.text) ?? 0}],
+                      }});
+                      if (ctx.mounted) JphUi.toast(ctx, r);
+                      if (r['success'] == true && ctx.mounted) Navigator.pop(ctx);
+                    },
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('حفظ', style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final d = _d;
+    if (d == null) return const Center(child: CircularProgressIndicator());
+    if (d['success'] != true) return Center(child: Text('${d['message'] ?? 'مش متاح'}', style: TextStyle(color: JphUi.sub(isDark))));
+    final owners = _l(d['owners']);
+    final net = _n(d['net']);
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
+        SizedBox(
+          height: 56,
+          child: ElevatedButton.icon(
+            onPressed: () async {
+              await showInjectSheet(context, isDark);
+              await _load();
+              await widget.onChanged?.call();
+            },
+            icon: const Icon(Icons.add_card_rounded),
+            label: const Text('ضخ أموال', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(monthLabel(_filter), textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+        const SizedBox(height: 8),
+        JphUi.statGrid([
+          JphUi.stat(isDark, 'إجمالي الضخ', JphUi.money(d['total']), Icons.add_card_rounded, Colors.indigo),
+          JphUi.stat(isDark, net >= 0 ? 'صافي ربح المكتب' : 'عجز المكتب', JphUi.money(net.abs()), net >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+              net >= 0 ? Colors.green : Colors.red),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: Text('الملاك', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+          TextButton.icon(onPressed: () => _shares(isDark), icon: const Icon(Icons.pie_chart_rounded), label: const Text('نسب الملكية')),
+        ]),
+        for (final o in owners) ...[
+          Text('${o['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+          const SizedBox(height: 6),
+          JphUi.statGrid([
+            JphUi.stat(isDark, 'نسبة الملكية', JphUi.pct(o['pct']), Icons.pie_chart_rounded, Colors.purple),
+            JphUi.stat(isDark, _n(o['profit']) >= 0 ? 'ربحه من صافي العمولة' : 'نصيبه من العجز', JphUi.money(_n(o['profit']).abs()),
+                Icons.workspace_premium_rounded, _n(o['profit']) >= 0 ? Colors.green : Colors.red),
+            JphUi.stat(isDark, 'ضخ', JphUi.money(o['injected']), Icons.add_card_rounded, Colors.indigo),
+            JphUi.stat(isDark, 'إجمالي ضخه (كل الشهور)', JphUi.money(o['injectedAllTime']), Icons.savings_rounded, Colors.teal),
+          ]),
+          const SizedBox(height: 14),
+        ],
+        Text('صافي الربح = العمولات ${JphUi.money(d['commissions'])} − المرتبات والمصروفات ${JphUi.money(d['costs'])}',
+            style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+        const SizedBox(height: 14),
+        Text('كل الضخ', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
+        if (_l(d['injections']).isEmpty)
+          Padding(padding: const EdgeInsets.all(24), child: Text('مفيش ضخ', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        for (final x in _l(d['injections']))
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: JphUi.box(isDark),
+            child: Row(children: [
+              JphUi.iconTile(isDark, Icons.add_card_rounded, x['status'] == 'posted' ? Colors.indigo : Colors.grey),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${x['byName']} → ${x['target']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                  Text('${x['receiptNo']} · ${'${x['at'] ?? ''}'.length >= 10 ? '${x['at']}'.substring(0, 10) : ''}${'${x['note'] ?? ''}'.isEmpty ? '' : ' · ${x['note']}'}'
+                      '${x['status'] == 'posted' ? '' : ' · ملغي'}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                ]),
+              ),
+              Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+            ]),
+          ),
+      ]),
+    );
+  }
+}

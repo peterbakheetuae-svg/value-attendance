@@ -156,3 +156,17 @@ test('the projects\' setup (kind / developer) is المالك / المدير ا�
   const list = await h.call(c.t.e1, 'GET', '/exclusive/projects?kind=all');
   assert.equal(list.body.canSetup, false);
 });
+
+test('ضخ أموال: the injections, each owner\'s share and his part of the net profit', async () => {
+  assert.equal((await h.call(c.t.hr, 'GET', '/cash/injections')).status, 403, 'المالك / المدير العام only');
+  const ownerId = (await h.db.query(`SELECT id FROM employees WHERE code = 'OWNER'`)).rows[0].id;
+  assert.equal((await h.call(c.t.owner, 'PUT', '/cash/owners', { owners: [{ employeeId: ownerId, pct: 120 }] })).status, 400);
+  assert.equal((await h.call(c.t.owner, 'PUT', '/cash/owners', { owners: [{ employeeId: ownerId, pct: 50 }] })).status, 200);
+  const r = await h.call(c.t.owner, 'GET', '/cash/injections');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const me = r.body.owners.find((o: any) => o.id === ownerId);
+  assert.equal(me.pct, 50);
+  assert.equal(me.injected, r.body.total, 'every injection here was his');
+  assert.ok(r.body.injections.length >= 3);
+  assert.equal(me.profit, Math.round(r.body.net * 50) / 100);
+});

@@ -399,6 +399,8 @@ class JphRouter {
               ? await _api.delete(cp)
               : p['method'] == 'patch'
               ? await _api.patch(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
+              : p['method'] == 'put'
+              ? await _api.put(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>())
               : await _api.post(cp, ((p['body'] as Map?) ?? const {}).cast<String, dynamic>());
           return _ok({...cr2.cast<String, dynamic>(), 'message': p['ok'] ?? 'تم ✅'});
         // ---------------------------------------------------------------- project commissions (عمولات المشاريع)

@@ -362,6 +362,64 @@ export const cashModule: Module = (r, { db, clock }) => {
   });
 
   /** ضخ: المالك / المدير العام puts his own money in — نقدي في خزنة المكتب، في خزنة المحاسب، أو في البنك. */
+  /** ضخ أموال: every injection + each owner's share (نسبة الملكية), what he injected and his part of the net profit. */
+  r.get('/cash/injections', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden('صفحة الضخ للمالك / المدير العام بس');
+    const ok1 = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
+    const from = ok1(req.query.get('from')), to = ok1(req.query.get('to'));
+    const vals: unknown[] = [];
+    const range = (col: string) => {
+      const c: string[] = [];
+      if (from) { vals.push(from); c.push(`${col} >= ($${vals.length}::date AT TIME ZONE 'Africa/Cairo')`); }
+      if (to) { vals.push(to); c.push(`${col} < (($${vals.length}::date + 1) AT TIME ZONE 'Africa/Cairo')`); }
+      return c.length ? ' AND ' + c.join(' AND ') : '';
+    };
+    const rows = (await db.query(`
+      SELECT r.id, r.ref_no, r.amount_egp, r.cashbox, r.payment_method, r.notes, r.purpose, r.occurred_at, r.status, r.recorded_by, e.full_name AS by_name
+        FROM cash_receipts r JOIN employees e ON e.id = r.recorded_by
+       WHERE r.kind = 'injection' ${range('r.occurred_at')} ORDER BY r.occurred_at DESC`, vals)).rows;
+    const owners = (await db.query(`
+      SELECT e.id, e.full_name, COALESCE(o.pct, 0) AS pct,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id), 0) AS all_time
+        FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id
+       WHERE e.status = 'active' AND (e.role_key = 'owner' OR o.employee_id IS NOT NULL) ORDER BY o.pct DESC NULLS LAST, e.full_name`)).rows;
+    const ov = await cashOverview(db, a, from, to);
+    const net = Number((ov.result as any)?.net ?? 0);
+    const posted = rows.filter((x) => x.status === 'posted');
+    return ok({
+      from, to, net, commissions: (ov.result as any)?.commissions ?? 0, costs: (ov.result as any)?.costs ?? 0,
+      total: r2(posted.reduce((t, x) => t + Number(x.amount_egp), 0)),
+      owners: owners.map((o) => ({ id: o.id, name: o.full_name, pct: Number(o.pct),
+        injected: r2(posted.filter((x) => x.recorded_by === o.id).reduce((t, x) => t + Number(x.amount_egp), 0)),
+        injectedAllTime: r2(Number(o.all_time)), profit: r2(net * Number(o.pct) / 100) })),
+      injections: rows.map((x) => ({ id: x.id, receiptNo: `R-${String(x.ref_no).padStart(6, '0')}`, amount: Number(x.amount_egp),
+        target: x.payment_method !== 'cash' ? 'بنك' : x.cashbox === 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', note: x.notes, at: x.occurred_at,
+        byName: x.by_name, status: x.status })),
+    });
+  });
+
+  /** نسبة الملكية of each owner (out of 100). */
+  r.put('/cash/owners', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden();
+    const b = obj(req.body);
+    const list = Array.isArray(b.owners) ? b.owners : [];
+    const parsed = list.map((x: any) => ({ id: String(x?.employeeId ?? ''), pct: Number(x?.pct) }));
+    if (parsed.some((x) => !isUuid(x.id) || !Number.isFinite(x.pct) || x.pct < 0 || x.pct > 100)) throw invalid('راجع النسب', { field: 'owners' });
+    if (parsed.reduce((t, x) => t + x.pct, 0) > 100.0001) throw invalid('مجموع النسب أكبر من 100٪', { field: 'owners' });
+    await db.tx(async (q) => {
+      for (const x of parsed) {
+        if (!(await one(q, `SELECT 1 FROM employees WHERE id = $1`, [x.id]))) throw invalid('موظف مش موجود', { field: 'owners' });
+        await q.query(`INSERT INTO company_owners (employee_id, pct, updated_by, updated_at) VALUES ($1,$2,$3,$4)
+                        ON CONFLICT (employee_id) DO UPDATE SET pct = EXCLUDED.pct, updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`,
+          [x.id, x.pct, a.id, clock()]);
+      }
+      await audit(q, a.id, 'cash.owners', 'company_owners', a.id, undefined, { owners: parsed });
+    });
+    return ok({ ok: true });
+  });
+
   r.post('/cash/injections', async (req) => {
     const a = await authenticate(db, req);
     if (!canOffice(a)) throw forbidden('الضخ للمالك / المدير العام بس');

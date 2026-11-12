@@ -87,6 +87,8 @@ class _CashPageState extends State<CashPage> {
       final isRTL = app.isRTL;
       final tabs = <(String, String, IconData)>[
         ('summary', 'الأرصدة', Icons.account_balance_wallet_rounded),
+        // ضخ أموال: المالك / المدير العام only
+        if (_can['office'] == true) ('injections', 'ضخ أموال', Icons.add_card_rounded),
         if (!widget.embedded) ('ledger', 'الحركات', Icons.receipt_long_rounded),
         ('transfers', 'التحويلات', Icons.swap_horiz_rounded),
         ('expenses', 'المصروفات', Icons.shopping_bag_rounded),
@@ -101,6 +103,7 @@ class _CashPageState extends State<CashPage> {
                     constraints: const BoxConstraints(maxWidth: 1000),
                     child: switch (_tab) {
                       'ledger' => CashLedgerView(isDark: isDark, can: _can),
+                      'injections' => InjectionsTab(isDark: isDark, month: widget.month, allMonths: widget.allMonths, onChanged: _load),
                       'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
                       'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
                       'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
@@ -382,36 +385,86 @@ class _SummaryTabState extends State<_SummaryTab> {
 }
 
 /// A form that is always shown on its tab (like طلبات المالية), not hidden behind a button.
+/// A cashbox form that opens from its button (طلب توريد / تحويل أموال، تسجيل مصروف، تحصيل) and folds back after sending.
 Widget _inlineForm(bool isDark,
         {required String title, required IconData icon, required List<Widget> children, required String button,
-        required bool saving, required VoidCallback onSubmit}) =>
-    Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(16),
-      decoration: JphUi.box(isDark),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          JphUi.iconTile(isDark, icon, JphUi.primary(isDark)),
-          const SizedBox(width: 10),
-          Expanded(child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
-        ]),
-        const SizedBox(height: 14),
-        ...children,
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 56,
-          child: ElevatedButton.icon(
-            onPressed: saving ? null : onSubmit,
-            icon: saving
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send_rounded),
-            label: Text(button, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
-            style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
-          ),
-        ),
-      ]),
+        required bool saving, required VoidCallback onSubmit, String? opener}) =>
+    _FoldingForm(isDark: isDark, title: title, icon: icon, button: button, saving: saving, onSubmit: onSubmit, opener: opener ?? title,
+        children: children);
+
+class _FoldingForm extends StatefulWidget {
+  final bool isDark, saving;
+  final String title, button, opener;
+  final IconData icon;
+  final List<Widget> children;
+  final VoidCallback onSubmit;
+  const _FoldingForm({required this.isDark, required this.title, required this.icon, required this.children, required this.button,
+      required this.saving, required this.onSubmit, required this.opener});
+  @override
+  State<_FoldingForm> createState() => _FoldingFormState();
+}
+
+class _FoldingFormState extends State<_FoldingForm> {
+  bool _open = false;
+
+  @override
+  void didUpdateWidget(covariant _FoldingForm old) {
+    super.didUpdateWidget(old);
+    if (old.saving && !widget.saving) setState(() => _open = false); // sent: fold back
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: !_open
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: SizedBox(
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: () => setState(() => _open = true),
+                  icon: Icon(widget.icon),
+                  label: Text(widget.opener, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                  style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                ),
+              ),
+            )
+          : Container(
+              margin: const EdgeInsets.only(bottom: 18),
+              padding: const EdgeInsets.all(16),
+              decoration: JphUi.box(isDark),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  JphUi.iconTile(isDark, widget.icon, JphUi.primary(isDark)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(widget.title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+                  IconButton(onPressed: () => setState(() => _open = false), icon: Icon(Icons.close_rounded, color: JphUi.sub(isDark))),
+                ]),
+                const SizedBox(height: 14),
+                ...widget.children,
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: widget.saving ? null : widget.onSubmit,
+                    icon: widget.saving
+                        ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.send_rounded),
+                    label: Text(widget.button, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                    style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                  ),
+                ),
+              ]),
+            ),
     );
+  }
+}
 
 Future<void> _adjustSheet(BuildContext context, bool isDark, Future<void> Function() done) async {
   String box = 'office', kind = 'opening';
@@ -712,6 +765,7 @@ class _TransfersTabState extends State<_TransfersTab> {
         if (_kinds.isNotEmpty)
           _inlineForm(isDark,
               title: _dir == 'office_to_hr' ? 'طلب تحويل من خزنة المكتب لخزنة المحاسب' : 'طلب توريد من خزنة المحاسب للمكتب',
+              opener: _kinds.length > 1 ? 'طلب توريد / تحويل أموال' : (_kinds.containsKey('hr_to_office') ? 'طلب توريد أموال' : 'طلب تحويل أموال'),
               icon: _kinds[_dir]?.$2 ?? Icons.swap_horiz_rounded,
               button: 'إرسال الطلب',
               saving: _saving,
@@ -912,7 +966,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (_canRecord)
           _inlineForm(isDark,
-              title: 'تسجيل مصروف', icon: Icons.shopping_bag_rounded, button: 'تسجيل المصروف', saving: _saving, onSubmit: _add,
+              title: 'تسجيل مصروف', opener: 'تسجيل مصروف', icon: Icons.shopping_bag_rounded, button: 'تسجيل المصروف', saving: _saving, onSubmit: _add,
               children: [
                 JphUi.readOnly(isDark: isDark, label: 'من', value: _boxAr[_box]!, icon: Icons.account_balance_wallet_rounded,
                     color: _box == 'hr' ? Colors.teal : Colors.indigo),
@@ -1116,7 +1170,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (widget.can['hrDesk'] == true || widget.can['office'] == true)
           _inlineForm(isDark,
-              title: 'تسجيل تحصيل (إيصال)', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
+              title: 'تسجيل تحصيل (إيصال)', opener: 'تحصيل', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
               children: [
                 JphUi.readOnly(isDark: isDark, label: 'الخزنة',
                     value: _recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
