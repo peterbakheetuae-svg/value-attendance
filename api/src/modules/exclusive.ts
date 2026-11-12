@@ -1001,7 +1001,11 @@ export async function salesMoneyOverview(q: Q) {
   return {
     projectsBox: { total: r2(projects.reduce((t, p) => t + p.inTrust, 0)), projects },
     commissions: { due, collected, remaining: r2(Math.max(due - collected, 0)),
-      upcoming: r2(contracted.reduce((t, u) => t + u.upcoming, 0)), byProject },
+      upcoming: r2(contracted.reduce((t, u) => t + u.upcoming, 0)), byProject,
+      units: contracted.map((u) => ({ id: u.id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no, clientName: u.client_name,
+        salesName: u.sales_name, due: r2(u.earned), collected: r2(u.commissionCollected), remaining: r2(u.receivable), upcoming: r2(u.upcoming),
+        contractedAt: u.contracted_at })).sort((x, y) => y.remaining - x.remaining),
+      legacy: { due: r2(n(legacy.due)), collected: r2(n(legacy.got)) } },
     expectedCommissions: { total: r2(expected.reduce((t, m) => t + m.amount, 0)), months: expected },
   };
 }

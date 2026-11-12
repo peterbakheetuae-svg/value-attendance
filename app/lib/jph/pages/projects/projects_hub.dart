@@ -582,3 +582,282 @@ class _ClientsPageState extends State<ClientsPage> {
     );
   }
 }
+
+// ==================================================================== الخزنة: خزنة المشاريع / العمولات / عمولات متوقعة
+// Each tile on the cashbox opens a full page (not a sheet) with all the details.
+
+Future<Map<String, dynamic>> _overview() => _get('/cash/overview');
+
+Widget _tile(bool isDark, String label, Object? value, IconData icon, Color color, {VoidCallback? onTap}) =>
+    GestureDetector(onTap: onTap, child: JphUi.stat(isDark, label, _money(value), icon, color));
+
+String _ym(String ym) {
+  if (ym.length < 7) return 'من غير تاريخ متوقع';
+  final m = int.tryParse(ym.substring(5, 7)) ?? 1;
+  return '${JphUi.monthsAr[m - 1]} ${ym.substring(0, 4)}';
+}
+
+abstract class _OverviewPageState<T extends StatefulWidget> extends State<T> {
+  Map<String, dynamic>? o;
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    final r = await _overview();
+    if (mounted) setState(() => o = r);
+  }
+
+  String get title;
+  List<Widget> body(bool isDark);
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    return _Shell(
+      title: title,
+      child: o == null
+          ? const Center(child: CircularProgressIndicator())
+          : o!['success'] != true
+              ? Center(child: Text('${o!['message'] ?? 'مش متاح'}'))
+              : RefreshIndicator(onRefresh: load, child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: body(isDark))),
+    );
+  }
+}
+
+// -------------------------------------------------------------------- خزنة المشاريع
+class ProjectsBoxPage extends StatefulWidget {
+  const ProjectsBoxPage({super.key});
+  @override
+  State<ProjectsBoxPage> createState() => _ProjectsBoxPageState();
+}
+
+class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
+  @override
+  String get title => 'خزنة المشاريع';
+
+  @override
+  List<Widget> body(bool isDark) {
+    final box = _m(o!['projectsBox']);
+    final ps = _l(box['projects']);
+    num sum(String k) => ps.fold<num>(0, (t, p) => t + _n(p[k]));
+    return [
+      JphUi.statGrid([
+        _tile(isDark, 'إجمالي الأمانات', box['total'], Icons.real_estate_agent_rounded, Colors.purple),
+        _tile(isDark, 'من الحجوزات', sum('reservation'), Icons.bookmark_rounded, Colors.teal),
+        _tile(isDark, 'من التعاقد', sum('contract'), Icons.handshake_rounded, Colors.indigo),
+        _tile(isDark, 'من الأقساط', sum('installments'), Icons.event_repeat_rounded, Colors.blue),
+        _tile(isDark, 'اتصرف للملاك', sum('paidToOwner'), Icons.outbox_rounded, Colors.red),
+        _tile(isDark, 'الصافي للملاك', sum('ownerDue'), Icons.account_balance_rounded, Colors.green),
+      ]),
+      const SizedBox(height: 16),
+      Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+      const SizedBox(height: 8),
+      if (ps.isEmpty)
+        Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مشاريع حصري', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final p in ps)
+        GestureDetector(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectTrustPage(project: p))).then((_) => load()),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(16),
+            decoration: JphUi.box(isDark),
+            child: Row(children: [
+              JphUi.iconTile(isDark, Icons.apartment_rounded, Colors.purple),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                  Text('المالك: ${p['ownerName'] ?? '—'}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                ]),
+              ),
+              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Text(_money(p['inTrust']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.purple)),
+                Text('أمانات', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+              ]),
+              Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+            ]),
+          ),
+        ),
+    ];
+  }
+}
+
+/// One project's trust in full: what came in (حجز / تعاقد / أقساط), what went to the owner, the owner's statement and units.
+class ProjectTrustPage extends StatefulWidget {
+  final Map<String, dynamic> project;
+  const ProjectTrustPage({super.key, required this.project});
+  @override
+  State<ProjectTrustPage> createState() => _ProjectTrustPageState();
+}
+
+class _ProjectTrustPageState extends State<ProjectTrustPage> {
+  Map<String, dynamic>? _d;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/exclusive/projects/${widget.project['id']}');
+    if (mounted) setState(() => _d = r);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    final p = widget.project;
+    final units = _l(_d?['units']);
+    final statement = _l(_d?['statement']);
+    return _Shell(
+      title: '${p['name']}',
+      child: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+          Text('المالك / المطور: ${p['ownerName'] ?? '—'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+          const SizedBox(height: 10),
+          JphUi.statGrid([
+            _tile(isDark, 'موجود أمانات', p['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
+            _tile(isDark, 'من الحجز', p['reservation'], Icons.bookmark_rounded, Colors.teal),
+            _tile(isDark, 'من التعاقد', p['contract'], Icons.handshake_rounded, Colors.indigo),
+            _tile(isDark, 'من الأقساط', p['installments'], Icons.event_repeat_rounded, Colors.blue),
+            _tile(isDark, 'للمالك / المطور (صافي)', p['ownerDue'], Icons.account_balance_rounded, Colors.green),
+            _tile(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], Icons.outbox_rounded, Colors.red),
+            _tile(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+            if (_n(p['refunded']) > 0) _tile(isDark, 'اترد لعملاء لغوا', p['refunded'], Icons.undo_rounded, Colors.orange),
+            if (_n(p['pendingPayout']) > 0) _tile(isDark, 'صرف مستني الموافقة', p['pendingPayout'], Icons.hourglass_top_rounded, Colors.orange),
+          ]),
+          const SizedBox(height: 16),
+          if (_d == null) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
+          if (units.isNotEmpty)
+            _section(isDark, 'الوحدات (${units.length})', [
+              for (final u in units)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.home_work_rounded, color: _statusColor('${u['status']}')),
+                  title: Text('وحدة ${u['unitNo']} — ${u['clientName']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                  subtitle: Text('${u['statusAr']} · دفع ${_money(_m(u['money'])['collected'])} من ${_money(u['unitPrice'])}',
+                      style: TextStyle(color: JphUi.sub(isDark))),
+                  trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load()),
+                ),
+            ]),
+          if (statement.isNotEmpty)
+            _section(isDark, 'كشف حساب المالك', [
+              for (final s in statement)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(children: [
+                    Icon(s['dir'] == 'in' ? Icons.south_west_rounded : Icons.north_east_rounded, color: s['dir'] == 'in' ? Colors.green : Colors.red, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('${s['typeAr']}${s['unitNo'] != null ? ' — وحدة ${s['unitNo']}' : ''} · ${_date(s['at'])}',
+                          style: TextStyle(color: JphUi.text(isDark))),
+                    ),
+                    Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Colors.green : Colors.red)),
+                  ]),
+                ),
+            ]),
+        ]),
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------------------- العمولات
+class CommissionsDuePage extends StatefulWidget {
+  const CommissionsDuePage({super.key});
+  @override
+  State<CommissionsDuePage> createState() => _CommissionsDuePageState();
+}
+
+class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
+  @override
+  String get title => 'العمولات';
+
+  @override
+  List<Widget> body(bool isDark) {
+    final c = _m(o!['commissions']);
+    final units = _l(c['units']);
+    return [
+      JphUi.statGrid([
+        _tile(isDark, 'عمولة مستحقة', c['due'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+        _tile(isDark, 'دخلت خزنة العمولات', c['collected'], Icons.savings_rounded, Colors.green),
+        _tile(isDark, 'متبقي لم يتم أخذه', c['remaining'], Icons.hourglass_top_rounded, Colors.orange),
+        _tile(isDark, 'جاية من أقساط لسه', c['upcoming'], Icons.event_repeat_rounded, Colors.indigo),
+      ]),
+      const SizedBox(height: 16),
+      for (final p in _l(c['byProject']))
+        _section(isDark, '${p['name']} — ${p['kind'] == 'marketing' ? 'تسويق' : 'حصري'}', [
+          _kv(isDark, 'مستحقة', _money(p['due'])),
+          _kv(isDark, 'دخلت', _money(p['collected']), color: Colors.green),
+          _kv(isDark, 'متبقي', _money(p['remaining']), color: Colors.orange),
+          if (_n(p['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(p['upcoming'])),
+        ]),
+      if (units.isNotEmpty)
+        _section(isDark, 'الوحدات', [
+          for (final u in units)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(_n(u['remaining']) > 0 ? Icons.hourglass_top_rounded : Icons.task_alt_rounded,
+                  color: _n(u['remaining']) > 0 ? Colors.orange : Colors.green),
+              title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              subtitle: Text('${u['clientName']} · مستحقة ${_money(u['due'])} · دخلت ${_money(u['collected'])}', style: TextStyle(color: JphUi.sub(isDark))),
+              trailing: Text(_money(u['remaining']), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.orange)),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+            ),
+        ]),
+      if (_n(_m(c['legacy'])['due']) > 0)
+        _section(isDark, 'عمولات صفقات قديمة (من غير وحدة)', [
+          _kv(isDark, 'مستحقة', _money(_m(c['legacy'])['due'])),
+          _kv(isDark, 'دخلت', _money(_m(c['legacy'])['collected']), color: Colors.green),
+        ]),
+    ];
+  }
+}
+
+// -------------------------------------------------------------------- عمولات متوقعة
+class ExpectedCommissionsPage extends StatefulWidget {
+  const ExpectedCommissionsPage({super.key});
+  @override
+  State<ExpectedCommissionsPage> createState() => _ExpectedCommissionsPageState();
+}
+
+class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissionsPage> {
+  @override
+  String get title => 'عمولات متوقعة';
+
+  @override
+  List<Widget> body(bool isDark) {
+    final e = _m(o!['expectedCommissions']);
+    final months = _l(e['months']);
+    return [
+      Text('من الحجوزات، في شهر «التاريخ المتوقع للتعاقد» المكتوب في فورم الحجز', style: TextStyle(color: JphUi.sub(isDark))),
+      const SizedBox(height: 10),
+      JphUi.statGrid([
+        _tile(isDark, 'إجمالي المتوقع', e['total'], Icons.event_available_rounded, Colors.indigo),
+        for (final m in months.take(5)) _tile(isDark, _ym('${m['month']}'), m['amount'], Icons.calendar_month_rounded, Colors.teal),
+      ]),
+      const SizedBox(height: 16),
+      if (months.isEmpty)
+        Padding(padding: const EdgeInsets.all(30), child: Text('مفيش حجوزات مفتوحة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final m in months)
+        _section(isDark, '${_ym('${m['month']}')} — ${_money(m['amount'])}', [
+          for (final u in _l(m['units']))
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.bookmark_rounded, color: Colors.indigo),
+              title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              subtitle: Text('${u['clientName']} · ${u['salesName']}${u['expectedContractDate'] != null ? ' · تعاقد متوقع ${_date(u['expectedContractDate'])}' : ''}',
+                  style: TextStyle(color: JphUi.sub(isDark))),
+              trailing: Text(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.indigo)),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+            ),
+        ]),
+    ];
+  }
+}
