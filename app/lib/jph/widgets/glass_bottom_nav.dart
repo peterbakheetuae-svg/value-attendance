@@ -9,6 +9,7 @@ import '../pages/attendance/attendance_report_page.dart'; // 🔥 استيراد
 import '../services/api_service.dart';
 import '../pages/employees/employees_page.dart'; // أو المسار الصحيح
 import 'app_nav.dart';
+import 'app_menu.dart';
 
 class GlassBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -31,6 +32,9 @@ class GlassBottomNav extends StatelessWidget {
     final borderOpacity = isDark ? 0.25 : 0.25;
     final shadowOpacity = isDark ? 0.15 : 0.12;
     final blurSigma = isDark ? 14.0 : 12.0;
+
+    // the website on a computer: the side bar takes the bottom bar's place
+    if (AppMenu.wide(context)) return const SizedBox.shrink();
 
     final activeColor = isDark ? AppColors.primaryLight : AppColors.primary;
     final inactiveColor = isDark ? Colors.white70 : Colors.black54;
@@ -113,11 +117,12 @@ class GlassBottomNav extends StatelessWidget {
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,
                         ),
+                        // «المزيد»: every page of the app in one sheet (the settings page is inside it)
                         _Item(
-                          icon: Icons.settings_rounded,
-                          label: AppLocalizations.of(context, 'settings'),
+                          icon: Icons.more_horiz_rounded,
+                          label: 'المزيد',
                           active: currentIndex == 3,
-                          onTap: () => onTap(3),
+                          onTap: () => AppMenu.showMore(context),
                           isDark: isDark,
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,

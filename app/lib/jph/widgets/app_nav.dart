@@ -30,9 +30,27 @@ class AppNav {
   /// المالك / المدير العام and the accountant: «المالية» (the cashbox: payouts + ledger) instead of «الشخصي».
   static bool get financeTab => ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
 
+  /// who is signed in, as the pages pass it around (the side bar / «المزيد» open pages with it)
+  static String? uid, name, role, photo;
+
+  static Widget? page(int index, {required String uid, required String name, required String role, String photo = ''}) => switch (index) {
+        1 => AttendanceReportPage(uid: uid, name: name, role: role),
+        2 => seesEmployees ? EmployeesPage(currentUserId: uid, currentUserName: name, currentUserRole: role) : null,
+        3 => SettingsPage(uid: uid, name: name, role: role),
+        4 => ProfilePage(uid: uid, name: name, role: role, photo: photo),
+        5 => financeTab ? CashboxHubPage(uid: uid, name: name, role: role) : null,
+        _ => null,
+      };
+
   /// Tabs: 0 home · 5 المالية (finance users) · 1 attendance report · 2 employees · 3 settings · 4 profile (others).
   static void go(BuildContext context, int index,
       {required int current, required String uid, required String name, required String role, String photo = ''}) {
+    if (uid.isNotEmpty) {
+      AppNav.uid = uid;
+      AppNav.name = name;
+      AppNav.role = role;
+      if (photo.isNotEmpty) AppNav.photo = photo;
+    }
     if (index == current) return;
     if (index == 0) {
       // the home is already open under this page: go back to it as it is (no reloading the whole app)
@@ -44,14 +62,7 @@ class AppNav {
           MaterialPageRoute(builder: (_) => home(uid: uid, name: name, role: role, photo: photo)), (r) => false);
       return;
     }
-    final Widget? page = switch (index) {
-      1 => AttendanceReportPage(uid: uid, name: name, role: role),
-      2 => seesEmployees ? EmployeesPage(currentUserId: uid, currentUserName: name, currentUserRole: role) : null,
-      3 => SettingsPage(uid: uid, name: name, role: role),
-      4 => ProfilePage(uid: uid, name: name, role: role, photo: photo),
-      5 => financeTab ? CashboxHubPage(uid: uid, name: name, role: role) : null,
-      _ => null,
-    };
-    if (page != null) Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    final p = page(index, uid: uid, name: name, role: role, photo: photo.isNotEmpty ? photo : (AppNav.photo ?? ''));
+    if (p != null) Navigator.of(context).push(MaterialPageRoute(settings: RouteSettings(name: 'nav$index'), builder: (_) => p));
   }
 }

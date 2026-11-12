@@ -11,7 +11,21 @@ class ProjectsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppController>();
-    return _Shell(title: 'المشاريع', child: ProjectsList(isDark: app.isDark));
+    // the «Ardena» holdings page: the whole width, the squares arrange themselves by it
+    return AppBackground(
+      child: Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            child: Column(children: [
+              JphUi.header(context, isDark: app.isDark, isRTL: true, title: 'المشاريع'),
+              Expanded(child: ProjectsList(isDark: app.isDark)),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -27,6 +41,16 @@ class _ProjectsListState extends State<ProjectsList> {
   bool _loading = true, _manage = false;
   List<Map<String, dynamic>> _items = [];
   String _kind = ''; // '' = المشاريع (الكل)
+  String _chip = ''; // '' الكل • 'k:exclusive' / 'k:marketing' • 'd:<developer>'
+  int _sort = 0; // الأحدث / العمولة / المبيعات أو الاسم
+  bool _grid = true;
+  final _q = TextEditingController();
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -137,91 +161,361 @@ class _ProjectsListState extends State<ProjectsList> {
     if (ok) _load();
   }
 
+  bool get _hasStats => _items.any((p) => _m(p['stats']).isNotEmpty);
+  String _dev(Map<String, dynamic> p) => '${p['developerName'] ?? p['ownerName'] ?? ''}'.trim();
+
+  List<Map<String, dynamic>> get _shown {
+    final q = _q.text.trim();
+    final list = _items.where((p) {
+      if (q.isNotEmpty && !'${p['name']}'.contains(q) && !_dev(p).contains(q)) return false;
+      if (_chip.startsWith('k:')) return p['kind'] == _chip.substring(2);
+      if (_chip.startsWith('d:')) return _dev(p) == _chip.substring(2);
+      return true;
+    }).toList();
+    switch (_sort) {
+      case 1:
+        list.sort((a, b) => _n(b['totalPct']).compareTo(_n(a['totalPct'])));
+      case 2:
+        if (_hasStats) {
+          list.sort((a, b) => _n(_m(b['stats'])['sales']).compareTo(_n(_m(a['stats'])['sales'])));
+        } else {
+          list.sort((a, b) => '${a['name']}'.compareTo('${b['name']}'));
+        }
+    }
+    return list;
+  }
+
+  void _openTab(int i) {
+    if (i == 0) return;
+    final page = switch (i) { 1 => const SalesHubPage(), 2 => const ClientsPage(), _ => const DevelopersPage() };
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page)).then((_) => _load());
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final shown = _items.where((p) => _kind.isEmpty || p['kind'] == _kind).toList();
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
-        if (_manage) _btn(isDark, 'إضافة مشروع', Icons.add_rounded, _add),
-        // the filter bar under «إضافة مشروع» (حصري / تسويق: المالك / المدير العام and the accountant only)
-        if (_seesKind()) Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _KindBar(
-            isDark: isDark,
-            value: _kind,
-            options: const [('', 'المشاريع'), ('exclusive', 'حصري'), ('marketing', 'تسويق')],
-            counts: {'': _items.length, 'exclusive': _items.where((p) => p['kind'] == 'exclusive').length,
-              'marketing': _items.where((p) => p['kind'] == 'marketing').length},
-            onChanged: (v) => setState(() => _kind = v),
+    final shown = _shown;
+    final sales = ApiService.can('cash.office') || ApiService.can('exclusive.reserve') || ApiService.can('cash.hr_operate');
+    final devs = <String>{for (final p in _items) if (_dev(p).isNotEmpty) _dev(p)}.toList()..sort();
+    final active = _items.where((p) => p['status'] == 'active').length;
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final wide = w >= 900;
+      final pad = wide ? 24.0 : 18.0;
+      final cols = math.max(1, ((w - pad * 2 + 16) / (wide ? 340 : 330)).floor());
+      final tabs = [('المشاريع', null as int?), if (sales) ('المبيعات', null as int?), if (sales) ('العملاء', null as int?),
+        if (_seesKind()) ('المطورين', null as int?)];
+      final tabTargets = [0, if (sales) 1, if (sales) 2, if (_seesKind()) 3];
+
+      final title = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('المشاريع', style: TextStyle(fontSize: wide ? 34 : 32, fontWeight: FontWeight.w800, height: 1.15, color: Glass.ink(isDark))),
+        const SizedBox(height: 4),
+        Text(_loading ? '...' : '${_items.length} مشروع · $active شغال', style: TextStyle(fontSize: 15.5, color: Glass.muted(isDark))),
+      ]);
+      final addBtn = _manage
+          ? SizedBox(
+              height: 56,
+              width: wide ? 230 : double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _add,
+                icon: const Icon(Icons.add_rounded, size: 24),
+                label: const Text('إضافة مشروع', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Glass.blue,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shadowColor: Glass.blue.withOpacity(0.4),
+                  shape: const StadiumBorder(),
+                ),
+              ),
+            )
+          : null;
+      final tabBar = tabs.length > 1
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: GlassSegments(isDark: isDark, items: tabs, selected: 0, onTap: (i) => _openTab(tabTargets[i])),
+            )
+          : null;
+      final search = Container(
+        height: 54,
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: Glass.rim(isDark)),
+        ),
+        child: TextField(
+          controller: _q,
+          onChanged: (_) => setState(() {}),
+          style: TextStyle(fontSize: 16, color: Glass.ink(isDark)),
+          decoration: InputDecoration(
+            border: InputBorder.none,
+            hintText: 'دوّر على مشروع أو مطور',
+            hintStyle: TextStyle(color: Glass.muted(isDark)),
+            prefixIcon: Icon(Icons.search_rounded, color: Glass.muted(isDark)),
+            contentPadding: const EdgeInsets.symmetric(vertical: 16),
           ),
         ),
-        if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-        if (!_loading && shown.isEmpty)
-          Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مشاريع', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
-        for (final p in shown) _card(isDark, p),
+      );
+      final chips = SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final (k, l) in [
+            ('', 'الكل'),
+            if (_seesKind()) ...[('k:exclusive', 'حصري'), ('k:marketing', 'تسويق')],
+            for (final d in devs) ('d:$d', d),
+          ]) ...[
+            GlassChip(isDark: isDark, label: l, on: _chip == k, onTap: () => setState(() => _chip = k)),
+            const SizedBox(width: 8),
+          ],
+        ]),
+      );
+      final sortBar = GlassSegments(
+        isDark: isDark,
+        big: false,
+        items: [('الأحدث', null), ('العمولة', null), (_hasStats ? 'المبيعات' : 'الاسم', null)],
+        selected: _sort,
+        onTap: (i) => setState(() => _sort = i),
+      );
+      final viewBar = GlassSegments(
+        isDark: isDark,
+        big: false,
+        items: const [('▦', null), ('☰', null)],
+        selected: _grid ? 0 : 1,
+        onTap: (i) => setState(() => _grid = i == 0),
+      );
+
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(padding: EdgeInsets.fromLTRB(pad, 6, pad, 120), children: [
+          if (wide)
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: title), if (addBtn != null) addBtn])
+          else ...[
+            title,
+            if (addBtn != null) ...[const SizedBox(height: 18), addBtn],
+          ],
+          const SizedBox(height: 18),
+          if (wide)
+            Row(children: [
+              if (tabBar != null) Flexible(child: tabBar),
+              const SizedBox(width: 16),
+              const Spacer(),
+              SizedBox(width: 340, child: search),
+            ])
+          else ...[
+            if (tabBar != null) ...[tabBar, const SizedBox(height: 16)],
+            search,
+          ],
+          const SizedBox(height: 16),
+          chips,
+          const SizedBox(height: 14),
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Flexible(child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: sortBar)),
+            const SizedBox(width: 12),
+            viewBar,
+          ]),
+          const SizedBox(height: 18),
+          if (_loading) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())),
+          if (!_loading && shown.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(40),
+              child: Text(_items.isEmpty ? 'مفيش مشاريع لسه' : 'مفيش مشروع بالبحث ده',
+                  textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: Glass.muted(isDark))),
+            ),
+          if (_grid)
+            for (var i = 0; i < shown.length; i += cols)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: IntrinsicHeight(
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (var j = 0; j < cols; j++) ...[
+                      if (j > 0) const SizedBox(width: 16),
+                      Expanded(child: i + j < shown.length ? _card(isDark, shown[i + j]) : const SizedBox.shrink()),
+                    ],
+                  ]),
+                ),
+              )
+          else
+            for (final p in shown) Padding(padding: const EdgeInsets.only(bottom: 12), child: _row(isDark, p)),
+        ]),
+      );
+    });
+  }
+
+  Future<void> _openProject(Map<String, dynamic> p) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}')));
+    _load();
+  }
+
+  /// the project's picture: a glass-blue scene (our blue, a shade per project) with its initial and a building
+  Widget _hero(bool isDark, Map<String, dynamic> p, {double radius = 14, bool small = false}) {
+    final name = '${p['name']}';
+    final h = name.codeUnits.fold<int>(0, (a, b) => a + b);
+    const shades = [
+      [Color(0xFF4F46E5), Color(0xFF1E1B4B)],
+      [Color(0xFF2563EB), Color(0xFF0B1E4D)],
+      [Color(0xFF4338CA), Color(0xFF111827)],
+      [Color(0xFF3B82F6), Color(0xFF1E293B)],
+      [Color(0xFF6366F1), Color(0xFF172554)],
+    ];
+    final g = shades[h % shades.length];
+    final marketing = p['kind'] == 'marketing';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: DecoratedBox(
+        decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: g)),
+        child: Stack(children: [
+          // the building outline
+          PositionedDirectional(
+            end: small ? -8 : -14,
+            bottom: small ? -10 : -18,
+            child: Icon(marketing && _seesKind() ? Icons.storefront_rounded : Icons.apartment_rounded,
+                size: small ? 84 : 190, color: Colors.white.withOpacity(0.10)),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.white.withOpacity(0.10), Colors.transparent, Colors.black.withOpacity(0.25)],
+                ),
+              ),
+            ),
+          ),
+          Center(
+            child: Text(name.characters.isEmpty ? '' : name.characters.first,
+                style: TextStyle(fontSize: small ? 34 : 64, fontWeight: FontWeight.w900, color: Colors.white.withOpacity(0.92))),
+          ),
+          if (!small)
+            PositionedDirectional(
+              start: 12,
+              top: 12,
+              child: Row(children: [
+                if (p['totalPct'] != null) _heroPill('عمولة ${JphUi.pct(p['totalPct'])}', Glass.good),
+                if (_seesKind()) ...[const SizedBox(width: 6), _heroPill(marketing ? 'تسويق' : 'حصري', Colors.white)],
+                if (p['status'] != 'active') ...[const SizedBox(width: 6), _heroPill(p['status'] == 'paused' ? 'متوقف' : 'مقفول', Glass.amber)],
+              ]),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _heroPill(String t, Color c) => ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            color: const Color(0x9E141412),
+            child: Text(t, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: c)),
+          ),
+        ),
+      );
+
+  /// the three tiles + the meter, from what this person may see
+  (List<(String, String)>, double?, String, Color) _figures(Map<String, dynamic> p) {
+    final st = _m(p['stats']);
+    final marketing = p['kind'] == 'marketing';
+    if (st.isEmpty) {
+      return ([
+        ('العمولة', JphUi.pct(p['totalPct'])),
+        ('السيلز', JphUi.pct(p['salesPct'])),
+        (marketing ? 'النوع' : 'عند التعاقد', marketing ? 'تسويق' : JphUi.pct(p['contractPct'])),
+      ], null, '', Glass.good);
+    }
+    final u = _m(st['units']), cm = _m(st['commission']), ow = _m(st['owner']);
+    final sold = _n(u['contracted']) + _n(u['completed']);
+    final live = _n(u['total']) - _n(u['cancelled']);
+    return ([
+      ('المبيعات', _short(st['sales'])),
+      ('محجوز', '${u['reserved'] ?? 0}'),
+      marketing ? ('نصيب المكتب', _short(cm['office'])) : ('في الأمانة', _short(ow['inTrust'])),
+    ], live <= 0 ? 0 : sold / live, live <= 0 ? 'مفيش وحدات' : '${sold.toInt()}/${live.toInt()} اتباع',
+        live > 0 && sold >= live ? Glass.good : Glass.amber);
+  }
+
+  static String _short(Object? v) {
+    final n = _n(v);
+    if (n.abs() >= 1e6) return '${(n / 1e6).toStringAsFixed(n.abs() >= 1e7 ? 1 : 2)} مليون';
+    if (n.abs() >= 1e3) return '${(n / 1e3).toStringAsFixed(0)} ألف';
+    return JphUi.money(n);
+  }
+
+  Widget _card(bool isDark, Map<String, dynamic> p) {
+    final (tiles, meter, meterLabel, meterColor) = _figures(p);
+    final dev = _dev(p);
+    return GlassBox(
+      isDark: isDark,
+      radius: 20,
+      padding: const EdgeInsets.all(8),
+      onTap: () => _openProject(p),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AspectRatio(aspectRatio: 1.6, child: _hero(isDark, p)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('${p['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: Glass.ink(isDark))),
+            const SizedBox(height: 4),
+            Text(dev.isEmpty ? 'بدون مطور' : 'المطور: $dev', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 14, color: Glass.muted(isDark))),
+            const SizedBox(height: 14),
+            Row(children: [
+              for (final (i, t) in tiles.indexed) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(child: GlassStat(isDark: isDark, label: t.$1, value: t.$2)),
+              ],
+            ]),
+            if (meter != null) ...[
+              const SizedBox(height: 14),
+              Row(children: [
+                Text(meterLabel, style: TextStyle(fontSize: 13.5, color: Glass.muted(isDark), fontWeight: FontWeight.w600)),
+                const SizedBox(width: 12),
+                Expanded(child: GlassMeter(isDark: isDark, value: meter, color: meterColor)),
+              ]),
+            ],
+          ]),
+        ),
       ]),
     );
   }
 
-  Widget _card(bool isDark, Map<String, dynamic> p) {
-    final st = _m(p['stats']);
-    final u = _m(st['units']), cm = _m(st['commission']), ow = _m(st['owner']);
-    final marketing = p['kind'] == 'marketing';
-    return GestureDetector(
-      onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}')));
-        _load();
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: JphUi.box(isDark),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            JphUi.iconTile(isDark, marketing && _seesKind() ? Icons.storefront_rounded : Icons.apartment_rounded,
-                marketing && _seesKind() ? Colors.deepPurple : Colors.indigo),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${p['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                if (p['developerName'] != null || (!marketing && p['ownerName'] != null))
-                  Text('المطور: ${p['developerName'] ?? p['ownerName']}', style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
-              ]),
-            ),
-            if (_seesKind()) _pill(marketing ? 'تسويق' : 'حصري', marketing ? Colors.deepPurple : Colors.indigo),
-            if (p['status'] != 'active') ...[const SizedBox(width: 4), _pill(p['status'] == 'paused' ? 'متوقف' : 'مقفول', Colors.orange)],
-            Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
-          ]),
-          const SizedBox(height: 10),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            if (p['totalPct'] != null) _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
-            if (!marketing && p['contractPct'] != null) _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Colors.teal),
-            if (!marketing && p['installmentPct'] != null && _seesKind()) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
-            _pill('سيلز ${JphUi.pct(p['salesPct'])}${p['managerPct'] != null ? ' · مدير ${JphUi.pct(p['managerPct'])}' : ''}', Colors.blueGrey),
-            if (_n(p['marketingPct']) > 0 && _seesKind()) _pill('شركات التسويق ${JphUi.pct(p['marketingPct'])}', Colors.deepPurple),
-          ]),
-          if (st.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              _pill('محجوز ${u['reserved']}', _statusColor('reserved')),
-              _pill('متعاقد ${u['contracted']}', _statusColor('contracted')),
-              _pill('مكتمل ${u['completed']}', _statusColor('completed')),
-              _pill('ملغي ${u['cancelled']}', _statusColor('cancelled')),
-            ]),
+  /// the list view: one line per project
+  Widget _row(bool isDark, Map<String, dynamic> p) {
+    final (tiles, meter, meterLabel, meterColor) = _figures(p);
+    final dev = _dev(p);
+    return GlassBox(
+      isDark: isDark,
+      radius: 20,
+      padding: const EdgeInsets.all(8),
+      onTap: () => _openProject(p),
+      child: Row(children: [
+        SizedBox(width: 92, height: 92, child: _hero(isDark, p, small: true)),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${p['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Glass.ink(isDark))),
+            const SizedBox(height: 2),
+            Text(dev.isEmpty ? 'بدون مطور' : dev, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: Glass.muted(isDark))),
             const SizedBox(height: 8),
-            if (marketing) ...[
-              _kv(isDark, 'مبيعات متعاقد عليها', _money(st['sales'])),
-              _kv(isDark, 'نصيب المكتب من العمولة', _money(cm['office']), color: Colors.teal),
-            ] else ...[
-              _kv(isDark, 'في الأمانة', _money(ow['inTrust'])),
-              _kv(isDark, 'المستحق للمالك', _money(ow['due'])),
-              _kv(isDark, 'عمولة مستنية التحويل', _money(cm['pending']), color: Colors.orange),
+            Text(tiles.map((t) => '${t.$1}: ${t.$2}').join('  ·  '),
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
+            if (meter != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                Text(meterLabel, style: TextStyle(fontSize: 12, color: Glass.muted(isDark))),
+                const SizedBox(width: 8),
+                Expanded(child: GlassMeter(isDark: isDark, value: meter, color: meterColor)),
+              ]),
             ],
-          ],
-        ]),
-      ),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        Icon(Icons.chevron_left_rounded, color: Glass.muted(isDark)),
+      ]),
     );
   }
 }
