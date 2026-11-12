@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/app_nav.dart';
+import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../attendance/attendance_widgets.dart';
@@ -53,6 +55,14 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
           textDirection: app.isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
           child: Scaffold(
             backgroundColor: Colors.transparent,
+            // «المالية» is a tab of the bottom bar for المالك / المدير العام and the accountant: the bar stays
+            extendBody: AppNav.financeTab,
+            bottomNavigationBar: AppNav.financeTab
+                ? GlassBottomNav(
+                    currentIndex: 5,
+                    onTap: (index) => AppNav.go(context, index, current: 5, uid: widget.uid, name: widget.name, role: widget.role),
+                  )
+                : null,
             body: SafeArea(
               child: Column(children: [
                 Header(
