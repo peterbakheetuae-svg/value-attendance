@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'owner_overview.dart';
+import '../exclusive/exclusive_projects_page.dart' show PendingSalesMoneyCard;
 import '../../../core/web_push.dart';
 import 'dart:math' as math;
 import 'dart:ui';
@@ -1660,6 +1661,8 @@ class _DashboardPageState extends State<DashboardPage>
                         ),
 
                       const SizedBox(height: 18),
+                      // عربون حجز / مقدم تعاقد مستني «تم الاستلام» (المحاسب / المدير العام)
+                      const PendingSalesMoneyCard(),
                       _buildPendingOutingsCard(),
                       PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
                       TopTabs(mode: mode, onTap: setTab),

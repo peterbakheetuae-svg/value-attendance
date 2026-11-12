@@ -591,6 +591,15 @@ Future<Map<String, dynamic>> _overview() => _get('/cash/overview');
 Widget _tile(bool isDark, String label, Object? value, IconData icon, Color color, {VoidCallback? onTap}) =>
     GestureDetector(onTap: onTap, child: JphUi.stat(isDark, label, _money(value), icon, color));
 
+Widget _mini(bool isDark, String label, Object? v, Color color) => Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      decoration: BoxDecoration(color: color.withOpacity(isDark ? 0.18 : 0.09), borderRadius: BorderRadius.circular(12)),
+      child: Column(children: [
+        Text(label, style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(_money(v), style: TextStyle(fontWeight: FontWeight.w900, color: color))),
+      ]),
+    );
+
 String _ym(String ym) {
   if (ym.length < 7) return 'من غير تاريخ متوقع';
   final m = int.tryParse(ym.substring(5, 7)) ?? 1;
@@ -782,7 +791,6 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
   @override
   List<Widget> body(bool isDark) {
     final c = _m(o!['commissions']);
-    final units = _l(c['units']);
     return [
       JphUi.statGrid([
         _tile(isDark, 'عمولة مستحقة', c['due'], Icons.workspace_premium_rounded, Colors.amber.shade800),
@@ -791,26 +799,43 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
         _tile(isDark, 'جاية من أقساط لسه', c['upcoming'], Icons.event_repeat_rounded, Colors.indigo),
       ]),
       const SizedBox(height: 16),
+      Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+      const SizedBox(height: 8),
       for (final p in _l(c['byProject']))
-        _section(isDark, '${p['name']} — ${p['kind'] == 'marketing' ? 'تسويق' : 'حصري'}', [
-          _kv(isDark, 'مستحقة', _money(p['due'])),
-          _kv(isDark, 'دخلت', _money(p['collected']), color: Colors.green),
-          _kv(isDark, 'متبقي', _money(p['remaining']), color: Colors.orange),
-          if (_n(p['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(p['upcoming'])),
-        ]),
-      if (units.isNotEmpty)
-        _section(isDark, 'الوحدات', [
-          for (final u in units)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(_n(u['remaining']) > 0 ? Icons.hourglass_top_rounded : Icons.task_alt_rounded,
-                  color: _n(u['remaining']) > 0 ? Colors.orange : Colors.green),
-              title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-              subtitle: Text('${u['clientName']} · مستحقة ${_money(u['due'])} · دخلت ${_money(u['collected'])}', style: TextStyle(color: JphUi.sub(isDark))),
-              trailing: Text(_money(u['remaining']), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.orange)),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
-            ),
-        ]),
+        GestureDetector(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectCommissionsPage(project: p))).then((_) => load()),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: JphUi.box(isDark),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                JphUi.iconTile(isDark, p['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded,
+                    p['kind'] == 'marketing' ? Colors.deepPurple : Colors.indigo),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    Text(p['kind'] == 'marketing' ? 'تسويق' : 'حصري', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                  ]),
+                ),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text(_money(p['remaining']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.orange)),
+                  Text('متبقي', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                ]),
+                Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _mini(isDark, 'مستحقة', p['due'], Colors.amber.shade800)),
+                const SizedBox(width: 6),
+                Expanded(child: _mini(isDark, 'دخلت', p['collected'], Colors.green)),
+                const SizedBox(width: 6),
+                Expanded(child: _mini(isDark, 'متوقعة', p['expected'], Colors.teal)),
+              ]),
+            ]),
+          ),
+        ),
       if (_n(_m(c['legacy'])['due']) > 0)
         _section(isDark, 'عمولات صفقات قديمة (من غير وحدة)', [
           _kv(isDark, 'مستحقة', _money(_m(c['legacy'])['due'])),
@@ -858,6 +883,196 @@ class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissio
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
             ),
         ]),
+    ];
+  }
+}
+
+// ==================================================================== «تم استلام المبلغ» — on the home screen and the cashbox
+/// The money the sales brought in (عربون حجز / مقدم تعاقد), waiting for the accountant or المالك / المدير العام —
+/// shown like a leave / advance request: a card on top, and a popup the first time a new one appears.
+class PendingSalesMoneyCard extends StatefulWidget {
+  final VoidCallback? onChanged;
+  const PendingSalesMoneyCard({super.key, this.onChanged});
+  @override
+  State<PendingSalesMoneyCard> createState() => _PendingSalesMoneyCardState();
+}
+
+class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
+  static final Set<String> _popped = {}; // once per app session for each payment
+  List<Map<String, dynamic>> _items = [];
+  String _into = '';
+  Timer? _timer;
+
+  bool get _can => ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_can) return;
+    _load();
+    _timer = Timer.periodic(const Duration(seconds: 45), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/exclusive/payments');
+    if (!mounted || r['success'] != true || r['canReceive'] != true) return;
+    final items = _l(r['payments']);
+    setState(() {
+      _items = items;
+      _into = '${r['into'] ?? ''}';
+    });
+    final fresh = items.where((x) => !_popped.contains('${x['id']}')).toList();
+    if (fresh.isNotEmpty) {
+      _popped.addAll(fresh.map((x) => '${x['id']}'));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _popup(fresh));
+    }
+  }
+
+  Future<void> _popup(List<Map<String, dynamic>> fresh) async {
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    final isDark = context.read<AppController>().isDark;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: GlassAlertDialog(
+          title: Text(fresh.length == 1 ? 'مبلغ مستني تأكيد الاستلام' : '${fresh.length} مبالغ مستنية تأكيد الاستلام'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              for (final x in fresh) _row(ctx, isDark, x, popup: true),
+            ]),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بعدين'))],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _receive(BuildContext ctx, Map<String, dynamic> x, {bool popup = false}) async {
+    final r = await _post('/exclusive/payments/${x['id']}/receive', {}, 'اتأكد الاستلام ✅');
+    if (ctx.mounted) JphUi.toast(ctx, r);
+    if (popup && ctx.mounted && r['success'] == true) Navigator.pop(ctx);
+    await _load();
+    widget.onChanged?.call();
+  }
+
+  Widget _row(BuildContext ctx, bool isDark, Map<String, dynamic> x, {bool popup = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          Icon(x['kind'] == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded, color: Colors.orange),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${x['kind'] == 'reservation' ? 'حجز جديد' : 'تعاقد جديد'} — ${x['projectName']} · وحدة ${x['unitNo']}',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              Text('${x['clientName']} · ${x['salesName']} · ${x['methodAr']} · ${_money(x['amount'])}',
+                  style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+            ]),
+          ),
+          FilledButton(
+            onPressed: () => _receive(ctx, x, popup: popup),
+            style: FilledButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(horizontal: 12)),
+            child: const Text('تم الاستلام', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (_items.isEmpty) return const SizedBox.shrink();
+    final isDark = context.watch<AppController>().isDark;
+    final total = _items.fold<num>(0, (t, x) => t + _n(x['amount']));
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.55),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.orange.withOpacity(0.6), width: 1.4),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Icon(Icons.notifications_active_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('مبالغ مبيعات مستنية تأكيد الاستلام (${_items.length}) — ${_money(total)}',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+            ),
+          ]),
+          if (_into.isNotEmpty) Text('بتدخل $_into', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+          const SizedBox(height: 4),
+          for (final x in _items) _row(context, isDark, x),
+        ]),
+      ),
+    );
+  }
+}
+
+// ==================================================================== عمولات مشروع واحد (كل المشاريع: حصري + تسويق)
+class ProjectCommissionsPage extends StatefulWidget {
+  final Map<String, dynamic> project; // one of /cash/overview commissions.byProject
+  const ProjectCommissionsPage({super.key, required this.project});
+  @override
+  State<ProjectCommissionsPage> createState() => _ProjectCommissionsPageState();
+}
+
+class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissionsPage> {
+  @override
+  String get title => 'عمولات ${widget.project['name']}';
+
+  @override
+  List<Widget> body(bool isDark) {
+    final c = _m(o!['commissions']);
+    final p = _l(c['byProject']).firstWhere((x) => x['id'] == widget.project['id'], orElse: () => widget.project);
+    final units = _l(c['units']).where((u) => u['projectId'] == widget.project['id']).toList();
+    return [
+      Text(p['kind'] == 'marketing' ? 'مشروع تسويق' : 'مشروع حصري', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+      const SizedBox(height: 10),
+      JphUi.statGrid([
+        _tile(isDark, 'عمولة مستحقة', p['due'], Icons.workspace_premium_rounded, Colors.amber.shade800),
+        _tile(isDark, 'دخلت خزنة العمولات', p['collected'], Icons.savings_rounded, Colors.green),
+        _tile(isDark, 'متبقي لم يتم أخذه', p['remaining'], Icons.hourglass_top_rounded, Colors.orange),
+        _tile(isDark, 'جاية من أقساط', p['upcoming'], Icons.event_repeat_rounded, Colors.indigo),
+        if (_n(p['expected']) > 0) _tile(isDark, 'متوقعة من حجوزات', p['expected'], Icons.event_available_rounded, Colors.teal),
+      ]),
+      const SizedBox(height: 16),
+      if (units.isEmpty)
+        Padding(padding: const EdgeInsets.all(30), child: Text('مفيش وحدات متعاقد عليها لسه', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final u in units)
+        GestureDetector(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: JphUi.box(isDark),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                JphUi.iconTile(isDark, _n(u['remaining']) > 0 ? Icons.hourglass_top_rounded : Icons.task_alt_rounded,
+                    _n(u['remaining']) > 0 ? Colors.orange : Colors.green),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('وحدة ${u['unitNo']} — ${u['clientName']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    Text('${u['salesName']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                  ]),
+                ),
+                Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
+              ]),
+              const SizedBox(height: 6),
+              _kv(isDark, 'مستحقة', _money(u['due'])),
+              _kv(isDark, 'دخلت', _money(u['collected']), color: Colors.green),
+              _kv(isDark, 'متبقي', _money(u['remaining']), color: Colors.orange),
+              if (_n(u['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(u['upcoming'])),
+            ]),
+          ),
+        ),
     ];
   }
 }

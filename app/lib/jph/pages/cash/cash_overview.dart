@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'cash_page.dart' show newClientRef;
-import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage;
+import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard;
 
 /// الخزنة the office's way (GET /cash/overview):
 ///   المتاح = بنك + نقدي (نقدي = خزنة المكتب + خزنة المحاسب)
@@ -73,6 +73,7 @@ class _CashOverviewState extends State<CashOverview> {
     final inc = _m(_o['income']);
     final exp = _m(_o['expenses']);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      PendingSalesMoneyCard(onChanged: _changed),
       _available(isDark, av),
       if (_office && _o['projectsBox'] is Map) ...[
         const SizedBox(height: 14),

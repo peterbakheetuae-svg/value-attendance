@@ -927,6 +927,8 @@ class _OwnerOverviewState extends State<OwnerOverview> {
             widget.header,
             const SizedBox(height: 18),
             _greeting(),
+            // عربون حجز / مقدم تعاقد مستني «تم الاستلام»
+            const PendingSalesMoneyCard(),
             _switchButtons(),
             if (!ready && _error == null) const Padding(padding: EdgeInsets.all(48), child: Center(child: CircularProgressIndicator())),
             if (_error != null)
