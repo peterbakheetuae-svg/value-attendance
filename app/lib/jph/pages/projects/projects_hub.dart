@@ -622,13 +622,16 @@ class MonthFilterBar extends StatelessWidget {
   final ValueChanged<DateTime?> onChanged;
   const MonthFilterBar({super.key, required this.isDark, required this.month, required this.onChanged});
 
+  /// The same filter icon as the pages' header: «كل الشهور» first, then the months.
   Future<void> _pick(BuildContext context) async {
     final now = DateTime.now();
     final months = [for (var i = -24; i <= 12; i++) DateTime(now.year, now.month + i)].reversed.toList();
-    final v = await JphUi.sheet<String>(context, isDark, 'اختار الشهر', [
+    final v = await JphUi.sheet<String>(context, isDark, 'الفلتر', [
+      ('all', 'كل الشهور', Icons.all_inclusive_rounded),
       for (final m in months) ('${m.year}-${m.month}', monthLabel(m), m.year == now.year && m.month == now.month ? Icons.today_rounded : Icons.calendar_month_rounded),
-    ], selected: month == null ? null : '${month!.year}-${month!.month}');
+    ], selected: month == null ? 'all' : '${month!.year}-${month!.month}');
     if (v == null) return;
+    if (v == 'all') return onChanged(null);
     final p = v.split('-');
     onChanged(DateTime(int.parse(p[0]), int.parse(p[1])));
   }
@@ -637,19 +640,10 @@ class MonthFilterBar extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Row(children: [
-          ChoiceChip(
-            label: const Text('كل الشهور', style: TextStyle(fontWeight: FontWeight.w800)),
-            avatar: const Icon(Icons.all_inclusive_rounded, size: 18),
-            selected: month == null,
-            onSelected: (_) => onChanged(null),
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: Text(month == null ? 'اختار شهر' : monthLabel(month), style: const TextStyle(fontWeight: FontWeight.w800)),
-            avatar: const Icon(Icons.calendar_month_rounded, size: 18),
-            selected: month != null,
-            onSelected: (_) => _pick(context),
-          ),
+          Icon(month == null ? Icons.all_inclusive_rounded : Icons.calendar_month_rounded, color: JphUi.sub(isDark), size: 20),
+          const SizedBox(width: 6),
+          Expanded(child: Text(monthLabel(month), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+          SquareIconButton(icon: Icons.filter_list_rounded, onTap: () => _pick(context), isDark: isDark),
         ]),
       );
 }

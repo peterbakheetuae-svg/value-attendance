@@ -10,6 +10,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../commissions/commission_project_page.dart';
+import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
 
 part '../projects/projects_hub.dart';
