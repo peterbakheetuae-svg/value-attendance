@@ -245,6 +245,25 @@ class JphUi {
     );
   }
 
+  /// The same month sheet + «كل الشهور»: returns [allMonths] for every month, a month, or null (closed).
+  static final DateTime allMonths = DateTime(1);
+  static Future<DateTime?> pickMonthOrAll(BuildContext context, bool isDark, DateTime? current) {
+    final c = current ?? DateTime.now();
+    return showModalBottomSheet<DateTime>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => MonthYearSheet(
+        tmpMonth: c.month,
+        tmpYear: c.year,
+        isDark: isDark,
+        allSelected: current == null,
+        onAll: () => Navigator.pop(ctx, allMonths),
+        onApply: (m, y) => Navigator.pop(ctx, DateTime(y, m)),
+      ),
+    );
+  }
+
   /// Date range filter — the same sheet as تقرير الحضور.
   static Future<DateTimeRange?> pickRange(BuildContext context, bool isDark, DateTime start, DateTime end) {
     return showModalBottomSheet<DateTimeRange>(

@@ -37,7 +37,12 @@ class GlassBottomNav extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      child: Padding(
+      // on a wide screen (the website on a computer) the bar keeps a phone-like width, centred
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: Padding(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
         child: RepaintBoundary(
           child: ClipRRect(
@@ -134,6 +139,8 @@ class GlassBottomNav extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
         ),
       ),
     );

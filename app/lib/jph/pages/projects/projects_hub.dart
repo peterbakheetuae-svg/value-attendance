@@ -682,13 +682,23 @@ abstract class _OverviewPageState<T extends StatefulWidget> extends State<T> {
     if (mounted) setState(() => o = r);
   }
 
-  Widget filter(bool isDark) => MonthFilterBar(isDark: isDark, month: month, onChanged: (m) {
-        setState(() {
-          month = m;
-          o = null;
-        });
-        load();
-      });
+  Future<void> pickFilter(bool isDark) async {
+    final m = await JphUi.pickMonthOrAll(context, isDark, month);
+    if (m == null) return;
+    setState(() {
+      month = identical(m, JphUi.allMonths) ? null : m;
+      o = null;
+    });
+    load();
+  }
+
+  /// the header's filter icon (the same square as the other pages)
+  Widget filterIcon(bool isDark) => SquareIconButton(icon: Icons.filter_list_rounded, onTap: () => pickFilter(isDark), isDark: isDark);
+
+  Widget filter(bool isDark) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(monthLabel(month), textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+      );
 
   String get title;
   List<Widget> body(bool isDark);
@@ -698,6 +708,7 @@ abstract class _OverviewPageState<T extends StatefulWidget> extends State<T> {
     final isDark = context.watch<AppController>().isDark;
     return _Shell(
       title: title,
+      action: filterIcon(isDark),
       child: o == null
           ? const Center(child: CircularProgressIndicator())
           : o!['success'] != true

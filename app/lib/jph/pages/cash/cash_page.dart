@@ -19,7 +19,9 @@ class CashPage extends StatefulWidget {
   final bool embedded;
   /// the cashbox page's month filter (the figures of الأرصدة follow it)
   final ValueListenable<DateTime>? month;
-  const CashPage({super.key, this.embedded = false, this.month});
+  /// the hub's «كل الشهور» (true) for the cashbox tiles
+  final ValueListenable<bool>? allMonths;
+  const CashPage({super.key, this.embedded = false, this.month, this.allMonths});
 
   @override
   State<CashPage> createState() => _CashPageState();
@@ -102,7 +104,7 @@ class _CashPageState extends State<CashPage> {
                       'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
                       'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
                       'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
-                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month),
+                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month, allMonths: widget.allMonths),
                     },
                   ),
                 );
@@ -149,7 +151,8 @@ class _SummaryTab extends StatefulWidget {
   final Map<String, dynamic> summary;
   final Future<void> Function() onChanged;
   final ValueListenable<DateTime>? month;
-  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged, this.month});
+  final ValueListenable<bool>? allMonths;
+  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged, this.month, this.allMonths});
 
   @override
   State<_SummaryTab> createState() => _SummaryTabState();
@@ -323,7 +326,7 @@ class _SummaryTabState extends State<_SummaryTab> {
       onRefresh: _refresh,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         // the office's way: المتاح (بنك / نقدي مكتب / نقدي محاسب) → الدخل (عمولات، مبيعات، ضخ، أمانات) → المصروفات → الصافي
-        CashOverview(isDark: isDark, month: widget.month, onChanged: _refresh),
+        CashOverview(isDark: isDark, month: widget.month, allMonths: widget.allMonths, onChanged: _refresh),
         if (summary['office'] is Map) _box(context, 'office', (summary['office'] as Map).cast<String, dynamic>()),
         if (summary['hr'] is Map) _box(context, 'hr', (summary['hr'] as Map).cast<String, dynamic>()),
         if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),

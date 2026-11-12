@@ -10,6 +10,9 @@ class MonthYearSheet extends StatefulWidget {
   final int tmpYear;
   final bool isDark;
   final Function(int month, int year) onApply;
+  /// optional «كل الشهور» (the cashbox tiles)
+  final VoidCallback? onAll;
+  final bool allSelected;
 
   const MonthYearSheet({
     super.key,
@@ -17,6 +20,8 @@ class MonthYearSheet extends StatefulWidget {
     required this.tmpYear,
     required this.isDark,
     required this.onApply,
+    this.onAll,
+    this.allSelected = false,
   });
 
   @override
@@ -243,6 +248,24 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
                   ],
                 ),
               ),
+              if (widget.onAll != null) ...[
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    onPressed: widget.onAll,
+                    icon: Icon(Icons.all_inclusive_rounded, color: widget.isDark ? AppColors.primaryLight : AppColors.primary),
+                    label: Text('كل الشهور', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900,
+                        color: widget.isDark ? AppColors.primaryLight : AppColors.primary)),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: widget.allSelected ? (widget.isDark ? AppColors.primaryLight : AppColors.primary).withOpacity(0.12) : null,
+                      side: BorderSide(color: widget.isDark ? AppColors.primaryLight : AppColors.primary, width: widget.allSelected ? 2 : 1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 18),
               _SheetActions(
                 onApply: () => widget.onApply(_selectedMonth, _selectedYear),

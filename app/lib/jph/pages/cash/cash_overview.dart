@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'cash_page.dart' show newClientRef;
-import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard, MonthFilterBar, monthQuery, monthLabel;
+import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard, monthQuery, monthLabel;
 
 /// الخزنة the office's way (GET /cash/overview):
 ///   المتاح = بنك + نقدي (نقدي = خزنة المكتب + خزنة المحاسب)
@@ -16,8 +16,10 @@ import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, Commiss
 class CashOverview extends StatefulWidget {
   final bool isDark;
   final ValueListenable<DateTime>? month;
+  /// «كل الشهور» from the page's filter icon (no notifier = every month)
+  final ValueListenable<bool>? allMonths;
   final Future<void> Function()? onChanged;
-  const CashOverview({super.key, required this.isDark, this.month, this.onChanged});
+  const CashOverview({super.key, required this.isDark, this.month, this.allMonths, this.onChanged});
 
   @override
   State<CashOverview> createState() => _CashOverviewState();
@@ -33,13 +35,22 @@ class _CashOverviewState extends State<CashOverview> {
   bool _loading = true;
 
   bool get _office => ApiService.can('cash.office');
-  /// The cashbox tiles: every month by default (null), or one month picked on the filter.
-  DateTime? _filter;
+  /// The cashbox tiles follow the page's filter icon: every month (null) by default, or the month picked there.
+  DateTime? get _filter => (widget.allMonths?.value ?? true) ? null : widget.month?.value;
 
   @override
   void initState() {
     super.initState();
+    widget.month?.addListener(_load);
+    widget.allMonths?.addListener(_load);
     _load();
+  }
+
+  @override
+  void dispose() {
+    widget.month?.removeListener(_load);
+    widget.allMonths?.removeListener(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -66,10 +77,6 @@ class _CashOverviewState extends State<CashOverview> {
     final exp = _m(_o['expenses']);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       PendingSalesMoneyCard(onChanged: _changed),
-      MonthFilterBar(isDark: isDark, month: _filter, onChanged: (m) {
-        setState(() => _filter = m);
-        _load();
-      }),
       _available(isDark, av),
       if (_office && _o['projectsBox'] is Map) ...[
         const SizedBox(height: 14),

@@ -18,6 +18,7 @@ import 'jph/services/notification_service.dart';
 import 'jph/services/session_service.dart';
 import 'jph/theme/dark_theme.dart';
 import 'jph/theme/light_theme.dart';
+import 'jph/widgets/web_frame.dart';
 import 'pages/change_password_page.dart';
 
 /// Value Attendance — the original JPH Attendance app (screens, design, assets unchanged),
@@ -134,6 +135,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
           darkTheme: DarkTheme.theme,
           themeMode: appController.themeMode,
           navigatorKey: navigatorKey,
+          // the website on a computer keeps a comfortable width (phones and the APK unchanged)
+          builder: (context, child) => WebFrame(child: child ?? const SizedBox.shrink()),
           home: _home(),
         );
       },

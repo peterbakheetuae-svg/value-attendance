@@ -37,12 +37,22 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
   @override
   void dispose() {
     _month.dispose();
+    _allMonths.dispose();
     super.dispose();
   }
 
+  /// «كل الشهور» (the cashbox tiles' default) or one month — the same filter sheet as before, plus «كل الشهور».
+  final _allMonths = ValueNotifier<bool>(true);
+
   Future<void> _filter(bool isDark) async {
-    final m = await JphUi.pickMonth(context, isDark, _month.value);
-    if (m != null) _month.value = m;
+    final m = await JphUi.pickMonthOrAll(context, isDark, _allMonths.value ? null : _month.value);
+    if (m == null) return;
+    if (identical(m, JphUi.allMonths)) {
+      _allMonths.value = true;
+    } else {
+      _allMonths.value = false;
+      _month.value = m;
+    }
   }
 
   @override
@@ -72,9 +82,9 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
                   isDark: isDark,
                   title: cash ? 'المالية' : 'ملخص المالية',
                 ),
-                ValueListenableBuilder<DateTime>(
-                  valueListenable: _month,
-                  builder: (_, m, __) => Text('${JphUi.monthsAr[m.month - 1]} ${m.year}',
+                AnimatedBuilder(
+                  animation: Listenable.merge([_month, _allMonths]),
+                  builder: (_, __) => Text(_allMonths.value ? 'كل الشهور' : '${JphUi.monthsAr[_month.value.month - 1]} ${_month.value.year}',
                       style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
                 ),
                 const SizedBox(height: 6),
@@ -90,7 +100,7 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
                     pages: [
                       // الطلبات: سلف | مرتبات | عمولات (صرف ← تم الاستلام ← يتخصم من الخزنة)
                       FinanceRequestsTabs(uid: widget.uid, name: widget.name, role: widget.role, isDark: isDark, month: _month),
-                      if (cash) CashPage(embedded: true, month: _month),
+                      if (cash) CashPage(embedded: true, month: _month, allMonths: _allMonths),
                       if (cash)
                         Center(
                           child: ConstrainedBox(
