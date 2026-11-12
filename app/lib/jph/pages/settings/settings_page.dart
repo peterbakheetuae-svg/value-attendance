@@ -761,7 +761,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ('المشاريع', Icons.apartment_rounded, () => const ProjectsPage()),
       if (sales) ('المبيعات', Icons.sell_rounded, () => const SalesHubPage()),
       ('العمولات', Icons.workspace_premium_rounded, () => const CommissionsPage(requestsOnly: true)),
-      if (office) ('المطورين', Icons.business_rounded, () => const DevelopersPage()),
+      if (office || ApiService.can('cash.hr_operate')) ('المطورين', Icons.business_rounded, () => const DevelopersPage()),
       if (sales) ('العملاء', Icons.people_alt_rounded, () => const ClientsPage()),
     ];
   }

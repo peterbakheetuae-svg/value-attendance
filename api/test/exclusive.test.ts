@@ -17,7 +17,7 @@ before(async () => {
 after(async () => { await h.close(); });
 
 test('exclusive project: reservation → contract → collected → owner payout', async () => {
-  assert.equal((await h.call(c.t.hr, 'POST', '/exclusive/projects', { name: 'برج النخيل', ownerName: 'أ. سامي' })).status, 403);
+  assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/projects', { name: 'برج النخيل', ownerName: 'أ. سامي' })).status, 403);
   const pr = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج النخيل', ownerName: 'أ. سامي', ownerPhone: '0100', marketingPct: 0.5 });
   assert.equal(pr.status, 201, JSON.stringify(pr.body));
   const pid = pr.body.project.id;

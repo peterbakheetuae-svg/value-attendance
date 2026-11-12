@@ -146,3 +146,13 @@ test('المطورين: every project belongs to a developer, with his accounts 
   const p = await h.call(c.t.owner, 'GET', `/exclusive/projects/${ex.body.project.id}`);
   assert.deepEqual([p.body.project.developerName, p.body.project.ownerName], ['مطور تاني جديد', 'مطور تاني جديد']);
 });
+
+test('the projects\' setup (kind / developer) is المالك / المدير العام\'s and the accountant\'s only', async () => {
+  const m = await h.call(c.t.hr, 'POST', '/exclusive/projects', { name: 'تسويق المحاسب', kind: 'marketing', totalPct: 3, developerName: 'مطور المحاسب' });
+  assert.equal(m.status, 201, JSON.stringify(m.body));
+  assert.equal(m.body.project.kind, 'marketing');
+  assert.equal((await h.call(c.t.hr, 'GET', '/exclusive/developers')).status, 200);
+  assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/projects', { name: 'x', developerName: 'y' })).status, 403);
+  const list = await h.call(c.t.e1, 'GET', '/exclusive/projects?kind=all');
+  assert.equal(list.body.canSetup, false);
+});

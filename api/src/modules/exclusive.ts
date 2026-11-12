@@ -30,6 +30,8 @@ const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits:
 const canManage = (a: Actor) => canOffice(a);                       // المالك / المدير العام
 const canReserve = (a: Actor) => has(a, 'exclusive.reserve') || canManage(a);
 const canSeeAll = (a: Actor) => canManage(a) || canHrOperate(a);
+// the projects' setup — a project's kind (حصري / تسويق), its developer: المالك / المدير العام and the accountant only
+const canSetup = (a: Actor) => canManage(a) || hrDesk(a);
 
 function pct(b: Record<string, unknown>, k: string, def: number) {
   const v = num(b, k, { optional: true, min: 0, max: 100 });
@@ -272,29 +274,38 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
                                   WHERE ${kindSql.replace(/\bkind\b/g, 'p.kind')}
                                   ${canManage(a) ? '' : `AND p.status = 'active'`} ORDER BY p.status = 'active' DESC, p.created_at DESC`);
     const st = canManage(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
-    return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id], a)), canManage: canManage(a), canReserve: canReserve(a), canCollect: hrDesk(a) });
+    return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id], a)), canManage: canManage(a), canSetup: canSetup(a), canReserve: canReserve(a),
+      canCollect: hrDesk(a) });
   });
 
   r.post('/exclusive/projects', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     const b = obj(req.body);
     const name = str(b, 'name', { min: 2, max: 120 })!.trim();
+    const kind = oneOf(b, 'kind', ['exclusive', 'marketing'] as const, true) ?? 'exclusive';
     let ownerName = (str(b, 'ownerName', { optional: true, max: 120 }) ?? '').trim();
     let ownerPhone = (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim();
     const total = pct(b, 'totalPct', 5), contract = pct(b, 'contractPct', 3), sales = pct(b, 'salesPct', 0.2),
       manager = pct(b, 'managerPct', 0.1), inst = pct(b, 'installmentPct', 0.5), mkPct = pct(b, 'marketingPct', 0);
     if (mkPct > total - sales - manager) throw invalid('عمولة شركات التسويق أكبر من نصيب المكتب', { field: 'marketingPct' });
-    if (contract > total) throw invalid('نسبة التعاقد مينفعش تكون أكبر من إجمالي العمولة', { field: 'contractPct' });
-    if (sales + manager > contract) throw invalid('نسبة السيلز + المدير لازم تكون من ضمن نسبة التعاقد', { field: 'salesPct' });
+    if (sales + manager > total) throw invalid('نسبة السيلز + المدير أكبر من إجمالي العمولة', { field: 'salesPct' });
+    if (kind === 'exclusive' && contract > total) throw invalid('نسبة التعاقد مينفعش تكون أكبر من إجمالي العمولة', { field: 'contractPct' });
+    if (kind === 'exclusive' && sales + manager > contract) throw invalid('نسبة السيلز + المدير لازم تكون من ضمن نسبة التعاقد', { field: 'salesPct' });
     const p = await db.tx(async (q) => {
       if (await one(q, `SELECT 1 FROM commission_projects WHERE lower(trim(name)) = lower(trim($1))`, [name])) {
         throw invalid('فيه مشروع بنفس الاسم', { field: 'name' });
       }
       // the developer (المالك / المطور) of the exclusive project
       const dev = await resolveDeveloper(q, a, { developerName: ownerName, developerPhone: ownerPhone, ...b });
-      if (!dev) throw invalid('اختار المطور (المالك)', { field: 'developerName' });
+      if (!dev) throw invalid('اختار المطور', { field: 'developerName' });
       ownerName = dev.name; ownerPhone = ownerPhone || dev.phone;
+      if (kind === 'marketing') {
+        const m = await one(q, `INSERT INTO commission_projects (name, total_pct, sales_pct, manager_pct, company_pct, created_by, kind, marketing_pct, developer_id)
+          VALUES ($1,$2,$3,$4,$5,$6,'marketing',$7,$8) RETURNING *`, [name, total, sales, manager, r2(total - sales - manager), a.id, mkPct, dev.id]);
+        await audit(q, a.id, 'exclusive.project.create', 'commission_project', m.id, undefined, m);
+        return m;
+      }
       const x = await one(q, `INSERT INTO commission_projects (name, total_pct, sales_pct, manager_pct, company_pct, created_by, kind,
           owner_name, owner_phone, contract_pct, installment_pct, marketing_pct, developer_id)
         VALUES ($1,$2,$3,$4,$5,$6,'exclusive',$7,$8,$9,$10,$11,$12) RETURNING *`,
@@ -307,7 +318,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 
   r.patch('/exclusive/projects/:id', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     const p = await db.tx(async (q) => {
@@ -988,7 +999,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   /** A project's developer is changed / set (حصري: he is its owner too). */
   r.post('/exclusive/projects/:id/developer', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     await db.tx(async (q) => {
@@ -1038,7 +1049,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 
   r.get('/exclusive/developers', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     const developers = await developerAccounts(db, null);
     const unlinked = (await db.query(`SELECT id, name, kind FROM commission_projects WHERE developer_id IS NULL ORDER BY created_at`)).rows;
     return ok({ developers, unlinked });
@@ -1046,7 +1057,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 
   r.get('/exclusive/developers/:id', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
     const [d] = await developerAccounts(db, req.params.id);
     if (!d) throw notFound();
@@ -1055,7 +1066,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 
   r.post('/exclusive/developers', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     const b = obj(req.body);
     const name = str(b, 'name', { min: 2, max: 120 })!.trim();
     const d = await db.tx(async (q) => {
@@ -1070,7 +1081,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
 
   r.patch('/exclusive/developers/:id', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canSetup(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     await db.tx(async (q) => {

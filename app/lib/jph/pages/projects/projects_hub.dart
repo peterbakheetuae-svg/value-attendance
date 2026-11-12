@@ -40,7 +40,7 @@ class _ProjectsListState extends State<ProjectsList> {
     setState(() {
       _loading = false;
       _items = _l(r['projects']);
-      _manage = r['canManage'] == true;
+      _manage = r['canSetup'] == true;
     });
   }
 
@@ -113,8 +113,8 @@ class _ProjectsListState extends State<ProjectsList> {
         }, 'اتضاف المشروع ✅');
       } else {
         final t = num.tryParse(total.text) ?? 0, sp = num.tryParse(sales.text) ?? 0, mp = num.tryParse(manager.text) ?? 0;
-        r = await _post('/commissions/projects', {
-          'name': name.text.trim(), 'totalPct': t, 'salesPct': sp, 'managerPct': mp,
+        r = await _post('/exclusive/projects', {
+          'kind': 'marketing', 'name': name.text.trim(), 'totalPct': t, 'salesPct': sp, 'managerPct': mp,
           if (dev != null) 'developerId': dev!['id'] else ...{'developerName': owner.text.trim(), 'developerPhone': phone.text.trim()},
           'companyPct': num.parse((t - sp - mp).toStringAsFixed(4)), 'marketingPct': num.tryParse(mkPct.text) ?? 0,
         }, 'اتضاف المشروع ✅');
@@ -133,8 +133,8 @@ class _ProjectsListState extends State<ProjectsList> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
         if (_manage) _btn(isDark, 'إضافة مشروع', Icons.add_rounded, _add),
-        // the filter bar under «إضافة مشروع»
-        Padding(
+        // the filter bar under «إضافة مشروع» (حصري / تسويق: المالك / المدير العام and the accountant only)
+        if (_seesKind()) Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: _KindBar(
             isDark: isDark,
@@ -168,7 +168,8 @@ class _ProjectsListState extends State<ProjectsList> {
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            JphUi.iconTile(isDark, marketing ? Icons.storefront_rounded : Icons.apartment_rounded, marketing ? Colors.deepPurple : Colors.indigo),
+            JphUi.iconTile(isDark, marketing && _seesKind() ? Icons.storefront_rounded : Icons.apartment_rounded,
+                marketing && _seesKind() ? Colors.deepPurple : Colors.indigo),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -177,7 +178,7 @@ class _ProjectsListState extends State<ProjectsList> {
                   Text('المطور: ${p['developerName'] ?? p['ownerName']}', style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
               ]),
             ),
-            _pill(marketing ? 'تسويق' : 'حصري', marketing ? Colors.deepPurple : Colors.indigo),
+            if (_seesKind()) _pill(marketing ? 'تسويق' : 'حصري', marketing ? Colors.deepPurple : Colors.indigo),
             if (p['status'] != 'active') ...[const SizedBox(width: 4), _pill(p['status'] == 'paused' ? 'متوقف' : 'مقفول', Colors.orange)],
             Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
           ]),
@@ -355,7 +356,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
               ),
           ]),
         ],
-        SingleChildScrollView(
+        if (_seesKind()) SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(children: [
             for (final f in const [('', 'كل المشاريع'), ('exclusive', 'حصري'), ('marketing', 'تسويق')])
@@ -428,7 +429,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
         padding: const EdgeInsets.all(14),
         decoration: JphUi.box(isDark),
         child: Row(children: [
-          JphUi.iconTile(isDark, marketing ? Icons.storefront_rounded : Icons.home_work_rounded, _statusColor(st)),
+          JphUi.iconTile(isDark, marketing && _seesKind() ? Icons.storefront_rounded : Icons.home_work_rounded, _statusColor(st)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -584,7 +585,7 @@ class _ClientsPageState extends State<ClientsPage> {
                         for (final u in _l(c['units']))
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: Icon(u['projectKind'] == 'marketing' ? Icons.storefront_rounded : Icons.home_work_rounded,
+                            leading: Icon(u['projectKind'] == 'marketing' && _seesKind() ? Icons.storefront_rounded : Icons.home_work_rounded,
                                 color: _statusColor('${u['status']}')),
                             title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                             subtitle: Text('${u['statusAr']} · ${_money(u['price'])} · دفع ${_money(u['paid'])}', style: TextStyle(color: JphUi.sub(isDark))),

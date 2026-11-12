@@ -66,6 +66,9 @@ String _date(Object? v) {
 
 Future<Map<String, dynamic>> _get(String path, [Map<String, String>? q]) =>
     ApiService.post({'action': 'cash_get', 'path': path, if (q != null) 'query': q});
+/// حصري / تسويق is المالك / المدير العام's and the accountant's business only — nobody else sees which is which.
+bool _seesKind() => ApiService.can('cash.office') || ApiService.can('cash.hr_operate');
+
 Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body, String ok, {String? method}) =>
     ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok, if (method != null) 'method': method});
 
@@ -311,7 +314,7 @@ Widget _sourcePicker(bool isDark, List<Map<String, dynamic>> mks, Map<String, dy
         for (final m in mks)
           ChoiceChip(label: Text('${m['name']}'), avatar: const Icon(Icons.campaign_rounded, size: 18), selected: mk?['id'] == m['id'], onSelected: (_) => onPick(m)),
       ]),
-      if (mk == null) Padding(padding: const EdgeInsets.only(top: 4),
+      if (mk == null && _seesKind()) Padding(padding: const EdgeInsets.only(top: 4),
           child: Text('المكتب = مفيش عمولة لشركة تسويق', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark)))),
     ]);
 
@@ -482,12 +485,11 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
     return [
       JphUi.picker(
         isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع',
-        value: p.isEmpty ? 'اختار المشروع' : '${p['name']} — ${exclusive ? 'حصري' : 'تسويق'}',
+        value: p.isEmpty ? 'اختار المشروع' : '${p['name']}${_seesKind() ? ' — ${exclusive ? 'حصري' : 'تسويق'}' : ''}',
         onTap: () async {
           final v = await JphUi.sheet<String>(context, isDark, 'المشروع', [
             for (final x in active)
-              ('${x['id']}', '${x['name']} — ${x['kind'] == 'marketing' ? 'تسويق' : 'حصري'}',
-                  x['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded),
+              ('${x['id']}', '${x['name']}${_seesKind() ? ' — ${x['kind'] == 'marketing' ? 'تسويق' : 'حصري'}' : ''}', Icons.apartment_rounded),
           ], selected: pid);
           if (v != null) set(() => pid = v);
         },
@@ -514,7 +516,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
         Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         _cashBankPicker(isDark, method, (v) => set(() => method = v)),
       ],
-      if (!exclusive && p.isNotEmpty)
+      if (!exclusive && p.isNotEmpty && _seesKind())
         Text(contract ? 'التعاقد بيخلّي العمولة واجبة التحصيل من المطور.' : 'الحجز في مشروع تسويق: عمولة محتملة لحد التعاقد — مفيش فلوس بتدخل عندنا.',
             style: TextStyle(color: JphUi.sub(isDark))),
       rf.section(context, isDark, set, reservation: !contract),
@@ -950,7 +952,8 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     String method = 'cash';
     final ok = await _form(context, isDark, 'تحويل لتعاقد — وحدة ${_u['unitNo']}', (set) => [
           if (marketing)
-            Text('العمولة هتبقى واجبة التحصيل من المطور (${_money(_n(_u['unitPrice']))} سعر الوحدة).', style: TextStyle(color: JphUi.sub(isDark)))
+            Text(_seesKind() ? 'العمولة هتبقى واجبة التحصيل من المطور (${_money(_n(_u['unitPrice']))} سعر الوحدة).'
+                : 'تأكيد التعاقد على الوحدة (${_money(_n(_u['unitPrice']))}).', style: TextStyle(color: JphUi.sub(isDark)))
           else ...[
             ...terms.fields(context, isDark, set, price: _n(_u['unitPrice']), deposit: _n(_u['depositAmount'])),
             Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
@@ -1074,7 +1077,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         Align(alignment: AlignmentDirectional.centerStart, child: _pill('${u['statusAr']}', _statusColor(st))),
         const SizedBox(height: 8),
         _kv(isDark, 'العميل', '${u['clientName']}${'${u['clientPhone'] ?? ''}'.isEmpty ? '' : ' · ${u['clientPhone']}'}'),
-        _kv(isDark, 'نوع المشروع', u['projectKind'] == 'marketing' ? 'تسويق' : 'حصري'),
+        if (_seesKind()) _kv(isDark, 'نوع المشروع', u['projectKind'] == 'marketing' ? 'تسويق' : 'حصري'),
         if (u['expectedContractDate'] != null && !['contracted', 'cancelled'].contains(st))
           _kv(isDark, 'التاريخ المتوقع للتعاقد', _date('${u['expectedContractDate']}')),
         _kv(isDark, 'السيلز', '${u['salesName']}'),
