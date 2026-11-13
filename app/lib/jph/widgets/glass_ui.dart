@@ -43,6 +43,18 @@ class Glass {
         border: Border.all(color: rim(d)),
       );
 
+  /// a form / sheet over a page: frosted almost solid (the page under it must not show through)
+  static BoxDecoration sheet(bool d, {double r = 24}) => BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: d ? const [Color(0xF72D2C29), Color(0xFA232220)] : const [Color(0xFAFFFFFF), Color(0xF7F4F2EE)],
+        ),
+        borderRadius: BorderRadius.circular(r),
+        border: Border.all(color: d ? Colors.white.withOpacity(0.10) : Colors.white),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(d ? 0.5 : 0.18), blurRadius: 40, offset: const Offset(0, -6))],
+      );
+
   /// the glass square itself (cards, the side bar, the «المزيد» sheet)
   static BoxDecoration panel(bool d, {double r = 20}) => BoxDecoration(
         // the card colour with the glass shine laid over it (top-left)

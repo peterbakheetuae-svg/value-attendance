@@ -476,14 +476,26 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           : RefreshIndicator(
                         onRefresh: _loadEmployees,
                         color: AppColors.primary,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                          itemCount: _filteredEmployees.length,
-                          itemBuilder: (context, index) {
-                            final employee = _filteredEmployees[index];
-                            return _buildEmployeeCard(employee, isDark);
-                          },
-                        ),
+                        // a phone: one under the other; a computer: 4–5 squares per row (by the width)
+                        child: LayoutBuilder(builder: (context, c) {
+                          if (c.maxWidth < 700) {
+                            return ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                              itemCount: _filteredEmployees.length,
+                              itemBuilder: (context, index) => _buildEmployeeCard(_filteredEmployees[index], isDark),
+                            );
+                          }
+                          return SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+                            child: ResponsiveGrid(
+                              minTileWidth: 230,
+                              minCols: 3,
+                              maxCols: 5,
+                              children: [for (final e in _filteredEmployees) _buildEmployeeCard(e, isDark)],
+                            ),
+                          );
+                        }),
                       ),
                     ),
                   ],

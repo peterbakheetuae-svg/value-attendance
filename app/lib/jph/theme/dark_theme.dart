@@ -148,6 +148,8 @@ class DarkTheme {
         contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0x40FFFFFF))),
       ),
+      // the page behind a form / sheet stays in the dark (it must not show through)
+      bottomSheetTheme: BottomSheetThemeData(modalBarrierColor: Colors.black.withOpacity(0.62)),
       dialogTheme: DialogThemeData(
         backgroundColor: const Color(0xD92A2A35),
         elevation: 0,

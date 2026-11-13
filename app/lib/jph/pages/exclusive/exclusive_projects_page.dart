@@ -150,7 +150,7 @@ Future<bool> _form(BuildContext context, bool isDark, String title, List<Widget>
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(16),
-            decoration: Glass.panel(isDark, r: 24),
+            decoration: Glass.sheet(isDark, r: 24),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [

@@ -2190,7 +2190,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: Glass.panel(isDark, r: 24),
+            decoration: Glass.sheet(isDark, r: 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

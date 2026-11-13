@@ -248,7 +248,7 @@ class _CashOverviewState extends State<CashOverview> {
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(18),
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
-            decoration: Glass.panel(isDark, r: 24),
+            decoration: Glass.sheet(isDark, r: 24),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
@@ -345,7 +345,7 @@ class _CashOverviewState extends State<CashOverview> {
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
               constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
-              decoration: Glass.panel(isDark, r: 24),
+              decoration: Glass.sheet(isDark, r: 24),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text('عمولة مستلمة من المطور', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -414,7 +414,7 @@ Future<void> showInjectSheet(BuildContext context, bool isDark) async {
             child: Container(
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
-              decoration: Glass.panel(isDark, r: 24),
+              decoration: Glass.sheet(isDark, r: 24),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text('ضخ فلوس في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -504,7 +504,7 @@ class _InjectionsTabState extends State<InjectionsTab> {
           child: Container(
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(18),
-            decoration: Glass.panel(isDark, r: 24),
+            decoration: Glass.sheet(isDark, r: 24),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Text('نسب الملكية في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),

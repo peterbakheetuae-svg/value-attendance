@@ -36,7 +36,7 @@ class GlassAlertDialog extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(26),
@@ -44,8 +44,8 @@ class GlassAlertDialog extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: isDark
-                      ? [Colors.white.withOpacity(0.16), Colors.white.withOpacity(0.07)]
-                      : [Colors.white.withOpacity(0.78), Colors.white.withOpacity(0.58)],
+                      ? const [Color(0xF22D2C29), Color(0xF5232220)]
+                      : const [Color(0xF7FFFFFF), Color(0xF2F4F2EE)],
                 ),
                 border: Border.all(color: Colors.white.withOpacity(isDark ? 0.22 : 0.6)),
                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 30, offset: const Offset(0, 12))],
@@ -109,7 +109,7 @@ class GlassDialogPanel extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(26),
@@ -117,8 +117,8 @@ class GlassDialogPanel extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: isDark
-                    ? [Colors.white.withOpacity(0.16), Colors.white.withOpacity(0.07)]
-                    : [Colors.white.withOpacity(0.78), Colors.white.withOpacity(0.58)],
+                    ? const [Color(0xF22D2C29), Color(0xF5232220)]
+                    : const [Color(0xF7FFFFFF), Color(0xF2F4F2EE)],
               ),
               border: Border.all(color: Colors.white.withOpacity(isDark ? 0.22 : 0.6)),
             ),

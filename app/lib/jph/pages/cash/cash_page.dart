@@ -251,7 +251,7 @@ class _SummaryTabState extends State<_SummaryTab> {
           margin: const EdgeInsets.all(16),
           constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
           padding: const EdgeInsets.all(18),
-          decoration: Glass.panel(isDark, r: 26),
+          decoration: Glass.sheet(isDark, r: 26),
           child: FutureBuilder<Map<String, dynamic>>(
             future: future,
             builder: (_, snap) {
