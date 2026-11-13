@@ -933,12 +933,51 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final p = _m(_d?['project']);
     return _Shell(
       title: p.isEmpty ? 'المشروع' : '${p['name']}',
+      action: p.isNotEmpty && _seesKind()
+          ? IconButton(tooltip: 'تعديل المشروع', icon: const Icon(Icons.edit_rounded), onPressed: () => _editProject(isDark, p))
+          : null,
       child: _d == null
           ? const Center(child: CircularProgressIndicator())
           : _d!['error'] != null
               ? Center(child: Text('${_d!['error']}'))
               : RefreshIndicator(onRefresh: _load, child: _body(isDark, p)),
     );
+  }
+
+  /// تعديل المشروع: الاسم + صورة المشروع
+  Future<void> _editProject(bool isDark, Map<String, dynamic> p) async {
+    final exclusive = p['kind'] != 'marketing';
+    final name = TextEditingController(text: '${p['name']}');
+    (String, String)? img;
+    final ok = await _form(context, isDark, 'تعديل المشروع', (set) => [
+          if (exclusive) JphUi.input(isDark: isDark, label: 'اسم المشروع', controller: name, icon: Icons.apartment_rounded),
+          if (p['imageAt'] != null && img == null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: AspectRatio(aspectRatio: 2.4, child: _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])),
+            ),
+          JphUi.picker(
+            isDark: isDark,
+            icon: Icons.add_photo_alternate_rounded,
+            iconColor: Ar.accent,
+            label: 'صورة المشروع',
+            value: img != null ? 'اتختارت صورة جديدة ✓' : (p['imageAt'] == null ? 'اختار صورة' : 'تغيير الصورة'),
+            onTap: () async {
+              final x = await _pickProjectImage(context);
+              if (x != null) set(() => img = x);
+            },
+          ),
+        ], () async {
+      var done = true;
+      if (exclusive && name.text.trim().length >= 2 && name.text.trim() != '${p['name']}') {
+        final r = await _post('/exclusive/projects/${p['id']}', {'name': name.text.trim()}, 'اتعدّل المشروع ✅', method: 'patch');
+        if (mounted) JphUi.toast(context, r);
+        done = r['success'] == true;
+      }
+      if (done && img != null && mounted) done = await _uploadProjectImage(context, '${p['id']}', img!);
+      return done;
+    });
+    if (ok) _load();
   }
 
   Future<void> _changeDeveloper(bool isDark, Map<String, dynamic> p) async {
@@ -960,34 +999,13 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final statement = _l(_d!['statement']);
     final marketing = p['kind'] == 'marketing';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
-      // the project's picture (المدير العام / المحاسب change it)
-      if (p['imageAt'] != null || _seesKind())
+      // the project's picture (changed from «تعديل المشروع», not here)
+      if (p['imageAt'] != null)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
-            child: AspectRatio(
-              aspectRatio: 2.4,
-              child: Stack(fit: StackFit.expand, children: [
-                Container(decoration: Glass.tile(isDark, r: 18)),
-                if (p['imageAt'] != null) _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])
-                else Center(child: Icon(Icons.add_photo_alternate_rounded, size: 40, color: JphUi.sub(isDark))),
-                if (_seesKind())
-                  PositionedDirectional(
-                    end: 10,
-                    bottom: 10,
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        final img = await _pickProjectImage(context);
-                        if (img == null || !mounted) return;
-                        if (await _uploadProjectImage(context, '${p['id']}', img)) _load();
-                      },
-                      icon: const Icon(Icons.photo_camera_rounded, size: 18),
-                      label: Text(p['imageAt'] == null ? 'إضافة صورة للمشروع' : 'تغيير الصورة'),
-                    ),
-                  ),
-              ]),
-            ),
+            child: AspectRatio(aspectRatio: 2.4, child: _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])),
           ),
         ),
       if (_m(_d!['can'])['manage'] == true || p['developerName'] != null)
