@@ -874,6 +874,16 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                       ),
                     ),
 
+                    // the search, the boxes and the list scroll together (the boxes are part of the page, not pinned)
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: _loadLeaveRequests,
+                        color: primaryColor,
+                        child: CustomScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
                     // Search Bar
                     _buildSearchBar(isDark, textColor),
 
@@ -937,16 +947,19 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
 
                     const SizedBox(height: 8),
 
-                    // قائمة الطلبات
-                    Expanded(
-                      child: _buildRequestsSection(
-                        isDark: isDark,
-                        isRTL: isRTL,
-                        primaryColor: primaryColor,
-                        textColor: textColor,
-                        subduedTextColor: subduedTextColor,
-                        cardColor: cardColor,
-                        dividerColor: dividerColor,
+                              ]),
+                            ),
+                            _buildRequestsSection(
+                              isDark: isDark,
+                              isRTL: isRTL,
+                              primaryColor: primaryColor,
+                              textColor: textColor,
+                              subduedTextColor: subduedTextColor,
+                              cardColor: cardColor,
+                              dividerColor: dividerColor,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -1072,7 +1085,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     required Color dividerColor,
   }) {
     if (_loading) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1087,11 +1100,11 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             ),
           ],
         ),
-      );
+      ));
     }
 
     if (_hasError) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1126,11 +1139,11 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             ),
           ],
         ),
-      );
+      ));
     }
 
     if (_filteredRequests.isEmpty) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1172,28 +1185,27 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
               ),
           ],
         ),
-      );
+      ));
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadLeaveRequests,
-      color: primaryColor,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: _filteredRequests.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final request = _filteredRequests[index];
-          return _buildLeaveRequestCard(
-            request: request,
-            index: index,
-            isDark: isDark,
-            textColor: textColor,
-            subduedTextColor: subduedTextColor,
-            cardColor: cardColor,
-            dividerColor: dividerColor,
-          );
-        },
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildLeaveRequestCard(
+              request: _filteredRequests[index],
+              index: index,
+              isDark: isDark,
+              textColor: textColor,
+              subduedTextColor: subduedTextColor,
+              cardColor: cardColor,
+              dividerColor: dividerColor,
+            ),
+          ),
+          childCount: _filteredRequests.length,
+        ),
       ),
     );
   }

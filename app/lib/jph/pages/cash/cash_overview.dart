@@ -61,9 +61,12 @@ class _CashOverviewState extends State<CashOverview> {
     super.dispose();
   }
 
+  int _seq = 0;
+
   Future<void> _load() async {
+    final seq = ++_seq;
     final r = await ApiService.post({'action': 'cash_get', 'path': '/cash/overview', 'query': monthQuery(_filter)});
-    if (!mounted) return;
+    if (!mounted || seq != _seq) return;
     setState(() {
       _loading = false;
       _o = r;
@@ -614,9 +617,12 @@ class _InjectionsTabState extends State<InjectionsTab> {
     super.dispose();
   }
 
+  int _seq = 0;
+
   Future<void> _load() async {
+    final seq = ++_seq;
     final r = await ApiService.post({'action': 'cash_get', 'path': '/cash/injections', 'query': monthQuery(_filter)});
-    if (mounted) setState(() => _d = r);
+    if (mounted && seq == _seq) setState(() => _d = r);
   }
 
   Future<void> _shares(bool isDark) async {

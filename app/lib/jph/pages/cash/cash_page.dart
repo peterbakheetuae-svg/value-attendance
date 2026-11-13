@@ -189,8 +189,9 @@ class _SummaryTabState extends State<_SummaryTab> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final r = await _get('/finance/dashboard', {'month': _ym(_month)});
-    if (!mounted) return;
+    final m = _ym(_month);
+    final r = await _get('/finance/dashboard', {'month': m});
+    if (!mounted || _ym(_month) != m) return;
     setState(() {
       _loading = false;
       _d = r;
@@ -542,8 +543,9 @@ class _LedgerTabState extends State<CashLedgerView> {
     setState(() => _loading = true);
     final last = DateTime(_month.year, _month.month + 1, 0);
     String d(DateTime x) => '${x.year}-${x.month.toString().padLeft(2, '0')}-${x.day.toString().padLeft(2, '0')}';
+    final want = (_month, _box);
     final r = await _get('/cash/ledger', {'cashbox': _box, 'from': d(_month), 'to': d(last)});
-    if (!mounted) return;
+    if (!mounted || want != (_month, _box)) return;
     setState(() {
       _loading = false;
       _r = r;

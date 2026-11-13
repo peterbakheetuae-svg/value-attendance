@@ -177,7 +177,8 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
     final m = _ym(widget.month.value);
     if (SalariesPayTab.seesAll) {
       final r = await ApiService.post({'action': 'cash_get', 'path': '/payouts/salaries', 'query': {'month': m}});
-      if (!mounted) return;
+      // a later month was picked while this one loaded: its answer is the one to show
+      if (!mounted || _ym(widget.month.value) != m) return;
       setState(() {
         loading = false;
         if (r['success'] != true) error = '${r['message'] ?? 'مش قادر أحمّل المرتبات'}';
@@ -186,7 +187,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
       });
     } else {
       final r = await ApiService.post({'action': 'payouts_list', 'scope': 'mine'});
-      if (!mounted) return;
+      if (!mounted || _ym(widget.month.value) != m) return;
       setState(() {
         loading = false;
         if (r['success'] != true) error = '${r['message'] ?? 'مش قادر أحمّل المرتبات'}';
@@ -369,12 +370,13 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
       loading = true;
       error = null;
     });
+    final m = _ym(widget.month.value);
     final r = await ApiService.post({
       'action': 'commission_entitlements',
       if (CommissionsPayTab.seesAll) 'scope': 'all',
-      'month': _ym(widget.month.value),
+      'month': m,
     });
-    if (!mounted) return;
+    if (!mounted || _ym(widget.month.value) != m) return;
     setState(() {
       loading = false;
       if (r['success'] != true) error = '${r['message'] ?? 'مش قادر أحمّل العمولات'}';

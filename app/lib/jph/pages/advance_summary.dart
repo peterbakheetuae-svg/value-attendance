@@ -82,13 +82,16 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     _loadFinancialRequests();
   }
 
+  /// the cashbox page's month changed: follow it, and read the requests again (never show a stale / empty list)
   void _onMonth() {
+    if (!mounted) return;
     final v = widget.month!.value;
     setState(() {
       _filterMonth = v.month;
       _filterYear = v.year;
     });
     _applyFilters();
+    _loadFinancialRequests();
   }
 
   @override
@@ -99,8 +102,11 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     super.dispose();
   }
 
+  int _loadSeq = 0;
+
   Future<void> _loadFinancialRequests() async {
     if (!mounted) return;
+    final seq = ++_loadSeq;
 
     setState(() {
       _loading = true;
@@ -113,6 +119,8 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
       print('👤 دور المستخدم: ${widget.role}');
 
       Map<String, dynamic> res = await FinancialRequestApi.getAllFinancialRequests();
+      // a newer load started meanwhile (the month changed again): only the newest one fills the page
+      if (seq != _loadSeq) return;
 
       print('📊 استجابة API: ${res.toString()}');
 
@@ -177,6 +185,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
           _loading = false;
           _expandedCards = newExpandedCards;
         });
+        _applyFilters();
 
         print('✅ تم تحميل ${_financialRequests.length} طلب مالي');
         print('📊 الإحصائيات: $_stats');
@@ -220,27 +229,11 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
         }).toList();
       }
 
-      // Apply date filter (monthly based on requestDate)
+      // the month filter: the advance's own month (the salary it comes off), else the day it was asked for.
+      // Dates come as yyyy-mm-dd (the API) — the old dd/mm/yyyy form is still understood.
       filtered = filtered.where((request) {
-        try {
-          final dateStr = request['requestDate'] ?? request['createdAt'] ?? '';
-          if (dateStr.isEmpty) return false;
-
-          // تحويل التاريخ من dd/mm/yyyy إلى DateTime
-          final parts = dateStr.split('/');
-          if (parts.length >= 2) {
-            final day = int.tryParse(parts[0]) ?? 1;
-            final month = int.tryParse(parts[1]) ?? 1;
-            final year = parts.length >= 3 ? int.tryParse(parts[2]) ?? DateTime.now().year : DateTime.now().year;
-
-            final date = DateTime(year, month, day);
-            return date.month == _filterMonth && date.year == _filterYear;
-          }
-          return false;
-        } catch (e) {
-          print('❌ خطأ في تحليل التاريخ: $e');
-          return false;
-        }
+        final ym = _monthOf(request);
+        return ym != null && ym.$1 == _filterYear && ym.$2 == _filterMonth;
       }).toList();
 
       // Apply search filter
@@ -266,6 +259,19 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     } catch (e) {
       print('❌ خطأ في تطبيق الفلاتر: $e');
     }
+  }
+
+  /// (year, month) of a request: periodMonth «yyyy-mm», else requestDate / createdAt «yyyy-mm-dd» or «dd/mm/yyyy»
+  (int, int)? _monthOf(dynamic request) {
+    final period = '${request['periodMonth'] ?? ''}';
+    final p = RegExp(r'^(\d{4})-(\d{1,2})').firstMatch(period);
+    if (p != null) return (int.parse(p.group(1)!), int.parse(p.group(2)!));
+    final d = '${request['requestDate'] ?? request['createdAt'] ?? ''}'.trim();
+    final iso = RegExp(r'^(\d{4})-(\d{1,2})').firstMatch(d);
+    if (iso != null) return (int.parse(iso.group(1)!), int.parse(iso.group(2)!));
+    final dmy = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(d);
+    if (dmy != null) return (int.parse(dmy.group(3)!), int.parse(dmy.group(2)!));
+    return null;
   }
 
   void _updateFilteredStats() {
@@ -319,15 +325,15 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
   }
 
   void _resetFilters() {
+    final m = widget.month?.value ?? DateTime.now();
     setState(() {
-      _filterMonth = DateTime.now().month;
-      _filterYear = DateTime.now().year;
+      _filterMonth = m.month;
+      _filterYear = m.year;
       _statusFilter = 'all';
       _typeFilter = 'all';
       _searchController.clear();
-      _filteredRequests = List.from(_financialRequests);
-      _updateFilteredStats();
     });
+    _applyFilters();
   }
 
   Future<void> _showFilterSheet() async {
@@ -1006,72 +1012,82 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                     ),
 
 
-                    // Search Bar
-                    _buildSearchBar(isDark, textColor),
-
-                    const SizedBox(height: 8),
-
-                    // 4 مربعات إحصائية
-                    _buildStatsSection(isDark),
-
-                    // Filter Info
-                    if (_statusFilter != 'all' || _searchController.text.isNotEmpty || _typeFilter != 'all')
-                      Padding(
-                        padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Container(
-                          padding:
-                          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Ar.info.shade900.withOpacity(0.3)
-                                : Ar.info.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.filter_alt_rounded,
-                                size: 16,
-                                color: isDark
-                                    ? Ar.info.shade300
-                                    : Ar.info.shade700,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _getFilterInfo(),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isDark
-                                        ? Ar.info.shade300
-                                        : Ar.info.shade700,
-                                  ),
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: _resetFilters,
-                                child: Text(
-                                  'إلغاء',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: isDark
-                                        ? Ar.info.shade300
-                                        : Ar.info.shade700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 8),
-
-                    // قائمة الطلبات
+                    // the search, the boxes and the list scroll together (the boxes are part of the page, not pinned)
                     Expanded(
-                      child: _buildRequestsSection(
+                      child: RefreshIndicator(
+                        onRefresh: _loadFinancialRequests,
+                        color: primaryColor,
+                        child: CustomScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    // Search Bar
+                                _buildSearchBar(isDark, textColor),
+
+                                const SizedBox(height: 8),
+
+                                // 4 مربعات إحصائية
+                                _buildStatsSection(isDark),
+
+                                // Filter Info
+                                if (_statusFilter != 'all' || _searchController.text.isNotEmpty || _typeFilter != 'all')
+                                  Padding(
+                                    padding:
+                                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    child: Container(
+                                      padding:
+                                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? Ar.info.shade900.withOpacity(0.3)
+                                            : Ar.info.shade50,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.filter_alt_rounded,
+                                            size: 16,
+                                            color: isDark
+                                                ? Ar.info.shade300
+                                                : Ar.info.shade700,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              _getFilterInfo(),
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: isDark
+                                                    ? Ar.info.shade300
+                                                    : Ar.info.shade700,
+                                              ),
+                                            ),
+                                          ),
+                                          GestureDetector(
+                                            onTap: _resetFilters,
+                                            child: Text(
+                                              'إلغاء',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDark
+                                                    ? Ar.info.shade300
+                                                    : Ar.info.shade700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+
+                                const SizedBox(height: 8),
+
+                              ]),
+                            ),
+                            _buildRequestsSection(
                         isDark: isDark,
                         isRTL: isRTL,
                         primaryColor: primaryColor,
@@ -1079,6 +1095,9 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                         subduedTextColor: subduedTextColor,
                         cardColor: cardColor,
                         dividerColor: dividerColor,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -1248,6 +1267,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     );
   }
 
+  /// the list part of the one scrolling page (search + boxes + list scroll together)
   Widget _buildRequestsSection({
     required bool isDark,
     required bool isRTL,
@@ -1258,7 +1278,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     required Color dividerColor,
   }) {
     if (_loading) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1273,11 +1293,11 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
             ),
           ],
         ),
-      );
+      ));
     }
 
     if (_hasError) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1312,11 +1332,11 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
             ),
           ],
         ),
-      );
+      ));
     }
 
     if (_filteredRequests.isEmpty) {
-      return Center(
+      return SliverFillRemaining(hasScrollBody: false, child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1358,28 +1378,27 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
               ),
           ],
         ),
-      );
+      ));
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadFinancialRequests,
-      color: primaryColor,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: _filteredRequests.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final request = _filteredRequests[index];
-          return _buildFinancialRequestCard(
-            request: request,
-            index: index,
-            isDark: isDark,
-            textColor: textColor,
-            subduedTextColor: subduedTextColor,
-            cardColor: cardColor,
-            dividerColor: dividerColor,
-          );
-        },
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildFinancialRequestCard(
+              request: _filteredRequests[index],
+              index: index,
+              isDark: isDark,
+              textColor: textColor,
+              subduedTextColor: subduedTextColor,
+              cardColor: cardColor,
+              dividerColor: dividerColor,
+            ),
+          ),
+          childCount: _filteredRequests.length,
+        ),
       ),
     );
   }
