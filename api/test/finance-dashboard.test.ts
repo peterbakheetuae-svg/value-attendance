@@ -63,8 +63,8 @@ test('each cashbox box opens its list; office lists stay with the management; HR
   assert.ok(typeof d.hr.salariesDue === 'number');
   // تكلفة تشغيل الشهر = المصروفات الثابتة + المرتبات; paid + left = total
   assert.equal(d.operating.total, Math.round((d.operating.fixed + d.operating.salaries) * 100) / 100);
-  assert.equal(d.operating.salaries, d.hr.salariesDue);
-  assert.ok(Math.abs(d.operating.paid + d.operating.remaining - d.operating.total) < 0.01 || d.operating.paid > d.operating.total);
+  assert.ok(d.operating.salaries >= 0, 'every salary before any deduction');
+  assert.equal(d.operating.remaining, Math.max(Math.round((d.operating.total - d.operating.paid) * 100) / 100, 0));
   // the owner / manager never record money in the HR cashbox
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/expenses', { cashbox: 'hr', amount: 50, category: 'بوفيه', reason: 'شاي', beneficiary: 'البوفيه' })).status, 403);
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/receipts', { recipient: 'hr', kind: 'other', amount: 50, payerName: 'عميل', purpose: 'دفعة' })).status, 403);

@@ -125,13 +125,6 @@ class _CashOverviewState extends State<CashOverview> {
         _title(isDark, 'صافي ربح المكتب'),
         _result(isDark, _m(_o['result'])),
       ],
-      // ------------------------------------------------ أرصدة الخزائن
-      _title(isDark, 'أرصدة الخزائن'),
-      _list(isDark, [
-        if (_office) _line(isDark, 'خزنة المكتب', _m(av['office'])['cash'], big: true),
-        _line(isDark, 'خزنة المحاسب', _m(av['hr'])['cash'], big: true, tone: _n(_m(av['hr'])['total']) < 0 ? _out : null),
-        _line(isDark, 'رصيد البنك', _office ? av['bank'] : _m(av['hr'])['bank'], big: true),
-      ]),
       if (hasDash) ...[
         // ------------------------------------------------ ملخص الموظفين
         _title(isDark, 'ملخص الموظفين'),
@@ -143,17 +136,20 @@ class _CashOverviewState extends State<CashOverview> {
         ]),
         // ------------------------------------------------ تفاصيل الحركات
         _title(isDark, 'تفاصيل الحركات'),
-        _list(isDark, [
-          _line(isDark, 'التحصيلات', hr['collections'], tone: _in, onTap: det('collections', 'تحصيلات الشهر')),
-          _line(isDark, 'مصروفات خزنة المحاسب', hr['expenses'], tone: _out, onTap: det('hr_expenses', 'مصروفات خزنة المحاسب')),
-          if (mg.isNotEmpty) _line(isDark, 'مصروفات المكتب', mg['officeExpenses'], tone: _out, onTap: det('office_expenses', 'مصروفات المكتب')),
-          _line(isDark, 'عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], onTap: det('commissions_unpaid', 'عمولات مستنية الصرف')),
+        _grid([
+          _tile(isDark, 'التحصيلات', hr['collections'], Icons.savings_outlined, tone: _in, onTap: det('collections', 'تحصيلات الشهر')),
+          _tile(isDark, 'مصروفات خزنة المحاسب', hr['expenses'], Icons.receipt_long_outlined, tone: _out, onTap: det('hr_expenses', 'مصروفات خزنة المحاسب')),
+          if (mg.isNotEmpty) _tile(isDark, 'مصروفات المكتب', mg['officeExpenses'], Icons.business_center_outlined, tone: _out,
+              onTap: det('office_expenses', 'مصروفات المكتب')),
+          _tile(isDark, 'عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_outlined,
+              onTap: det('commissions_unpaid', 'عمولات مستنية الصرف')),
         ]),
         // ------------------------------------------------ الأقساط والمبيعات
         _title(isDark, 'الأقساط والمبيعات'),
         _grid([
+          if (mg.isNotEmpty) _tile(isDark, 'حجوزات', mg['reservations'], Icons.bookmark_added_outlined, tone: _in, onTap: det('reservations', 'الحجوزات (العربون)')),
+          if (mg.isNotEmpty) _tile(isDark, 'تعاقدات', mg['contracts'], Icons.handshake_outlined, tone: _in, onTap: det('contracts', 'التعاقدات (المقدمات)')),
           _tile(isDark, 'مستحق خلال أسبوع (${week['count'] ?? 0})', week['amount'], Icons.event_available_outlined, onTap: det('installments_week', 'أقساط مستحقة خلال أسبوع')),
-          if (mg.isNotEmpty) _tile(isDark, 'حجز ومقدمات', mg['downPayments'], Icons.key_outlined, tone: _in, onTap: det('down_payments', 'الحجز والمقدمات')),
           if (mg.isNotEmpty) _tile(isDark, 'أقساط اتحصلت', mg['installmentsCollected'], Icons.check_circle_outline_rounded, tone: _in,
               onTap: det('installments_collected', 'الأقساط المحصّلة')),
           if (mg.isNotEmpty) _tile(isDark, 'باقي على الوحدات', mg['unitsRemaining'], Icons.home_work_outlined, onTap: det('units_remaining', 'الباقي على الوحدات')),
@@ -217,155 +213,104 @@ class _CashOverviewState extends State<CashOverview> {
     return onTap == null ? box : GestureDetector(onTap: onTap, child: box);
   }
 
-  Widget _act(bool isDark, String label, IconData icon, VoidCallback onTap) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: JphUi.box(isDark),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 22, color: JphUi.text(isDark)),
-            const SizedBox(height: 10),
-            Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-          ]),
+  Widget _act(bool isDark, String label, IconData icon, VoidCallback onTap) {
+    final p = JphUi.primary(isDark);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [p, Color.lerp(p, Colors.black, 0.3)!]),
+          boxShadow: [BoxShadow(color: p.withOpacity(0.25), blurRadius: 12, offset: const Offset(0, 6))],
         ),
-      );
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 22, color: Colors.white),
+          const SizedBox(height: 10),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.white)),
+        ]),
+      ),
+    );
+  }
 
-  /// a card of rows (أرصدة الخزائن، تفاصيل الحركات)
-  Widget _list(bool isDark, List<Widget> rows) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: JphUi.box(isDark),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (final (i, r) in rows.indexed) ...[if (i > 0) Divider(height: 1, color: JphUi.sub(isDark).withOpacity(0.2)), r],
+  /// the big orange card (the old design): its boxes are white glass inside it
+  Widget _orange(bool isDark, List<Widget> children) {
+    final p = JphUi.primary(isDark);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [p, Color.lerp(p, Colors.black, 0.35)!]),
+        boxShadow: [BoxShadow(color: p.withOpacity(0.3), blurRadius: 18, offset: const Offset(0, 8))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final (i, c) in children.indexed) ...[if (i > 0) const SizedBox(height: 10), c],
+      ]),
+    );
+  }
+
+  /// one box inside the orange card; [sub] is a line under the figure
+  Widget _piece(String label, Object? v, {IconData? icon, String? sub, double size = 19, String? prefix}) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: Colors.white.withOpacity(0.14), borderRadius: BorderRadius.circular(16)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            if (icon != null) ...[Icon(icon, color: Colors.white70, size: 18), const SizedBox(width: 6)],
+            Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 13))),
+          ]),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: CountUpText('${prefix ?? ''}${JphUi.money(v)}', style: TextStyle(color: Colors.white, fontSize: size, fontWeight: FontWeight.w900)),
+          ),
+          if (sub != null) ...[
+            const SizedBox(height: 2),
+            Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+          ],
         ]),
       );
 
-  Widget _line(bool isDark, String label, Object? v, {Color? tone, VoidCallback? onTap, bool big = false}) {
-    final row = Padding(
-      padding: EdgeInsets.symmetric(vertical: big ? 14 : 12),
-      child: big
-          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-              const SizedBox(height: 4),
-              CountUpText(JphUi.money(v), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: tone ?? JphUi.text(isDark))),
-            ])
-          : Row(children: [
-              Expanded(child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
-              CountUpText(JphUi.money(v), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: tone ?? JphUi.text(isDark))),
-            ]),
-    );
-    return onTap == null ? row : InkWell(onTap: onTap, child: row);
-  }
+  Widget _two(Widget a, Widget b) => IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Expanded(child: a), const SizedBox(width: 10), Expanded(child: b)]),
+      );
 
   Widget _title(bool isDark, String t) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
         child: Text(t, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
       );
 
-  /// two figures side by side inside a card
-  Widget _pair(bool isDark, (String, Object?, Color?) a, (String, Object?, Color?) b) {
-    Widget one((String, Object?, Color?) x) => Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(x.$1, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
-            const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: CountUpText(JphUi.money(x.$2), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: x.$3 ?? JphUi.text(isDark))),
-            ),
-          ]),
-        );
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [one(a), const SizedBox(width: 12), one(b)]));
-  }
-
   Widget _liquidity(bool isDark, Map<String, dynamic> av) {
     final hr = _m(av['hr']), office = _m(av['office']);
     final full = _office && av['total'] != null;
-    final total = full ? av['total'] : hr['total'];
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: JphUi.box(isDark),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text(full ? 'إجمالي السيولة' : 'خزنة المحاسب', style: TextStyle(color: JphUi.sub(isDark), fontWeight: FontWeight.w700)),
-        const SizedBox(height: 6),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: AlignmentDirectional.centerStart,
-          child: CountUpText(JphUi.money(total), style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: _n(total) < 0 ? _out : _in)),
-        ),
-        Divider(height: 24, color: JphUi.sub(isDark).withOpacity(0.2)),
-        _pair(isDark, ('البنك', full ? av['bank'] : hr['bank'], null), ('النقدي', full ? av['cash'] : hr['cash'], null)),
-        if (full && av['afterTrust'] != null)
-          _pair(isDark, ('منها أمانات المشاريع', av['trust'], null), ('المتاح بعد الأمانة', av['afterTrust'], _n(av['afterTrust']) < 0 ? _out : _in)),
-        if (full) ...[
-          Divider(height: 20, color: JphUi.sub(isDark).withOpacity(0.2)),
-          _pair(isDark, ('خزنة المكتب', office['cash'], null), ('خزنة المحاسب', hr['cash'], _n(hr['cash']) < 0 ? _out : null)),
-        ],
-      ]),
-    );
+    return _orange(isDark, [
+      _piece(full ? 'إجمالي السيولة' : 'خزنة المحاسب', full ? av['total'] : hr['total'], icon: Icons.account_balance_wallet_rounded, size: 30),
+      _two(_piece('البنك', full ? av['bank'] : hr['bank'], icon: Icons.account_balance_rounded),
+          _piece('النقدي', full ? av['cash'] : hr['cash'], icon: Icons.payments_rounded)),
+      if (full && av['afterTrust'] != null)
+        _two(_piece('أمانات المشاريع', av['trust'], icon: Icons.real_estate_agent_rounded),
+            _piece('المتاح بعد الأمانة', av['afterTrust'], icon: Icons.verified_rounded)),
+      if (full)
+        _two(_piece('خزنة المكتب', office['cash'], icon: Icons.business_center_rounded),
+            _piece('خزنة المحاسب', hr['cash'], icon: Icons.badge_rounded)),
+    ]);
   }
 
-  /// تكلفة تشغيل الشهر: المصروفات الثابتة + المرتبات, what was paid, what is left, and whether the money covers it
+  /// تكلفة تشغيل الشهر: المصروفات الثابتة + المرتبات (قبل أي خصم), what was paid, what is left, and whether the money covers it
   Widget _operating(bool isDark, Map<String, dynamic> op, Map<String, dynamic> av) {
     final remaining = _n(op['remaining']);
     final cover = (_office ? _n(av['afterTrust'] ?? av['total']) : _n(_m(av['hr'])['total'])) - remaining;
-    final line = Divider(height: 24, color: JphUi.sub(isDark).withOpacity(0.2));
-    Widget cell(String label, Object? v, String? sub, {Color? tone}) => Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
-            const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: CountUpText(JphUi.money(v), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: tone ?? JphUi.text(isDark))),
-            ),
-            if (sub != null) ...[
-              const SizedBox(height: 2),
-              Text(sub, style: TextStyle(fontSize: 11.5, color: JphUi.sub(isDark))),
-            ],
-          ]),
-        );
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: JphUi.box(isDark),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('إجمالي تكلفة تشغيل الشهر', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        const SizedBox(height: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: AlignmentDirectional.centerStart,
-          child: CountUpText(JphUi.money(op['total']), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        ),
-        Text('إجمالي الالتزامات التشغيلية للشهر', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-        line,
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          cell('المصروفات الثابتة', op['fixed'], 'الإيجار والخدمات والفواتير'),
-          const SizedBox(width: 12),
-          cell('المرتبات', op['salaries'], 'التكلفة الشهرية للموظفين'),
-        ]),
-        const SizedBox(height: 14),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          cell('تم دفعه', op['paid'], null, tone: _out),
-          const SizedBox(width: 12),
-          cell('متبقي دفعه', op['remaining'], null),
-        ]),
-        line,
-        Text('المبلغ المطلوب توفيره لباقي الشهر', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-        const SizedBox(height: 4),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: AlignmentDirectional.centerStart,
-          child: CountUpText(JphUi.money(remaining), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _out)),
-        ),
-        Text('الالتزامات التشغيلية المستحقة وغير المدفوعة حتى نهاية الشهر', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-        line,
-        Row(children: [
-          Expanded(child: Text('فائض / عجز التغطية', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
-          CountUpText('${cover >= 0 ? '+' : '−'}${JphUi.money(cover.abs())}',
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: cover >= 0 ? _in : _out)),
-        ]),
-        Text(_office ? 'المتاح بعد الأمانة − المطلوب توفيره' : 'رصيد خزنة المحاسب − المطلوب توفيره', style: TextStyle(fontSize: 11.5, color: JphUi.sub(isDark))),
-      ]),
-    );
+    return _orange(isDark, [
+      _piece('إجمالي تكلفة تشغيل الشهر', op['total'], icon: Icons.summarize_rounded, size: 28, sub: 'إجمالي الالتزامات التشغيلية للشهر'),
+      _two(_piece('المصروفات الثابتة', op['fixed'], icon: Icons.calendar_month_rounded, sub: 'الإيجار والخدمات والفواتير'),
+          _piece('المرتبات', op['salaries'], icon: Icons.groups_rounded, sub: 'كل مرتبات الموظفين قبل أي خصومات')),
+      _two(_piece('تم دفعه', op['paid'], icon: Icons.check_circle_rounded), _piece('متبقي دفعه', op['remaining'], icon: Icons.hourglass_bottom_rounded)),
+      _piece('المبلغ المطلوب توفيره لباقي الشهر', remaining, icon: Icons.savings_rounded, size: 24,
+          sub: 'الالتزامات التشغيلية المستحقة وغير المدفوعة حتى نهاية الشهر'),
+      _piece(cover >= 0 ? 'فائض التغطية' : 'عجز التغطية', cover.abs(), icon: cover >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+          size: 24, prefix: cover >= 0 ? '+' : '−',
+          sub: _office ? 'المتاح بعد الأمانة − المطلوب توفيره' : 'رصيد خزنة المحاسب − المطلوب توفيره'),
+    ]);
   }
 
   /// what is behind «المصروفات» / «المصروفات الثابتة»

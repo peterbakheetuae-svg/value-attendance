@@ -64,7 +64,8 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     for (const e of emps.rows) {
       const p: any = await computePayroll(db, e.id, period, today(), rules);
       if (p?.net == null) continue;
-      rows.push({ id: e.id, name: e.full_name, net: r2(n(p.net)), paid: r2(n(p.salaryPaid)), remaining: r2(n(p.net) - n(p.salaryPaid)) });
+      rows.push({ id: e.id, name: e.full_name, net: r2(n(p.net)), paid: r2(n(p.salaryPaid)), remaining: r2(n(p.net) - n(p.salaryPaid)),
+        base: r2(n(p.baseSalary)) });
     }
     return rows;
   }
@@ -79,6 +80,10 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const m = await one(db, `SELECT
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = ANY($3::text[])
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS collections,
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = 'reservation'
+                   AND ${IN_MONTH('occurred_at')}), 0) AS reservations,
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = 'down_payment'
+                   AND ${IN_MONTH('occurred_at')}), 0) AS contracts,
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind IN ('reservation','down_payment')
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS down_payments,
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = 'installment'
@@ -115,8 +120,9 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         COALESCE(sum(f.amount_egp) FILTER (WHERE EXISTS (SELECT 1 FROM cash_expenses x WHERE x.fixed_expense_id = f.id AND x.fixed_period = $1
                                                           AND x.status = 'posted')), 0) AS paid
         FROM fixed_expenses f WHERE f.active`, [period]);
-    const salDue = r2(sal.reduce((x, y) => x + y.net, 0));
-    const salPaid = r2(sal.reduce((x, y) => x + Math.min(Math.max(y.paid, 0), Math.max(y.net, 0)), 0));
+    // المرتبات here = every employee's full monthly salary BEFORE any deduction (what the month may cost at most)
+    const salDue = r2(sal.reduce((x, y) => x + y.base, 0));
+    const salPaid = r2(sal.reduce((x, y) => x + Math.max(y.paid, 0), 0));
     const opTotal = r2(n(fx.total) + salDue), opPaid = r2(n(fx.paid) + salPaid);
     const operating = { fixed: r2(n(fx.total)), fixedPaid: r2(n(fx.paid)), salaries: salDue, salariesPaid: salPaid,
       total: opTotal, paid: opPaid, remaining: r2(Math.max(opTotal - opPaid, 0)) };
@@ -137,7 +143,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
       out.management = {
         transfersOpen: Number(m.transfers_open), hrExpenses: r2(n(m.hr_expenses)), officeExpenses: r2(n(m.office_expenses)),
         salariesPaid: r2(n(m.salaries_paid)), outstandingAdvances: r2(n(adv.outstanding)), commissions: r2(n(m.commissions)),
-        downPayments: r2(n(m.down_payments)), installmentsCollected: r2(n(m.installments)),
+        downPayments: r2(n(m.down_payments)), reservations: r2(n(m.reservations)), contracts: r2(n(m.contracts)), installmentsCollected: r2(n(m.installments)),
         overdueInstallments: r2(n(inst.overdue)), unitsRemaining: r2(n(left.s)),
       };
     }
@@ -161,9 +167,11 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const officeOnly = ['office_expenses', 'transfers_open', 'units_remaining'];
     if (officeOnly.includes(key) && !office) throw forbidden();
     switch (key) {
-      case 'collections': case 'down_payments': case 'installments_collected': {
-        title = key === 'collections' ? 'تحصيلات الشهر' : key === 'down_payments' ? 'الحجز والمقدمات' : 'الأقساط المحصّلة';
-        const kinds = key === 'collections' ? CLIENT_KINDS : key === 'down_payments' ? ['reservation', 'down_payment'] : ['installment'];
+      case 'collections': case 'down_payments': case 'reservations': case 'contracts': case 'installments_collected': {
+        title = { collections: 'تحصيلات الشهر', down_payments: 'الحجز والمقدمات', reservations: 'الحجوزات (العربون)', contracts: 'التعاقدات (المقدمات)',
+          installments_collected: 'الأقساط المحصّلة' }[key]!;
+        const kinds = { collections: CLIENT_KINDS, down_payments: ['reservation', 'down_payment'], reservations: ['reservation'], contracts: ['down_payment'],
+          installments_collected: ['installment'] }[key]!;
         rows = (await q(`SELECT ref_no, payer_name, purpose, amount_egp, cashbox, occurred_at FROM cash_receipts
                           WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND ${IN_MONTH('occurred_at')}
                             AND ($3::text[] IS NULL OR kind = ANY($3::text[])) ORDER BY occurred_at DESC`, [period, boxes, kinds]))
