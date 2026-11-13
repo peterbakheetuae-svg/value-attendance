@@ -12,6 +12,7 @@ import '../services/app_controller.dart';
 import '../widgets/app_background.dart';
 import '../widgets/jph_form_ui.dart';
 import 'reservation_form_pdf.dart' show arabicWords, ReservationForm;
+import '../widgets/doc_logos.dart';
 
 /// «إيصال صرف نقدية» of an expense (الإيجار، الأوفيس بوي، الفواتير …): printed, signed by whoever received the money,
 /// then its photo is added to the expense.
@@ -19,7 +20,8 @@ class PaymentVoucher {
   static Future<Uint8List> build(Map<String, dynamic> x) async {
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Bold.ttf'));
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Regular.ttf'));
-    final logo = pw.MemoryImage((await rootBundle.load('assets/forms/reservation/value_group_logo.png')).buffer.asUint8List());
+    // the company's logo (company settings), else the built-in one
+    final logo = pw.MemoryImage(await DocLogos.company() ?? (await rootBundle.load('assets/forms/reservation/value_group_logo.png')).buffer.asUint8List());
     final amount = (x['amount'] as num?) ?? num.tryParse('${x['amount']}') ?? 0;
     final d = DateTime.tryParse('${x['occurredAt'] ?? ''}')?.toLocal() ?? DateTime.now();
     final day = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';

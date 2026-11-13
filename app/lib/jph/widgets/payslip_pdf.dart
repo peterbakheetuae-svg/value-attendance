@@ -2,6 +2,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'doc_logos.dart';
 
 /// Printable salary slip (بيان راتب) from the monthly attendance report:
 /// a row of descriptions on top and the employee's numbers right under it — twice on one A4 page:
@@ -14,6 +15,9 @@ Future<void> printPayslip({
 }) async {
   final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Regular.ttf'));
   final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Bold.ttf'));
+  // the company's logo (company settings) beside its name
+  final logoBytes = await DocLogos.company();
+  final logo = logoBytes == null ? null : pw.MemoryImage(logoBytes);
 
   String money(Object? v) {
     final n = num.tryParse('${v ?? ''}'.replaceAll(',', ''));
@@ -78,7 +82,10 @@ Future<void> printPayslip({
   pw.Widget slip({required String title, required bool signatures}) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
         pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
           pw.Text(title, style: pw.TextStyle(font: bold, fontSize: 18, color: head)),
-          pw.Text(companyName, style: pw.TextStyle(font: bold, fontSize: 13)),
+          pw.Row(children: [
+            pw.Text(companyName, style: pw.TextStyle(font: bold, fontSize: 13)),
+            if (logo != null) ...[pw.SizedBox(width: 8), pw.Image(logo, height: 34)],
+          ]),
         ]),
         pw.SizedBox(height: 4),
         pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [

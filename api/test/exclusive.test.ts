@@ -287,3 +287,33 @@ test('project units, auto-filled reservation, client lookup, % deposits, picture
   assert.equal(det.body.counts.installments, 4);
   assert.equal(det.body.sales[0].unitId, r.body.unit.id);
 });
+
+test('developers: the company and its owner (accounts show both), its picture and logo; the company logo for its documents', async () => {
+  const d = await h.call(c.t.owner, 'POST', '/exclusive/developers', { name: 'شركة النيل للتطوير', ownerName: 'م. حسام فؤاد', phone: '0122' });
+  assert.equal(d.status, 201, JSON.stringify(d.body));
+  const id = d.body.developer.id;
+  const pr = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'أبراج النيل', developerId: id });
+  assert.equal(pr.status, 201, JSON.stringify(pr.body));
+  const one = (await h.call(c.t.owner, 'GET', `/exclusive/developers/${id}`)).body.developer;
+  assert.deepEqual([one.name, one.ownerName, one.accountName], ['شركة النيل للتطوير', 'م. حسام فؤاد', 'م. حسام فؤاد — شركة النيل للتطوير']);
+  assert.equal((await h.call(c.t.owner, 'GET', `/exclusive/projects/${pr.body.project.id}`)).body.project.ownerName, 'م. حسام فؤاد');
+  // no owner → the company itself
+  await h.call(c.t.owner, 'PATCH', `/exclusive/developers/${id}`, { ownerName: '' });
+  assert.equal((await h.call(c.t.owner, 'GET', `/exclusive/developers/${id}`)).body.developer.accountName, 'شركة النيل للتطوير');
+  // its logo (on its reservation forms) and picture
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  assert.equal((await h.call(c.t.e1, 'PUT', `/exclusive/developers/${id}/image/logo`, { mime: 'image/png', image: png })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'PUT', `/exclusive/developers/${id}/image/logo`, { mime: 'image/png', image: png })).status, 200);
+  assert.equal((await h.call(c.t.owner, 'PUT', `/exclusive/developers/${id}/image/photo`, { mime: 'image/png', image: png })).status, 200);
+  assert.ok(String((await h.call(c.t.e1, 'GET', `/exclusive/developers/${id}/image/logo`)).body.image).startsWith('data:image/png'));
+  // a unit of the project knows its development company
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pr.body.project.id, unitNo: 'N-1', clientName: 'عميل النيل',
+    unitPrice: 1_000_000, depositAmount: 10_000, expectedContractDate: '2026-12-30' });
+  assert.equal(u.status, 201, JSON.stringify(u.body));
+  assert.equal(u.body.unit.developerName, 'شركة النيل للتطوير');
+  assert.ok(u.body.unit.developerLogoAt);
+  // the company's logo
+  assert.equal((await h.call(c.t.e1, 'PUT', '/company/logo', { mime: 'image/png', image: png })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'PUT', '/company/logo', { mime: 'image/png', image: png })).status, 200);
+  assert.ok(String((await h.call(c.t.e1, 'GET', '/company/logo')).body.image).startsWith('data:image/png'));
+});

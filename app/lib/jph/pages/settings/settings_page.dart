@@ -36,6 +36,7 @@ import '../leave_summary.dart';
 import '../advance_request_page.dart';
 import '../public_holidays_page.dart'; // إضافة
 import '../multi_company/company_info_page.dart';
+import '../multi_company/company_logo_page.dart';
 import '../multi_company/positions_page.dart';
 import 'late_rules_page.dart';
 import '../multi_company/kpi_page.dart';
@@ -770,6 +771,8 @@ class _SettingsPageState extends State<SettingsPage> {
         if (ApiService.can('positions.manage') || ApiService.can('roles.manage'))
           ('الوظائف والصلاحيات', Icons.admin_panel_settings_outlined, () => const PositionsPage()),
         if (ApiService.can('settings.manage')) ('خصم التأخير', Icons.timer_off_outlined, () => const LateRulesPage()),
+        if (ApiService.can('settings.manage') || ApiService.can('attendance.config'))
+          ('لوجو الشركة', Icons.verified_rounded, () => const CompanyLogoPage()),
         if (ApiService.can('attendance.config'))
           ('العطلات الرسمية', Icons.event_note, () => PublicHolidaysPage(uid: widget.uid, name: widget.name, role: widget.role)),
       ];

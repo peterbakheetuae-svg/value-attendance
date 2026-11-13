@@ -1,7 +1,8 @@
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
-import { obj, str } from '../http/validate.ts';
+import { obj, oneOf, str } from '../http/validate.ts';
+import { invalid } from '../http/errors.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 
 const PHONE = /^\+?[0-9]{8,15}$/;
@@ -42,5 +43,26 @@ export const companyModule: Module = (r, { db }) => {
       company_name_ar: s.company_name_ar, company_name_en: s.company_name_en, description: s.description,
       address: s.address, contact_phone: s.contact_phone, contact_email: s.contact_email });
     return ok({ ok: true });
+  });
+
+  // ------------------------------------------------------------------ لوجو الشركة (on every document of the company)
+  r.get('/company/logo', async (req) => {
+    await authenticate(db, req);
+    const x = await one(db, `SELECT mime, data, updated_at FROM company_assets WHERE key = 'logo'`);
+    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, at: x?.updated_at ?? null });
+  });
+
+  r.put('/company/logo', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canEditCompany(a)) throw forbidden();
+    const b = obj(req.body);
+    const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
+    const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
+    await db.query(`INSERT INTO company_assets (key, mime, data, updated_at, updated_by) VALUES ('logo',$1,$2,now(),$3)
+                    ON CONFLICT (key) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+      [mime, data, a.id]);
+    await audit(db, a.id, 'company.logo', 'settings', null, undefined, { mime, bytes: data.length });
+    return ok({ saved: true });
   });
 };

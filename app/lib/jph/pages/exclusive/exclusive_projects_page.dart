@@ -12,6 +12,7 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/doc_logos.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../commissions/commission_project_page.dart';

@@ -42,6 +42,8 @@ function pct(b: Record<string, unknown>, k: string, def: number) {
 async function loadUnits(q: Q, where: string, params: unknown[]) {
   const rows = await q.query(`
     SELECT u.*, p.name AS project_name, p.owner_name, p.kind AS project_kind, s.full_name AS sales_name, cb.full_name AS contracted_by_name,
+           p.developer_id, (SELECT d.name FROM developers d WHERE d.id = p.developer_id) AS developer_name,
+           (SELECT i.updated_at FROM developer_images i WHERE i.developer_id = p.developer_id AND i.kind = 'logo') AS developer_logo_at,
            mk.name AS mk_name,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'), 0) AS collected,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted' AND r.payment_method <> 'cash'), 0) AS collected_bank,
@@ -105,6 +107,7 @@ function shapeUnit(u: any, a: Actor) {
       netAreaM2: u.net_area_m2 == null ? null : n(u.net_area_m2), meterPrice: u.meter_price == null ? null : n(u.meter_price),
       maintenancePct: u.maintenance_pct == null ? null : n(u.maintenance_pct), plannedDownPct: u.planned_down_pct == null ? null : n(u.planned_down_pct),
       inventoryId: u.inventory_id ?? null },
+    developerId: u.developer_id ?? null, developerName: u.developer_name ?? null, developerLogoAt: u.developer_logo_at ?? null,
     clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
     ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
@@ -246,7 +249,9 @@ export async function resolveDeveloper(q: Q, a: Actor, b: Record<string, unknown
 function shapeProject(p: any, stats?: any, a?: Actor) {
   // the office's figures (its % / the owner) are المالك / المدير العام's; the sales team sees its own % only
   if (a && !canSeeAll(a)) {
-    return { id: p.id, name: p.name, kind: p.kind, status: p.status, salesPct: n(p.sales_pct), createdAt: p.created_at, imageAt: p.image_at ?? null };
+    // the development company's name shows to the sales team too
+    return { id: p.id, name: p.name, kind: p.kind, status: p.status, salesPct: n(p.sales_pct), createdAt: p.created_at, imageAt: p.image_at ?? null,
+      developerName: p.developer_name ?? null };
   }
   return {
     id: p.id, name: p.name, kind: p.kind, status: p.status, ownerName: p.owner_name, ownerPhone: p.owner_phone,
@@ -311,7 +316,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       // the developer (المالك / المطور) of the exclusive project
       const dev = await resolveDeveloper(q, a, { developerName: ownerName, developerPhone: ownerPhone, ...b });
       if (!dev) throw invalid('اختار المطور', { field: 'developerName' });
-      ownerName = dev.name; ownerPhone = ownerPhone || dev.phone;
+      ownerName = String(dev.owner_name ?? '').trim() || dev.name; ownerPhone = ownerPhone || dev.phone;
       if (kind === 'marketing') {
         const m = await one(q, `INSERT INTO commission_projects (name, total_pct, sales_pct, manager_pct, company_pct, created_by, kind, marketing_pct, developer_id)
           VALUES ($1,$2,$3,$4,$5,$6,'marketing',$7,$8) RETURNING *`, [name, total, sales, manager, r2(total - sales - manager), a.id, mkPct, dev.id]);
@@ -1029,14 +1034,18 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (!d) throw invalid('اختار المطور', { field: 'developerId' });
       await q.query(`UPDATE commission_projects SET developer_id = $2,
           owner_name = CASE WHEN kind = 'exclusive' THEN $3 ELSE owner_name END,
-          owner_phone = CASE WHEN kind = 'exclusive' AND $4 <> '' THEN $4 ELSE owner_phone END WHERE id = $1`, [p.id, d.id, d.name, d.phone]);
+          owner_phone = CASE WHEN kind = 'exclusive' AND $4 <> '' THEN $4 ELSE owner_phone END WHERE id = $1`,
+        [p.id, d.id, String(d.owner_name ?? '').trim() || d.name, d.phone]);
       await audit(q, a.id, 'project.developer', 'commission_project', p.id, { developerId: p.developer_id }, { developerId: d.id });
     });
     return ok({ ok: true });
   });
 
   async function developerAccounts(q: Q, devId: string | null) {
-    const devs = (await q.query(`SELECT * FROM developers ${devId ? 'WHERE id = $1' : ''} ORDER BY name`, devId ? [devId] : [])).rows;
+    const devs = (await q.query(`SELECT d.*,
+        (SELECT i.updated_at FROM developer_images i WHERE i.developer_id = d.id AND i.kind = 'photo') AS photo_at,
+        (SELECT i.updated_at FROM developer_images i WHERE i.developer_id = d.id AND i.kind = 'logo') AS logo_at
+      FROM developers d ${devId ? 'WHERE d.id = $1' : ''} ORDER BY d.name`, devId ? [devId] : [])).rows;
     const ps = (await q.query(`SELECT * FROM commission_projects WHERE developer_id IS NOT NULL ${devId ? 'AND developer_id = $1' : ''} ORDER BY created_at`,
       devId ? [devId] : [])).rows;
     const { stats, units } = await projectStats(q, ps.map((p) => p.id));
@@ -1063,7 +1072,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     return devs.map((d) => {
       const mine = ps.filter((p) => p.developer_id === d.id).map(project);
       const ex = mine.filter((p) => p.kind === 'exclusive'), mk = mine.filter((p) => p.kind === 'marketing');
-      return { id: d.id, name: d.name, phone: d.phone, notes: d.notes, exclusive: { ...totals(ex), list: ex }, marketing: { ...totals(mk), list: mk } };
+      // the accounts carry the owner's name beside the company (the company alone when there is no owner)
+      const owner = String(d.owner_name ?? '').trim();
+      return { id: d.id, name: d.name, ownerName: owner, accountName: owner ? `${owner} — ${d.name}` : d.name, phone: d.phone, notes: d.notes,
+        photoAt: d.photo_at ?? null, logoAt: d.logo_at ?? null, exclusive: { ...totals(ex), list: ex }, marketing: { ...totals(mk), list: mk } };
     });
   }
 
@@ -1091,12 +1103,13 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const name = str(b, 'name', { min: 2, max: 120 })!.trim();
     const d = await db.tx(async (q) => {
       if (await one(q, `SELECT 1 FROM developers WHERE lower(trim(name)) = lower(trim($1))`, [name])) throw conflict('فيه مطور بنفس الاسم');
-      const x = await one(q, `INSERT INTO developers (name, phone, notes, created_by) VALUES ($1,$2,$3,$4) RETURNING *`,
-        [name, (str(b, 'phone', { optional: true, max: 30 }) ?? '').trim(), (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim(), a.id]);
+      const x = await one(q, `INSERT INTO developers (name, phone, notes, owner_name, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [name, (str(b, 'phone', { optional: true, max: 30 }) ?? '').trim(), (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim(),
+          (str(b, 'ownerName', { optional: true, max: 120 }) ?? '').trim(), a.id]);
       await audit(q, a.id, 'developer.create', 'developer', x.id, undefined, x);
       return x;
     });
-    return ok({ developer: { id: d.id, name: d.name, phone: d.phone, notes: d.notes } }, 201);
+    return ok({ developer: { id: d.id, name: d.name, ownerName: d.owner_name, phone: d.phone, notes: d.notes } }, 201);
   });
 
   r.patch('/exclusive/developers/:id', async (req) => {
@@ -1110,14 +1123,41 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       const name = (str(b, 'name', { optional: true, min: 2, max: 120 }) ?? o.name).trim();
       if (await one(q, `SELECT 1 FROM developers WHERE lower(trim(name)) = lower(trim($1)) AND id <> $2`, [name, o.id])) throw conflict('فيه مطور بنفس الاسم');
       const phone = (str(b, 'phone', { optional: true, max: 30 }) ?? o.phone).trim();
-      await q.query(`UPDATE developers SET name = $2, phone = $3, notes = $4 WHERE id = $1`,
-        [o.id, name, phone, (str(b, 'notes', { optional: true, max: 1000 }) ?? o.notes).trim()]);
-      // the exclusive projects carry his name as their owner
+      const ownerName = (b.ownerName !== undefined && b.ownerName !== null ? String(b.ownerName) : String(o.owner_name ?? '')).trim().slice(0, 120);
+      await q.query(`UPDATE developers SET name = $2, phone = $3, notes = $4, owner_name = $5 WHERE id = $1`,
+        [o.id, name, phone, (str(b, 'notes', { optional: true, max: 1000 }) ?? o.notes).trim(), ownerName]);
+      // the exclusive projects carry its owner (or the company when there is none) as their owner
       await q.query(`UPDATE commission_projects SET owner_name = $2, owner_phone = CASE WHEN $3 <> '' THEN $3 ELSE owner_phone END
-                      WHERE developer_id = $1 AND kind = 'exclusive'`, [o.id, name, phone]);
-      await audit(q, a.id, 'developer.update', 'developer', o.id, o, { name, phone });
+                      WHERE developer_id = $1 AND kind = 'exclusive'`, [o.id, ownerName || name, phone]);
+      await audit(q, a.id, 'developer.update', 'developer', o.id, o, { name, ownerName, phone });
     });
     return ok({ ok: true });
+  });
+
+  r.get('/exclusive/developers/:id/image/:kind', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    if (!isUuid(req.params.id) || !['photo', 'logo'].includes(req.params.kind)) throw notFound();
+    const x = await one(db, `SELECT mime, data, updated_at FROM developer_images WHERE developer_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
+    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, at: x?.updated_at ?? null });
+  });
+
+  r.put('/exclusive/developers/:id/image/:kind', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canSetup(a)) throw forbidden('صور المطور للمدير العام والمحاسب');
+    if (!isUuid(req.params.id) || !['photo', 'logo'].includes(req.params.kind)) throw notFound();
+    const b = obj(req.body);
+    const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
+    const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
+    await db.tx(async (q) => {
+      if (!(await one(q, `SELECT id FROM developers WHERE id = $1`, [req.params.id]))) throw notFound();
+      await q.query(`INSERT INTO developer_images (developer_id, kind, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,$4,now(),$5)
+                     ON CONFLICT (developer_id, kind) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [req.params.id, req.params.kind, mime, data, a.id]);
+      await audit(q, a.id, `developer.${req.params.kind}`, 'developer', req.params.id, undefined, { mime, bytes: data.length });
+    });
+    return ok({ saved: true });
   });
 
   // ------------------------------------------------------------------ الملاك (owners of the exclusive projects)

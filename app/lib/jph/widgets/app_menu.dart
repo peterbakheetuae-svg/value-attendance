@@ -13,6 +13,7 @@ import '../pages/custody/custody_assets_page.dart';
 import '../pages/exclusive/exclusive_projects_page.dart';
 import '../pages/leave_summary.dart';
 import '../pages/multi_company/company_info_page.dart';
+import '../pages/multi_company/company_logo_page.dart';
 import '../pages/multi_company/kpi_page.dart';
 import '../pages/multi_company/positions_page.dart';
 import '../pages/projects/marketing_companies_page.dart';
@@ -82,6 +83,8 @@ class AppMenu {
         if (ApiService.can('positions.manage') || ApiService.can('roles.manage'))
           MenuEntry('positions', 'الوظائف والصلاحيات', Icons.admin_panel_settings_outlined, page: () => const PositionsPage()),
         if (ApiService.can('settings.manage')) MenuEntry('late', 'خصم التأخير', Icons.timer_off_outlined, page: () => const LateRulesPage()),
+        if (ApiService.can('settings.manage') || ApiService.can('attendance.config'))
+          MenuEntry('company_logo', 'لوجو الشركة', Icons.verified_rounded, page: () => const CompanyLogoPage()),
         if (ApiService.can('attendance.config'))
           MenuEntry('holidays', 'العطلات الرسمية', Icons.event_note, page: () => PublicHolidaysPage(uid: uid, name: name, role: role)),
       ];

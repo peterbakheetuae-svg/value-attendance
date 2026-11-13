@@ -1555,20 +1555,60 @@ class DevelopersPage extends StatefulWidget {
   State<DevelopersPage> createState() => _DevelopersPageState();
 }
 
+/// A development company: its name (what the sales team and the projects show, and its reservation forms carry),
+/// its owner (the accounts show him beside the company), its picture and its logo (on its documents).
 Future<bool> _editDeveloper(BuildContext context, bool isDark, [Map<String, dynamic>? d]) async {
-  final name = TextEditingController(text: '${d?['name'] ?? ''}'), phone = TextEditingController(text: '${d?['phone'] ?? ''}'),
-      notes = TextEditingController(text: '${d?['notes'] ?? ''}');
-  return _form(context, isDark, d == null ? 'مطور جديد' : 'تعديل المطور', (set) => [
-        JphUi.input(isDark: isDark, label: 'اسم المطور', controller: name, icon: Icons.business_rounded),
+  final name = TextEditingController(text: '${d?['name'] ?? ''}'), owner = TextEditingController(text: '${d?['ownerName'] ?? ''}'),
+      phone = TextEditingController(text: '${d?['phone'] ?? ''}'), notes = TextEditingController(text: '${d?['notes'] ?? ''}');
+  (String, String)? photo, logo;
+  Widget imgPick(String label, IconData icon, bool had, (String, String)? picked, ValueChanged<(String, String)> onPick, StateSetter set) =>
+      JphUi.picker(
+        isDark: isDark, icon: icon, iconColor: Ar.accent, label: label,
+        value: picked != null ? 'اتختارت صورة جديدة ✓' : had ? 'موجودة — دوس للتغيير' : 'اختار صورة',
+        onTap: () async {
+          final x = await DocLogos.pick(context);
+          if (x != null) set(() => onPick(x));
+        },
+      );
+  return _form(context, isDark, d == null ? 'شركة تطوير جديدة' : 'تعديل شركة التطوير', (set) => [
+        JphUi.input(isDark: isDark, label: 'اسم شركة التطوير', controller: name, icon: Icons.business_rounded),
+        JphUi.input(isDark: isDark, label: 'اسم المالك', controller: owner, icon: Icons.person_rounded),
         JphUi.input(isDark: isDark, label: 'التليفون', controller: phone, icon: Icons.phone_rounded, number: true),
+        imgPick('صورة شركة التطوير', Icons.photo_rounded, d?['photoAt'] != null, photo, (x) => photo = x, set),
+        imgPick('لوجو الشركة (على مستنداتها: استمارات الحجز والعقود)', Icons.verified_rounded, d?['logoAt'] != null, logo, (x) => logo = x, set),
         JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
       ], () async {
-    final body = {'name': name.text.trim(), 'phone': phone.text.trim(), 'notes': notes.text.trim()};
-    final r = d == null ? await _post('/exclusive/developers', body, 'اتضاف المطور ✅')
+    final body = {'name': name.text.trim(), 'ownerName': owner.text.trim(), 'phone': phone.text.trim(), 'notes': notes.text.trim()};
+    final r = d == null ? await _post('/exclusive/developers', body, 'اتضافت شركة التطوير ✅')
         : await _post('/exclusive/developers/${d['id']}', body, 'اتحفظ ✅', method: 'patch');
     if (context.mounted) JphUi.toast(context, r);
+    final id = d?['id'] ?? _m(r['developer'])['id'];
+    if (r['success'] == true && id != null) {
+      if (photo != null && context.mounted) await DocLogos.upload(context, '/exclusive/developers/$id/image/photo', photo!);
+      if (logo != null && context.mounted) await DocLogos.upload(context, '/exclusive/developers/$id/image/logo', logo!, ok: 'اتحفظ اللوجو ✅');
+    }
     return r['success'] == true;
   });
+}
+
+/// a development company's picture (its icon while it has none)
+class _DevPhoto extends StatelessWidget {
+  final Map<String, dynamic> d;
+  final bool isDark;
+  final double size;
+  const _DevPhoto({required this.d, required this.isDark, this.size = 44});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = JphUi.iconTile(isDark, Icons.business_rounded, Ar.accent);
+    if (d['photoAt'] == null) return icon;
+    return FutureBuilder<Uint8List?>(
+      future: DocLogos.developer('${d['id']}', kind: 'photo', at: d['photoAt']),
+      builder: (_, s) => s.data == null
+          ? icon
+          : ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(s.data!, width: size, height: size, fit: BoxFit.cover)),
+    );
+  }
 }
 
 class _DevelopersPageState extends State<DevelopersPage> {
@@ -1657,11 +1697,13 @@ class _DevelopersPageState extends State<DevelopersPage> {
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            JphUi.iconTile(isDark, Icons.business_rounded, exclusive ? Ar.accent : Ar.accent),
+            _DevPhoto(d: d, isDark: isDark),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${d['name']}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                if ('${d['ownerName'] ?? ''}'.isNotEmpty)
+                  Text('المالك: ${d['ownerName']}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
                 Text('${k['projects']} مشروع${'${d['phone'] ?? ''}'.isNotEmpty ? ' · ${d['phone']}' : ''}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
             ),
@@ -1728,6 +1770,19 @@ class _DeveloperPageState extends State<DeveloperPage> {
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+                    // the company, its owner (the accounts name him beside it) and its logo for its documents
+                    Row(children: [
+                      _DevPhoto(d: d, isDark: isDark, size: 56),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('${d['accountName'] ?? d['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                          Text(d['logoAt'] == null ? 'من غير لوجو للمستندات' : 'لوجو المستندات موجود ✓',
+                              style: TextStyle(fontSize: 12.5, color: d['logoAt'] == null ? Ar.amber : Ar.green)),
+                        ]),
+                      ),
+                    ]),
+                    const SizedBox(height: 8),
                     Row(children: [
                       Expanded(
                         child: Text('${'${d['phone'] ?? ''}'.isEmpty ? '' : '📞 ${d['phone']}  '}${d['notes'] ?? ''}',

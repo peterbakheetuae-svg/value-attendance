@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../widgets/app_background.dart';
 import '../widgets/jph_form_ui.dart';
+import '../widgets/doc_logos.dart';
 
 /// «استمارة حجز وحدة» — always printed the same way (the company's approved form, A4): the logo and the boxed
 /// «استمارة حجز» on top, the fixed wording, and the reservation's own figures written in (numbers + words).
@@ -19,7 +20,13 @@ class ReservationForm {
 
   static Future<Uint8List> build(Map<String, dynamic> unit) async {
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Bold.ttf'));
-    final logo = pw.MemoryImage((await rootBundle.load('assets/forms/reservation/value_group_logo.png')).buffer.asUint8List());
+    // the project's development company: its name and its logo (the built-in ones when it has none)
+    final devName = '${unit['developerName'] ?? ''}'.trim();
+    final company = devName.isNotEmpty ? devName : ReservationForm.company;
+    final devLogo = unit['developerId'] == null || unit['developerLogoAt'] == null
+        ? null
+        : await DocLogos.developer('${unit['developerId']}', at: unit['developerLogoAt']);
+    final logo = pw.MemoryImage(devLogo ?? (await rootBundle.load('assets/forms/reservation/value_group_logo.png')).buffer.asUint8List());
     final f = ((unit['form'] as Map?) ?? const {}).cast<String, dynamic>();
     final contract = ((unit['contract'] as Map?) ?? const {}).cast<String, dynamic>();
 
