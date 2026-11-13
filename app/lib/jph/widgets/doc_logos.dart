@@ -27,6 +27,15 @@ class DocLogos {
   static Future<Uint8List?> developer(String id, {String kind = 'logo', Object? at}) =>
       _load('dev:$id:$kind:$at', '/exclusive/developers/$id/image/$kind');
 
+  /// the company's name for its documents (company settings), else the built-in one
+  static Future<String>? _name;
+  static Future<String> companyName() => _name ??= () async {
+        final r = await ApiService.post({'action': 'get_settings'});
+        final st = ((r['settings'] as Map?) ?? const {});
+        final n = '${st['company_name_ar'] ?? ''}'.trim();
+        return n.isEmpty ? 'فاليو جروب للتطوير العقاري' : n;
+      }();
+
   static void forget(String prefix) => _cache.removeWhere((k, _) => k.startsWith(prefix));
 
   /// a picture from the gallery, ≤ 1 MB: (mime, base64)

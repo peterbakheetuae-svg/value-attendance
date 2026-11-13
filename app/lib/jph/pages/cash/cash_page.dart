@@ -516,7 +516,8 @@ class CashLedgerView extends StatefulWidget {
 }
 
 class _LedgerTabState extends State<CashLedgerView> {
-  late String _box = widget.can['office'] == true ? 'office' : 'hr';
+  // the office sees «الكل» first (both boxes), then each box alone
+  late String _box = widget.can['office'] == true ? 'all' : 'hr';
   late DateTime _month = widget.month?.value ?? DateTime(DateTime.now().year, DateTime.now().month);
   Map<String, dynamic> _r = {};
   bool _loading = true;
@@ -561,7 +562,7 @@ class _LedgerTabState extends State<CashLedgerView> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (widget.can['office'] == true)
-          _segmented(isDark, {'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'}, _box, (v) {
+          _segmented(isDark, {'all': 'الكل', 'office': 'خزينة المكتب', 'hr': 'خزينة المحاسب'}, _box, (v) {
             _box = v;
             _load();
           }),
@@ -582,27 +583,42 @@ class _LedgerTabState extends State<CashLedgerView> {
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
         if (!_loading && entries.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('مفيش حركات', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
-        for (final e in entries)
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: JphUi.box(isDark),
-            child: Row(children: [
-              Icon(((e['amount'] as num?) ?? 0) >= 0 ? Icons.add_circle_rounded : Icons.remove_circle_rounded,
-                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Ar.green : Ar.red),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${_ledgerAr[e['type']] ?? e['type']}${e['refNo'] != null ? ' #${e['refNo']}' : ''}',
-                      style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-                  Text('${e['label'] ?? ''} • ${e['byName'] ?? ''} • ${JphUi.date(e['at'])}',
-                      style: TextStyle(fontSize: 12, color: JphUi.sub(isDark)), maxLines: 2, overflow: TextOverflow.ellipsis),
-                ]),
-              ),
-              CountUpText(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900,
-                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Ar.green : Ar.red)),
+        for (final e in entries) _entry(isDark, e),
+      ]),
+    );
+  }
+
+  Widget _entry(bool isDark, Map<String, dynamic> e) {
+    final amt = (e['amount'] as num?) ?? 0;
+    final payout = e['source'] == 'payouts' && '${e['type']}'.startsWith('payout_');
+    final transfer = e['source'] == 'cash_transfers';
+    // صرف سلفة / قبض …: لمين — and which box in «الكل»
+    final who = payout && e['toName'] != null ? ' — ${e['toName']}' : '';
+    final box = _box == 'all' ? ' • ${_boxAr[e['cashbox']] ?? ''}' : '';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: JphUi.box(isDark),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Icon(amt >= 0 ? Icons.add_circle_rounded : Icons.remove_circle_rounded, color: amt >= 0 ? Ar.green : Ar.red),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${_ledgerAr[e['type']] ?? e['type']}$who${e['refNo'] != null ? ' #${e['refNo']}' : ''}',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              Text('${'${e['label'] ?? ''}'.isEmpty ? '' : '${e['label']} • '}${e['byName'] ?? ''} • ${JphUi.date(e['at'])}$box',
+                  style: TextStyle(fontSize: 12, color: JphUi.sub(isDark)), maxLines: 2, overflow: TextOverflow.ellipsis),
             ]),
           ),
+          CountUpText(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: amt >= 0 ? Ar.green : Ar.red)),
+        ]),
+        if (payout)
+          _receiptActions(context, isDark, e, e['hasAttachment'] == true, _load,
+              voucher: PaymentVoucher.payout(e), photoPath: _photoPathOf('payout', e['sourceId'])),
+        if (transfer)
+          _receiptActions(context, isDark, e, e['hasAttachment'] == true, _load,
+              voucher: PaymentVoucher.transfer({...e, 'reason': e['label']}), photoPath: _photoPathOf('transfer', e['sourceId'])),
       ]),
     );
   }
@@ -821,6 +837,10 @@ class _TransfersTabState extends State<_TransfersTab> {
           if (can['cancel'] == true)
             TextButton(onPressed: () => _act('/cash/transfers/${t['id']}/cancel', {}, 'اتلغى'), child: const Text('إلغاء')),
         ]),
+        // كل تحويل: طباعة إيصال + صورته الموقّعة
+        if (['executed', 'received'].contains(t['status']))
+          _receiptActions(context, isDark, t, t['hasAttachment'] == true, _load,
+              voucher: PaymentVoucher.transfer(t), photoPath: _photoPathOf('transfer', t['id'])),
       ]),
     );
   }
@@ -1074,34 +1094,43 @@ class _ExpensesTabState extends State<_ExpensesTab> {
   }
 }
 
-/// «طباعة إيصال» (يمضي عليه المستلم) و«صورة الإيصال الموقّع» (إضافة / عرض) لأي مصروف.
-Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x, bool hasPhoto, Future<void> Function() reload) {
+/// «طباعة إيصال» (يمضي عليه المستلم) و«صورة الإيصال» و«تغيير الصورة» — side by side on one line (a narrow screen shortens their
+/// words, it never wraps them). For an expense ([x] itself), or — with [voucher] / [photoPath] — a transfer or a payout.
+Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x, bool hasPhoto, Future<void> Function() reload,
+    {Map<String, dynamic>? voucher, String? photoPath}) {
+  final path = photoPath ?? '/cash/expenses/${x['id']}/attachment';
+  Widget btn(IconData icon, String label, VoidCallback onTap, {Color? color}) => Expanded(
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10), minimumSize: const Size(0, 40)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 17, color: color),
+            const SizedBox(width: 4),
+            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false)),
+          ]),
+        ),
+      );
   return Padding(
     padding: const EdgeInsets.only(top: 6),
-    child: Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 6, children: [
-      OutlinedButton.icon(
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: x))),
-        icon: const Icon(Icons.print_rounded, size: 18),
-        label: const Text('طباعة إيصال'),
-      ),
-      if (hasPhoto)
-        OutlinedButton.icon(
-          onPressed: () => _viewReceiptPhoto(context, '${x['id']}'),
-          icon: const Icon(Icons.image_rounded, size: 18, color: Ar.green),
-          label: const Text('صورة الإيصال'),
-        ),
-      OutlinedButton.icon(
-        onPressed: () async {
-          if (await _uploadReceiptPhoto(context, '${x['id']}')) await reload();
-        },
-        icon: const Icon(Icons.add_a_photo_rounded, size: 18),
-        label: Text(hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال الموقّع'),
-      ),
+    child: Row(children: [
+      btn(Icons.print_rounded, 'طباعة إيصال',
+          () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: voucher ?? x)))),
+      if (hasPhoto) ...[
+        const SizedBox(width: 6),
+        btn(Icons.image_rounded, 'صورة الإيصال', () => _viewReceiptPhoto(context, path), color: Ar.green),
+      ],
+      const SizedBox(width: 6),
+      btn(Icons.add_a_photo_rounded, hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال', () async {
+        if (await _uploadReceiptPhoto(context, path)) await reload();
+      }),
     ]),
   );
 }
 
-Future<bool> _uploadReceiptPhoto(BuildContext context, String expenseId) async {
+/// a transfer's / payout's signed receipt photo
+String _photoPathOf(String entity, Object? id) => '/cash/attachments/$entity/$id';
+
+Future<bool> _uploadReceiptPhoto(BuildContext context, String path) async {
   XFile? f;
   try {
     f = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 60, maxWidth: 1400, maxHeight: 1400);
@@ -1115,14 +1144,14 @@ Future<bool> _uploadReceiptPhoto(BuildContext context, String expenseId) async {
     JphUi.toast(context, {'success': false, 'message': 'الصورة كبيرة — اختار صورة أصغر من 600 KB'});
     return false;
   }
-  final r = await _post('/cash/expenses/$expenseId/attachment', {'attachment': base64Encode(bytes)}, ok: 'اتضافت صورة الإيصال ✅');
+  final r = await _post(path, {'attachment': base64Encode(bytes)}, ok: 'اتضافت صورة الإيصال ✅');
   if (!context.mounted) return false;
   JphUi.toast(context, r);
   return r['success'] == true;
 }
 
-Future<void> _viewReceiptPhoto(BuildContext context, String expenseId) async {
-  final r = await _get('/cash/expenses/$expenseId/attachment');
+Future<void> _viewReceiptPhoto(BuildContext context, String path) async {
+  final r = await _get(path);
   if (!context.mounted) return;
   final b64 = r['attachment'];
   if (r['success'] == false || b64 is! String) {

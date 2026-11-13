@@ -157,6 +157,20 @@ test('transfers: the office sending to the accountant needs no approval of its o
   assert.match(x.rejectReason, /مستلمتش/);
 });
 
+test('السجل: «الكل» for the office, each payout names who got it; transfers / payouts keep a signed receipt photo', async () => {
+  const all = (await h.call(tGm, 'GET', '/cash/ledger?cashbox=all')).body;
+  assert.equal(all.cashbox, 'all');
+  assert.ok(all.entries.some((x: any) => x.cashbox === 'office') && all.entries.some((x: any) => x.cashbox === 'hr'));
+  assert.equal((await h.call(c.t.hr, 'GET', '/cash/ledger?cashbox=all')).status, 403, 'the accountant sees his box only');
+  const tr = all.entries.find((x: any) => x.source === 'cash_transfers');
+  const png = Buffer.alloc(400, 7).toString('base64');
+  assert.equal((await h.call(c.t.hr, 'POST', `/cash/attachments/transfer/${tr.sourceId}`, { attachment: png })).status, 200);
+  assert.equal((await h.call(tGm, 'GET', `/cash/attachments/transfer/${tr.sourceId}`)).body.attachment, png);
+  const again = (await h.call(tGm, 'GET', '/cash/ledger?cashbox=all')).body.entries.find((x: any) => x.sourceId === tr.sourceId);
+  assert.equal(again.hasAttachment, true);
+  assert.equal((await h.call(c.t.e1, 'POST', `/cash/attachments/transfer/${tr.sourceId}`, { attachment: png })).status, 403);
+});
+
 test('the existing صرف مالية payments count against the HR cashbox', async () => {
   await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 9000, $2) ON CONFLICT DO NOTHING`, [c.ids.e1, c.ids.owner]);
   const before = (await sum(c.t.hr)).hr.bookBalance;
@@ -166,6 +180,15 @@ test('the existing صرف مالية payments count against the HR cashbox', asy
   assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${p.body.payout.id}/receive`, {})).status, 200);
   assert.equal((await sum(c.t.hr)).hr.bookBalance, before - 3000);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, before - 3000);
+  // السجل says who got it, and the payout keeps its signed receipt photo
+  const led = (await h.call(c.t.hr, 'GET', '/cash/ledger?cashbox=hr')).body.entries.find((x: any) => x.sourceId === p.body.payout.id);
+  assert.equal(led.type, 'payout_salary');
+  assert.ok(led.toName, 'لمين');
+  assert.equal(led.payoutKind, 'salary');
+  const png = Buffer.alloc(400, 9).toString('base64');
+  assert.equal((await h.call(c.t.hr, 'POST', `/cash/attachments/payout/${p.body.payout.id}`, { attachment: png })).status, 200);
+  assert.equal((await h.call(c.t.e1, 'GET', `/cash/attachments/payout/${p.body.payout.id}`)).status, 200, 'the employee sees his own');
+  assert.equal((await h.call(c.t.e2, 'GET', `/cash/attachments/payout/${p.body.payout.id}`)).status, 403);
 });
 
 test('expense approval threshold is a setting (owner / manager only)', async () => {

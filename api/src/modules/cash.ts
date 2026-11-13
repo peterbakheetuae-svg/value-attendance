@@ -405,7 +405,7 @@ function shapeTransfer(x: any, a: Actor, desk: boolean) {
     amountExecuted: x.amount_executed == null ? null : Number(x.amount_executed), reason: x.reason, status: x.status,
     requestedByName: x.requested_by_name, requestedAt: x.requested_at, decidedByName: x.decided_by_name, decidedAt: x.decided_at,
     rejectReason: x.reject_reason, executedByName: x.executed_by_name, executedAt: x.executed_at,
-    receivedByName: x.received_by_name, receivedAt: x.received_at,
+    receivedByName: x.received_by_name, receivedAt: x.received_at, hasAttachment: x.has_attachment === true,
     // in = the money comes INTO the viewer's box (green), out = it leaves it (red)
     flow: incoming ? 'in' : 'out',
     // what this person can do next
@@ -427,7 +427,8 @@ const EXPENSE_SELECT = `SELECT x.*, (x.attachment IS NOT NULL) AS has_attachment
   FROM cash_expenses x JOIN employees rb ON rb.id = x.recorded_by
   LEFT JOIN employees ap ON ap.id = x.approved_by LEFT JOIN employees rv ON rv.id = x.reviewed_by`;
 const TRANSFER_SELECT = `SELECT t.*, rq.full_name AS requested_by_name, dc.full_name AS decided_by_name,
-  ex.full_name AS executed_by_name, rc.full_name AS received_by_name
+  ex.full_name AS executed_by_name, rc.full_name AS received_by_name,
+  EXISTS (SELECT 1 FROM cash_attachments ca WHERE ca.entity = 'transfer' AND ca.entity_id = t.id) AS has_attachment
   FROM cash_transfers t JOIN employees rq ON rq.id = t.requested_by
   LEFT JOIN employees dc ON dc.id = t.decided_by LEFT JOIN employees ex ON ex.id = t.executed_by LEFT JOIN employees rc ON rc.id = t.received_by`;
 
@@ -595,22 +596,37 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.get('/cash/ledger', async (req) => {
     const a = await authenticate(db, req);
-    const box = (req.query.get('cashbox') ?? 'hr') as Box;
-    if (!BOXES.includes(box) || !canSee(a, box)) throw forbidden();
-    const vals: unknown[] = [box];
-    const where = ['l.cashbox = $1'];
+    const q0 = req.query.get('cashbox') ?? 'hr';
+    // «الكل»: both boxes together (only for whoever sees both)
+    const all = q0 === 'all';
+    if (all ? !(canSee(a, 'office') && canSee(a, 'hr')) : !BOXES.includes(q0 as Box) || !canSee(a, q0 as Box)) throw forbidden();
+    const box = q0 as Box;
+    const vals: unknown[] = all ? [['office', 'hr']] : [[box]];
+    const where = ['l.cashbox = ANY($1::text[])'];
     const from = req.query.get('from'), to = req.query.get('to');
     if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { vals.push(from); where.push(`l.at >= ($${vals.length}::date AT TIME ZONE 'Africa/Cairo')`); }
     if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { vals.push(to); where.push(`l.at < (($${vals.length}::date + 1) AT TIME ZONE 'Africa/Cairo')`); }
-    const rows = await db.query(`SELECT l.*, e.full_name AS by_name FROM cash_ledger l LEFT JOIN employees e ON e.id = l.by_id
-                                 WHERE ${where.join(' AND ')} ORDER BY l.at DESC LIMIT 1000`, vals);
+    const rows = await db.query(`SELECT l.*, e.full_name AS by_name, pe.full_name AS to_name, p.kind AS payout_kind, p.period AS payout_period,
+          t.direction AS transfer_direction, ex.full_name AS executed_by_name, rc.full_name AS received_by_name,
+          (ca.entity_id IS NOT NULL) AS has_attachment
+        FROM cash_ledger l LEFT JOIN employees e ON e.id = l.by_id
+        LEFT JOIN payouts p ON l.source = 'payouts' AND p.id = l.source_id LEFT JOIN employees pe ON pe.id = p.employee_id
+        LEFT JOIN cash_transfers t ON l.source = 'cash_transfers' AND t.id = l.source_id
+        LEFT JOIN employees ex ON ex.id = t.executed_by LEFT JOIN employees rc ON rc.id = t.received_by
+        LEFT JOIN cash_attachments ca ON ca.entity = CASE l.source WHEN 'payouts' THEN 'payout' WHEN 'cash_transfers' THEN 'transfer' END
+                                     AND ca.entity_id = l.source_id
+       WHERE ${where.join(' AND ')} ORDER BY l.at DESC LIMIT 1000`, vals);
     const totalIn = rows.rows.filter((x) => Number(x.amount) > 0).reduce((s, x) => s + Number(x.amount), 0);
     const totalOut = rows.rows.filter((x) => Number(x.amount) < 0).reduce((s, x) => s - Number(x.amount), 0);
     return ok({
-      currency: 'EGP', cashbox: box, totals: { in: r2(totalIn), out: r2(totalOut) },
+      currency: 'EGP', cashbox: all ? 'all' : box, totals: { in: r2(totalIn), out: r2(totalOut) },
       entries: rows.rows.map((x) => ({
         amount: Number(x.amount), at: x.at, type: x.type, refNo: x.ref_no == null ? null : Number(x.ref_no),
-        sourceId: x.source_id, source: x.source, label: x.label, byName: x.by_name,
+        sourceId: x.source_id, source: x.source, label: x.label, byName: x.by_name, cashbox: x.cashbox,
+        // صرف سلفة / قبض …: who got it
+        toName: x.to_name ?? null, payoutKind: x.payout_kind ?? null, period: x.payout_period ?? null,
+        direction: x.transfer_direction ?? null, executedByName: x.executed_by_name ?? null, receivedByName: x.received_by_name ?? null,
+        hasAttachment: x.has_attachment === true,
       })),
     });
   });
@@ -985,6 +1001,42 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (!x || !x.attachment) throw notFound();
     if (!canSee(a, x.cashbox) && x.recorded_by !== a.id) throw forbidden();
     return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+  });
+
+  // ------------------------------------------------------------------ صورة الإيصال الموقّع: transfers and payouts
+  async function attachmentAccess(a: Actor, entity: string, id: string, write: boolean) {
+    if (!['transfer', 'payout'].includes(entity) || !isUuid(id)) throw notFound();
+    if (entity === 'transfer') {
+      if (!(await one(db, `SELECT 1 FROM cash_transfers WHERE id = $1`, [id]))) throw notFound();
+      if (!canHrView(a) && !canOffice(a)) throw forbidden();
+      if (write && !canHrOperate(a) && !canOffice(a)) throw forbidden();
+      return;
+    }
+    const p = await one(db, `SELECT employee_id, created_by FROM payouts WHERE id = $1`, [id]);
+    if (!p) throw notFound();
+    const staff = canHrOperate(a) || canOffice(a) || has(a, 'finance.disburse');
+    if (!staff && !(p.employee_id === a.id && !write)) throw forbidden();
+  }
+  r.get('/cash/attachments/:entity/:id', async (req) => {
+    const a = await authenticate(db, req);
+    await attachmentAccess(a, req.params.entity, req.params.id, false);
+    const x = await one(db, `SELECT attachment FROM cash_attachments WHERE entity = $1 AND entity_id = $2`, [req.params.entity, req.params.id]);
+    if (!x) throw notFound();
+    return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+  });
+  r.post('/cash/attachments/:entity/:id', async (req) => {
+    const a = await authenticate(db, req);
+    await attachmentAccess(a, req.params.entity, req.params.id, true);
+    const b = obj(req.body);
+    const raw = String(b.attachment ?? '');
+    const buf = Buffer.from(raw, 'base64');
+    if (!raw || buf.length < 100) throw invalid('الصورة مش واضحة', { field: 'attachment' });
+    if (buf.length > 700_000) throw invalid('الصورة كبيرة — اختار صورة أصغر', { field: 'attachment' });
+    await db.query(`INSERT INTO cash_attachments (entity, entity_id, attachment, updated_by, updated_at) VALUES ($1,$2,$3,$4,$5)
+                    ON CONFLICT (entity, entity_id) DO UPDATE SET attachment = EXCLUDED.attachment, updated_by = EXCLUDED.updated_by,
+                      updated_at = EXCLUDED.updated_at`, [req.params.entity, req.params.id, buf, a.id, clock()]);
+    await audit(db, a.id, 'cash.attachment', req.params.entity, req.params.id, undefined, { bytes: buf.length });
+    return ok({ ok: true });
   });
 
   // ------------------------------------------------------------------ transfers between the two cashboxes
