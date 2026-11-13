@@ -190,12 +190,12 @@ class _ProjectsListState extends State<ProjectsList> {
     return LayoutBuilder(builder: (context, c) {
       final w = c.maxWidth;
       final wide = w >= 900;
-      final pad = wide ? 24.0 : 18.0;
+      final pad = wide ? 24.0 : 12.0;
       final cols = math.max(1, ((w - pad * 2 + 16) / (wide ? 320 : 330)).floor());
       const kinds = ['', 'exclusive', 'marketing'];
 
       final title = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('المشاريع', style: TextStyle(fontSize: wide ? 26 : 28, fontWeight: FontWeight.w700, height: 1.2, color: Glass.ink(isDark))),
+        Text('المشاريع', style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w600, height: 1.2, color: Glass.ink(isDark))),
         const SizedBox(height: 4),
         Text(_loading ? '...' : '${_items.length} مشروع · $active شغال', style: TextStyle(fontSize: 13.5, color: Glass.muted(isDark))),
       ]);
@@ -206,7 +206,7 @@ class _ProjectsListState extends State<ProjectsList> {
               child: ElevatedButton.icon(
                 onPressed: _add,
                 icon: const Icon(Icons.add_rounded, size: 20),
-                label: const Text('إضافة مشروع', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                label: const Text('إضافة مشروع', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Glass.blue,
                   foregroundColor: Colors.white,
@@ -241,7 +241,7 @@ class _ProjectsListState extends State<ProjectsList> {
         child: TextField(
           controller: _q,
           onChanged: (_) => setState(() {}),
-          style: TextStyle(fontSize: 14, color: Glass.ink(isDark)),
+          style: TextStyle(fontSize: 16, color: Glass.ink(isDark)),
           decoration: InputDecoration(
             border: InputBorder.none,
             hintText: 'دوّر على مشروع أو مطور',
@@ -273,9 +273,9 @@ class _ProjectsListState extends State<ProjectsList> {
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: title), if (addBtn != null) addBtn])
           else ...[
             title,
-            if (addBtn != null) ...[const SizedBox(height: 18), addBtn],
+            if (addBtn != null) ...[const SizedBox(height: 14), addBtn],
           ],
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           if (wide)
             Row(children: [
               Expanded(child: tabBar == null ? const SizedBox.shrink() : Align(alignment: AlignmentDirectional.centerStart, child: tabBar)),
@@ -283,7 +283,7 @@ class _ProjectsListState extends State<ProjectsList> {
               SizedBox(width: 300, child: search),
             ])
           else ...[
-            if (tabBar != null) ...[tabBar, const SizedBox(height: 16)],
+            if (tabBar != null) ...[tabBar, const SizedBox(height: 12)],
             search,
           ],
           const SizedBox(height: 16),
@@ -303,7 +303,7 @@ class _ProjectsListState extends State<ProjectsList> {
           if (_grid)
             for (var i = 0; i < shown.length; i += cols)
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.only(bottom: 12),
                 child: IntrinsicHeight(
                   child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     for (var j = 0; j < cols; j++) ...[
@@ -364,7 +364,7 @@ class _ProjectsListState extends State<ProjectsList> {
           ),
           Center(
             child: Text(name.characters.isEmpty ? '' : name.characters.first,
-                style: TextStyle(fontSize: small ? 28 : 48, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.92))),
+                style: TextStyle(fontSize: small ? 26 : 44, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.92))),
           ),
           if (!small)
             PositionedDirectional(
@@ -386,7 +386,7 @@ class _ProjectsListState extends State<ProjectsList> {
         child: BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4), // 24px
             color: const Color(0x9E141412),
             child: Text(t, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c)),
           ),
@@ -427,19 +427,19 @@ class _ProjectsListState extends State<ProjectsList> {
     final dev = _dev(p);
     return GlassBox(
       isDark: isDark,
-      radius: 20,
+      radius: 18,
       padding: const EdgeInsets.all(8),
       onTap: () => _openProject(p),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AspectRatio(aspectRatio: 1.6, child: _hero(isDark, p)),
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+          padding: const EdgeInsets.fromLTRB(8, 14, 8, 8), // the site: 14 / 16 / 16 from the card's edge
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text('${p['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
             const SizedBox(height: 2),
             Text(dev.isEmpty ? 'بدون مطور' : 'المطور: $dev', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 12.5, color: Glass.muted(isDark))),
+                style: TextStyle(fontSize: 12, color: Glass.muted(isDark))),
             const SizedBox(height: 12),
             Row(children: [
               for (final (i, t) in tiles.indexed) ...[
@@ -448,9 +448,9 @@ class _ProjectsListState extends State<ProjectsList> {
               ],
             ]),
             if (meter != null) ...[
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               Row(children: [
-                Text(meterLabel, style: TextStyle(fontSize: 12.5, color: Glass.muted(isDark), fontWeight: FontWeight.w500)),
+                Text(meterLabel, style: TextStyle(fontSize: 12, color: Glass.muted(isDark), fontWeight: FontWeight.w600)),
                 const SizedBox(width: 12),
                 Expanded(child: GlassMeter(isDark: isDark, value: meter, color: meterColor)),
               ]),
@@ -476,13 +476,13 @@ class _ProjectsListState extends State<ProjectsList> {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('${p['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
             const SizedBox(height: 2),
             Text(dev.isEmpty ? 'بدون مطور' : dev, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: Glass.muted(isDark))),
+                style: TextStyle(fontSize: 12, color: Glass.muted(isDark))),
             const SizedBox(height: 8),
             Text(tiles.map((t) => '${t.$1}: ${t.$2}').join('  ·  '),
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Glass.ink(isDark))),
             if (meter != null) ...[
               const SizedBox(height: 8),
               Row(children: [

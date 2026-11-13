@@ -47,16 +47,16 @@ class GlassBottomNav extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
         child: RepaintBoundary(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(40),
+            borderRadius: BorderRadius.circular(26),
             child: BackdropFilter(
               filter: ImageFilter.blur(
                 sigmaX: 24,
                 sigmaY: 24,
               ),
               child: DecoratedBox(
-                decoration: Glass.panel(isDark, r: 40),
+                decoration: Glass.panel(isDark, r: 26),
                 child: SizedBox(
-                  height: 72,
+                  height: 66,
                   child: Directionality(
                     textDirection: isRTL ? TextDirection.rtl : TextDirection.ltr,
                     child: Row(
@@ -173,15 +173,15 @@ class _Item extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(icon, color: foregroundColor, size: 22),
+            Icon(icon, color: foregroundColor, size: 20),
             if (active) ...[
               const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
                   color: foregroundColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10.5,
                 ),
               ),
             ],

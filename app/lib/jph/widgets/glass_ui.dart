@@ -157,7 +157,7 @@ class GlassSegments extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            padding: EdgeInsets.symmetric(horizontal: big ? 16 : 13, vertical: big ? 9 : 7),
+            padding: EdgeInsets.symmetric(horizontal: big ? 14 : 13, vertical: big ? 8.5 : 11), // the site: 36px tabs, 40px segments
             decoration: BoxDecoration(
               color: on ? (big ? Glass.blue : (isDark ? Colors.white.withOpacity(0.12) : Colors.white)) : Colors.transparent,
               borderRadius: BorderRadius.circular(99),
@@ -167,12 +167,12 @@ class GlassSegments extends StatelessWidget {
               Text(label,
                   style: TextStyle(
                       fontSize: big ? 13.5 : 12.5,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       color: on ? (big ? Colors.white : Glass.ink(isDark)) : Glass.ink(isDark).withOpacity(0.85))),
               if (count != null && count > 0) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(color: (on ? Colors.white : Glass.ink(isDark)).withOpacity(0.18), borderRadius: BorderRadius.circular(99)),
                   child: Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? Colors.white : Glass.ink(isDark))),
                 ),
@@ -184,7 +184,7 @@ class GlassSegments extends StatelessWidget {
     }
 
     return Container(
-      padding: EdgeInsets.all(big ? 5 : 3),
+      padding: EdgeInsets.all(big ? 4 : 3),
       decoration: BoxDecoration(
         gradient: LinearGradient(
             colors: isDark ? [Colors.white.withOpacity(0.075), Colors.white.withOpacity(0.03)] : [Colors.white.withOpacity(0.7), Colors.white.withOpacity(0.45)]),
@@ -213,13 +213,13 @@ class GlassChip extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11), // 40px
             decoration: BoxDecoration(
               color: on ? Glass.blue : (isDark ? Colors.white.withOpacity(0.06) : Colors.white.withOpacity(0.55)),
               borderRadius: BorderRadius.circular(99),
               border: Border.all(color: on ? Colors.transparent : Glass.rim(isDark)),
             ),
-            child: Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? Colors.white : Glass.ink(isDark))),
+            child: Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? Colors.white : Glass.ink(isDark))),
           ),
         ),
       );
@@ -282,14 +282,14 @@ class GlassStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: Glass.tile(isDark),
+        decoration: Glass.tile(isDark, r: 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Glass.muted(isDark))),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Glass.muted(isDark))),
           const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
-            child: Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color ?? Glass.ink(isDark))),
+            child: Text(value, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color ?? Glass.ink(isDark))),
           ),
         ]),
       );

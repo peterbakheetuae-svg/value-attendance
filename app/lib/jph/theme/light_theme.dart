@@ -25,19 +25,19 @@ class LightTheme {
       textTheme: TextTheme(
         displayLarge: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 32,
+          fontSize: 34,
           fontWeight: FontWeight.bold,
           color: AppColors.onSurfaceLight,
         ),
         displayMedium: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 28,
+          fontSize: 26,
           fontWeight: FontWeight.bold,
           color: AppColors.onSurfaceLight,
         ),
         displaySmall: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 24,
+          fontSize: 22,
           fontWeight: FontWeight.bold,
           color: AppColors.onSurfaceLight,
         ),
@@ -55,31 +55,31 @@ class LightTheme {
         ),
         headlineSmall: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 18,
+          fontSize: 17,
           fontWeight: FontWeight.w600,
           color: AppColors.onSurfaceLight,
         ),
         titleLarge: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 16,
+          fontSize: 17,
           fontWeight: FontWeight.w600,
           color: AppColors.onSurfaceLight,
         ),
         titleMedium: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 14,
+          fontSize: 15,
           fontWeight: FontWeight.w600,
           color: AppColors.onSurfaceLight,
         ),
         titleSmall: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 12,
+          fontSize: 13.5,
           fontWeight: FontWeight.w600,
           color: AppColors.onSurfaceVariantLight,
         ),
         bodyLarge: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 16,
+          fontSize: 15,
           color: AppColors.onSurfaceLight,
         ),
         bodyMedium: TextStyle(
@@ -89,24 +89,24 @@ class LightTheme {
         ),
         bodySmall: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 12,
+          fontSize: 12.5,
           color: AppColors.onSurfaceVariantLight,
         ),
         labelLarge: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 14,
+          fontSize: 13.5,
           fontWeight: FontWeight.w600,
           color: AppColors.onPrimary,
         ),
         labelMedium: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 12,
+          fontSize: 12.5,
           fontWeight: FontWeight.w600,
           color: AppColors.onPrimary,
         ),
         labelSmall: TextStyle(
           fontFamily: 'Cairo',
-          fontSize: 10,
+          fontSize: 11,
           color: AppColors.onSurfaceVariantLight,
         ),
       ),

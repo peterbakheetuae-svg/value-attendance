@@ -220,7 +220,7 @@ class _MoreSheet extends StatelessWidget {
                         Text(app.companyName?.isNotEmpty == true ? app.companyName! : 'Value',
                             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Glass.ink(d))),
                         const SizedBox(height: 2),
-                        Text('${AppMenu.name} · كل الصفحات', style: TextStyle(fontSize: 13, color: Glass.muted(d))),
+                        Text('${AppMenu.name} · كل الصفحات', style: TextStyle(fontSize: 12.5, color: Glass.muted(d))),
                       ]),
                     ),
                     IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.close_rounded, color: Glass.ink(d), size: 26)),
@@ -237,16 +237,16 @@ class _MoreSheet extends StatelessWidget {
                           child: GestureDetector(
                             onTap: () => onOpen(q),
                             child: Container(
-                              height: 78,
+                              height: 64, // the site's quick squares
                               decoration: BoxDecoration(
                                 color: Glass.blue.withOpacity(d ? 0.22 : 0.12),
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(14),
                                 border: Border.all(color: Glass.blue.withOpacity(0.18)),
                               ),
                               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                Icon(q.icon, color: d ? Glass.blueHi : Glass.blue, size: 24),
-                                const SizedBox(height: 8),
-                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: d ? const Color(0xFFFF8A63) : Glass.blue)),
+                                Icon(q.icon, color: d ? Glass.blueHi : Glass.blue, size: 20),
+                                const SizedBox(height: 4),
+                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11, color: d ? const Color(0xFFFF8A63) : Glass.blue)),
                               ]),
                             ),
                           ),
@@ -272,44 +272,44 @@ class _MoreSheet extends StatelessWidget {
   Widget _row(BuildContext context, bool d, MenuEntry e) {
     final on = e.has(active);
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: on && e.isGroup ? Glass.tile(d, r: 18).copyWith(border: Border.all(color: Colors.transparent)) : null,
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), // the site: 48px rows
+      decoration: on && e.isGroup ? Glass.tile(d, r: 16).copyWith(border: Border.all(color: Colors.transparent)) : null,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: e.isGroup ? null : () => onOpen(e),
           child: Row(children: [
             Container(
-              width: 40,
-              height: 40,
-              decoration: on && !e.isGroup ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(14)) : Glass.tile(d),
-              child: Icon(e.icon, size: 19, color: on && !e.isGroup ? Colors.white : (d ? Glass.blueHi : Glass.blue)),
+              width: 32,
+              height: 32,
+              decoration: on && !e.isGroup ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(10)) : Glass.tile(d, r: 10),
+              child: Icon(e.icon, size: 16, color: on && !e.isGroup ? Colors.white : (d ? Glass.blueHi : Glass.blue)),
             ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(e.title, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: Glass.ink(d)))),
+            const SizedBox(width: 12),
+            Expanded(child: Text(e.title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Glass.ink(d)))),
             if (e.isGroup)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
                 decoration: BoxDecoration(color: Glass.ink(d).withOpacity(0.12), borderRadius: BorderRadius.circular(99)),
-                child: Text('${e.children.length}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Glass.ink(d))),
+                child: Text('${e.children.length}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Glass.ink(d))),
               ),
           ]),
         ),
         if (e.isGroup)
           Padding(
-            padding: const EdgeInsetsDirectional.only(start: 56, top: 10),
+            padding: const EdgeInsetsDirectional.only(start: 44, top: 8),
             child: Wrap(spacing: 8, runSpacing: 8, children: [
               for (final c in e.children)
                 GestureDetector(
                   onTap: () => onOpen(c),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11), // 40px
                     decoration: c.key == active
-                        ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(14))
-                        : Glass.tile(d),
+                        ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(10))
+                        : Glass.tile(d, r: 10),
                     child: Text(c.title,
-                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: c.key == active ? Colors.white : Glass.ink(d))),
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: c.key == active ? Colors.white : Glass.ink(d))),
                   ),
                 ),
             ]),
@@ -326,8 +326,8 @@ Widget _darkRow(BuildContext context, bool d, AppController app, {bool small = f
         SizedBox(width: small ? 10 : 14),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text('الوضع الداكن', style: TextStyle(fontSize: small ? 13 : 14.5, fontWeight: FontWeight.w600, color: Glass.ink(d))),
-            if (!small) Text('للتطبيق كله', style: TextStyle(fontSize: 13, color: Glass.muted(d))),
+            Text('الوضع الداكن', style: TextStyle(fontSize: small ? 13 : 14, fontWeight: FontWeight.w600, color: Glass.ink(d))),
+            if (!small) Text('للتطبيق كله', style: TextStyle(fontSize: 12.5, color: Glass.muted(d))),
           ]),
         ),
         Transform.scale(
@@ -401,7 +401,7 @@ class _AppSidebarState extends State<AppSidebar> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('Value', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Glass.ink(d))),
                       Text(app.companyName?.isNotEmpty == true ? app.companyName! : 'الحضور والمالية',
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: Glass.muted(d))),
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Glass.muted(d))),
                     ]),
                   ),
                 ]),
@@ -412,7 +412,7 @@ class _AppSidebarState extends State<AppSidebar> {
                   for (final s in AppMenu.sections()) ...[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
-                      child: Text(s.title, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.5, color: Glass.muted(d))),
+                      child: Text(s.title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Glass.muted(d))),
                     ),
                     for (final e in s.entries) ..._item(context, d, e),
                   ],

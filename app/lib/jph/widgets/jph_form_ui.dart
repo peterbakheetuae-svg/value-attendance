@@ -66,7 +66,7 @@ class JphUi {
             child: Icon(isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded, color: t, size: 22),
           ),
         ),
-        Expanded(child: Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: t))),
+        Expanded(child: Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: t))),
         SizedBox(width: 46, height: 46, child: action),
       ]),
     );
@@ -85,9 +85,9 @@ class JphUi {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: sub(isDark))),
+              Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: sub(isDark))),
               const SizedBox(height: 4),
-              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: text(isDark))),
+              Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: text(isDark))),
             ]),
           ),
           const SizedBox(width: 10),
@@ -110,20 +110,20 @@ class JphUi {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: sub(isDark))),
+        Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: sub(isDark))),
         TextField(
           controller: controller,
           onChanged: onChanged,
           keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: sub(isDark), fontSize: 15),
+            hintStyle: TextStyle(color: sub(isDark), fontSize: 13.5),
             border: InputBorder.none,
             prefixIcon: icon == null ? null : Icon(icon, color: primary(isDark), size: 22),
             suffixText: suffix,
             contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
-          style: TextStyle(fontSize: big ? 20 : 16, fontWeight: FontWeight.w800, color: text(isDark)),
+          style: TextStyle(fontSize: big ? 17 : 14, fontWeight: FontWeight.w800, color: text(isDark)),
         ),
       ]),
     );
@@ -147,10 +147,10 @@ class JphUi {
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [
               Icon(Icons.lock_rounded, size: 13, color: sub(isDark)),
               const SizedBox(width: 4),
-              Flexible(child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: sub(isDark)))),
+              Flexible(child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: sub(isDark)))),
             ]),
             const SizedBox(height: 4),
-            Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: text(isDark))),
+            Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: text(isDark))),
           ]),
         ),
       ]),
@@ -181,7 +181,7 @@ class JphUi {
                   Icon(icon ?? Icons.list_alt_rounded, color: c, size: 28),
                   Expanded(
                     child: Text(title, textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87)),
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: isDark ? Colors.white : Colors.black87)),
                   ),
                   GestureDetector(
                     onTap: () => Navigator.pop(ctx),
@@ -223,7 +223,7 @@ class JphUi {
             const SizedBox(width: 12),
             Expanded(
               child: Text(label,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87)),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: isDark ? Colors.white : Colors.black87)),
             ),
             if (on) Icon(Icons.check_circle_rounded, color: c, size: 24),
           ]),
@@ -287,7 +287,7 @@ class JphUi {
           child: ElevatedButton.icon(
             onPressed: onTap,
             icon: const Icon(Icons.filter_alt_rounded, size: 20),
-            label: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            label: Text(label, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800)),
             style: ElevatedButton.styleFrom(
               backgroundColor: primary(isDark),
               foregroundColor: Colors.white,
@@ -362,7 +362,7 @@ class JphUi {
           const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+            child: Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: color)),
           ),
         ]),
       );
