@@ -1,0 +1,45 @@
+<!-- the start of loading (before the app's first frame): the logo, its swoosh and squares orbiting the letter -->
+<style>
+  #va-loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:#1B1B1A;transition:opacity .45s cubic-bezier(.22,1,.36,1)}
+  #va-loader.out{opacity:0;pointer-events:none}
+  #va-logo{position:relative;width:180px;height:180px}
+  #va-logo img{position:absolute;inset:0;width:180px;height:180px;transform-origin:0 0}
+  #va-front{position:absolute;inset:0}
+</style>
+<div id="va-loader">
+  <div id="va-logo">
+    <img id="va-back" src="assets/assets/images/logo_orbit.png" alt="">
+    <img src="assets/assets/images/logo_letter.png" alt="">
+    <div id="va-front"><img id="va-fore" src="assets/assets/images/logo_orbit.png" alt=""></div>
+  </div>
+</div>
+<script>
+(function () {
+  var S = 180, cx = 0.50756 * S, cy = 0.47419 * S, a = 0.42780 * S, b = 0.14475 * S, ux = 0.93453, uy = -0.35588, wx = -uy, wy = ux;
+  var e11 = a * ux, e21 = a * uy, e12 = b * wx, e22 = b * wy, det = e11 * e22 - e12 * e21;
+  var i11 = e22 / det, i12 = -e12 / det, i21 = -e21 / det, i22 = e11 / det;
+  // the near half of the ellipse (below its long axis) passes in front of the letter
+  var far = S * 3, p = function (x, y) { return (x / S * 100) + '% ' + (y / S * 100) + '%'; };
+  document.getElementById('va-front').style.clipPath = 'polygon(' + [
+    p(cx - ux * far, cy - uy * far), p(cx + ux * far, cy + uy * far),
+    p(cx + ux * far + wx * far, cy + uy * far + wy * far), p(cx - ux * far + wx * far, cy - uy * far + wy * far)].join(',') + ')';
+  var back = document.getElementById('va-back'), fore = document.getElementById('va-fore'), start = null, done = false;
+  function frame(ts) {
+    if (done) return;
+    if (start === null) start = ts;
+    var t = ((ts - start) / 2600) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
+    var r11 = c * i11 - s * i21, r12 = c * i12 - s * i22, r21 = s * i11 + c * i21, r22 = s * i12 + c * i22;
+    var a11 = e11 * r11 + e12 * r21, a12 = e11 * r12 + e12 * r22, a21 = e21 * r11 + e22 * r21, a22 = e21 * r12 + e22 * r22;
+    var tx = cx - (a11 * cx + a12 * cy), ty = cy - (a21 * cx + a22 * cy);
+    var m = 'matrix(' + [a11, a21, a12, a22, tx, ty].join(',') + ')';
+    back.style.transform = m; fore.style.transform = m;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.addEventListener('flutter-first-frame', function () {
+    var l = document.getElementById('va-loader');
+    l.classList.add('out');
+    setTimeout(function () { done = true; l.remove(); }, 500);
+  });
+})();
+</script>

@@ -18,6 +18,7 @@ import 'jph/services/notification_service.dart';
 import 'jph/services/session_service.dart';
 import 'jph/theme/dark_theme.dart';
 import 'jph/theme/light_theme.dart';
+import 'jph/widgets/logo_orbit.dart';
 import 'pages/change_password_page.dart';
 
 /// Value Attendance — the original JPH Attendance app (screens, design, assets unchanged),
@@ -111,9 +112,10 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
   @override
   Widget build(BuildContext context) {
     if (loading) {
+      // the start of loading: the logo with its swoosh orbiting the letter
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
-        home: Scaffold(backgroundColor: Color(0xFF0B1020)),
+        home: Scaffold(backgroundColor: Color(0xFF1B1B1A), body: Center(child: LogoOrbit(size: 180))),
       );
     }
     return Consumer<AppController>(

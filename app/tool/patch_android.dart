@@ -145,7 +145,7 @@ void main() {
     if (f.existsSync()) {
       f.writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n'
           '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
-          '    <item><shape android:shape="rectangle"><solid android:color="#FF0B1020"/></shape></item>\n'
+          '    <item><shape android:shape="rectangle"><solid android:color="#FF1B1B1A"/></shape></item>\n'
           '</layer-list>\n');
     }
   }
@@ -159,7 +159,7 @@ void main() {
   final web = File('web/index.html');
   if (web.existsSync()) {
     var h = web.readAsStringSync();
-    if (!h.contains('background:#0B1020')) h = h.replaceFirst('</head>', '<style>html,body{background:#0B1020;}</style>\n</head>');
+    if (!h.contains('background:#1B1B1A')) h = h.replaceFirst('</head>', '<style>html,body{background:#1B1B1A;}</style>\n</head>');
     h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>Value Attendance</title>');
     if (!h.contains('dir="rtl"')) h = h.replaceFirst('<html>', '<html lang="ar" dir="rtl">');
     web.writeAsStringSync(h);

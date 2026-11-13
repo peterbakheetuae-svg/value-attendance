@@ -51,6 +51,8 @@ flutter:
     - assets/bg/dark_bg.webp
     - assets/bg/site_backdrop.jpeg
     - assets/images/logo.png
+    - assets/images/logo_letter.png
+    - assets/images/logo_orbit.png
     - assets/avatar.png
     - assets/l10n/ar.json
     - assets/l10n/en.json

@@ -56,6 +56,15 @@ jobs:
           open(p, 'w').write(s.replace('</head>', '  <script src="va-push.js" defer></script>\n</head>', 1))
           PY
           grep -q 'va-push.js' build/web/index.html
+      - name: The start of loading — the orbiting logo until the app's first frame
+        run: |
+          python3 - <<'PY'
+          p = 'build/web/index.html'; s = open(p).read()
+          loader = open('web_loader/loader.html').read()
+          assert '<body>' in s and 'va-loader' not in s
+          open(p, 'w').write(s.replace('<body>', '<body>\n' + loader, 1))
+          PY
+          grep -q 'va-loader' build/web/index.html
       - name: Start the first-screen files early (preload) instead of one after another
         run: |
           # Fetched right away while main.dart.js is still being prepared; no cache rule changes, so updates stay instant.
@@ -65,7 +74,7 @@ jobs:
           files = ['assets/AssetManifest.bin.json', 'assets/FontManifest.json', 'assets/fonts/MaterialIcons-Regular.otf',
                    'assets/assets/fonts/Cairo-Regular.ttf', 'assets/assets/fonts/Cairo-SemiBold.ttf', 'assets/assets/fonts/Cairo-Bold.ttf',
                    'assets/assets/fonts/NotoFlags.ttf', 'assets/assets/l10n/ar.json', 'assets/assets/l10n/en.json',
-                   'assets/assets/jph_l10n/ar.json', 'assets/assets/bg/dark_bg.webp', 'assets/assets/images/logo.png']
+                   'assets/assets/jph_l10n/ar.json', 'assets/assets/bg/site_backdrop.jpeg', 'assets/assets/images/logo_letter.png', 'assets/assets/images/logo_orbit.png']
           files = [f for f in files if os.path.exists('build/web/' + f)]
           tags = ''.join(f'  <link rel="preload" href="{f}" as="fetch" crossorigin="anonymous">\n' for f in files)
           p = 'build/web/index.html'; s = open(p).read()
