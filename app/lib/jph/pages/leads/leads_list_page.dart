@@ -233,8 +233,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
           setState(() => picked ? _picked.remove('${l['id']}') : _picked.add('${l['id']}'));
           return;
         }
-        final changed = await pushSide<bool>(context, LeadPage(leadId: '${l['id']}'));
-        if (changed == true) _load();
+        await pushSide<void>(context, LeadPage(leadId: '${l['id']}'));
+        _load(); // whatever changed on the lead shows in the list
       },
       onLongPress: manager ? () => setState(() => picked ? _picked.remove('${l['id']}') : _picked.add('${l['id']}')) : null,
       child: Container(

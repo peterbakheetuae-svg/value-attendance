@@ -22,7 +22,6 @@ class _LeadPageState extends State<LeadPage> {
   Map<String, dynamic>? _d;
   Map<String, dynamic> _meta = {};
   String _tab = 'comments';
-  bool _changed = false;
 
   @override
   void initState() {
@@ -41,7 +40,6 @@ class _LeadPageState extends State<LeadPage> {
 
   Future<void> _after(bool ok) async {
     if (!ok) return;
-    _changed = true;
     await _load();
   }
 
@@ -49,12 +47,7 @@ class _LeadPageState extends State<LeadPage> {
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
     final d = _d;
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (did, _) {
-        if (!did) Navigator.pop(context, _changed);
-      },
-      child: LeadsShell(
+    return LeadsShell(
         isDark: isDark,
         title: d?['lead'] == null ? 'العميل' : '${lm(d!['lead'])['fullName']}',
         child: d == null
@@ -62,7 +55,6 @@ class _LeadPageState extends State<LeadPage> {
             : d['error'] != null
                 ? Center(child: Text('${d['error']}', style: TextStyle(color: JphUi.sub(isDark))))
                 : RefreshIndicator(onRefresh: _load, child: _body(isDark, d)),
-      ),
     );
   }
 
