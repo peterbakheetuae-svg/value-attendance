@@ -9,6 +9,7 @@ import '../services/update_service.dart';
 import 'login/login_page.dart';
 import 'dashboard_employers/dashboard_page.dart';
 import '../widgets/glass_dialog.dart';
+import '../widgets/glass_ui.dart';
 
 class SplashScreen extends StatefulWidget {
   final int splashDuration;
@@ -259,36 +260,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
-  Widget _buildBackground(bool isDark) {
-    try {
-      final bgImage = isDark
-          ? 'assets/bg/dark_bg.webp'
-          : 'assets/bg/light_bg.webp';
-
-      return Stack(
-        children: [
-          // 1. الخلفية الأساسية
-          Positioned.fill(
-            child: Image.asset(
-              bgImage,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.low,
-              gaplessPlayback: true,
-              errorBuilder: (context, error, stackTrace) {
-                return _fallbackBackground(isDark);
-              },
-            ),
-          ),
-
-          // 2. الـ Overlay (اختياري)
-          if (widget.showOverlay)
-            _BackgroundOverlay(isDark: isDark),
-        ],
-      );
-    } catch (e) {
-      return _fallbackBackground(isDark);
-    }
-  }
+  Widget _buildBackground(bool isDark) => AppBackdrop(isDark: isDark);
 
   Widget _fallbackBackground(bool isDark) {
     return Container(

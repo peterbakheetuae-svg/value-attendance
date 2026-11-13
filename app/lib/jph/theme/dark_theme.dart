@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
+import '../widgets/glass_ui.dart';
 
 class DarkTheme {
   static ThemeData get theme {
@@ -131,6 +132,15 @@ class DarkTheme {
       ),
 
       // pop-up messages: floating, rounded, translucent like the rest of the glass UI
+      // pages fade in and rise a little (the «Ardena» site), on every platform
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {
+        TargetPlatform.android: GlassPageTransitions(),
+        TargetPlatform.iOS: GlassPageTransitions(),
+        TargetPlatform.windows: GlassPageTransitions(),
+        TargetPlatform.macOS: GlassPageTransitions(),
+        TargetPlatform.linux: GlassPageTransitions(),
+        TargetPlatform.fuchsia: GlassPageTransitions(),
+      }),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         elevation: 0,

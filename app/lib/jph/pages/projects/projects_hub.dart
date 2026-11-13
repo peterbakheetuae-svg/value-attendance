@@ -41,7 +41,6 @@ class _ProjectsListState extends State<ProjectsList> {
   bool _loading = true, _manage = false;
   List<Map<String, dynamic>> _items = [];
   String _kind = ''; // '' = المشاريع (الكل)
-  String _chip = ''; // '' الكل • 'k:exclusive' / 'k:marketing' • 'd:<developer>'
   int _sort = 0; // الأحدث / العمولة / المبيعات أو الاسم
   bool _grid = true;
   final _q = TextEditingController();
@@ -168,9 +167,7 @@ class _ProjectsListState extends State<ProjectsList> {
     final q = _q.text.trim();
     final list = _items.where((p) {
       if (q.isNotEmpty && !'${p['name']}'.contains(q) && !_dev(p).contains(q)) return false;
-      if (_chip.startsWith('k:')) return p['kind'] == _chip.substring(2);
-      if (_chip.startsWith('d:')) return _dev(p) == _chip.substring(2);
-      return true;
+      return _kind.isEmpty || p['kind'] == _kind;
     }).toList();
     switch (_sort) {
       case 1:
@@ -185,27 +182,17 @@ class _ProjectsListState extends State<ProjectsList> {
     return list;
   }
 
-  void _openTab(int i) {
-    if (i == 0) return;
-    final page = switch (i) { 1 => const SalesHubPage(), 2 => const ClientsPage(), _ => const DevelopersPage() };
-    Navigator.push(context, MaterialPageRoute(builder: (_) => page)).then((_) => _load());
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     final shown = _shown;
-    final sales = ApiService.can('cash.office') || ApiService.can('exclusive.reserve') || ApiService.can('cash.hr_operate');
-    final devs = <String>{for (final p in _items) if (_dev(p).isNotEmpty) _dev(p)}.toList()..sort();
     final active = _items.where((p) => p['status'] == 'active').length;
     return LayoutBuilder(builder: (context, c) {
       final w = c.maxWidth;
       final wide = w >= 900;
       final pad = wide ? 24.0 : 18.0;
       final cols = math.max(1, ((w - pad * 2 + 16) / (wide ? 340 : 330)).floor());
-      final tabs = [('المشاريع', null as int?), if (sales) ('المبيعات', null as int?), if (sales) ('العملاء', null as int?),
-        if (_seesKind()) ('المطورين', null as int?)];
-      final tabTargets = [0, if (sales) 1, if (sales) 2, if (_seesKind()) 3];
+      const kinds = ['', 'exclusive', 'marketing'];
 
       final title = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('المشاريع', style: TextStyle(fontSize: wide ? 34 : 32, fontWeight: FontWeight.w800, height: 1.15, color: Glass.ink(isDark))),
@@ -230,10 +217,18 @@ class _ProjectsListState extends State<ProjectsList> {
               ),
             )
           : null;
-      final tabBar = tabs.length > 1
-          ? SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: GlassSegments(isDark: isDark, items: tabs, selected: 0, onTap: (i) => _openTab(tabTargets[i])),
+      // الكل / حصري / تسويق — the kind is the GM's and the accountant's only
+      final tabBar = _seesKind()
+          ? GlassSegments(
+              isDark: isDark,
+              expand: !wide,
+              items: [
+                ('الكل', _items.length),
+                ('حصري', _items.where((p) => p['kind'] == 'exclusive').length),
+                ('تسويق', _items.where((p) => p['kind'] == 'marketing').length),
+              ],
+              selected: kinds.indexOf(_kind),
+              onTap: (i) => setState(() => _kind = kinds[i]),
             )
           : null;
       final search = Container(
@@ -255,19 +250,6 @@ class _ProjectsListState extends State<ProjectsList> {
             contentPadding: const EdgeInsets.symmetric(vertical: 16),
           ),
         ),
-      );
-      final chips = SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          for (final (k, l) in [
-            ('', 'الكل'),
-            if (_seesKind()) ...[('k:exclusive', 'حصري'), ('k:marketing', 'تسويق')],
-            for (final d in devs) ('d:$d', d),
-          ]) ...[
-            GlassChip(isDark: isDark, label: l, on: _chip == k, onTap: () => setState(() => _chip = k)),
-            const SizedBox(width: 8),
-          ],
-        ]),
       );
       final sortBar = GlassSegments(
         isDark: isDark,
@@ -305,8 +287,6 @@ class _ProjectsListState extends State<ProjectsList> {
             search,
           ],
           const SizedBox(height: 16),
-          chips,
-          const SizedBox(height: 14),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             Flexible(child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: sortBar)),
             const SizedBox(width: 12),
@@ -328,13 +308,14 @@ class _ProjectsListState extends State<ProjectsList> {
                   child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     for (var j = 0; j < cols; j++) ...[
                       if (j > 0) const SizedBox(width: 16),
-                      Expanded(child: i + j < shown.length ? _card(isDark, shown[i + j]) : const SizedBox.shrink()),
+                      Expanded(child: i + j < shown.length ? GlassEntrance(key: ValueKey('g${shown[i + j]['id']}'), index: i + j, child: _card(isDark, shown[i + j])) : const SizedBox.shrink()),
                     ],
                   ]),
                 ),
               )
           else
-            for (final p in shown) Padding(padding: const EdgeInsets.only(bottom: 12), child: _row(isDark, p)),
+            for (final (i, p) in shown.indexed)
+              Padding(padding: const EdgeInsets.only(bottom: 12), child: GlassEntrance(key: ValueKey('r${p['id']}'), index: i, child: _row(isDark, p))),
         ]),
       );
     });

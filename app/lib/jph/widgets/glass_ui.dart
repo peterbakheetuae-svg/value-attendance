@@ -14,13 +14,19 @@ class Glass {
   static const Color good = Color(0xFF63D985);
   static const Color amber = Color(0xFFF7A928);
   static const Color bad = Color(0xFFFF7D6E);
+  static Color goodOn(bool d) => d ? good : const Color(0xFF19733A);
+  static Color amberOn(bool d) => d ? amber : const Color(0xFFEF9D14);
 
+  /// the site's ease (cubic-bezier(.22, 1, .36, 1))
+  static const Curve ease = Cubic(0.22, 1, 0.36, 1);
+
+  static Color bg(bool d) => d ? const Color(0xFF1B1B1A) : const Color(0xFFE9E6E1);
   static Color ink(bool d) => d ? const Color(0xFFF6F5F2) : const Color(0xFF1C1B19);
-  static Color muted(bool d) => d ? const Color(0xFFC9C6BF) : const Color(0xFF5F5C57);
-  static Color card(bool d) => d ? const Color(0x66605F5B) : Colors.white.withOpacity(0.62);
-  static Color rim(bool d) => d ? Colors.white.withOpacity(0.10) : Colors.black.withOpacity(0.07);
-  static Color line(bool d) => d ? Colors.white.withOpacity(0.09) : Colors.black.withOpacity(0.07);
-  static Color track(bool d) => d ? Colors.white.withOpacity(0.10) : Colors.black.withOpacity(0.08);
+  static Color muted(bool d) => d ? const Color(0xFFC9C6BF) : const Color(0xFF59554E);
+  static Color card(bool d) => d ? const Color(0x66605F5B) : const Color(0x66FFFFFF);
+  static Color rim(bool d) => d ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.80);
+  static Color line(bool d) => d ? const Color(0x17FFFFFF) : const Color(0x171E1A14);
+  static Color track(bool d) => d ? Colors.white.withOpacity(0.10) : const Color(0x1F1E1A14);
 
   /// the soft tile inside a card (Value / Rent / Yield)
   static BoxDecoration tile(bool d, {double r = 14}) => BoxDecoration(
@@ -29,7 +35,7 @@ class Glass {
           end: Alignment.bottomRight,
           colors: d
               ? [Colors.white.withOpacity(0.075), Colors.white.withOpacity(0.03)]
-              : [Colors.black.withOpacity(0.035), Colors.black.withOpacity(0.015)],
+              : [const Color(0xB8FFFFFF), const Color(0x6BFFFFFF)],
         ),
         borderRadius: BorderRadius.circular(r),
         border: Border.all(color: rim(d)),
@@ -44,16 +50,16 @@ class Glass {
           stops: const [0, 0.32, 0.58],
           colors: d
               ? [for (final o in const [0.13, 0.035, 0.0]) Color.alphaBlend(Colors.white.withOpacity(o), card(d))]
-              : [Colors.white.withOpacity(0.85), Colors.white.withOpacity(0.62), Colors.white.withOpacity(0.55)],
+              : [const Color(0xC4FFFFFF), const Color(0x80FFFFFF), const Color(0x66FFFFFF)],
         ),
         borderRadius: BorderRadius.circular(r),
-        border: Border.all(color: d ? Colors.white.withOpacity(0.11) : Colors.white.withOpacity(0.7)),
+        border: Border.all(color: d ? Colors.white.withOpacity(0.11) : const Color(0xB3FFFFFF)),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(d ? 0.35 : 0.08), blurRadius: 40, offset: const Offset(0, 18), spreadRadius: -22)],
       );
 }
 
-/// A blurred glass square.
-class GlassBox extends StatelessWidget {
+/// A blurred glass square. On a computer it lifts a little and its edge brightens under the mouse (like the site).
+class GlassBox extends StatefulWidget {
   final Widget child;
   final bool isDark;
   final double radius;
@@ -62,20 +68,69 @@ class GlassBox extends StatelessWidget {
   const GlassBox({super.key, required this.child, required this.isDark, this.radius = 20, this.padding = EdgeInsets.zero, this.onTap});
 
   @override
+  State<GlassBox> createState() => _GlassBoxState();
+}
+
+class _GlassBoxState extends State<GlassBox> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
-    final box = ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: DecoratedBox(
-          decoration: Glass.panel(isDark, r: radius),
-          child: Padding(padding: padding, child: child),
+    final d = widget.isDark;
+    final box = AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Glass.ease,
+      transform: Matrix4.translationValues(0, _hover ? -3 : 0, 0),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(widget.radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 350),
+            curve: Glass.ease,
+            decoration: Glass.panel(d, r: widget.radius).copyWith(
+              border: Border.all(
+                  color: _hover
+                      ? (d ? Colors.white.withOpacity(0.24) : Colors.white)
+                      : (d ? Colors.white.withOpacity(0.11) : const Color(0xB3FFFFFF))),
+            ),
+            child: Padding(padding: widget.padding, child: widget.child),
+          ),
         ),
       ),
     );
-    if (onTap == null) return box;
-    return MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(onTap: onTap, behavior: HitTestBehavior.opaque, child: box));
+    if (widget.onTap == null) return box;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(onTap: widget.onTap, behavior: HitTestBehavior.opaque, child: box),
+    );
   }
+}
+
+/// The page backdrop: a soft, out-of-focus room behind a dark (or light) veil — the same for every page.
+class AppBackdrop extends StatelessWidget {
+  final bool isDark;
+  const AppBackdrop({super.key, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: Stack(fit: StackFit.expand, children: [
+          ColoredBox(color: isDark ? const Color(0xFF2A2723) : const Color(0xFFE9E6E1)),
+          Image.asset('assets/bg/backdrop.webp', fit: BoxFit.cover, filterQuality: FilterQuality.low, gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDark ? const [Color(0xCC0C0C0B), Color(0xE6080807)] : const [Color(0x80F6F3EE), Color(0x9EECE8E2)],
+              ),
+            ),
+          ),
+        ]),
+      );
 }
 
 /// Pill segments (Holdings / Rent roll / Loans — Value / Yield / Growth): the chosen one filled with our blue.
@@ -182,13 +237,35 @@ class GlassMeter extends StatelessWidget {
           height: 8,
           child: Stack(children: [
             Positioned.fill(child: ColoredBox(color: Glass.track(isDark))),
-            FractionallySizedBox(
-              alignment: AlignmentDirectional.centerStart,
-              widthFactor: value.clamp(0, 1).toDouble(),
-              child: DecoratedBox(decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8))),
+            // grows in from the start, like the site's meters
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: value.clamp(0, 1).toDouble()),
+              duration: const Duration(milliseconds: 900),
+              curve: Glass.ease,
+              builder: (_, v, __) => FractionallySizedBox(
+                alignment: AlignmentDirectional.centerStart,
+                widthFactor: v,
+                child: DecoratedBox(decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8))),
+              ),
             ),
           ]),
         ),
+      );
+}
+
+/// Fades a block in and lifts it a little when it first shows (the cards of a list, one after the other).
+class GlassEntrance extends StatelessWidget {
+  final Widget child;
+  final int index;
+  const GlassEntrance({super.key, required this.child, this.index = 0});
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: Duration(milliseconds: 520 + (index.clamp(0, 8)) * 60),
+        curve: Glass.ease,
+        builder: (_, t, c) => Opacity(opacity: t, child: Transform.translate(offset: Offset(0, (1 - t) * 14), child: c)),
+        child: child,
       );
 }
 
@@ -214,4 +291,22 @@ class GlassStat extends StatelessWidget {
           ),
         ]),
       );
+}
+
+/// Moving between pages like the site: the new page fades in while rising a little (no sideways slide).
+class GlassPageTransitions extends PageTransitionsBuilder {
+  const GlassPageTransitions();
+
+  @override
+  Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    final a = CurvedAnimation(parent: animation, curve: Glass.ease, reverseCurve: Curves.easeInCubic);
+    return FadeTransition(
+      opacity: a,
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.025), end: Offset.zero).animate(a),
+        child: child,
+      ),
+    );
+  }
 }

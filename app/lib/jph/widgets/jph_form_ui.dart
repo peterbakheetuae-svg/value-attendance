@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'glass_ui.dart';
 
 import '../pages/attendance/attendance_filters.dart';
 import '../theme/app_colors.dart';
@@ -6,12 +7,11 @@ import '../theme/app_colors.dart';
 /// The app's own building blocks (same look as "طلب سلفة / مصاريف" and "صرف مالية"):
 /// white / glass boxes with radius 20, a 44×44 icon tile, label 14 / value 18, bottom sheets with a handle.
 class JphUi {
-  static BoxDecoration box(bool isDark, {bool border = true}) => BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
-        border: border ? Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300, width: 1) : null,
-      );
+  /// every card of the app: the «Ardena» glass square (smoked glass in dark, frosted paper in light)
+  static BoxDecoration box(bool isDark, {bool border = true}) {
+    final g = Glass.panel(isDark, r: 20);
+    return border ? g : g.copyWith(border: Border.all(color: Colors.transparent, width: 0));
+  }
 
   static Color text(bool isDark) => isDark ? AppColors.onSurfaceDark : AppColors.onSurfaceLight;
   static Color sub(bool isDark) => isDark ? AppColors.onSurfaceVariantDark : AppColors.onSurfaceVariantLight;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import 'web_frame.dart';
+import 'glass_ui.dart';
 
 class AppBackground extends StatelessWidget {
   final Widget child;
@@ -21,43 +22,18 @@ class AppBackground extends StatelessWidget {
       builder: (context, appController, _) {
         final isDark = appController.isDark;
 
-        // 🔥 safe mode: إذا فشلت الصور، استخدم لون
-        try {
-          final img = isDark
-              ? 'assets/bg/dark_bg.webp'
-              : 'assets/bg/light_bg.webp';
-
-          return RepaintBoundary(
-            child: Stack(
-              children: [
-                // 1. الخلفية الأساسية
-                Positioned.fill(
-                  child: Image.asset(
-                    img,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    gaplessPlayback: true,
-                    errorBuilder: (context, error, stackTrace) {
-                      return _fallbackBackground(isDark);
-                    },
-                  ),
-                ),
-
-                // 2. الـ Overlay (اختياري)
-                if (showOverlay)
-                  _BackgroundOverlay(isDark: isDark),
-
-                // 3. المحتوى مع SafeArea
-                // the website: the background fills the screen, the content keeps its width in the middle
-                Positioned.fill(
-                  child: WebFrame(child: safeArea ? SafeArea(child: child) : child),
-                ),
-              ],
-            ),
-          );
-        } catch (e) {
-          return _fallbackBackground(isDark, child: child);
-        }
+        // the «Ardena» backdrop: a soft out-of-focus room under a dark / light veil (one look for every page)
+        return RepaintBoundary(
+          child: Stack(
+            children: [
+              Positioned.fill(child: AppBackdrop(isDark: isDark)),
+              // the website: the background fills the screen, the content keeps its width in the middle
+              Positioned.fill(
+                child: WebFrame(child: safeArea ? SafeArea(child: child) : child),
+              ),
+            ],
+          ),
+        );
       },
     );
   }

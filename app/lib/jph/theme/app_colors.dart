@@ -27,26 +27,26 @@ class AppColors {
   static const Color warning = Color(0xFFF59E0B);
   static const Color warningLight = Color(0xFFFEF3C7);
 
-  // =================== NEUTRAL COLORS (Light Mode) ===================
-  static const Color backgroundLight = Color(0xFFF8FAFC);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color surfaceVariantLight = Color(0xFFF1F5F9);
-  static const Color onBackgroundLight = Color(0xFF0F172A);
-  static const Color onSurfaceLight = Color(0xFF1E293B);
-  static const Color onSurfaceVariantLight = Color(0xFF64748B);
+  // =================== NEUTRAL COLORS (Light Mode) — the «Ardena» warm paper / ink ===================
+  static const Color backgroundLight = Color(0xFFE9E6E1);
+  static const Color surfaceLight = Color(0xFFFBFAF7);
+  static const Color surfaceVariantLight = Color(0xFFF1EEE9);
+  static const Color onBackgroundLight = Color(0xFF1C1B19);
+  static const Color onSurfaceLight = Color(0xFF1C1B19);
+  static const Color onSurfaceVariantLight = Color(0xFF59554E);
 
-  static const Color outlineLight = Color(0xFFE2E8F0);
+  static const Color outlineLight = Color(0xFFDDD8CF);
   static const Color shadowLight = Color(0x1A000000);
 
-  // =================== NEUTRAL COLORS (Dark Mode) ===================
-  static const Color backgroundDark = Color(0xFF0F172A);
-  static const Color surfaceDark = Color(0xFF1E293B);
-  static const Color surfaceVariantDark = Color(0xFF334155);
-  static const Color onBackgroundDark = Color(0xFFF1F5F9);
-  static const Color onSurfaceDark = Color(0xFFE2E8F0);
-  static const Color onSurfaceVariantDark = Color(0xFF94A3B8);
+  // =================== NEUTRAL COLORS (Dark Mode) — the «Ardena» smoked glass ===================
+  static const Color backgroundDark = Color(0xFF1B1B1A);
+  static const Color surfaceDark = Color(0xFF262624);
+  static const Color surfaceVariantDark = Color(0xFF35342F);
+  static const Color onBackgroundDark = Color(0xFFF6F5F2);
+  static const Color onSurfaceDark = Color(0xFFF6F5F2);
+  static const Color onSurfaceVariantDark = Color(0xFFC9C6BF);
 
-  static const Color outlineDark = Color(0xFF475569);
+  static const Color outlineDark = Color(0xFF4A4843);
   static const Color shadowDark = Color(0x33000000);
 
   // =================== GLASS EFFECT COLORS ===================

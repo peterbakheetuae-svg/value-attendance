@@ -38,6 +38,7 @@ import '../../widgets/outing_dialogs.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/payouts_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -1926,48 +1927,7 @@ class _DashboardPageState extends State<DashboardPage>
             );
           }
 
-          Widget _buildBackground(bool isDark) {
-            try {
-              final bgImage = isDark
-                  ? 'assets/bg/dark_bg.webp'
-                  : 'assets/bg/light_bg.webp';
-
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: Image.asset(
-                      bgImage,
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.low,
-                      gaplessPlayback: true,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _fallbackBackground(isDark);
-                      },
-                    ),
-                  ),
-                  IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            (isDark ? Colors.black : Colors.white)
-                                .withOpacity(isDark ? 0.35 : 0.08),
-                            Colors.transparent,
-                            (isDark ? Colors.black : Colors.white)
-                                .withOpacity(isDark ? 0.55 : 0.10),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            } catch (e) {
-              return _fallbackBackground(isDark);
-            }
-          }
+          Widget _buildBackground(bool isDark) => AppBackdrop(isDark: isDark);
 
           return Directionality(
             textDirection: appController.isRTL ? TextDirection.rtl : TextDirection.ltr,

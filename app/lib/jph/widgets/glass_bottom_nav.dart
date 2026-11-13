@@ -10,6 +10,7 @@ import '../services/api_service.dart';
 import '../pages/employees/employees_page.dart'; // أو المسار الصحيح
 import 'app_nav.dart';
 import 'app_menu.dart';
+import 'glass_ui.dart';
 
 class GlassBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -27,17 +28,13 @@ class GlassBottomNav extends StatelessWidget {
     final isDark = appController.isDark;
     final isRTL = appController.isRTL;
 
-    // 🔥 ألوان ديناميكية
-    final bgOpacity = isDark ? 0.15 : 0.15;
-    final borderOpacity = isDark ? 0.25 : 0.25;
-    final shadowOpacity = isDark ? 0.15 : 0.12;
-    final blurSigma = isDark ? 14.0 : 12.0;
 
     // the website on a computer: the side bar takes the bottom bar's place
     if (AppMenu.wide(context)) return const SizedBox.shrink();
 
-    final activeColor = isDark ? AppColors.primaryLight : AppColors.primary;
-    final inactiveColor = isDark ? Colors.white70 : Colors.black54;
+    // the «Ardena» dock: smoked glass, the chosen tab filled with our blue
+    const activeColor = Glass.blue;
+    final inactiveColor = Glass.ink(isDark).withOpacity(0.85);
 
     return SafeArea(
       top: false,
@@ -53,24 +50,11 @@ class GlassBottomNav extends StatelessWidget {
             borderRadius: BorderRadius.circular(40),
             child: BackdropFilter(
               filter: ImageFilter.blur(
-                sigmaX: blurSigma,
-                sigmaY: blurSigma,
+                sigmaX: 24,
+                sigmaY: 24,
               ),
               child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(bgOpacity),
-                  borderRadius: BorderRadius.circular(40),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(borderOpacity),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(shadowOpacity),
-                      blurRadius: 22,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
+                decoration: Glass.panel(isDark, r: 40),
                 child: SizedBox(
                   height: 72,
                   child: Directionality(
@@ -179,10 +163,12 @@ class _Item extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 350),
+        curve: Glass.ease,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: active ? activeColor.withOpacity(0.95) : Colors.transparent,
+          color: active ? activeColor : Colors.transparent,
+          boxShadow: active ? [BoxShadow(color: activeColor.withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 5))] : null,
           borderRadius: BorderRadius.circular(22),
         ),
         child: Row(
