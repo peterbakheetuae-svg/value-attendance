@@ -35,16 +35,7 @@ class DailySection extends StatelessWidget {
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-              borderRadius: BorderRadius.circular(26),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
+            decoration: Glass.panel(isDark, r: 26),
             child: DailyCardContent(dayData: d, isDark: isDark),
           ),
           const SizedBox(height: 18),
@@ -251,10 +242,7 @@ class DailyInfoRow extends StatelessWidget {
           Container(
             width: 44,
             height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: isDark ? Colors.black.withOpacity(0.3) : Colors.white.withOpacity(0.8),
-            ),
+            decoration: Glass.tile(isDark, r: 12),
             child: Icon(icon, color: iconColor, size: 22),
           ),
           const SizedBox(width: 12),

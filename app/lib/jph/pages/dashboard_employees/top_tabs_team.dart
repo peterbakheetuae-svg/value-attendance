@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/glass_ui.dart';
 import 'dash_mode_team.dart'; // ✅ التصحيح: استيراد النسخة الصحيحة
 
 class TopTabs extends StatelessWidget {
@@ -50,10 +51,7 @@ class TopTabs extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(30),
-      ),
+      decoration: Glass.tile(isDark, r: 30),
       child: Row(
         children: [
           tab('check', Icons.checklist, DashMode.check),

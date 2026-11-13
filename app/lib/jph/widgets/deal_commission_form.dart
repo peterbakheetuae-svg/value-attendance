@@ -139,11 +139,7 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
       const SizedBox(height: 16),
       Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? Ar.amber.shade900.withOpacity(0.25) : Ar.amber.shade50,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDark ? Ar.amber.shade700 : Ar.amber.shade200, width: 1.5),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Row(children: [
           Icon(Icons.info_outline_rounded, color: isDark ? Ar.amber.shade300 : Ar.amber.shade800),
           const SizedBox(width: 10),

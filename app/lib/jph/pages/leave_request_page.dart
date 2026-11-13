@@ -141,17 +141,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded,
                                 color: textColor,
@@ -185,17 +175,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 Icons.summarize_rounded,
                                 color: textColor,
@@ -242,21 +222,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         child: Container(
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: isDark ? Ar.info.shade700 : Ar.info.shade200,
-                                              width: 1.5,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withOpacity(0.1),
-                                                blurRadius: 10,
-                                                offset: const Offset(0, 4),
-                                              ),
-                                            ],
-                                          ),
+                                          decoration: Glass.panel(isDark, r: 20),
                                           child: Row(
                                             children: [
                                               Container(
@@ -338,13 +304,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         Container(
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50,
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
-                                            ),
-                                          ),
+                                          decoration: Glass.panel(isDark, r: 20),
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.end,
                                             children: [
@@ -420,13 +380,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       Container(
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade100,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: isDark ? Ar.info.shade700 : Ar.info.shade200,
-                                          ),
-                                        ),
+                                        decoration: Glass.panel(isDark, r: 20),
                                         child: Row(
                                           children: [
                                             Container(
@@ -487,16 +441,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       Container(
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-                                          borderRadius: BorderRadius.circular(20),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.1),
-                                              blurRadius: 10,
-                                            ),
-                                          ],
-                                        ),
+                                        decoration: Glass.panel(isDark, r: 20),
                                         child: TextFormField(
                                           maxLines: 4,
                                           minLines: 3,
@@ -533,13 +478,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       Container(
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? Ar.amber.shade900.withOpacity(0.3) : Ar.amber.shade100,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: isDark ? Ar.amber.shade700 : Ar.amber.shade200,
-                                          ),
-                                        ),
+                                        decoration: Glass.panel(isDark, r: 20),
                                         child: Row(
                                           children: [
                                             Container(
@@ -601,16 +540,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         Container(
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                                          decoration: BoxDecoration(
-                                            color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-                                            borderRadius: BorderRadius.circular(20),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withOpacity(0.1),
-                                                blurRadius: 10,
-                                              ),
-                                            ],
-                                          ),
+                                          decoration: Glass.panel(isDark, r: 20),
                                           child: GestureDetector(
                                             onTap: _pickImage,
                                             child: Row(
@@ -668,16 +598,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         Container(
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-                                            borderRadius: BorderRadius.circular(20),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withOpacity(0.1),
-                                                blurRadius: 10,
-                                              ),
-                                            ],
-                                          ),
+                                          decoration: Glass.panel(isDark, r: 20),
                                           child: Row(
                                             children: [
                                               Container(
@@ -751,13 +672,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       Container(
                                         margin: const EdgeInsets.only(bottom: 24),
                                         padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? Ar.green.shade900.withOpacity(0.3) : Ar.green.shade100,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: isDark ? Ar.green.shade700 : Ar.green.shade200,
-                                          ),
-                                        ),
+                                        decoration: Glass.panel(isDark, r: 20),
                                         child: Row(
                                           children: [
                                             Container(
@@ -887,16 +802,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
   Widget _buildEmployeeDropdown(bool isDark, Color textColor, Color subduedTextColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-          ),
-        ],
-      ),
+      decoration: Glass.panel(isDark, r: 20),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _selectedEmployeeId,
@@ -983,20 +889,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       onTap: () => _openLeaveTypeSheet(isDark),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
-            width: 1,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Row(
           children: [
             Container(
@@ -1054,20 +947,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       onTap: () => _openDateRangeSheet(isDark),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
-            width: 1,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Row(
           children: [
             Container(
@@ -1430,13 +1310,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
 
                         Container(
                           padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isDark ? Ar.info.shade700 : Ar.info.shade200,
-                            ),
-                          ),
+                          decoration: Glass.panel(isDark, r: 16),
                           child: Row(
                             children: [
                               Icon(
@@ -1549,13 +1423,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 16),
         child: Row(
           children: [
             Container(

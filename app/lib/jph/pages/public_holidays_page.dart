@@ -279,14 +279,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                       // Year Picker
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-                            width: 1.4,
-                          ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
-                        ),
+                        decoration: Glass.panel(isDark, r: 18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -302,14 +295,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isDark ? AppColors.primaryLight.withOpacity(0.4) : AppColors.primary.withOpacity(0.4),
-                                  width: 1.5,
-                                ),
-                                color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: DropdownButton<int>(
                                 value: _filterYear,
                                 isExpanded: true,
@@ -351,14 +337,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                       // Type Filter (Dynamic from existing holidays)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-                            width: 1.4,
-                          ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
-                        ),
+                        decoration: Glass.panel(isDark, r: 18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -374,14 +353,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isDark ? AppColors.primaryLight.withOpacity(0.4) : AppColors.primary.withOpacity(0.4),
-                                  width: 1.5,
-                                ),
-                                color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: DropdownButton<String>(
                                 value: _typeFilter,
                                 isExpanded: true,
@@ -421,14 +393,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                       // Month Filter
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-                            width: 1.4,
-                          ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
-                        ),
+                        decoration: Glass.panel(isDark, r: 18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -444,14 +409,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isDark ? AppColors.primaryLight.withOpacity(0.4) : AppColors.primary.withOpacity(0.4),
-                                  width: 1.5,
-                                ),
-                                color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: DropdownButton<String>(
                                 value: _monthFilter,
                                 isExpanded: true,
@@ -782,17 +740,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 16),
         child: Row(
           children: [
             Icon(
@@ -841,17 +789,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
     return SingleChildScrollView(
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -999,13 +937,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1084,17 +1016,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded,
                                 color: textColor,
@@ -1117,17 +1039,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                             icon: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 Icons.filter_alt_rounded,
                                 color: textColor,
@@ -1141,17 +1053,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                               icon: Container(
                                 width: 46,
                                 height: 46,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(14),
-                                  color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.08),
-                                      blurRadius: 14,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                  ],
-                                ),
+                                decoration: Glass.panel(isDark, r: 14),
                                 child: Icon(
                                   Icons.add,
                                   color: textColor,
@@ -1557,10 +1459,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.7),
-            ),
+            decoration: Glass.tile(isDark, r: 10),
             child: Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(height: 8),
@@ -1640,20 +1539,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
       },
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

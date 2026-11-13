@@ -534,17 +534,7 @@ Value Attendance Support:
   Widget _buildSupportTeamInfo(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Ar.grey.shade900.withOpacity(0.5)
-            : Colors.white.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? Ar.grey.shade800
-              : Ar.grey.shade200,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

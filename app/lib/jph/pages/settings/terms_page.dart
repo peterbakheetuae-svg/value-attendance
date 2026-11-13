@@ -615,17 +615,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
   Widget _buildReadingNotice(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Ar.amber.shade900.withOpacity(0.2)
-            : Ar.amber.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? Ar.amber.shade800
-              : Ar.amber.shade200,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Row(
         children: [
           Icon(
@@ -651,16 +641,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
   Widget _buildAgreementButton(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Ar.grey.shade900.withOpacity(0.8)
-            : Colors.white.withOpacity(0.9),
-        border: Border(
-          top: BorderSide(
-            color: isDark ? Ar.grey.shade800 : Ar.grey.shade200,
-          ),
-        ),
-      ),
+      decoration: Glass.tile(isDark, r: 12),
       child: Row(
         children: [
           // مربع الاختيار

@@ -450,17 +450,7 @@ class SquareIconButton extends StatelessWidget {
       child: Container(
         width: 46,
         height: 46,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 14),
         child: Icon(
           icon,
           color: isDark ? AppColors.onSurfaceDark : AppColors.onSurfaceLight,
@@ -650,16 +640,8 @@ class GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-          ),
-        ],
-      ),
+      // the dashboard's card (the «Ardena» glass square)
+      decoration: Glass.panel(isDark, r: radius),
       child: child,
     );
   }
@@ -838,16 +820,7 @@ class EmployeeDropdown extends StatelessWidget {
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 18),
         child: Row(
           children: [
             const SizedBox(
@@ -872,16 +845,7 @@ class EmployeeDropdown extends StatelessWidget {
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 18),
         child: Row(
           children: [
             Icon(

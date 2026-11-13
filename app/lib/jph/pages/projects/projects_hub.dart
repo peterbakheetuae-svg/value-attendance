@@ -233,11 +233,7 @@ class _ProjectsListState extends State<ProjectsList> {
           : null;
       final search = Container(
         height: 44,
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: Glass.rim(isDark)),
-        ),
+        decoration: Glass.tile(isDark, r: 99),
         child: TextField(
           controller: _q,
           onChanged: (_) => setState(() {}),
@@ -514,11 +510,7 @@ class _KindBar extends StatelessWidget {
     final p = JphUi.primary(isDark);
     return Container(
       padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.55),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
-      ),
+      decoration: Glass.tile(isDark, r: 30),
       child: Row(children: [
         for (final o in options)
           Expanded(
@@ -1441,11 +1433,7 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
       padding: const EdgeInsets.only(bottom: 16),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.55),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Ar.amber.withOpacity(0.6), width: 1.4),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             const Icon(Icons.notifications_active_rounded, color: Ar.amber),

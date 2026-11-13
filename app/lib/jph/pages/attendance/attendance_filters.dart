@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/glass_ui.dart';
 import '../../l10n/app_localizations.dart'; // 🔥 استيراد الترجمة
 
 // ================== Month Year Filter Sheet ==================
@@ -106,14 +107,7 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: widget.isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-                    width: 1.4,
-                  ),
-                  color: widget.isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
-                ),
+                decoration: Glass.panel(widget.isDark, r: 18),
                 child: Row(
                   children: [
                     Container(
@@ -156,13 +150,7 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
               const SizedBox(height: 14),
               Container(
                 height: 260,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: widget.isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE6E3DE),
-                  ),
-                  color: widget.isDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.95),
-                ),
+                decoration: Glass.panel(widget.isDark, r: 18),
                 child: Row(
                   children: [
                     Expanded(
@@ -470,21 +458,7 @@ class _RangeRow extends StatelessWidget {
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-            width: 1.2,
-          ),
-          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF7F6FF),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 18),
         child: Row(
           children: [
             Container(

@@ -68,11 +68,7 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
       padding: const EdgeInsets.only(bottom: 16),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Ar.green.withOpacity(0.6)),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             const Icon(Icons.payments_rounded, color: Ar.green),
@@ -128,10 +124,7 @@ class PayoutsList extends StatelessWidget {
         Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(16),
-          ),
+          decoration: Glass.panel(isDark, r: 16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Icon(p['kind'] == 'fund' ? Icons.account_balance_rounded : Icons.payments_rounded, color: AppColors.primary),

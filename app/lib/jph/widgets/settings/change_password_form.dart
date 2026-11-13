@@ -4,6 +4,7 @@ import '../../services/app_controller.dart';
 import '../../services/api_service.dart'; // استيراد ApiService بدلاً من PasswordService
 import '../../l10n/app_localizations.dart';
 import '../glass_dialog.dart';
+import '../glass_ui.dart';
 
 class ChangePasswordForm extends StatefulWidget {
   final String uid;
@@ -141,17 +142,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
       key: _formKey,
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.black.withOpacity(0.2)
-              : Colors.white.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.1),
-          ),
-        ),
+        decoration: Glass.tile(isDark, r: 12),
         child: Column(
           children: [
             TextFormField(

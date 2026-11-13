@@ -473,10 +473,7 @@ Widget _detailsGrid(bool isDark, Map<String, dynamic> x) {
         Container(
           width: w,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.06) : Ar.grey.shade50,
-            borderRadius: BorderRadius.circular(12),
-          ),
+          decoration: Glass.tile(isDark, r: 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(it.$1, style: TextStyle(fontSize: 11, color: JphUi.sub(isDark), fontWeight: FontWeight.w600)),
             Text(it.$2, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),

@@ -128,10 +128,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
 
   Widget _timeTile(String label, TimeOfDay? v, bool start, bool isDark, bool editable) => Container(
         margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(12),
-        ),
+        decoration: Glass.tile(isDark, r: 12),
         child: ListTile(
           leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Ar.grey[600]),
           title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Ar.grey[700])),
@@ -825,10 +822,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                             if (ApiService.can('employee.attendance_exempt'))
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                decoration: Glass.tile(isDark, r: 12),
                                 child: SwitchListTile(
                                   value: _noAttendance,
                                   onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _noAttendance = v) : null,
@@ -845,10 +839,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                             if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                decoration: Glass.tile(isDark, r: 12),
                                 child: Column(children: [
                                   SwitchListTile(
                                     value: _deviceLock,
@@ -876,10 +867,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                             if (ApiService.can('employee.manage') && !_noAttendance)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                decoration: Glass.tile(isDark, r: 12),
                                 child: SwitchListTile(
                                   value: _selfieRequired,
                                   onChanged: _savingFlag ? null : (v) => _setFlag(selfieRequired: v),
@@ -943,10 +931,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                              decoration: Glass.tile(isDark, r: 12),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
@@ -1218,10 +1203,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
               ),
               const SizedBox(height: 4),
               Container(
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                decoration: Glass.tile(isDark, r: 12),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
@@ -1283,10 +1265,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
           ),
           const SizedBox(height: 4),
           Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: Glass.tile(isDark, r: 12),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -1357,10 +1336,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
           ),
           const SizedBox(height: 4),
           Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: Glass.tile(isDark, r: 12),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(

@@ -81,20 +81,10 @@ class GlassCard extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
         child: Container(
           padding: padding,
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(color: borderColor, width: 1.0),
-            boxShadow: showShadow
-                ? [
-              BoxShadow(
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-                color: shadowColor,
-              ),
-            ]
-                : null,
-          ),
+          // the dashboard's card (the «Ardena» glass square); a given colour still wins
+          decoration: backgroundColor != null
+              ? Glass.panel(isDark, r: radius).copyWith(color: bgColor, gradient: null)
+              : Glass.panel(isDark, r: radius).copyWith(boxShadow: showShadow ? null : const []),
           child: child,
         ),
       ),

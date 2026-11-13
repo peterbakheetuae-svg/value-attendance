@@ -302,13 +302,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                       // Monthly Picker Section
                       Container(
                         height: 260,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE6E3DE),
-                          ),
-                          color: isDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.95),
-                        ),
+                        decoration: Glass.panel(isDark, r: 18),
                         child: Row(
                           children: [
                             Expanded(
@@ -410,14 +404,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                       // Status Dropdown
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
-                            width: 1.4,
-                          ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
-                        ),
+                        decoration: Glass.panel(isDark, r: 18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -433,14 +420,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: isDark ? AppColors.primaryLight.withOpacity(0.4) : AppColors.primary.withOpacity(0.4),
-                                  width: 1.5,
-                                ),
-                                color: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: DropdownButton<String>(
                                 value: _statusFilter,
                                 isExpanded: true,
@@ -772,17 +752,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 16),
         child: Row(
           children: [
             Icon(
@@ -866,19 +836,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 isRTL
                                     ? Icons.arrow_forward_ios_rounded
@@ -903,19 +861,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                             icon: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 Icons.filter_alt_rounded,
                                 color: textColor,
@@ -1278,11 +1224,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color:
-              isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.7),
-            ),
+            decoration: Glass.tile(isDark, r: 10),
             child: Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(height: 8),
@@ -1347,20 +1289,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
       },
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1886,35 +1815,14 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: BoxDecoration(
-              color:
-              isDark ? Colors.black.withOpacity(0.4) : Colors.white.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withOpacity(0.2)
-                    : Ar.grey.withOpacity(0.3),
-                width: 1,
-              ),
-            ),
+            decoration: Glass.panel(isDark, r: 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   padding:
                   const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.black.withOpacity(0.3)
-                        : Colors.white.withOpacity(0.5),
-                    border: Border(
-                      bottom: BorderSide(
-                        color: isDark
-                            ? Colors.white.withOpacity(0.1)
-                            : Ar.grey.withOpacity(0.2),
-                      ),
-                    ),
-                  ),
+                  decoration: Glass.tile(isDark, r: 12),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1931,12 +1839,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                         child: Container(
                           width: 36,
                           height: 36,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withOpacity(0.1)
-                                : Colors.black.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          decoration: Glass.tile(isDark, r: 12),
                           child: Icon(
                             Icons.close_rounded,
                             size: 20,
@@ -1976,12 +1879,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                           return Container(
                             width: 200,
                             height: 200,
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.black.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+                            decoration: Glass.panel(isDark, r: 16),
                             child: Center(
                               child: CircularProgressIndicator(
                                 value: loadingProgress.expectedTotalBytes !=
@@ -1998,12 +1896,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                           return Container(
                             width: 200,
                             height: 200,
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.black.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+                            decoration: Glass.panel(isDark, r: 16),
                             child: Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -2069,12 +1962,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.1)
-                                  : Colors.black.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
+                            decoration: Glass.panel(isDark, r: 14),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -2107,12 +1995,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 20, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withOpacity(0.1)
-                                : Colors.black.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
+                          decoration: Glass.panel(isDark, r: 14),
                           child: Text(
                             'إغلاق',
                             style: TextStyle(

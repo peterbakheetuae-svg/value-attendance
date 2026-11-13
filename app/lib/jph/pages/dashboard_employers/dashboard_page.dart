@@ -353,11 +353,7 @@ class _DashboardPageState extends State<DashboardPage>
       padding: const EdgeInsets.only(bottom: 16),
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Ar.amber.withOpacity(0.5)),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             const Icon(Icons.notifications_active_rounded, color: Ar.amber),
@@ -596,11 +592,7 @@ class _DashboardPageState extends State<DashboardPage>
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(12),
-            border: tap == null ? null : Border.all(color: AppColors.primary.withOpacity(0.35)),
-          ),
+          decoration: Glass.tile(isDark, r: 12),
           child: Column(children: [
             Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
             const SizedBox(height: 4),
@@ -756,14 +748,7 @@ class _DashboardPageState extends State<DashboardPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Ar.info.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -946,14 +931,7 @@ class _DashboardPageState extends State<DashboardPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Ar.green.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1192,14 +1170,7 @@ class _DashboardPageState extends State<DashboardPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Ar.accent.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1258,14 +1229,7 @@ class _DashboardPageState extends State<DashboardPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Ar.amber.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

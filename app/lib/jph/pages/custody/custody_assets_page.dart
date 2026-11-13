@@ -56,11 +56,7 @@ class _BodyState extends State<_Body> {
         child: Container(
           width: 46,
           height: 46,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: widget.isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.7),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 8))],
-          ),
+          decoration: Glass.panel(widget.isDark, r: 14),
           child: Icon(icon, color: JphUi.text(widget.isDark)),
         ),
       );

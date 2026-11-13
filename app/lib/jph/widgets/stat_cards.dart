@@ -179,17 +179,7 @@ class _StatRightCardContent extends StatelessWidget {
             sigmaY: isDark ? 12 : 10,
           ),
           child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: borderColor),
-              boxShadow: [
-                BoxShadow(
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                  color: shadowColor,
-                ),
-              ],
-            ),
+            decoration: Glass.panel(isDark, r: 26), // the dashboard's card
             child: SizedBox(
               height: 210,
               child: Padding(
@@ -450,17 +440,7 @@ class _StatMiniCardContent extends StatelessWidget {
             sigmaY: isDark ? 10 : 8,
           ),
           child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: borderColor),
-              boxShadow: [
-                BoxShadow(
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                  color: shadowColor,
-                ),
-              ],
-            ),
+            decoration: Glass.panel(isDark, r: 22), // the dashboard's card
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
               child: Column(

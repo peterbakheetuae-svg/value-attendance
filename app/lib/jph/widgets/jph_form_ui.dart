@@ -58,11 +58,7 @@ class JphUi {
           onTap: () => Navigator.pop(context),
           child: Container(
             width: 46, height: 46,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              color: isDark ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.70),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 14, offset: const Offset(0, 8))],
-            ),
+            decoration: Glass.panel(isDark, r: 14),
             child: Icon(isRTL ? Icons.arrow_forward_ios_rounded : Icons.arrow_back_ios_rounded, color: t, size: 22),
           ),
         ),
@@ -305,10 +301,7 @@ class JphUi {
     final t = isDark ? Colors.white : Colors.black;
     return Container(
       padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(30),
-      ),
+      decoration: Glass.tile(isDark, r: 30),
       child: Row(children: [
         for (var i = 0; i < items.length; i++)
           Expanded(
@@ -352,8 +345,7 @@ class JphUi {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
             width: 36, height: 36,
-            decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10), color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.7)),
+            decoration: Glass.tile(isDark, r: 10),
             child: Icon(icon, color: color, size: 20),
           ),
           const SizedBox(height: 8),

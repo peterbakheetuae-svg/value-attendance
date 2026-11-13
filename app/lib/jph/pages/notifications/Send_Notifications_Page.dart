@@ -246,19 +246,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 isRTL
                                     ? Icons.arrow_forward_ios_rounded
@@ -295,19 +283,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 Icons.history_rounded,
                                 color: textColor,
@@ -333,18 +309,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               Container(
                                 margin: const EdgeInsets.only(bottom: 16),
                                 padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Ar.info.shade900.withOpacity(0.3)
-                                      : Ar.info.shade50,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isDark
-                                        ? Ar.info.shade700
-                                        : Ar.info.shade200,
-                                    width: 1.5,
-                                  ),
-                                ),
+                                decoration: Glass.panel(isDark, r: 20),
                                 child: Row(
                                   children: [
                                     Container(
@@ -410,18 +375,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               Container(
                                 margin: const EdgeInsets.only(bottom: 16),
                                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.15)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
+                                decoration: Glass.panel(isDark, r: 20),
                                 child: DropdownButtonHideUnderline(
                                   child: DropdownButton<String>(
                                     value: _selectedCategory,
@@ -512,18 +466,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               Container(
                                 margin: const EdgeInsets.only(bottom: 16),
                                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.15)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
+                                decoration: Glass.panel(isDark, r: 20),
                                 child: TextFormField(
                                   controller: _titleController,
                                   decoration: InputDecoration(
@@ -563,18 +506,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               Container(
                                 margin: const EdgeInsets.only(bottom: 16),
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.15)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
+                                decoration: Glass.panel(isDark, r: 20),
                                 child: TextFormField(
                                   controller: _contentController,
                                   maxLines: 6,
@@ -606,17 +538,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               Container(
                                 margin: const EdgeInsets.only(bottom: 24),
                                 padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Ar.green.shade900.withOpacity(0.3)
-                                      : Ar.green.shade100,
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: isDark
-                                        ? Ar.green.shade700
-                                        : Ar.green.shade200,
-                                  ),
-                                ),
+                                decoration: Glass.panel(isDark, r: 20),
                                 child: Row(
                                   children: [
                                     Container(
@@ -757,17 +679,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
       return Container(
         margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Ar.red.shade900.withOpacity(0.3)
-              : Ar.red.shade50,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isDark
-                ? Ar.red.shade700
-                : Ar.red.shade200,
-          ),
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Row(
           children: [
             Icon(
@@ -796,12 +708,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
         // زر تحديد الكل/إلغاء التحديد
         Container(
           margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: isDark
-                ? Ar.info.shade900.withOpacity(0.3)
-                : Ar.info.shade50,
-          ),
+          decoration: Glass.panel(isDark, r: 16),
           child: ListTile(
             onTap: _selectAllEmployees,
             leading: Container(

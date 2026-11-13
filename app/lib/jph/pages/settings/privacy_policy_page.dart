@@ -478,17 +478,7 @@ class PrivacyPolicyPage extends StatelessWidget {
   Widget _buildContactCard(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Ar.green.shade900.withOpacity(0.3)
-            : Ar.green.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? Ar.green.shade800
-              : Ar.green.shade200,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -618,17 +608,7 @@ class PrivacyPolicyPage extends StatelessWidget {
   Widget _buildUpdateSection(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Ar.grey.shade900.withOpacity(0.5)
-            : Colors.white.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? Ar.grey.shade800
-              : Ar.grey.shade200,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

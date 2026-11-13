@@ -80,16 +80,7 @@ class MonthlySection extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-              ),
-            ],
-          ),
+          decoration: Glass.panel(isDark, r: 26),
           child: Center(
             child: Column(
               children: [
@@ -160,16 +151,7 @@ class MonthlySection extends StatelessWidget {
         const SizedBox(height: 6),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-            borderRadius: BorderRadius.circular(26),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-              ),
-            ],
-          ),
+          decoration: Glass.panel(isDark, r: 26),
           child: Column(
             children: [
               MonthlyRow(

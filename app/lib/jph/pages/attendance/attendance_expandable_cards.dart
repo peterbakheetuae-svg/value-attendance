@@ -294,17 +294,7 @@ class AttendanceExpandableCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.15) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 20),
         child: Column(
           children: [
             // 🔥 الجزء العلوي الثابت

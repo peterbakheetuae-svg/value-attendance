@@ -251,7 +251,7 @@ class _SummaryTabState extends State<_SummaryTab> {
           margin: const EdgeInsets.all(16),
           constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: isDark ? const Color(0xFF262624) : Colors.white, borderRadius: BorderRadius.circular(26)),
+          decoration: Glass.panel(isDark, r: 26),
           child: FutureBuilder<Map<String, dynamic>>(
             future: future,
             builder: (_, snap) {
@@ -280,11 +280,7 @@ class _SummaryTabState extends State<_SummaryTab> {
                         Container(
                           margin: const EdgeInsets.only(bottom: 8),
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.white.withOpacity(0.08) : Ar.grey.shade50,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: isDark ? Colors.white24 : Ar.grey.shade300),
-                          ),
+                          decoration: Glass.panel(isDark, r: 14),
                           child: Row(children: [
                             Expanded(
                               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -511,10 +507,7 @@ Widget _segmented(bool isDark, Map<String, String> options, String value, ValueC
   final t = isDark ? Colors.white : Colors.black;
   return Container(
     padding: const EdgeInsets.all(5),
-    decoration: BoxDecoration(
-      color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
-      borderRadius: BorderRadius.circular(30),
-    ),
+    decoration: Glass.tile(isDark, r: 30),
     child: LayoutBuilder(builder: (context, c) {
       Widget item(MapEntry<String, String> e, {bool expand = false}) {
         final w = GestureDetector(

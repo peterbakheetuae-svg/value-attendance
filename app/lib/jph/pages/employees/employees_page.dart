@@ -536,17 +536,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+        decoration: Glass.panel(isDark, r: 16),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
+import '../glass_ui.dart';
+import 'settings_tile.dart';
 
+/// A settings group in the dashboard's card (the «Ardena» glass square) that opens in place.
 class SettingsExpandableTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -20,34 +23,37 @@ class SettingsExpandableTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ListTile(
-          // white icons in dark mode
-      leading: Icon(icon, color: Provider.of<AppController>(context).isDark ? Colors.white : null),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+    final d = Provider.of<AppController>(context).isDark;
+    return Container(
+      decoration: Glass.panel(d, r: 18),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(children: [
+                settingsIcon(d, icon),
+                const SizedBox(width: 12),
+                Expanded(child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Glass.ink(d)))),
+                AnimatedRotation(
+                  turns: expanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 350),
+                  curve: Glass.ease,
+                  child: Icon(Icons.expand_more_rounded, color: Glass.muted(d)),
+                ),
+              ]),
+            ),
           ),
-          trailing: AnimatedRotation(
-            turns: expanded ? 0.5 : 0,
-            duration: const Duration(milliseconds: 250),
-            child: const Icon(Icons.expand_more),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 350),
+            curve: Glass.ease,
+            child: expanded ? Padding(padding: const EdgeInsets.fromLTRB(8, 0, 8, 12), child: child) : const SizedBox(width: double.infinity),
           ),
-          onTap: onToggle,
-        ),
-
-        AnimatedSize(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-          child: expanded
-              ? Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: child,
-          )
-              : const SizedBox.shrink(),
-        ),
-      ],
+        ]),
+      ),
     );
   }
 }

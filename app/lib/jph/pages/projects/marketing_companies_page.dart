@@ -58,7 +58,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
             child: Container(
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
+              decoration: Glass.panel(isDark, r: 24),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text(c == null ? 'شركة تسويق جديدة' : '${c['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),

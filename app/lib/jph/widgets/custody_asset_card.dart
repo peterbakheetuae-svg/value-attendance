@@ -93,10 +93,7 @@ Future<Map<String, dynamic>?> pickCustodyAsset(BuildContext context, bool isDark
         constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
         margin: const EdgeInsets.all(12),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF2A2926) : Colors.white,
-          borderRadius: BorderRadius.circular(24),
-        ),
+        decoration: Glass.panel(isDark, r: 24),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Expanded(child: Text('اختار العهدة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),

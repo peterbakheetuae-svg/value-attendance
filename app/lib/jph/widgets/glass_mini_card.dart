@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
+import 'glass_ui.dart';
 
 class GlassMiniCard extends StatelessWidget {
   final String title;
@@ -45,25 +46,8 @@ class GlassMiniCard extends StatelessWidget {
 
     return Container(
       height: height ?? 90, // 🔥 ارتفاع مناسب
-      decoration: BoxDecoration(
-        color: backgroundColor ?? defaultBgColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? AppColors.outlineDark.withOpacity(0.2)
-              : AppColors.outlineLight.withOpacity(0.2),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isDark
-                ? Colors.black.withOpacity(0.15)
-                : Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      // the dashboard's card (the «Ardena» glass square); a given colour still wins
+      decoration: backgroundColor != null ? Glass.panel(isDark, r: 16).copyWith(color: backgroundColor, gradient: null) : Glass.panel(isDark, r: 16),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(

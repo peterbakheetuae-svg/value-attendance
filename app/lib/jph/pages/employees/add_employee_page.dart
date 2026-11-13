@@ -183,10 +183,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
 
   Widget _timeTile(String label, TimeOfDay? v, bool start, bool isDark) => Container(
         margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(12),
-        ),
+        decoration: Glass.tile(isDark, r: 12),
         child: ListTile(
           leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Ar.grey[600]),
           title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Ar.grey[700])),
@@ -752,10 +749,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                             if (ApiService.can('employee.attendance_exempt'))
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                decoration: Glass.tile(isDark, r: 12),
                                 child: SwitchListTile(
                                   value: _noAttendance,
                                   onChanged: (v) => setState(() => _noAttendance = v),
@@ -767,10 +761,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                             if (!_noAttendance)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
-                                decoration: BoxDecoration(
-                                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                                decoration: Glass.tile(isDark, r: 12),
                                 child: SwitchListTile(
                                   value: _selfieRequired,
                                   onChanged: (v) => setState(() => _selfieRequired = v),
@@ -781,10 +772,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                               ),
                             Container(
                               margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                              decoration: Glass.tile(isDark, r: 12),
                               child: SwitchListTile(
                                 value: _deviceLock,
                                 onChanged: (v) => setState(() => _deviceLock = v),
@@ -842,10 +830,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                              decoration: Glass.tile(isDark, r: 12),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
@@ -1031,10 +1016,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           ),
           const SizedBox(height: 4),
           Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: Glass.tile(isDark, r: 12),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -1083,10 +1065,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
             ),
             const SizedBox(height: 4),
             Container(
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-              ),
+              decoration: Glass.tile(isDark, r: 12),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -1146,10 +1125,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
           ),
           const SizedBox(height: 4),
           Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
+            decoration: Glass.tile(isDark, r: 12),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(

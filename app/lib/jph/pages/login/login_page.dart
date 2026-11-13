@@ -412,12 +412,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       onTap: () => _changeLanguage(context),
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(50),
-          border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1), width: 1.7),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.1), blurRadius: 10, spreadRadius: 2)],
-        ),
+        decoration: Glass.tile(isDark, r: 50),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -445,12 +440,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       onTap: () => appController.setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark),
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(50),
-          border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1), width: 1.5),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.1), blurRadius: 10, spreadRadius: 2)],
-        ),
+        decoration: Glass.tile(isDark, r: 50),
         child: Icon(isDark ? Icons.light_mode : Icons.dark_mode, size: 24, color: isDark ? Colors.white : Ar.amber[700]),
       ),
     );

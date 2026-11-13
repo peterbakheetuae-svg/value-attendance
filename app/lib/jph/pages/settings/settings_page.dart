@@ -531,10 +531,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     Container(
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      decoration: Glass.panel(appController.isDark, r: 18),
                       child: Row(
                         children: [
                           Container(
@@ -633,6 +630,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     Container(
                       margin: const EdgeInsets.symmetric(vertical: 7),
+                      decoration: Glass.panel(appController.isDark, r: 18),
                       child: ListTile(
                         leading: Container(
                           width: 40,
@@ -668,7 +666,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        tileColor: Colors.white.withOpacity(0.1),
+                        tileColor: Colors.transparent,
                       ),
                     ),
 

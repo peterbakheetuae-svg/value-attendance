@@ -136,19 +136,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 isRTL
                                     ? Icons.arrow_forward_ios_rounded
@@ -185,19 +173,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                             child: Container(
                               width: 46,
                               height: 46,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.15)
-                                    : Colors.white.withOpacity(0.70),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 14,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
+                              decoration: Glass.panel(isDark, r: 14),
                               child: Icon(
                                 Icons.add_rounded,
                                 color: textColor,
@@ -306,12 +282,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: isDark
-                  ? Colors.white.withOpacity(0.1)
-                  : Colors.white.withOpacity(0.7),
-            ),
+            decoration: Glass.tile(isDark, r: 10),
             child: Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(height: 8),
@@ -512,20 +483,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
-        ),
-      ),
+      decoration: Glass.panel(isDark, r: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
