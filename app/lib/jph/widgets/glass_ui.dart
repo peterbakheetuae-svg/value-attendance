@@ -120,8 +120,13 @@ class AppBackdrop extends StatelessWidget {
   Widget build(BuildContext context) => IgnorePointer(
         child: Stack(fit: StackFit.expand, children: [
           ColoredBox(color: isDark ? const Color(0xFF2A2723) : const Color(0xFFE9E6E1)),
-          Image.asset('assets/bg/backdrop.webp', fit: BoxFit.cover, filterQuality: FilterQuality.low, gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          // the photo exactly as supplied (no veil in it), a touch larger like the site (scale 1.08)
+          Transform.scale(
+            scale: 1.08,
+            child: Image.asset('assets/bg/site_backdrop.jpeg', fit: BoxFit.cover, filterQuality: FilterQuality.medium, gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          ),
+          // the site's own veil on top of it: dark (#0c0c0b 80% → #080807 90%) or light (#f6f3ee 50% → #ece8e2 62%)
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(

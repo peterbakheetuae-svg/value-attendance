@@ -49,7 +49,7 @@ flutter:
   assets:
     - assets/bg/light_bg.webp
     - assets/bg/dark_bg.webp
-    - assets/bg/backdrop.webp
+    - assets/bg/site_backdrop.jpeg
     - assets/images/logo.png
     - assets/avatar.png
     - assets/l10n/ar.json

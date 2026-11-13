@@ -34,14 +34,14 @@ DirectoryIndex index.html
 # --- caching
 # App code (.js / .mjs / .wasm), the page itself and the Android update (android/latest.json + .apk): always re-checked (cheap 304 when unchanged) so a new deploy shows at once.
 # The fonts too: the icon font keeps its name but changes with every build that uses a new icon.
-# Images and sounds: kept 7 days.
+# Images too (a picture can be replaced under the same name, e.g. the backdrop). Only icons and sounds are kept 7 days.
 # No API data is served from here — the API lives on its own host and is never cached by this file.
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
-  <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm|apk|ttf|otf|woff|woff2)$">
+  <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm|apk|ttf|otf|woff|woff2|webp|png|jpg|jpeg|gif|svg)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
-  <FilesMatch "\.(webp|png|jpg|jpeg|gif|ico|svg|mp3|wav)$">
+  <FilesMatch "\.(ico|mp3|wav)$">
     Header set Cache-Control "public, max-age=604800"
   </FilesMatch>
 </IfModule>
