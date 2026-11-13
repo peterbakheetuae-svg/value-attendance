@@ -122,8 +122,24 @@ void main() {
     final dir = Directory('android/app/src/main/res/mipmap-$d');
     if (f.existsSync() && dir.existsSync()) f.copySync('${dir.path}/ic_launcher.png');
   }
-  final adaptive = File('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml');
-  if (adaptive.existsSync()) adaptive.deleteSync();
+  // Android 8+: an adaptive icon, so the launcher shows the whole logo on its own glass (#292B2D) in its own shape,
+  // with no extra white plate behind a shrunken picture
+  for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+    final dir = Directory('android/app/src/main/res/mipmap-$d');
+    if (!dir.existsSync()) continue;
+    for (final l in ['fg', 'bg']) {
+      final f = File('tool/icons/android/adaptive/${d}_$l.png');
+      if (f.existsSync()) f.copySync('${dir.path}/ic_launcher_${l == 'fg' ? 'foreground' : 'background'}.png');
+    }
+  }
+  final any = Directory('android/app/src/main/res/mipmap-anydpi-v26')..createSync(recursive: true);
+  const adaptiveXml = '<?xml version="1.0" encoding="utf-8"?>\n'
+      '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+      '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
+      '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+      '</adaptive-icon>\n';
+  File('${any.path}/ic_launcher.xml').writeAsStringSync(adaptiveXml);
+  File('${any.path}/ic_launcher_round.xml').writeAsStringSync(adaptiveXml);
   for (final n in ['Icon-192', 'Icon-512', 'Icon-maskable-192', 'Icon-maskable-512']) {
     final f = File('tool/icons/web/$n.png');
     if (f.existsSync() && Directory('web/icons').existsSync()) f.copySync('web/icons/$n.png');
