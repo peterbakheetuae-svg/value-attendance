@@ -10,6 +10,7 @@ import 'login/login_page.dart';
 import 'dashboard_employers/dashboard_page.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
+import '../widgets/logo_orbit.dart';
 
 class SplashScreen extends StatefulWidget {
   final int splashDuration;
@@ -293,48 +294,9 @@ class _SplashScreenState extends State<SplashScreen>
 
               // المحتوى (الدائرة والصورة) - الشكل الأصلي
               Center(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // الدائرة المتحركة
-                    AnimatedBuilder(
-                      animation: _rotationController,
-                      builder: (_, child) {
-                        return Transform.rotate(
-                          angle: _rotationController.value * 2 * math.pi,
-                          child: child,
-                        );
-                      },
-                      child: CustomPaint(
-                        size: const Size(200, 200),
-                        painter: CirclePainter(isDark: isDark),
-                      ),
-                    ),
-
-                    // الصورة في المنتصف بنفس الأنيميشن
-                    AnimatedBuilder(
-                      animation: _rotationController,
-                      builder: (context, child) {
-                        return Opacity(
-                          opacity: _fadeAnimation.value,
-                          child: Transform.scale(
-                            scale: _scaleAnimation.value,
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: widget.imagePath != null
-                          ? Image.asset(
-                        widget.imagePath!,
-                        width: 200,
-                        height: 200,
-                        fit: BoxFit.contain,
-                      )
-                          : Container(),
-                    ),
-                  ],
-                ),
-              ),
+                    // the loading logo: its swoosh and squares orbit the letter
+                    child: LogoOrbit(size: 200),
+                  ),
             ],
           ),
         );

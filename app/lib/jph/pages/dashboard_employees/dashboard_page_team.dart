@@ -37,6 +37,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/payouts_widgets.dart';
 import '../../../core/shift_tracker.dart';
 import '../../widgets/glass_ui.dart';
+import '../../widgets/logo_orbit.dart';
 
 class DashboardPageTeam extends StatefulWidget {
   final String uid;
@@ -1308,43 +1309,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   ),
 
                   Center(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        AnimatedBuilder(
-                          animation: _loadingAnimationController,
-                          builder: (_, child) {
-                            return Transform.rotate(
-                              angle: _loadingAnimationController.value * 2 * math.pi,
-                              child: child,
-                            );
-                          },
-                          child: CustomPaint(
-                            size: const Size(200, 200),
-                            painter: _DashboardCirclePainter(isDark: isDark),
-                          ),
-                        ),
-
-                        AnimatedBuilder(
-                          animation: _loadingAnimationController,
-                          builder: (context, child) {
-                            return Opacity(
-                              opacity: _loadingFadeAnimation.value,
-                              child: Transform.scale(
-                                scale: _loadingScaleAnimation.value,
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: Image.asset(
-                            'assets/images/logo.png',
-                            width: 200,
-                            height: 200,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ],
-                    ),
+                    // the loading logo: its swoosh and squares orbit the letter
+                    child: LogoOrbit(size: 200),
                   ),
                 ],
               ),
