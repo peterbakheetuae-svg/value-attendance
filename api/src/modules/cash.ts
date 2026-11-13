@@ -160,9 +160,10 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
   const isSale = (x: any) => ['reservation', 'down_payment', 'installment'].includes(x.kind);
   vals.length = 1;
   const exp = await q.query(`
-    SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, x.sale_id IS NOT NULL AS refund, sum(x.amount_egp) AS s, count(*)::int AS c
+    SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, x.sale_id IS NOT NULL AS refund, x.owner_draw_id IS NOT NULL AS draw,
+           sum(x.amount_egp) AS s, count(*)::int AS c
       FROM cash_expenses x WHERE x.status = 'posted' AND x.cashbox = ANY($1::text[]) ${range('COALESCE(x.approved_at, x.occurred_at)')}
-     GROUP BY 1, 2, 3, 4`, vals);
+     GROUP BY 1, 2, 3, 4, 5`, vals);
   vals.length = 1;
   const pay = await q.query(`SELECT kind, sum(amount_egp) AS s FROM payouts WHERE status = 'received' AND kind <> 'fund' AND 'hr' = ANY($1::text[])
                                ${range('received_at')} GROUP BY kind`, vals);
@@ -170,7 +171,9 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
   const trustOut = r2(exp.rows.filter((x) => x.ex_kind).reduce((t, x) => t + N(x.s), 0));
   // a sold unit's refund (استرداد وحدة) gives the client his own money back: not a cost of the office
   const salesRefunds = r2(exp.rows.filter((x) => !x.ex_kind && x.refund).reduce((t, x) => t + N(x.s), 0));
-  const costsRows = exp.rows.filter((x) => !x.ex_kind && !x.refund);
+  // مسحوبات الملاك: the owners' own money leaving, not a cost either
+  const ownerDraws = r2(exp.rows.filter((x) => x.draw).reduce((t, x) => t + N(x.s), 0));
+  const costsRows = exp.rows.filter((x) => !x.ex_kind && !x.refund && !x.draw);
   const byCat = new Map<string, { name: string; amount: number; count: number }>();
   for (const x of costsRows) {
     const name = x.mk ? 'شركة تسويق' : String(x.category).trim();
@@ -190,7 +193,7 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
       commissionReceived: sumR((x) => x.kind === 'commission'),
       other: sumR((x) => ['settlement', 'other'].includes(x.kind)),
     },
-    expenses: { total: r2(expensesTotal + payrollTotal), payroll, payrollTotal, other: expensesTotal,
+    expenses: { total: r2(expensesTotal + payrollTotal), payroll, payrollTotal, other: expensesTotal, ownerDraws,
       byCategory: [...byCat.values()].sort((x, y) => y.amount - x.amount) },
   };
   if (office) {
@@ -220,6 +223,45 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     Object.assign(out, await salesMoneyOverview(q, from, to));
     const commissions = (out.income as any).commissions;
     out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
+  }
+  return out;
+}
+
+/** the company's owners: role owner, or anyone with a نسبة ملكية */
+async function ownerIds(q: Q): Promise<string[]> {
+  const r = await q.query(`SELECT e.id FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id
+                            WHERE e.status = 'active' AND (e.role_key = 'owner' OR COALESCE(o.pct, 0) > 0)`);
+  return r.rows.map((x) => x.id as string);
+}
+
+/** the office cashbox split: its bank part and its cash part */
+async function officeParts(q: Q) {
+  const s = await one(q, `SELECT
+      COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE cashbox = 'office' AND status = 'posted' AND payment_method <> 'cash'), 0)
+    - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = 'office' AND status = 'posted' AND payment_method = 'bank'), 0)
+    - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves WHERE cashbox = 'office'), 0) AS bank,
+      COALESCE((SELECT sum(amount) FROM cash_ledger WHERE cashbox = 'office'), 0) AS total`);
+  const bank = r2(Number(s.bank));
+  return { bank, cash: r2(Number(s.total) - bank) };
+}
+
+/**
+ * Each owner's account (all months): what he injected + his share (نسبة الملكية) of the office's net profit
+ * − what he already withdrew (approved) − what is waiting for approval = what he can still withdraw.
+ */
+export async function ownerAccounts(q: Q, a: Actor) {
+  const ids = await ownerIds(q);
+  const ov = await cashOverview(q, a, null, null);
+  const net = Number((ov.result as any)?.net ?? 0);
+  const rows = (await q.query(`SELECT e.id, COALESCE(o.pct, 0) AS pct,
+      COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id), 0) AS injected,
+      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'posted'), 0) AS drawn,
+      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'pending_approval'), 0) AS pending
+      FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id WHERE e.id = ANY($1::uuid[])`, [ids])).rows;
+  const out: Record<string, { injected: number; profit: number; withdrawn: number; pending: number; balance: number }> = {};
+  for (const x of rows) {
+    const injected = r2(Number(x.injected)), profit = r2(net * Number(x.pct) / 100), withdrawn = r2(Number(x.drawn)), pending = r2(Number(x.pending));
+    out[x.id] = { injected, profit, withdrawn, pending, balance: r2(injected + profit - withdrawn - pending) };
   }
   return out;
 }
@@ -401,16 +443,67 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ov = await cashOverview(db, a, from, to);
     const net = Number((ov.result as any)?.net ?? 0);
     const posted = rows.filter((x) => x.status === 'posted');
+    const acc = await ownerAccounts(db, a);
+    vals.length = 0;
+    const drawSql = `
+      SELECT x.id, x.ref_no, x.amount_egp, x.payment_method, x.notes, x.status, x.occurred_at, x.owner_draw_id, x.recorded_by, x.reject_reason,
+             e.full_name AS by_name, ap.full_name AS approved_by_name
+        FROM cash_expenses x JOIN employees e ON e.id = x.owner_draw_id LEFT JOIN employees ap ON ap.id = x.approved_by
+       WHERE x.owner_draw_id IS NOT NULL ${range('x.occurred_at')} ORDER BY x.occurred_at DESC`;
+    const draws = (await db.query(drawSql, vals)).rows;
     return ok({
       from, to, net, commissions: (ov.result as any)?.commissions ?? 0, costs: (ov.result as any)?.costs ?? 0,
       total: r2(posted.reduce((t, x) => t + Number(x.amount_egp), 0)),
       owners: owners.map((o) => ({ id: o.id, name: o.full_name, pct: Number(o.pct),
         injected: r2(posted.filter((x) => x.recorded_by === o.id).reduce((t, x) => t + Number(x.amount_egp), 0)),
-        injectedAllTime: r2(Number(o.all_time)), profit: r2(net * Number(o.pct) / 100) })),
+        injectedAllTime: r2(Number(o.all_time)), profit: r2(net * Number(o.pct) / 100),
+        withdrawn: r2(draws.filter((x) => x.owner_draw_id === o.id && x.status === 'posted').reduce((t, x) => t + Number(x.amount_egp), 0)),
+        account: acc[o.id] ?? null })),
+      draws: draws.map((x) => ({ id: x.id, refNo: Number(x.ref_no), ownerId: x.owner_draw_id, ownerName: x.by_name, amount: Number(x.amount_egp),
+        method: x.payment_method, note: x.notes, status: x.status, at: x.occurred_at, approvedByName: x.approved_by_name, rejectReason: x.reject_reason,
+        canDecide: x.status === 'pending_approval' && x.recorded_by !== a.id && acc[a.id] !== undefined })),
+      me: a.id,
       injections: rows.map((x) => ({ id: x.id, receiptNo: `R-${String(x.ref_no).padStart(6, '0')}`, amount: Number(x.amount_egp),
         target: x.payment_method !== 'cash' ? 'بنك' : x.cashbox === 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', note: x.notes, at: x.occurred_at,
         byName: x.by_name, status: x.status })),
     });
+  });
+
+  /** مسحوبات الملاك: he asks, another owner approves (/cash/expenses/:id/decision), the office cashbox pays. */
+  r.post('/cash/owner-draws', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden();
+    const b = obj(req.body);
+    const amount = money(b);
+    const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
+    const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
+    const ref = clientRef(b);
+    const out = await db.tx(async (q) => {
+      if (ref) {
+        const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
+        if (dup) return dup;
+      }
+      const owners = await ownerIds(q);
+      if (!owners.includes(a.id)) throw forbidden('السحب للملاك بس');
+      const others = owners.filter((x) => x !== a.id);
+      if (!others.length) throw invalid('لازم مالك تاني يوافق على السحب — حدد نسب الملكية الأول', { field: 'amount' });
+      const acc = (await ownerAccounts(q, a))[a.id];
+      if (amount > acc.balance + 0.001) throw invalid(`رصيد حسابك ${fmt(Math.max(acc.balance, 0))} بس`, { field: 'amount', max: acc.balance });
+      const box = await officeParts(q);
+      const part = method === 'bank' ? box.bank : box.cash;
+      if (amount > part + 0.001) throw invalid(`${method === 'bank' ? 'رصيد البنك' : 'النقدي في خزنة المكتب'} ${fmt(Math.max(part, 0))} بس`, { field: 'amount' });
+      const x = await one(q, `
+        INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, client_ref, occurred_at, recorded_by, status, payment_method, owner_draw_id)
+        VALUES ('office',$1,'مسحوبات الملاك',$2,$3,$4,$5,$6,$7,'pending_approval',$8,$7) RETURNING id`,
+        [amount, `سحب أرباح — ${a.fullName}`, a.fullName || 'مالك', note, ref, clock(), a.id, method]);
+      await audit(q, a.id, 'cash.owner_draw', 'cash_expense', x.id, undefined, { amount, method, note });
+      for (const o of others) {
+        await notify(q, { to: o, type: 'cash_expense_awaiting', title: `سحب أرباح محتاج موافقتك: ${fmt(amount)}`, body: `${a.fullName}${note ? ' — ' + note : ''}`,
+          entity: 'cash_expense', entityId: x.id, dedupeKey: `cash:expense:${x.id}:awaiting` });
+      }
+      return x;
+    });
+    return ok({ draw: { id: out.id } }, 201);
   });
 
   /** نسبة الملكية of each owner (out of 100). */
@@ -825,6 +918,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     await expenseStep(req.params.id, a, async (q, x) => {
       if (x.status !== 'pending_approval') throw conflict('This expense is not waiting for approval');
       if (x.recorded_by === a.id) throw forbidden('You cannot approve your own expense');
+      if (x.owner_draw_id && !(await ownerIds(q)).includes(a.id)) throw forbidden('سحب الأرباح يوافق عليه مالك تاني');
       if (decision === 'approve') {
         await q.query(`UPDATE cash_expenses SET status = 'posted', approved_by = $2, approved_at = now(), reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [x.id, a.id]);
       } else {

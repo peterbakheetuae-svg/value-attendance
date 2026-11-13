@@ -85,7 +85,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS installments,
         COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'hr' AND ex_kind IS NULL AND sale_id IS NULL
                    AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')}), 0) AS hr_expenses,
-        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'office' AND ex_kind IS NULL AND sale_id IS NULL
+        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'office' AND ex_kind IS NULL AND sale_id IS NULL AND owner_draw_id IS NULL
                    AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')}), 0) AS office_expenses,
         COALESCE((SELECT sum(amount_egp) FROM payouts WHERE kind = 'salary' AND status = 'received' AND period = $1), 0) AS salaries_paid,
         COALESCE((SELECT sum(amount_egp) FROM commission_entitlements WHERE status = 'active' AND period = $1), 0) AS commissions,
@@ -164,7 +164,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
       case 'hr_expenses': case 'office_expenses': {
         title = key === 'hr_expenses' ? 'مصروفات خزنة المحاسب' : 'مصروفات المكتب';
         rows = (await q(`SELECT ref_no, category, reason, beneficiary, amount_egp, occurred_at FROM cash_expenses
-                          WHERE status = 'posted' AND cashbox = $2 AND ex_kind IS NULL AND sale_id IS NULL
+                          WHERE status = 'posted' AND cashbox = $2 AND ex_kind IS NULL AND sale_id IS NULL AND owner_draw_id IS NULL
                             AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')} ORDER BY occurred_at DESC`,
           [period, key === 'hr_expenses' ? 'hr' : 'office']))
           .map((x) => ({ title: `${x.category} — ${x.beneficiary}`, sub: `#${x.ref_no} — ${x.reason}`, amount: n(x.amount_egp) }));

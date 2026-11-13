@@ -220,6 +220,10 @@ class _CashOverviewState extends State<CashOverview> {
         if (_n(pay['advance']) > 0) _row(isDark, 'سلف', pay['advance']),
         if (_n(pay['workExpense']) > 0) _row(isDark, 'مصاريف عمل', pay['workExpense']),
         for (final c in cats) _row(isDark, '${c['name']}', c['amount']),
+        if (_n(exp['ownerDraws']) > 0) ...[
+          const Divider(),
+          _row(isDark, 'مسحوبات الملاك (مش مصروف)', exp['ownerDraws'], color: Ar.accent),
+        ],
         if (cats.isEmpty && _n(exp['payrollTotal']) == 0)
           Padding(padding: const EdgeInsets.all(8), child: Text('مفيش مصروفات الشهر ده', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
       ]),
@@ -557,6 +561,120 @@ class _InjectionsTabState extends State<InjectionsTab> {
     _load();
   }
 
+  /// my own account (only the owners have one): what I can still withdraw
+  Map<String, dynamic>? get _myAccount {
+    final d = _d;
+    if (d == null) return null;
+    for (final o in _l(d['owners'])) {
+      if (o['id'] == d['me'] && o['account'] is Map) return _m(o['account']);
+    }
+    return null;
+  }
+
+  /// سحب أرباح: from my account, waits for another owner's approval
+  Future<void> _draw(bool isDark) async {
+    final acc = _myAccount ?? const {};
+    final amount = TextEditingController(), note = TextEditingController();
+    var bank = false;
+    final ref = newClientRef();
+    await showAppSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: StatefulBuilder(builder: (ctx, set) => Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(18),
+                decoration: Glass.sheet(isDark, r: 24),
+                child: SingleChildScrollView(
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Text('سحب أرباح', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    const SizedBox(height: 4),
+                    Text('رصيد حسابك ${JphUi.money(acc['balance'])} — السحب بيتنفذ بعد موافقة مالك تاني', style: TextStyle(color: JphUi.sub(isDark))),
+                    const SizedBox(height: 14),
+                    JphUi.tabs(isDark, const [('خزنة المكتب (نقدي)', Icons.business_center_rounded), ('البنك', Icons.account_balance_rounded)], bank ? 1 : 0,
+                        (i) => set(() => bank = i == 1)),
+                    const SizedBox(height: 12),
+                    JphUi.input(isDark: isDark, label: 'المبلغ', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+                    const SizedBox(height: 10),
+                    JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      height: 50,
+                      child: FilledButton.icon(
+                        onPressed: () async {
+                          final r = await ApiService.post({'action': 'cash_post', 'path': '/cash/owner-draws', 'ok': 'اتبعت للموافقة ✅', 'body': {
+                            'amount': num.tryParse(amount.text.replaceAll(',', '')), 'paymentMethod': bank ? 'bank' : 'cash', 'note': note.text.trim(), 'clientRef': ref,
+                          }});
+                          if (ctx.mounted) JphUi.toast(ctx, r);
+                          if (r['success'] == true && ctx.mounted) Navigator.pop(ctx);
+                        },
+                        icon: const Icon(Icons.check_rounded),
+                        label: const Text('طلب السحب', style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            )),
+      ),
+    );
+    await _load();
+    await widget.onChanged?.call();
+  }
+
+  Future<void> _decide(Map<String, dynamic> x, bool approve) async {
+    final r = await ApiService.post({'action': 'cash_post', 'path': '/cash/expenses/${x['id']}/decision', 'ok': approve ? 'اتوافق على السحب ✅' : 'اترفض',
+      'body': {'decision': approve ? 'approve' : 'reject', if (!approve) 'reason': 'مرفوض من المالك'}});
+    if (mounted) JphUi.toast(context, r);
+    await _load();
+    await widget.onChanged?.call();
+  }
+
+  Widget _drawRow(bool isDark, Map<String, dynamic> x) {
+    final st = '${x['status']}';
+    final (label, color) = switch (st) {
+      'posted' => ('اتصرف', Ar.green),
+      'pending_approval' => ('مستني موافقة مالك تاني', Ar.amber),
+      'rejected' => ('مرفوض', Ar.red),
+      _ => ('ملغي', Ar.grey),
+    };
+    final at = '${x['at'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: JphUi.box(isDark),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          JphUi.iconTile(isDark, Icons.outbox_rounded, color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${x['ownerName']} — ${x['method'] == 'bank' ? 'من البنك' : 'من خزنة المكتب'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+              Text('${at.length >= 10 ? at.substring(0, 10) : ''}${'${x['note'] ?? ''}'.isEmpty ? '' : ' · ${x['note']}'}'
+                  '${x['approvedByName'] != null && st == 'posted' ? ' · وافق ${x['approvedByName']}' : ''}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+            ]),
+          ),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            CountUpText(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+            JphUi.chip(label, color),
+          ]),
+        ]),
+        if (x['canDecide'] == true) ...[
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: FilledButton(onPressed: () => _decide(x, true), child: const Text('موافقة'))),
+            const SizedBox(width: 10),
+            Expanded(child: OutlinedButton(onPressed: () => _decide(x, false), child: const Text('رفض'))),
+          ]),
+        ],
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
@@ -568,20 +686,39 @@ class _InjectionsTabState extends State<InjectionsTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-        SizedBox(
-          height: 56,
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              await showInjectSheet(context, isDark);
-              await _load();
-              await widget.onChanged?.call();
-            },
-            icon: const Icon(Icons.add_card_rounded),
-            label: const Text('ضخ أموال', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
-            style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+        Row(children: [
+          Expanded(
+            child: SizedBox(
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  await showInjectSheet(context, isDark);
+                  await _load();
+                  await widget.onChanged?.call();
+                },
+                icon: const Icon(Icons.add_card_rounded),
+                label: const Text('ضخ أموال', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                style: ElevatedButton.styleFrom(backgroundColor: JphUi.primary(isDark), foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+              ),
+            ),
           ),
-        ),
+          if (_myAccount != null) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: SizedBox(
+                height: 56,
+                child: OutlinedButton.icon(
+                  onPressed: () => _draw(isDark),
+                  icon: const Icon(Icons.outbox_rounded),
+                  label: const Text('سحب أرباح', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                  style: OutlinedButton.styleFrom(side: BorderSide(color: JphUi.primary(isDark), width: 1.4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                ),
+              ),
+            ),
+          ],
+        ]),
         const SizedBox(height: 14),
         Text(monthLabel(_filter), textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
         const SizedBox(height: 8),
@@ -604,12 +741,21 @@ class _InjectionsTabState extends State<InjectionsTab> {
                 Icons.workspace_premium_rounded, _n(o['profit']) >= 0 ? Ar.green : Ar.red),
             JphUi.stat(isDark, 'ضخ', JphUi.money(o['injected']), Icons.add_card_rounded, Ar.accent),
             JphUi.stat(isDark, 'إجمالي ضخه (كل الشهور)', JphUi.money(o['injectedAllTime']), Icons.savings_rounded, Ar.green),
+            JphUi.stat(isDark, 'مسحوباته', JphUi.money(o['withdrawn']), Icons.outbox_rounded, Ar.amber),
+            if (o['account'] is Map)
+              JphUi.stat(isDark, 'رصيد حسابه (يقدر يسحب)', JphUi.money(_m(o['account'])['balance']), Icons.account_balance_wallet_rounded, Ar.green),
           ]),
           const SizedBox(height: 14),
         ],
         Text('صافي الربح = العمولات ${JphUi.money(d['commissions'])} − المرتبات والمصروفات ${JphUi.money(d['costs'])}',
             style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
         const SizedBox(height: 14),
+        if (_l(d['draws']).isNotEmpty) ...[
+          Text('مسحوبات الملاك', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+          const SizedBox(height: 8),
+          for (final x in _l(d['draws'])) _drawRow(isDark, x),
+          const SizedBox(height: 14),
+        ],
         Text('كل الضخ', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
         const SizedBox(height: 8),
         if (_l(d['injections']).isEmpty)

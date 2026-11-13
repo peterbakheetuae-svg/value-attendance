@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, type Harness } from './helpers.ts';
 
 /**
  * One sales flow for both project kinds (حجز → تعاقد), marketing companies, the owner's injection and the cashbox
@@ -171,6 +171,32 @@ test('ضخ أموال: the injections, each owner\'s share and his part of the n
   assert.equal(me.injected, r.body.total, 'every injection here was his');
   assert.ok(r.body.injections.length >= 2);
   assert.equal(me.profit, Math.round(r.body.net * 50) / 100);
+});
+
+test('مسحوبات الملاك: an owner withdraws from his own account, another owner approves, it is not a cost', async () => {
+  // alone, nobody can approve his withdrawal
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/owner-draws', { amount: 1000, paymentMethod: 'bank' })).status, 400);
+  await insertEmployee(h.db, { code: 'OWNER2', name: 'مالك تاني', role: 'owner' });
+  const o2 = await h.login('OWNER2', PW);
+  assert.equal((await h.call(c.t.hr, 'POST', '/cash/owner-draws', { amount: 1000 })).status, 403);
+  const acc = (await h.call(c.t.owner, 'GET', '/cash/injections')).body;
+  const ownerId = (await h.db.query(`SELECT id FROM employees WHERE code = 'OWNER'`)).rows[0].id;
+  const mine = acc.owners.find((o: any) => o.id === ownerId).account;
+  assert.equal(mine.balance, Math.round((mine.injected + mine.profit) * 100) / 100);
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/owner-draws', { amount: mine.balance + 1, paymentMethod: 'bank' })).status, 400, 'not more than his account');
+  const d = await h.call(c.t.owner, 'POST', '/cash/owner-draws', { amount: 1000, paymentMethod: 'bank', note: 'أرباح' });
+  assert.equal(d.status, 201, JSON.stringify(d.body));
+  const before = (await h.call(c.t.owner, 'GET', '/cash/overview')).body;
+  assert.equal((await h.call(c.t.owner, 'POST', `/cash/expenses/${d.body.draw.id}/decision`, { decision: 'approve' })).status, 403, 'not his own');
+  assert.equal((await h.call(o2, 'POST', `/cash/expenses/${d.body.draw.id}/decision`, { decision: 'approve' })).status, 200);
+  const after = (await h.call(c.t.owner, 'GET', '/cash/overview')).body;
+  assert.equal(after.available.bank, before.available.bank - 1000, 'the money left the bank');
+  assert.equal(after.expenses.ownerDraws, 1000);
+  assert.equal(after.expenses.total, before.expenses.total, 'not one of the office\'s costs');
+  const acc2 = (await h.call(o2, 'GET', '/cash/injections')).body;
+  const mine2 = acc2.owners.find((o: any) => o.id === ownerId).account;
+  assert.equal(mine2.withdrawn, 1000);
+  assert.equal(acc2.draws[0].status, 'posted');
 });
 
 test('مصروفات ثابتة (once a month, the signed receipt photo after) and moving money from the bank to the office cash', async () => {
