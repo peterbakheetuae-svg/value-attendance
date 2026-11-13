@@ -458,7 +458,7 @@ class _InitialsCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(child: Text(initials, style: TextStyle(fontSize: size * 0.35, fontWeight: FontWeight.w900, color: color)));
+    return const DefaultPhoto();
   }
 }
 

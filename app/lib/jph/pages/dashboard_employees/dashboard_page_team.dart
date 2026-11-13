@@ -1263,15 +1263,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     );
   }
 
-  Widget _buildDefaultAvatar(bool isDark) {
-    return Center(
-      child: Icon(
-        Icons.person,
-        size: 24,
-        color: isDark ? Colors.white70 : Ar.grey.shade700,
-      ),
-    );
-  }
+  Widget _buildDefaultAvatar(bool isDark) => const DefaultPhoto();
 
   @override
   Widget build(BuildContext context) {

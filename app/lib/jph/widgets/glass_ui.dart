@@ -457,3 +457,16 @@ class ResponsiveGrid extends StatelessWidget {
         return Wrap(spacing: spacing, runSpacing: spacing, children: [for (final x in children) SizedBox(width: w, child: x)]);
       });
 }
+
+
+/// the picture shown for anyone / anything without its own photo (employees, developers, projects).
+/// Logos on documents are NOT this — they stay empty when none is uploaded.
+class DefaultPhoto extends StatelessWidget {
+  final double? size;
+  const DefaultPhoto({super.key, this.size});
+  static const asset = 'assets/images/default_photo.jpg';
+
+  @override
+  Widget build(BuildContext context) => Image.asset(asset,
+      width: size ?? double.infinity, height: size ?? double.infinity, fit: BoxFit.cover, gaplessPlayback: true);
+}

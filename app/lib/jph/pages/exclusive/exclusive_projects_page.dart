@@ -608,7 +608,7 @@ class _ProjectPhoto extends StatelessWidget {
   Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
         future: _projectImage(id, at),
         builder: (_, s) => s.data == null
-            ? const SizedBox.shrink()
+            ? (at == null || s.connectionState == ConnectionState.done ? const DefaultPhoto() : const SizedBox.shrink())
             : Image.memory(s.data!, fit: BoxFit.cover, width: double.infinity, height: double.infinity, gaplessPlayback: true),
       );
 }
@@ -951,7 +951,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     (String, String)? img;
     final ok = await _form(context, isDark, 'تعديل المشروع', (set) => [
           if (exclusive) JphUi.input(isDark: isDark, label: 'اسم المشروع', controller: name, icon: Icons.apartment_rounded),
-          if (p['imageAt'] != null && img == null)
+          if (img == null)
             ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: AspectRatio(aspectRatio: 2.4, child: _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])),
@@ -1000,8 +1000,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final marketing = p['kind'] == 'marketing';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
       // the project's picture (changed from «تعديل المشروع», not here)
-      if (p['imageAt'] != null)
-        Padding(
+      Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),

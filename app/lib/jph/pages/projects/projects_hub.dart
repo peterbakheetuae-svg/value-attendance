@@ -372,12 +372,6 @@ class _ProjectsListState extends State<ProjectsList> {
               ),
             ),
           ),
-          if (p['imageAt'] == null)
-            Center(
-              child: Text(name.characters.isEmpty ? '' : name.characters.first,
-                  style: TextStyle(fontSize: small ? 26 : 44, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.92))),
-            )
-          else
             Positioned.fill(child: _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])),
           if (!small)
             PositionedDirectional(
@@ -1600,7 +1594,7 @@ class _DevPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = JphUi.iconTile(isDark, Icons.business_rounded, Ar.accent);
+    final icon = ClipRRect(borderRadius: BorderRadius.circular(12), child: DefaultPhoto(size: size));
     if (d['photoAt'] == null) return icon;
     return FutureBuilder<Uint8List?>(
       future: DocLogos.developer('${d['id']}', kind: 'photo', at: d['photoAt']),

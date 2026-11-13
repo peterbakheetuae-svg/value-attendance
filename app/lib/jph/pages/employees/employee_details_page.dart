@@ -1164,18 +1164,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     );
   }
 
-  Widget _buildDefaultAvatar(String name, bool isDark) {
-    return Center(
-      child: Text(
-        name.isNotEmpty ? name[0] : '?',
-        style: TextStyle(
-          fontSize: 40,
-          fontWeight: FontWeight.bold,
-          color: isDark ? Colors.white70 : Ar.grey[700],
-        ),
-      ),
-    );
-  }
+  Widget _buildDefaultAvatar(String name, bool isDark) => const DefaultPhoto();
 
   Widget _buildInfoField({
     required String label,

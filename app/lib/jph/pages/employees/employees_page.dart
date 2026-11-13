@@ -791,28 +791,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 );
               },
               errorBuilder: (context, error, stackTrace) {
-                return Center(
-                  child: Text(
-                    name.isNotEmpty ? name[0] : '?',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white70 : Ar.grey[700],
-                    ),
-                  ),
-                );
+                return const DefaultPhoto();
               },
             )
-                : Center(
-              child: Text(
-                name.isNotEmpty ? name[0] : '?',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white70 : Ar.grey[700],
-                ),
-              ),
-            ),
+                : const DefaultPhoto(),
           ),
         ),
 
