@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/i18n.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
@@ -11,7 +12,7 @@ import '../../widgets/glass_ui.dart';
 class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
 
-  static const String lastUpdated = 'ديسمبر 2024';
+  static String get lastUpdated => I18n.lang == 'ar' ? '13 نوفمبر 2026' : 'November 13, 2026';
   static const String privacyEmail = 'info@valueaqar.com';
 
   Future<void> _sendEmail() async {

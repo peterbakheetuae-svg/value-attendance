@@ -14,7 +14,7 @@ class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
 
   // روابط التواصل
-  // official Value contact (the only support phone / email shown in the app)
+  // official VALUNIVO contact (the only support phone / email shown in the app)
   static const String supportEmail = 'info@valueaqar.com';
   static const String websiteUrl = 'https://valueaqar.com';
   static const String supportPhone = '01080660100';
@@ -157,7 +157,7 @@ VALUNIVO Support:
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          AppLocalizations.of(context, 'support_description') ?? 'نحن هنا لمساعدتك على مدار الساعة. إذا كان لديك أي أسئلة أو مخاوف أو تحتاج إلى مساعدة بخصوص منتجاتنا أو خدماتنا، فلا تتردد في التواصل مع فريق الدعم لدينا.',
+                          AppLocalizations.of(context, 'support_description') ?? 'نحن هنا لمساعدتك على مدار الساعة. إذا كان لديك أي أسئلة أو مخاوف أو تحتاج إلى مساعدة بخصوص تطبيق فاليو نيفو، فلا تتردد في التواصل مع فريق الدعم لدينا.',
                           style: TextStyle(
                             fontSize: 14,
                             color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,

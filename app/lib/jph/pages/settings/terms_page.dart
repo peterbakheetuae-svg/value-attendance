@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 
+import '../../../core/i18n.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
@@ -21,7 +22,7 @@ class _TermsPageState extends State<TermsPage> {
   bool _hasAgreed = false;
   final ScrollController _scrollController = ScrollController();
   final String serviceProvider = 'Peter Bakheet';
-  final String lastUpdated = 'ديسمبر 2024';
+  String get lastUpdated => I18n.lang == 'ar' ? '13 نوفمبر 2026' : 'November 13, 2026';
 
   // متغير للتحقق من قراءة المستخدم
   bool _hasReadToEnd = false;
@@ -98,7 +99,7 @@ ${AppLocalizations.of(context, 'terms_title') ?? 'الشروط والأحكام'
 ${AppLocalizations.of(context, 'service_provider') ?? 'مزود الخدمة'}: $serviceProvider
 ${AppLocalizations.of(context, 'last_updated') ?? 'آخر تحديث'}: $lastUpdated
 
-${AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق Value...'}
+${AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق فاليو نيفو...'}
 ${AppLocalizations.of(context, 'app_usage_text') ?? 'يُمنع النسخ أو التعديل...'}
 ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على المستخدمين الحفاظ على أمان أجهزتهم...'}
 ''';
@@ -182,7 +183,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           isDark: isDark,
                           icon: Icons.check_circle,
                           title: AppLocalizations.of(context, 'acceptance_of_terms') ?? 'القبول',
-                          content: AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق Value...',
+                          content: AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق فاليو نيفو...',
                           color: Ar.green,
                         ),
 
