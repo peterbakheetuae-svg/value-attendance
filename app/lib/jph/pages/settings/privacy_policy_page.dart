@@ -96,7 +96,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             isDark: isDark,
                             icon: Icons.collections_bookmark,
                             title: AppLocalizations.of(context, 'information_we_collect') ?? 'المعلومات التي نجمعها',
-                            content: AppLocalizations.of(context, 'information_we_collect_text') ?? 'يجمع تطبيق Value Attendance معلومات الجهاز والاستخدام...',
+                            content: AppLocalizations.of(context, 'information_we_collect_text') ?? 'يجمع تطبيق فاليو نيفو معلومات الجهاز والاستخدام...',
                             color: Ar.info,
                           ),
 
@@ -291,7 +291,7 @@ class PrivacyPolicyPage extends StatelessWidget {
 
           // نص المقدمة
           Text(
-            AppLocalizations.of(context, 'introduction_text') ?? 'نحن في تطبيق Value Attendance ندرك أهمية خصوصية معلوماتك...',
+            AppLocalizations.of(context, 'introduction_text') ?? 'نحن في تطبيق فاليو نيفو ندرك أهمية خصوصية معلوماتك...',
             style: TextStyle(
               fontSize: 14,
               color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,

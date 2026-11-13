@@ -287,7 +287,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
   void _syncTracker() {
     if (checkedIn && !dayFinished) {
       ShiftTracker.instance.start(JphBridge.api,
-          notifTitle: 'Value Attendance — الحضور شغال',
+          notifTitle: 'فاليو نيفو — الحضور شغال',
           notifText: 'بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف');
     } else {
       ShiftTracker.instance.stop();

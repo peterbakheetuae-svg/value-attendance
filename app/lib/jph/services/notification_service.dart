@@ -20,7 +20,7 @@ class NotificationService {
 
   // أنواع الإشعارات
   static const String channelId = 'attendance_channel';
-  static const String channelName = 'Value Attendance';
+  static const String channelName = 'VALUNIVO';
   static const String channelDesc = 'إشعارات نظام الحضور والانصراف';
 
   // Callback functions

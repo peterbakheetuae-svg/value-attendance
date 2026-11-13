@@ -35,7 +35,13 @@ void main() {
   if (!xml.contains('usesCleartextTraffic')) {
     xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
   }
-  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="Value Attendance"');
+  // the app's name under its icon: فاليو نيفو on an Arabic phone, VALUNIVO otherwise
+  xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="@string/app_name"');
+  for (final (dir, name) in const [('values', 'VALUNIVO'), ('values-ar', 'فاليو نيفو')]) {
+    final d = Directory('android/app/src/main/res/$dir')..createSync(recursive: true);
+    File('${d.path}/strings.xml').writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+        '    <string name="app_name">$name</string>\n</resources>\n');
+  }
   // the ringing alert opens the app over the lock screen
   if (!xml.contains('android:showWhenLocked')) {
     xml = xml.replaceFirst('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"');
@@ -150,8 +156,8 @@ void main() {
   final wm = File('web/manifest.json');
   if (wm.existsSync()) {
     wm.writeAsStringSync(wm.readAsStringSync()
-        .replaceAll(RegExp(r'"name":\s*"[^"]*"'), '"name": "Value Attendance"')
-        .replaceAll(RegExp(r'"short_name":\s*"[^"]*"'), '"short_name": "Value Attendance"'));
+        .replaceAll(RegExp(r'"name":\s*"[^"]*"'), '"name": "VALUNIVO — فاليو نيفو"')
+        .replaceAll(RegExp(r'"short_name":\s*"[^"]*"'), '"short_name": "VALUNIVO"'));
   }
   stdout.writeln('launcher + web icons set to the app logo.');
 
@@ -176,7 +182,8 @@ void main() {
   if (web.existsSync()) {
     var h = web.readAsStringSync();
     if (!h.contains('background:#1B1B1A')) h = h.replaceFirst('</head>', '<style>html,body{background:#1B1B1A;}</style>\n</head>');
-    h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>Value Attendance</title>');
+    h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>VALUNIVO — فاليو نيفو</title>');
+    h = h.replaceFirst(RegExp(r'<meta name="apple-mobile-web-app-title" content="[^"]*">'), '<meta name="apple-mobile-web-app-title" content="VALUNIVO">');
     if (!h.contains('dir="rtl"')) h = h.replaceFirst('<html>', '<html lang="ar" dir="rtl">');
     web.writeAsStringSync(h);
     stdout.writeln('web/index.html patched: title, lang, dir.');

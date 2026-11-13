@@ -74,14 +74,14 @@ class SupportPolicyPage extends StatelessWidget {
 
   void _shareContactInfo(BuildContext context) {
     final shareText = '''
-Value Attendance Support:
+VALUNIVO Support:
 📧 Email: $supportEmail
 🌐 Website: $websiteUrl
 📞 Support: $supportPhone
 💬 WhatsApp: $whatsappNumber
 ''';
 
-    Share.share(shareText, subject: 'Value Attendance Support Information');
+    Share.share(shareText, subject: 'VALUNIVO Support Information');
   }
 
   @override

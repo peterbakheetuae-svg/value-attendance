@@ -723,7 +723,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           ],
                           const SizedBox(height: 8),
                           Text(
-                            'Value Attendance © ${DateTime.now().year}',
+                            'VALUNIVO — فاليو نيفو © ${DateTime.now().year}',
                             style: TextStyle(
                               fontSize: 10,
                               color: Ar.grey[500],

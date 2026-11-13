@@ -46,7 +46,7 @@ class AppLocalizations {
     switch (locale.languageCode) {
       case 'ar':
         return {
-          'app_name': 'Value حضور وانصراف',
+          'app_name': 'فاليو نيفو',
           'welcome': 'مرحباً',
           'loading': 'جاري التحميل...',
           'login': 'تسجيل الدخول',
@@ -109,7 +109,7 @@ class AppLocalizations {
 
       default: // الإنجليزية (en)
         return {
-          'app_name': 'Value Attendance',
+          'app_name': 'VALUNIVO',
           'welcome': 'Welcome',
           'loading': 'Loading...',
           'login': 'Login',

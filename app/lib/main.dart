@@ -122,7 +122,7 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
       builder: (context, appController, _) {
         I18n.lang = appController.languageCode == 'ar' ? 'ar' : 'en';
         return MaterialApp(
-          title: 'Value Attendance',
+          title: appController.languageCode == 'ar' ? 'فاليو نيفو' : 'VALUNIVO',
           debugShowCheckedModeBanner: false,
           locale: appController.locale,
           localizationsDelegates: const [

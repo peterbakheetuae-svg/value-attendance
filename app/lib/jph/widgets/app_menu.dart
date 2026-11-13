@@ -395,7 +395,8 @@ class _AppSidebarState extends State<AppSidebar> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Value', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Glass.ink(d))),
+                      Text(Localizations.localeOf(context).languageCode == 'ar' ? 'فاليو نيفو' : 'VALUNIVO',
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Glass.ink(d))),
                       Text(app.companyName?.isNotEmpty == true ? app.companyName! : 'الحضور والمالية',
                           maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Glass.muted(d))),
                     ]),

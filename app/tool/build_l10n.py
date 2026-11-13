@@ -4,7 +4,7 @@ Every key in the Dart code must exist here (test/i18n_test.dart checks parity)."
 import json, os
 T = {
 # key: (ar, en)
-'app_name': ('Value Attendance — الحضور والانصراف', 'Value Attendance'),
+'app_name': ('فاليو نيفو', 'VALUNIVO'),
 'login_title': ('تسجيل الدخول', 'Sign in'),
 'login_subtitle': ('الدخول مخصص لموظفي المكتب', 'For office staff only'),
 'employee_code_or_email': ('كود الموظف أو البريد أو الموبايل', 'Employee code, email or mobile'),
@@ -315,7 +315,7 @@ T.update({
 'last_location': ('آخر موقع', 'Last location'), 'away_today': ('برة النهارده', 'Away today'),
 'meters_away': ('على بُعد {m} متر', '{m} m away'), 'open_map': ('افتح على الخريطة', 'Open map'),
 'left_for_day': ('انصرف', 'Checked out'),
-'tracking_notif_title': ('Value Attendance — الحضور شغال', 'Value Attendance — on shift'),
+'tracking_notif_title': ('فاليو نيفو — الحضور شغال', 'VALUNIVO — on shift'),
 'tracking_notif_text': ('بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف', 'Your location is shared during your shift only; it stops at check-out'),
 'checkin_reminder_minutes': ('تذكير الحضور بعد (دقيقة) — 0 = مفيش', 'Check-in reminder after (min) — 0 = off'),
 'tracking_enabled': ('متابعة المكان أثناء الشيفت (أندرويد)', 'In-shift location follow-up (Android)'),
