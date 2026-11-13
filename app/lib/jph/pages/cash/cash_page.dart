@@ -112,7 +112,8 @@ class _CashPageState extends State<CashPage> {
                       'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
                       'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
                       'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
-                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month, allMonths: widget.allMonths),
+                      _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month, allMonths: widget.allMonths,
+                          onGo: (t) => setState(() => _tab = t)),
                     },
                   ),
                 );
@@ -160,7 +161,8 @@ class _SummaryTab extends StatefulWidget {
   final Future<void> Function() onChanged;
   final ValueListenable<DateTime>? month;
   final ValueListenable<bool>? allMonths;
-  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged, this.month, this.allMonths});
+  final void Function(String tab)? onGo;
+  const _SummaryTab({required this.isDark, required this.summary, required this.onChanged, this.month, this.allMonths, this.onGo});
 
   @override
   State<_SummaryTab> createState() => _SummaryTabState();
@@ -198,44 +200,6 @@ class _SummaryTabState extends State<_SummaryTab> {
   Future<void> _refresh() async {
     await widget.onChanged();
     await _load();
-  }
-
-  Widget _box(BuildContext context, String key, Map<String, dynamic> b) {
-    final isDark = widget.isDark;
-    final bal = (b['bookBalance'] as num?) ?? 0;
-    final neg = bal < 0;
-    final inT = ((b['incomingTransfers'] as Map?) ?? const {});
-    final outT = ((b['outgoingTransfers'] as Map?) ?? const {});
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: JphUi.box(isDark),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          JphUi.iconTile(isDark, key == 'office' ? Icons.account_balance_rounded : Icons.badge_rounded, key == 'office' ? Ar.accent : Ar.green),
-          const SizedBox(width: 12),
-          Expanded(child: Text(_boxAr[key]!, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-        ]),
-        const SizedBox(height: 10),
-        Text('الرصيد الدفتري', style: TextStyle(color: JphUi.sub(isDark), fontWeight: FontWeight.w600)),
-        CountUpText(JphUi.money(bal), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: neg ? Ar.red : JphUi.text(isDark))),
-        if (key == 'hr' && ((b['deficit'] as num?) ?? 0) > 0)
-          Container(
-            margin: const EdgeInsets.only(top: 8),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Ar.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-            child: Text('عجز: مطلوب تحويل ${JphUi.money(b['deficit'])} من خزينة المكتب لتغطيته. الرصيد السالب مش فلوس موجودة — ده مبلغ مستحق بين الخزنتين.',
-                style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700)),
-          ),
-        const SizedBox(height: 10),
-        Wrap(spacing: 8, runSpacing: 6, children: [
-          if (((inT['count'] as num?) ?? 0) > 0) JphUi.chip('وارد في الطريق: ${JphUi.money(inT['amount'])}', Ar.info),
-          if (((outT['count'] as num?) ?? 0) > 0) JphUi.chip('صادر في الطريق: ${JphUi.money(outT['amount'])}', Ar.amber),
-          if (key == 'hr' && (((b['expensesAwaitingApproval'] as Map?)?['count'] as num?) ?? 0) > 0)
-            JphUi.chip('مصروفات مستنية موافقة: ${JphUi.money((b['expensesAwaitingApproval'] as Map)['amount'])}', Ar.accent),
-        ]),
-      ]),
-    );
   }
 
   /// tap a box → what is behind it
@@ -306,62 +270,18 @@ class _SummaryTabState extends State<_SummaryTab> {
     );
   }
 
-  Widget _tile(String label, Object? value, IconData icon, Color color, String? key, {bool money = true}) {
-    final box = JphUi.stat(widget.isDark, label, money ? JphUi.money(value) : '${value ?? 0}', icon, color);
-    if (key == null) return box;
-    return GestureDetector(onTap: () => _details(key, label), child: box);
-  }
-
-  Widget _section(String title) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-        child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: JphUi.text(widget.isDark))),
-      );
-
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     final summary = widget.summary;
     final can = ((summary['can'] as Map?) ?? const {}).cast<String, dynamic>();
-    final hr = ((_d['hr'] as Map?) ?? const {});
-    final mg = _d['management'] as Map?;
-    final week = ((hr['installmentsDueThisWeek'] as Map?) ?? const {});
-    final overdue = ((hr['overdueInstallments'] as Map?) ?? const {});
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         // the office's way: المتاح (بنك / نقدي مكتب / نقدي محاسب) → الدخل (عمولات، مبيعات، ضخ، أمانات) → المصروفات → الصافي
-        CashOverview(isDark: isDark, month: widget.month, allMonths: widget.allMonths, onChanged: _refresh),
-        if (summary['office'] is Map) _box(context, 'office', (summary['office'] as Map).cast<String, dynamic>()),
-        if (summary['hr'] is Map) _box(context, 'hr', (summary['hr'] as Map).cast<String, dynamic>()),
-        if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
-        if (!_loading && _d['success'] == true) ...[
-          _section('الشهر ده — دوس على أي مربع تشوف تفاصيله'),
-          JphUi.statGrid([
-            _tile('المرتبات المستحقة', hr['salariesDue'], Icons.payments_rounded, Ar.green, 'salaries'),
-            _tile('مرتبات اتصرفت', hr['salariesPaid'], Icons.price_check_rounded, Ar.green, 'salaries_paid'),
-            _tile('باقي من المرتبات', hr['salariesRemaining'], Icons.hourglass_bottom_rounded, Ar.amber, 'salaries'),
-            _tile('التحصيلات', hr['collections'], Icons.savings_rounded, Ar.green, 'collections'),
-            _tile('مصروفات خزنة المحاسب', hr['expenses'], Icons.receipt_long_rounded, Ar.amber, 'hr_expenses'),
-            _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Ar.accent, 'advances'),
-            _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Ar.amber, 'commissions_unpaid'),
-          ]),
-          _section('الأقساط'),
-          JphUi.statGrid([
-            _tile('مستحق خلال أسبوع (${week['count'] ?? 0})', week['amount'], Icons.event_available_rounded, Ar.info, 'installments_week'),
-            _tile('متأخر (${overdue['count'] ?? 0})', overdue['amount'], Icons.warning_amber_rounded, Ar.red, 'installments_overdue'),
-          ]),
-          if (mg != null) ...[
-            _section('الإدارة'),
-            JphUi.statGrid([
-              _tile('مصروفات المكتب', mg['officeExpenses'], Icons.receipt_rounded, Ar.amber, 'office_expenses'),
-              _tile('عمولات الشهر', mg['commissions'], Icons.workspace_premium_rounded, Ar.amber, 'commissions'),
-              _tile('حجز ومقدمات', mg['downPayments'], Icons.key_rounded, Ar.green, 'down_payments'),
-              _tile('أقساط اتحصلت', mg['installmentsCollected'], Icons.check_circle_rounded, Ar.green, 'installments_collected'),
-              _tile('باقي على الوحدات', mg['unitsRemaining'], Icons.home_work_rounded, Ar.accent, 'units_remaining'),
-              _tile('تحويلات مفتوحة', mg['transfersOpen'], Icons.swap_horiz_rounded, Ar.grey, 'transfers_open', money: false),
-            ]),
-          ],
-        ],
+        // الخزنة كلها في صفحة واحدة: السيولة → الإيرادات → المصروفات → تكلفة التشغيل → الصافي → الأرصدة → الموظفين → الحركات → الأقساط → الإدارة → الإجراءات
+        CashOverview(isDark: isDark, month: widget.month, allMonths: widget.allMonths, onChanged: _refresh,
+            dash: _loading ? null : _d, onDetails: (k, t) => _details(k, t), onGo: widget.onGo),
         if (can['settings'] == true) ...[
           const SizedBox(height: 18),
           OutlinedButton.icon(
@@ -733,23 +653,8 @@ class _TransfersTabState extends State<_TransfersTab> {
     await widget.onChanged();
   }
 
-  /// بين البنك وخزنة المكتب (نقل من البنك للنقدي، أو توريد كاش للبنك): the box's total stays the same.
   Future<void> _bankMove() async {
-    final isDark = widget.isDark;
-    final amount = TextEditingController(), note = TextEditingController();
-    var toBank = 0; // 0 = من البنك للخزنة, 1 = توريد للبنك
-    await _formSheet(context, isDark, 'البنك وخزنة المكتب', (setS) => [
-          JphUi.tabs(isDark, const [('من البنك للخزنة', Icons.payments_rounded), ('توريد للبنك', Icons.account_balance_rounded)], toBank,
-              (i) => setS(() => toBank = i)),
-          const SizedBox(height: 12),
-          Text(toBank == 1 ? 'كاش من خزنة المكتب بيتورّد في البنك — الإجمالي مش بيتغير.' : 'الرصيد الإجمالي مش بيتغير — بس الفلوس بتتنقل من رصيد البنك للنقدي.',
-              style: TextStyle(color: JphUi.sub(isDark))),
-          const SizedBox(height: 12),
-          JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-          const SizedBox(height: 14),
-          JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded, big: false),
-        ], () => _post('/cash/bank-moves', {'direction': toBank == 1 ? 'cash_to_bank' : 'bank_to_cash', 'amount': num.tryParse(amount.text.trim()),
-              'note': note.text.trim()}, ok: toBank == 1 ? 'اتورّدت الفلوس للبنك ✅' : 'اتنقلت الفلوس للنقدي ✅'));
+    await showBankMoveSheet(context, widget.isDark);
     await _load();
     await widget.onChanged();
   }
@@ -1675,3 +1580,22 @@ Future<void> cashFormSheet(BuildContext context, bool isDark, String title, List
 Widget cashSegmented(bool isDark, Map<String, String> options, String value, ValueChanged<String> onChanged) =>
     _segmented(isDark, options, value, onChanged);
 Widget cashBigButton(bool isDark, String label, IconData icon, VoidCallback onTap) => _bigButton(isDark, label, icon, onTap);
+
+  /// بين البنك وخزنة المكتب (نقل من البنك للنقدي، أو توريد كاش للبنك): the box's total stays the same.
+Future<void> showBankMoveSheet(BuildContext context, bool isDark) async {
+    final amount = TextEditingController(), note = TextEditingController();
+    var toBank = 0; // 0 = من البنك للخزنة, 1 = توريد للبنك
+    await _formSheet(context, isDark, 'البنك وخزنة المكتب', (setS) => [
+          JphUi.tabs(isDark, const [('من البنك للخزنة', Icons.payments_rounded), ('توريد للبنك', Icons.account_balance_rounded)], toBank,
+              (i) => setS(() => toBank = i)),
+          const SizedBox(height: 12),
+          Text(toBank == 1 ? 'كاش من خزنة المكتب بيتورّد في البنك — الإجمالي مش بيتغير.' : 'الرصيد الإجمالي مش بيتغير — بس الفلوس بتتنقل من رصيد البنك للنقدي.',
+              style: TextStyle(color: JphUi.sub(isDark))),
+          const SizedBox(height: 12),
+          JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
+          const SizedBox(height: 14),
+          JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded, big: false),
+        ], () => _post('/cash/bank-moves', {'direction': toBank == 1 ? 'cash_to_bank' : 'bank_to_cash', 'amount': num.tryParse(amount.text.trim()),
+              'note': note.text.trim()}, ok: toBank == 1 ? 'اتورّدت الفلوس للبنك ✅' : 'اتنقلت الفلوس للنقدي ✅'));
+}
+

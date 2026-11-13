@@ -61,6 +61,10 @@ test('each cashbox box opens its list; office lists stay with the management; HR
   assert.equal(adv.total, 3000);
   const d = (await h.call(c.t.hr, 'GET', '/finance/dashboard?month=2026-03')).body;
   assert.ok(typeof d.hr.salariesDue === 'number');
+  // تكلفة تشغيل الشهر = المصروفات الثابتة + المرتبات; paid + left = total
+  assert.equal(d.operating.total, Math.round((d.operating.fixed + d.operating.salaries) * 100) / 100);
+  assert.equal(d.operating.salaries, d.hr.salariesDue);
+  assert.ok(Math.abs(d.operating.paid + d.operating.remaining - d.operating.total) < 0.01 || d.operating.paid > d.operating.total);
   // the owner / manager never record money in the HR cashbox
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/expenses', { cashbox: 'hr', amount: 50, category: 'بوفيه', reason: 'شاي', beneficiary: 'البوفيه' })).status, 403);
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/receipts', { recipient: 'hr', kind: 'other', amount: 50, payerName: 'عميل', purpose: 'دفعة' })).status, 403);

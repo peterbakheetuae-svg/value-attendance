@@ -161,9 +161,9 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
   vals.length = 1;
   const exp = await q.query(`
     SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, x.sale_id IS NOT NULL AS refund, x.owner_draw_id IS NOT NULL AS draw,
-           sum(x.amount_egp) AS s, count(*)::int AS c
+           x.fixed_expense_id IS NOT NULL AS fixed, sum(x.amount_egp) AS s, count(*)::int AS c
       FROM cash_expenses x WHERE x.status = 'posted' AND x.cashbox = ANY($1::text[]) ${range('COALESCE(x.approved_at, x.occurred_at)')}
-     GROUP BY 1, 2, 3, 4, 5`, vals);
+     GROUP BY 1, 2, 3, 4, 5, 6`, vals);
   vals.length = 1;
   const pay = await q.query(`SELECT kind, sum(amount_egp) AS s FROM payouts WHERE status = 'received' AND kind <> 'fund' AND 'hr' = ANY($1::text[])
                                ${range('received_at')} GROUP BY kind`, vals);
@@ -181,6 +181,8 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     c.amount = r2(c.amount + N(x.s)); c.count += x.c; byCat.set(name, c);
   }
   const expensesTotal = r2([...byCat.values()].reduce((t, c) => t + c.amount, 0));
+  // المصروفات الثابتة (إيجار، أوفيس بوي، نت...) apart from the rest
+  const fixedTotal = r2(costsRows.filter((x) => x.fixed).reduce((t, x) => t + N(x.s), 0));
   const payroll = { salary: payK('salary'), commission: payK('commission'), advance: payK('advance'), workExpense: payK('work_expense') };
   const payrollTotal = r2(payroll.salary + payroll.commission + payroll.advance + payroll.workExpense);
 
@@ -193,7 +195,7 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
       commissionReceived: sumR((x) => x.kind === 'commission'),
       other: sumR((x) => ['settlement', 'other'].includes(x.kind)),
     },
-    expenses: { total: r2(expensesTotal + payrollTotal), payroll, payrollTotal, other: expensesTotal, ownerDraws,
+    expenses: { total: r2(expensesTotal + payrollTotal), payroll, payrollTotal, other: expensesTotal, fixed: fixedTotal, variable: r2(expensesTotal - fixedTotal), ownerDraws,
       byCategory: [...byCat.values()].sort((x, y) => y.amount - x.amount) },
   };
   if (office) {

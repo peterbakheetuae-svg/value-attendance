@@ -217,6 +217,13 @@ test('مصروفات ثابتة (once a month, the signed receipt photo after) a
   assert.equal((await h.call(c.t.owner, 'POST', `/cash/fixed-expenses/${f.body.fixed.id}/pay`, {})).status, 409, 'once a month');
   const list = await h.call(c.t.owner, 'GET', '/cash/fixed-expenses');
   assert.ok(list.body.fixed.every((x: any) => x.paid?.status === 'posted'));
+  // المصروفات الثابتة apart in the overview, and in the month's operating cost
+  const ovf = (await h.call(c.t.owner, 'GET', '/cash/overview')).body.expenses;
+  assert.equal(ovf.fixed, 20_500);
+  assert.equal(ovf.variable, Math.round((ovf.other - ovf.fixed) * 100) / 100);
+  const opx = (await h.call(c.t.owner, 'GET', '/finance/dashboard')).body.operating;
+  assert.equal(opx.fixed, 20_500);
+  assert.equal(opx.fixedPaid, 20_500);
   assert.equal((await h.call(c.t.owner, 'PATCH', `/cash/fixed-expenses/${f.body.fixed.id}`, { amount: 22_000 })).body.fixed.amount, 22_000);
   assert.equal((await h.call(c.t.e1, 'GET', '/cash/fixed-expenses')).status, 403);
   // the signed receipt's photo

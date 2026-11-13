@@ -110,8 +110,18 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         FROM lines`, [t]);
     const left = await one(db, `SELECT COALESCE(sum(left_amount), 0) AS s FROM (${UNITS_LEFT}) x`, []);
     const sal = await salaries(period);
+    // تكلفة تشغيل الشهر: the month's fixed expenses + the month's salaries; what was paid of them and what is left
+    const fx = await one(db, `SELECT COALESCE(sum(f.amount_egp), 0) AS total,
+        COALESCE(sum(f.amount_egp) FILTER (WHERE EXISTS (SELECT 1 FROM cash_expenses x WHERE x.fixed_expense_id = f.id AND x.fixed_period = $1
+                                                          AND x.status = 'posted')), 0) AS paid
+        FROM fixed_expenses f WHERE f.active`, [period]);
+    const salDue = r2(sal.reduce((x, y) => x + y.net, 0));
+    const salPaid = r2(sal.reduce((x, y) => x + Math.min(Math.max(y.paid, 0), Math.max(y.net, 0)), 0));
+    const opTotal = r2(n(fx.total) + salDue), opPaid = r2(n(fx.paid) + salPaid);
+    const operating = { fixed: r2(n(fx.total)), fixedPaid: r2(n(fx.paid)), salaries: salDue, salariesPaid: salPaid,
+      total: opTotal, paid: opPaid, remaining: r2(Math.max(opTotal - opPaid, 0)) };
     const out: Record<string, unknown> = {
-      currency: 'EGP', month: period.slice(0, 7), cash,
+      currency: 'EGP', month: period.slice(0, 7), cash, operating,
       hr: {
         salariesDue: r2(sal.reduce((x, y) => x + y.net, 0)), salariesPaid: r2(n(m.salaries_paid)),
         salariesRemaining: r2(sal.reduce((x, y) => x + Math.max(y.remaining, 0), 0)),
