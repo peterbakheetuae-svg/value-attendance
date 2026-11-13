@@ -39,7 +39,7 @@ function pct(b: Record<string, unknown>, k: string, def: number) {
 }
 
 /** Every unit of the given projects with what was collected / refunded and how many installments are fully paid. */
-async function loadUnits(q: Q, where: string, params: unknown[]) {
+async function loadUnits(q: Q, where: string, params: unknown[], allocate = true): Promise<any[]> {
   const rows = await q.query(`
     SELECT u.*, p.name AS project_name, p.owner_name, p.kind AS project_kind, s.full_name AS sales_name, cb.full_name AS contracted_by_name,
            p.developer_id, (SELECT d.name FROM developers d WHERE d.id = p.developer_id) AS developer_name,
@@ -64,7 +64,33 @@ async function loadUnits(q: Q, where: string, params: unknown[]) {
       FROM ex_units u JOIN commission_projects p ON p.id = u.project_id JOIN employees s ON s.id = u.sales_id
       LEFT JOIN employees cb ON cb.id = u.contracted_by LEFT JOIN marketing_companies mk ON mk.id = u.mk_company_id
      WHERE ${where} ORDER BY u.created_at DESC`, params);
-  return rows.rows.map(withCommission);
+  const units = rows.rows.map(withCommission);
+  // a commission moved to the office from the project's trust as a whole (not for one unit) pays the contracted units' commission,
+  // the oldest contract first — so «متبقي» / the unit's receivable drop once it reached خزنة العمولات
+  const pids = [...new Set(units.map((u) => u.project_id as string))];
+  if (allocate && pids.length) {
+    // over ALL the contracted units of these projects (a page may show one unit only)
+    const all = await loadUnits(q, `u.project_id = ANY($1::uuid[]) AND u.status = 'contracted'`, [pids], false);
+    const byId = new Map(units.map((u) => [u.id, u]));
+    const loose = await q.query(`SELECT project_id, sum(amount_egp) AS s FROM ex_commission_transfers
+                                  WHERE unit_id IS NULL AND project_id = ANY($1::uuid[]) GROUP BY 1`, [pids]);
+    for (const l of loose.rows) {
+      let left = n(l.s);
+      const at = (v: unknown) => (v ? new Date(v as any).getTime() : 0);
+      const mine = all.filter((u) => u.project_id === l.project_id && u.receivable > 0).sort((x, y) => at(x.contracted_at) - at(y.contracted_at));
+      for (const f of mine) {
+        if (left <= 0.001) break;
+        const take = r2(Math.min(left, f.receivable));
+        left = r2(left - take);
+        const u = byId.get(f.id);
+        if (u) {
+          u.commissionCollected = r2(u.commissionCollected + take);
+          u.receivable = r2(u.receivable - take);
+        }
+      }
+    }
+  }
+  return units;
 }
 
 /** The office's commission on a unit: earned so far, still to come from installments, and potential (reserved only). */

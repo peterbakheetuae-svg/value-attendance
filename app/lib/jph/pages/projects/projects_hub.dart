@@ -1253,7 +1253,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
     final c = _m(o!['commissions']);
     return [
       JphUi.statGrid([
-        _tile(isDark, 'عمولة مستحقة', c['due'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+        _tile(isDark, 'إجمالي العمولة المستحقة', c['due'], Icons.workspace_premium_rounded, Ar.amber.shade800),
         _tile(isDark, 'دخلت خزنة العمولات', c['collected'], Icons.savings_rounded, Ar.green),
         _tile(isDark, 'متبقي لم يتم أخذه', c['remaining'], Icons.hourglass_top_rounded, Ar.amber),
         _tile(isDark, 'جاية من أقساط لسه', c['upcoming'], Icons.event_repeat_rounded, Ar.accent),
@@ -1287,7 +1287,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
               ]),
               const SizedBox(height: 8),
               Row(children: [
-                Expanded(child: _mini(isDark, 'مستحقة', p['due'], Ar.amber.shade800)),
+                Expanded(child: _mini(isDark, 'الإجمالي', p['due'], Ar.amber.shade800)),
                 const SizedBox(width: 6),
                 Expanded(child: _mini(isDark, 'دخلت', p['collected'], Ar.green)),
                 const SizedBox(width: 6),

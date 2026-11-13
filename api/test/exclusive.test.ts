@@ -124,6 +124,14 @@ test('exclusive project: reservation → contract → collected → owner payout
   const col = await h.call(c.t.owner, 'POST', `/exclusive/units/${uid}/commission-collected`, { amount: 100_000 });
   assert.equal(col.status, 201, JSON.stringify(col.body));
   assert.equal(col.body.unit.commission.receivable, 50_000);
+  // a commission moved from the project's trust as a whole also lowers the unit's «متبقي» (and the cashbox's عمولات متبقية)
+  const mv = await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/commission-transfer`, { amount: 20_000 });
+  assert.equal(mv.status, 201, JSON.stringify(mv.body));
+  const afterMv = (await h.call(c.t.owner, 'GET', `/exclusive/units/${uid}`)).body.unit;
+  assert.equal(afterMv.commission.receivable, 30_000);
+  assert.equal(afterMv.commission.collected, 120_000);
+  const ovMv = (await h.call(c.t.owner, 'GET', '/cash/overview')).body;
+  assert.equal(ovMv.commissions.units.find((x: any) => x.id === uid).remaining, 30_000);
   assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/units/${uid}/commission-collected`, {})).body.unit.commission.receivable, 0, 'the rest');
   s = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`)).body.project.stats;
   assert.equal(s.commission.transferred, 150_000);
