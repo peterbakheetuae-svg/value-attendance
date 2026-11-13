@@ -6,6 +6,7 @@ import { date, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
 import { canHrOperate, canOffice, hrDesk, hrOperators } from './cash.ts';
 import { holdersOf, notify } from './notify.ts';
+import { leadForReservation, leadFromUnit } from './leads.ts';
 
 /**
  * المشاريع الحصري — see db/migrations/040_exclusive_projects.sql for the rules.
@@ -122,7 +123,7 @@ function shapeUnit(u: any, a: Actor) {
   const status = u.completed ? 'completed' : u.status;
   const mine = u.sales_id === a.id;
   return {
-    id: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
+    id: u.id, refNo: Number(u.ref_no), leadId: u.lead_id ?? null, projectId: u.project_id, projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
     marketingCompanyId: u.mk_company_id, marketingCompanyName: u.mk_name, marketingPct: canSeeAll(a) ? n(u.mk_pct) : undefined,
     expectedContractDate: u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null,
     depositMethod: u.deposit_method ?? null,
@@ -554,6 +555,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         first_due_date = $6, installment_pct = $7, contract_note = $8, contract_requested_at = COALESCE(contract_requested_at, $9),
         contracted_by = $10, contracted_at = $9, reject_reason = NULL WHERE id = $1`,
       [u.id, type, down, count, every, first, instPct, note, now, a.id]);
+    await leadFromUnit(q, u.id, 'contract', a.id, now);
     if (type === 'installments') {
       for (const i of schedule(price, down, count!, every!, first!)) {
         await q.query(`INSERT INTO ex_installments (unit_id, seq, due_date, amount_egp) VALUES ($1,$2,$3,$4)`, [u.id, i.seq, i.due, i.amount]);
@@ -654,7 +656,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     // «التاريخ المتوقع للتعاقد»: the expected commission falls in that month
     const expected = contract ? null : date(b, 'expectedContractDate', true) ?? null;
     if (expected && expected < local(clock()).date) throw invalid('التاريخ المتوقع للتعاقد لازم يكون النهارده أو بعده', { field: 'expectedContractDate' });
+    const leadId = typeof b.leadId === 'string' && isUuid(b.leadId) ? b.leadId : null;
     const u = await db.tx(async (q) => {
+      // «حجز» from a lead: the lead's salesman reserves for him (the lead shows the reservation, its deposit, the contract)
+      const lead = leadId ? await leadForReservation(q, a, leadId) : null;
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
       if (!p || p.status !== 'active') throw invalid('المشروع ده مش بيستقبل حجوزات دلوقتي', { field: 'projectId' });
       const exclusive = p.kind === 'exclusive';
@@ -679,6 +684,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (expected) await q.query(`UPDATE ex_units SET expected_contract_date = $2 WHERE id = $1`, [x.id, expected]);
       await saveForm(q, x.id, formFields(b), price);
       if (inv) await q.query(`UPDATE ex_units SET inventory_id = $2 WHERE id = $1`, [x.id, inv.id]);
+      if (lead) {
+        await q.query(`UPDATE ex_units SET lead_id = $2 WHERE id = $1`, [x.id, lead.id]);
+        if (!contract) await leadFromUnit(q, x.id, 'reserved', a.id, clock()); // a direct contract tells the lead in makeContract
+      }
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       // a direct contract: the deposit is part of its down payment (one pending payment for the whole of it)
       if (exclusive && deposit > 0 && !contract) await requestPayment(q, a, x, p.name, 'reservation', deposit, method);
@@ -735,7 +744,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
           external_no, notes, occurred_at, recorded_by, ex_unit_id, ex_installment_id)
         VALUES ($1,$2,$13,$3,$4,$5,$6,$7,$8,$9,$12,$3,$10,$11) RETURNING id, ref_no`,
         [kind, amount, a.id, u.client_name, u.client_phone, `${KIND_AR[kind]} — ${p.name} — وحدة ${u.unit_no}`, method, externalNo, notes, u.id, instId, clock(), box]);
-      if (kind === 'reservation' && u.status === 'reserving') await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
+      if (kind === 'reservation' && u.status === 'reserving') {
+        await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
+        await leadFromUnit(q, u.id, 'deposit', a.id, clock());
+      }
       await audit(q, a.id, 'exclusive.receipt', 'cash_receipt', rc.id, undefined, { unitId: u.id, kind, amount, method, installmentId: instId });
       await notify(q, { to: u.sales_id, type: 'exclusive_payment', title: `اتسجل ${KIND_AR[kind]}: ${fmt(amount)}`,
         body: `${p.name} — وحدة ${u.unit_no} — ${u.client_name}`, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:receipt:${rc.id}` });
@@ -897,6 +909,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
                                     AND status IN ('pending','approved')`, [u.project_id, u.unit_no]);
       if (live) {
         await q.query(`UPDATE ex_units SET status = 'contracted', contracted_by = $2, contracted_at = $3, commission_request_id = $4 WHERE id = $1`, [u.id, a.id, now, live.id]);
+        await leadFromUnit(q, u.id, 'contract', a.id, now);
         await audit(q, a.id, 'exclusive.contract.approve', 'ex_unit', u.id, undefined, { commissionRequestId: live.id, existing: true });
         await notify(q, { to: u.sales_id, type: 'exclusive_contract_approved', title: `اتوافق على التعاقد: وحدة ${u.unit_no}`,
           body: p.name, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:${u.id}:contract:approved` });
@@ -916,6 +929,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
           [cr.id, smId, cr.manager_amount, period, now]);
       }
       await q.query(`UPDATE ex_units SET status = 'contracted', contracted_by = $2, contracted_at = $3, commission_request_id = $4 WHERE id = $1`, [u.id, a.id, now, cr.id]);
+      await leadFromUnit(q, u.id, 'contract', a.id, now);
       await audit(q, a.id, 'exclusive.contract.approve', 'ex_unit', u.id, undefined, { commissionRequestId: cr.id, period });
       await notify(q, { to: u.sales_id, type: 'exclusive_contract_approved', title: `اتوافق على التعاقد: وحدة ${u.unit_no} — عمولتك ${fmt(n(cr.sales_amount))}`,
         body: `${p.name} — هتنزل في مرتب ${period.slice(0, 7)}`, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:${u.id}:contract:approved` });
@@ -964,6 +978,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       } else {
         await q.query(`UPDATE ex_units SET status = 'cancelled', cancelled_by = $2, cancelled_at = now() WHERE id = $1`, [u.id, a.id]);
         await q.query(`UPDATE ex_payments SET status = 'cancelled' WHERE unit_id = $1 AND status = 'pending'`, [u.id]);
+        await leadFromUnit(q, u.id, 'cancel', a.id, clock());
         const paid = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE ex_unit_id = $1 AND status = 'posted'`, [u.id]);
         if (n(paid.s) > 0) {
           for (const m of await holdersOf(q, 'cash.hr_operate')) {
@@ -1037,7 +1052,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         [x.kind, x.amount_egp, box, a.id, u.client_name, u.client_phone, `${KIND_AR[x.kind]} — ${p.name} — وحدة ${u.unit_no}`, chosen ?? x.payment_method, now, u.id]);
       if (chosen) await q.query(`UPDATE ex_payments SET payment_method = $2 WHERE id = $1`, [x.id, chosen]);
       await q.query(`UPDATE ex_payments SET status = 'received', received_by = $2, received_at = $3, receipt_id = $4 WHERE id = $1`, [x.id, a.id, now, rc.id]);
-      if (x.kind === 'reservation' && u.status === 'reserving') await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
+      if (x.kind === 'reservation' && u.status === 'reserving') {
+        await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
+        await leadFromUnit(q, u.id, 'deposit', a.id, now);
+      }
       await audit(q, a.id, 'exclusive.payment.receive', 'ex_payment', x.id, undefined, { receiptId: rc.id, box, amount: n(x.amount_egp) });
       await notify(q, { to: u.sales_id, type: 'exclusive_payment', title: `اتأكد استلام ${KIND_AR[x.kind]}: ${fmt(n(x.amount_egp))}`,
         body: `${p.name} — وحدة ${u.unit_no}${x.kind === 'reservation' ? ' — تقدر تحوّل الحجز لتعاقد' : ''}`, entity: 'ex_unit', entityId: u.id,

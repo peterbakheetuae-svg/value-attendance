@@ -17,7 +17,7 @@ import { scheduleFor } from './attendance.ts';
  * `dryRun: true` (the default) only matches the old employees to the current ones and reports; nothing changes.
  */
 const WIPE = [
-  'cash_attachments',
+  'cash_attachments', 'tasks', 'lead_referrals', 'lead_logs', 'lead_actions', 'leads', 'lead_campaigns',
   'attendance_breaks', 'attendance_corrections', 'attendance_selfies', 'attendance', 'tracking_pings', 'tracking_state',
   'request_actions', 'requests', 'outing_requests', 'notifications', 'kpi_results', 'evaluations',
   'salary_adjustments', 'advance_deductions', 'payouts', 'advance_requests', 'payroll_batch_lines', 'payroll_batches',
