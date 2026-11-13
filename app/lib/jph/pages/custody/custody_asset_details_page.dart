@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -52,7 +53,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       );
 
-  Future<void> _sheet(bool isDark, String title, List<Widget> Function(StateSetter set) body) => showModalBottomSheet(
+  Future<void> _sheet(bool isDark, String title, List<Widget> Function(StateSetter set) body) => showAppSheet(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,

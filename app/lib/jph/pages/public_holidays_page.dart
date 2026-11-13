@@ -1,3 +1,4 @@
+import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -252,7 +253,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
     final isDark = appController.isDark;
     final uniqueTypes = _getUniqueHolidayTypes();
 
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

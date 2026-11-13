@@ -1,3 +1,4 @@
+import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
@@ -275,7 +276,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     final appController = Provider.of<AppController>(context, listen: false);
     final isDark = appController.isDark;
 
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

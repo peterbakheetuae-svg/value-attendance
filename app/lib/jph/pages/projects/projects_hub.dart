@@ -332,7 +332,7 @@ class _ProjectsListState extends State<ProjectsList> {
   }
 
   Future<void> _openProject(Map<String, dynamic> p) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}')));
+    await pushSide(context, ExclusiveProjectPage(projectId: '${p['id']}'));
     _load();
   }
 
@@ -698,7 +698,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
     final inst = _m(x['installments']);
     return GestureDetector(
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${x['id']}')));
+        await pushSide(context, ExclusiveUnitPage(unitId: '${x['id']}'));
         _load();
       },
       child: Container(
@@ -795,7 +795,7 @@ class _OwnersPageState extends State<OwnersPage> {
                             title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                             subtitle: Text('مستحق ${_money(p['due'])}', style: TextStyle(color: JphUi.sub(isDark))),
                             trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}')))
+                            onTap: () => pushSide(context, ExclusiveProjectPage(projectId: '${p['id']}'))
                                 .then((_) => _load()),
                           ),
                       ]),
@@ -934,7 +934,7 @@ class _ClientsPageState extends State<ClientsPage> {
                           radius: 18,
                           padding: const EdgeInsets.all(14),
                           onTap: u['source'] == 'unit'
-                              ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load())
+                              ? () => pushSide(context, ExclusiveUnitPage(unitId: '${u['id']}')).then((_) => _load())
                               : null,
                           child: Row(children: [
                             JphUi.iconTile(isDark, Icons.person_rounded, _clientColor('${u['status']}')),
@@ -1211,7 +1211,7 @@ class _ProjectTrustPageState extends _OverviewPageState<ProjectTrustPage> {
               subtitle: Text('${u['statusAr']} · دفع ${_money(_m(u['money'])['collected'])} من ${_money(u['unitPrice'])}',
                   style: TextStyle(color: JphUi.sub(isDark))),
               trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+              onTap: () => pushSide(context, ExclusiveUnitPage(unitId: '${u['id']}')).then((_) => load()),
             ),
         ]),
       _section(isDark, 'كشف حساب المالك${month == null ? '' : ' — ${monthLabel(month)}'}', [
@@ -1343,7 +1343,7 @@ class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissio
               subtitle: Text('${u['clientName']} · ${u['salesName']}${u['expectedContractDate'] != null ? ' · تعاقد متوقع ${_date(u['expectedContractDate'])}' : ''}',
                   style: TextStyle(color: JphUi.sub(isDark))),
               trailing: CountUpText(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.accent)),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+              onTap: () => pushSide(context, ExclusiveUnitPage(unitId: '${u['id']}')).then((_) => load()),
             ),
         ]),
     ];
@@ -1511,7 +1511,7 @@ class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissions
         Padding(padding: const EdgeInsets.all(30), child: Text('مفيش وحدات متعاقد عليها لسه', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
       for (final u in units)
         GestureDetector(
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
+          onTap: () => pushSide(context, ExclusiveUnitPage(unitId: '${u['id']}')).then((_) => load()),
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(14),
@@ -1823,7 +1823,7 @@ class _DeveloperPageState extends State<DeveloperPage> {
                           textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
                     for (final p in _l(k['list']))
                       GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}'))).then((_) => _load()),
+                        onTap: () => pushSide(context, ExclusiveProjectPage(projectId: '${p['id']}')).then((_) => _load()),
                         child: Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.all(14),

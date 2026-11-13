@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
@@ -233,7 +234,7 @@ class _PositionsPageState extends State<PositionsPage> {
     String base = 'sales_employee';
     bool active = r?['active'] != false;
     final isDark = Provider.of<AppController>(context, listen: false).isDark;
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

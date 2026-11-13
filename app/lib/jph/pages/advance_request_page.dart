@@ -1,3 +1,4 @@
+import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:convert';
@@ -941,7 +942,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   }
 
   void _openRequestTypeSheet(bool isDark) {
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -1077,7 +1078,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
       currentMonthIndex = DateTime.now().month - 1;
     }
 
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'glass_ui.dart';
 
@@ -158,7 +159,7 @@ class JphUi {
   static Future<T?> sheet<T>(BuildContext context, bool isDark, String title, List<(T, String, IconData?)> options,
       {T? selected, IconData? icon, Color? color}) {
     final c = color ?? primary(isDark);
-    return showModalBottomSheet<T>(
+    return showAppSheet<T>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -228,7 +229,7 @@ class JphUi {
 
   /// Month filter — the same sheet as تقرير الحضور.
   static Future<DateTime?> pickMonth(BuildContext context, bool isDark, DateTime current) {
-    return showModalBottomSheet<DateTime>(
+    return showAppSheet<DateTime>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -245,7 +246,7 @@ class JphUi {
   static final DateTime allMonths = DateTime(1);
   static Future<DateTime?> pickMonthOrAll(BuildContext context, bool isDark, DateTime? current) {
     final c = current ?? DateTime.now();
-    return showModalBottomSheet<DateTime>(
+    return showAppSheet<DateTime>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -262,7 +263,7 @@ class JphUi {
 
   /// Date range filter — the same sheet as تقرير الحضور.
   static Future<DateTimeRange?> pickRange(BuildContext context, bool isDark, DateTime start, DateTime end) {
-    return showModalBottomSheet<DateTimeRange>(
+    return showAppSheet<DateTimeRange>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -259,7 +260,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     final addr = TextEditingController(text: '${_company['address'] ?? ''}');
     final phone = TextEditingController(text: '${_company['phone'] ?? ''}');
     final email = TextEditingController(text: '${_company['email'] ?? ''}');
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -290,7 +291,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     final radius = TextEditingController(text: '${o?['radius_m'] ?? 100}');
     LatLng? pick = o == null ? null : LatLng((o['lat'] as num).toDouble(), (o['lng'] as num).toDouble());
     bool active = o?['active'] != false;
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

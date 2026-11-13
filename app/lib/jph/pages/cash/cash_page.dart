@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' as ui;
@@ -241,7 +242,7 @@ class _SummaryTabState extends State<_SummaryTab> {
   Future<void> _details(String key, String title) async {
     final isDark = widget.isDark;
     final future = _get('/finance/dashboard/details', {'key': key, 'month': _ym(_month)});
-    await showModalBottomSheet<void>(
+    await showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -533,7 +534,7 @@ Widget _segmented(bool isDark, Map<String, String> options, String value, ValueC
 Future<void> _formSheet(BuildContext context, bool isDark, String title, List<Widget> Function(StateSetter setS) fields,
     Future<Map<String, dynamic>> Function() submit) {
   bool saving = false;
-  return showModalBottomSheet(
+  return showAppSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

@@ -1,3 +1,4 @@
+import '../jph/widgets/side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'glass.dart';
@@ -57,7 +58,7 @@ class GlassPage extends StatelessWidget {
 
 /// Bottom sheet in the original dialog style (glass card, radius 20).
 Future<T?> showGlassSheet<T>(BuildContext context, {required String title, required Widget child}) {
-  return showModalBottomSheet<T>(
+  return showAppSheet<T>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

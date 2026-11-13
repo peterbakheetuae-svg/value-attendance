@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
@@ -20,7 +21,7 @@ class CompanySelectorSheet extends StatelessWidget {
 
   /// Shows the sheet as a modal bottom sheet.
   static Future<void> show(BuildContext context) {
-    return showModalBottomSheet(
+    return showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

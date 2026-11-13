@@ -1,3 +1,4 @@
+import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:convert';
@@ -1049,7 +1050,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
   }
 
   void _openLeaveTypeSheet(bool isDark) {
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -1185,7 +1186,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
     DateTime tmpFrom = _fromDate ?? DateTime.now();
     DateTime tmpTo = _toDate ?? DateTime.now();
 
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

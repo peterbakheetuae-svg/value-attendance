@@ -1,4 +1,5 @@
 // lib/pages/financial/financial_summary.dart
+import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
@@ -336,7 +337,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
     // جلب أنواع الطلبات المميزة
     final uniqueTypes = _getUniqueRequestTypes();
 
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,

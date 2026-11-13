@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -812,7 +813,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     }
 
     if (isMonthly) {
-      showModalBottomSheet(
+      showAppSheet(
         context: context,
         backgroundColor: Colors.transparent,
         isScrollControlled: true,
@@ -834,7 +835,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
         },
       );
     } else {
-      showModalBottomSheet(
+      showAppSheet(
         context: context,
         backgroundColor: Colors.transparent,
         isScrollControlled: true,

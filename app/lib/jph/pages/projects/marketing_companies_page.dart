@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -46,7 +47,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
     String status = '${c?['status'] ?? 'active'}';
     final name = TextEditingController(text: '${c?['name'] ?? ''}'), phone = TextEditingController(text: '${c?['phone'] ?? ''}'),
         pct = TextEditingController(text: '${c?['defaultPct'] ?? ''}'), fee = TextEditingController(text: '${c?['monthlyFee'] ?? ''}');
-    await showModalBottomSheet<void>(
+    await showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

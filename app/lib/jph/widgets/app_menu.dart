@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -166,7 +167,7 @@ class AppMenu {
   // ------------------------------------------------------------------ «المزيد» (the phone)
   static Future<void> showMore(BuildContext context) {
     final active = activeKey(context);
-    return showModalBottomSheet(
+    return showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

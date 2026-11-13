@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -238,7 +239,7 @@ class _CashOverviewState extends State<CashOverview> {
       );
 
   // ------------------------------------------------------------------ the details sheets
-  Future<void> _sheet(bool isDark, String title, List<Widget> rows) => showModalBottomSheet<void>(
+  Future<void> _sheet(bool isDark, String title, List<Widget> rows) => showAppSheet<void>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
@@ -332,7 +333,7 @@ class _CashOverviewState extends State<CashOverview> {
     Map<String, dynamic>? project;
     String method = 'bank_transfer';
     final amount = TextEditingController(), payer = TextEditingController(), unit = TextEditingController();
-    await showModalBottomSheet<void>(
+    await showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -402,7 +403,7 @@ Future<void> showInjectSheet(BuildContext context, bool isDark) async {
     String target = 'office';
     final amount = TextEditingController(), note = TextEditingController();
     final ref = newClientRef(); // pressing the button twice records one injection
-    await showModalBottomSheet<void>(
+    await showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -493,7 +494,7 @@ class _InjectionsTabState extends State<InjectionsTab> {
   Future<void> _shares(bool isDark) async {
     final owners = _l(_d?['owners']);
     final ctrls = {for (final o in owners) '${o['id']}': TextEditingController(text: _n(o['pct']) == 0 ? '' : '${o['pct']}')};
-    await showModalBottomSheet<void>(
+    await showAppSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

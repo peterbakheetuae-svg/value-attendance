@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -83,7 +84,7 @@ Future<Map<String, dynamic>?> pickCustodyAsset(BuildContext context, bool isDark
     return null;
   }
   assets.sort((a, b) => '${b['assetType']}'.compareTo('${a['assetType']}')); // mobile before laptop
-  return showModalBottomSheet<Map<String, dynamic>>(
+  return showAppSheet<Map<String, dynamic>>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

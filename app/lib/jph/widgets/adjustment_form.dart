@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -103,7 +104,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
     String? comment;
     if (!approve) {
       final c = TextEditingController();
-      final ok = await showModalBottomSheet<bool>(
+      final ok = await showAppSheet<bool>(
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,

@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -109,7 +110,7 @@ Future<bool> _addSheet(BuildContext context, bool isDark, String type) async {
   final laptop = type == 'laptop';
   var saving = false;
   final accKeys = laptop ? const ['charger', 'cable', 'bag', 'mouse', 'other'] : const ['charger', 'cable', 'case', 'headset', 'other'];
-  final ok = await showModalBottomSheet<bool>(
+  final ok = await showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

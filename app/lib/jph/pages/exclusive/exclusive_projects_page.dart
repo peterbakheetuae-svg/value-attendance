@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -137,7 +138,7 @@ Widget _pill(String t, Color c) => Container(
 /// A bottom sheet with fields and one save button; returns true when saved.
 Future<bool> _form(BuildContext context, bool isDark, String title, List<Widget> Function(StateSetter set) fields,
     Future<bool> Function() save, {String saveLabel = 'حفظ'}) async {
-  final r = await showModalBottomSheet<bool>(
+  final r = await showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -266,7 +267,7 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
     final u = _m(st['units']), cm = _m(st['commission']), ow = _m(st['owner']);
     return GestureDetector(
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveProjectPage(projectId: '${p['id']}')));
+        await pushSide(context, ExclusiveProjectPage(projectId: '${p['id']}'));
         _load();
       },
       child: Container(
@@ -1123,7 +1124,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final st = '${x['status']}';
     return GestureDetector(
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${x['id']}')));
+        await pushSide(context, ExclusiveUnitPage(unitId: '${x['id']}'));
         _load();
       },
       child: Container(

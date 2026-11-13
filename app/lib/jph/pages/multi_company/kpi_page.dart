@@ -1,3 +1,4 @@
+import '../../widgets/side_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
@@ -252,7 +253,7 @@ class _PositionsTabState extends State<_PositionsTab> {
     final name = TextEditingController();
     String type = 'count';
     bool higher = true;
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -280,7 +281,7 @@ class _PositionsTabState extends State<_PositionsTab> {
       for (final i in current) '${i['kpiId']}': (TextEditingController(text: _num(i['weight'])), TextEditingController(text: _num(i['target']))),
     };
     String? error;
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -579,7 +580,7 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
     final actual = TextEditingController(text: i['actual'] == null ? '' : _num(i['actual']));
     String state = i['state'] == 'below_target' ? 'completed' : '${i['state']}';
     if (state == 'not_evaluated') state = 'in_progress';
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -688,7 +689,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
   }
 
   Future<void> _show(Map<String, dynamic> e) async {
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -731,7 +732,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
     final scores = <String, int>{for (final k in _dims.keys) k: 3};
     final feedback = TextEditingController();
     final plan = TextEditingController();
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

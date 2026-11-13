@@ -1,3 +1,4 @@
+import 'side_sheet.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -281,7 +282,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
     if (asset == null || !mounted) return;
     final notes = TextEditingController();
     String cond = 'good';
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => _sheet(ctx, 'تسليم عهدة', [
             CustodyAssetCard(asset: asset, isDark: isDark),
@@ -305,7 +306,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
   Future<void> _close(Map<String, dynamic> it) async {
     String outcome = 'returned', cond = 'good';
     final notes = TextEditingController();
-    await showModalBottomSheet(
+    await showAppSheet(
       context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(builder: (ctx, set) => _sheet(ctx, 'استلام العهدة: ${it['asset_name']}', [
             SegmentedButton<String>(
