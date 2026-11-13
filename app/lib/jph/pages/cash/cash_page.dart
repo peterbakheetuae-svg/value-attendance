@@ -733,17 +733,23 @@ class _TransfersTabState extends State<_TransfersTab> {
     await widget.onChanged();
   }
 
-  /// نقل أموال من البنك إلى خزنة المكتب: the box's total stays, only its bank part becomes cash.
+  /// بين البنك وخزنة المكتب (نقل من البنك للنقدي، أو توريد كاش للبنك): the box's total stays the same.
   Future<void> _bankMove() async {
     final isDark = widget.isDark;
     final amount = TextEditingController(), note = TextEditingController();
-    await _formSheet(context, isDark, 'نقل أموال من البنك إلى خزنة المكتب', (setS) => [
-          Text('الرصيد الإجمالي مش بيتغير — بس الفلوس بتتنقل من رصيد البنك للنقدي.', style: TextStyle(color: JphUi.sub(isDark))),
+    var toBank = 0; // 0 = من البنك للخزنة, 1 = توريد للبنك
+    await _formSheet(context, isDark, 'البنك وخزنة المكتب', (setS) => [
+          JphUi.tabs(isDark, const [('من البنك للخزنة', Icons.payments_rounded), ('توريد للبنك', Icons.account_balance_rounded)], toBank,
+              (i) => setS(() => toBank = i)),
+          const SizedBox(height: 12),
+          Text(toBank == 1 ? 'كاش من خزنة المكتب بيتورّد في البنك — الإجمالي مش بيتغير.' : 'الرصيد الإجمالي مش بيتغير — بس الفلوس بتتنقل من رصيد البنك للنقدي.',
+              style: TextStyle(color: JphUi.sub(isDark))),
           const SizedBox(height: 12),
           JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
           const SizedBox(height: 14),
           JphUi.input(isDark: isDark, label: 'ملاحظة', controller: note, icon: Icons.notes_rounded, big: false),
-        ], () => _post('/cash/bank-moves', {'amount': num.tryParse(amount.text.trim()), 'note': note.text.trim()}, ok: 'اتنقلت الفلوس للنقدي ✅'));
+        ], () => _post('/cash/bank-moves', {'direction': toBank == 1 ? 'cash_to_bank' : 'bank_to_cash', 'amount': num.tryParse(amount.text.trim()),
+              'note': note.text.trim()}, ok: toBank == 1 ? 'اتورّدت الفلوس للبنك ✅' : 'اتنقلت الفلوس للنقدي ✅'));
     await _load();
     await widget.onChanged();
   }
@@ -820,7 +826,7 @@ class _TransfersTabState extends State<_TransfersTab> {
             child: OutlinedButton.icon(
               onPressed: _bankMove,
               icon: const Icon(Icons.account_balance_rounded),
-              label: const Text('نقل أموال من البنك إلى خزنة المكتب', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
+              label: const Text('البنك ⇄ خزنة المكتب (نقل / توريد)', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
               style: OutlinedButton.styleFrom(side: BorderSide(color: JphUi.primary(isDark), width: 1.4),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
             ),
@@ -828,15 +834,15 @@ class _TransfersTabState extends State<_TransfersTab> {
         ],
         const SizedBox(height: 16),
         if (_moves.isNotEmpty) ...[
-          Text('نقل من البنك للنقدي', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          Text('حركات البنك والخزنة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
           const SizedBox(height: 6),
           for (final m in _moves.take(10))
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
-                const Icon(Icons.account_balance_rounded, color: Ar.green, size: 20),
+                Icon(m['direction'] == 'cash_to_bank' ? Icons.account_balance_rounded : Icons.payments_rounded, color: Ar.green, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text('${m['byName']} · ${'${m['at'] ?? ''}'.length >= 10 ? '${m['at']}'.substring(0, 10) : ''}${'${m['note'] ?? ''}'.isEmpty ? '' : ' · ${m['note']}'}',
+                Expanded(child: Text('${m['direction'] == 'cash_to_bank' ? 'توريد للبنك' : 'من البنك للخزنة'} · ${m['byName']} · ${'${m['at'] ?? ''}'.length >= 10 ? '${m['at']}'.substring(0, 10) : ''}${'${m['note'] ?? ''}'.isEmpty ? '' : ' · ${m['note']}'}',
                     style: TextStyle(color: JphUi.sub(isDark)))),
                 CountUpText(JphUi.money(m['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),

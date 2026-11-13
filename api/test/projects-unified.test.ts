@@ -207,6 +207,13 @@ test('مصروفات ثابتة (once a month, the signed receipt photo after) a
   assert.equal(after.total, before.total);
   assert.equal(after.bank, before.bank - 10_000);
   assert.equal(after.office.cash, before.office.cash + 10_000);
+  // توريد كاش للبنك: the other way, never more than the office's cash
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/bank-moves', { direction: 'cash_to_bank', amount: after.office.cash + 1 })).status, 400);
+  assert.equal((await h.call(c.t.owner, 'POST', '/cash/bank-moves', { direction: 'cash_to_bank', amount: 4_000 })).status, 201);
+  const dep = (await h.call(c.t.owner, 'GET', '/cash/overview')).body.available;
+  assert.equal(dep.total, before.total);
+  assert.equal(dep.bank, after.bank + 4_000);
+  assert.equal(dep.office.cash, after.office.cash - 4_000);
   // المدير العام can ask for money to go to the accountant too
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/transfers', { direction: 'office_to_hr', amount: 500, reason: 'مصاريف' })).status, 201);
 });

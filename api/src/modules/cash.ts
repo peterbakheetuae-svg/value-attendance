@@ -133,6 +133,15 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
       office: { total: boxBal('office'), cash: officeCash, bank: boxBank('office') },
     });
   }
+  if (office) {
+    const held = await one(q, `SELECT
+        COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r JOIN ex_units u ON u.id = r.ex_unit_id JOIN commission_projects p ON p.id = u.project_id
+                   WHERE r.status = 'posted' AND p.kind = 'exclusive'), 0)
+      - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND ex_kind IS NOT NULL), 0)
+      - COALESCE((SELECT sum(amount_egp) FROM ex_commission_transfers), 0) AS s`);
+    const trust = r2(N(held.s));
+    Object.assign(available, { trust, afterTrust: r2(N(available.total) - trust) });
+  }
   // the period (Cairo days)
   const vals: unknown[] = [boxes];
   const range = (col: string) => {
@@ -151,15 +160,17 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
   const isSale = (x: any) => ['reservation', 'down_payment', 'installment'].includes(x.kind);
   vals.length = 1;
   const exp = await q.query(`
-    SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, sum(x.amount_egp) AS s, count(*)::int AS c
+    SELECT x.category, x.ex_kind, x.marketing_company_id IS NOT NULL AS mk, x.sale_id IS NOT NULL AS refund, sum(x.amount_egp) AS s, count(*)::int AS c
       FROM cash_expenses x WHERE x.status = 'posted' AND x.cashbox = ANY($1::text[]) ${range('COALESCE(x.approved_at, x.occurred_at)')}
-     GROUP BY 1, 2, 3`, vals);
+     GROUP BY 1, 2, 3, 4`, vals);
   vals.length = 1;
   const pay = await q.query(`SELECT kind, sum(amount_egp) AS s FROM payouts WHERE status = 'received' AND kind <> 'fund' AND 'hr' = ANY($1::text[])
                                ${range('received_at')} GROUP BY kind`, vals);
   const payK = (k: string) => r2(N(pay.rows.find((x) => x.kind === k)?.s));
   const trustOut = r2(exp.rows.filter((x) => x.ex_kind).reduce((t, x) => t + N(x.s), 0));
-  const costsRows = exp.rows.filter((x) => !x.ex_kind);
+  // a sold unit's refund (استرداد وحدة) gives the client his own money back: not a cost of the office
+  const salesRefunds = r2(exp.rows.filter((x) => !x.ex_kind && x.refund).reduce((t, x) => t + N(x.s), 0));
+  const costsRows = exp.rows.filter((x) => !x.ex_kind && !x.refund);
   const byCat = new Map<string, { name: string; amount: number; count: number }>();
   for (const x of costsRows) {
     const name = x.mk ? 'شركة تسويق' : String(x.category).trim();
@@ -174,7 +185,7 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     from, to, available,
     income: {
       sales: { total: sumR(isSale), reservation: sumR((x) => x.kind === 'reservation'), contract: sumR((x) => x.kind === 'down_payment'),
-        installment: sumR((x) => x.kind === 'installment') },
+        installment: sumR((x) => x.kind === 'installment'), refunded: salesRefunds },
       injection: sumR((x) => x.kind === 'injection'),
       commissionReceived: sumR((x) => x.kind === 'commission'),
       other: sumR((x) => ['settlement', 'other'].includes(x.kind)),
@@ -770,21 +781,26 @@ export const cashModule: Module = (r, { db, clock }) => {
       amount: Number(m.amount_egp), note: m.note, at: m.created_at, byName: m.by_name })) });
   });
 
+  /** بين البنك والنقدي في خزنة المكتب: نقل من البنك للخزنة، أو توريد كاش للبنك — the box's total stays the same. */
   r.post('/cash/bank-moves', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('نقل الفلوس من البنك للمالك / المدير العام');
+    if (!canOffice(a)) throw forbidden('نقل الفلوس بين البنك والخزنة للمالك / المدير العام');
     const b = obj(req.body);
+    const direction = oneOf(b, 'direction', ['bank_to_cash', 'cash_to_bank'] as const, true) ?? 'bank_to_cash';
     const amount = money(b);
     const note = (str(b, 'note', { optional: true, max: 500 }) ?? '').trim();
     const row = await db.tx(async (q) => {
-      const bank = await one(q, `SELECT
+      const s = await one(q, `SELECT
           COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE cashbox = 'office' AND status = 'posted' AND payment_method <> 'cash'), 0)
         - COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE cashbox = 'office' AND status = 'posted' AND payment_method = 'bank'), 0)
-        - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves WHERE cashbox = 'office'), 0) AS s`);
-      if (amount > Number(bank.s) + 0.001) throw invalid(`رصيد البنك ${fmt(Number(bank.s))} بس`, { field: 'amount' });
-      const x = await one(q, `INSERT INTO cash_bank_moves (cashbox, direction, amount_egp, note, created_by, created_at) VALUES ('office','bank_to_cash',$1,$2,$3,$4)
-                               RETURNING id, ref_no`, [amount, note, a.id, clock()]);
-      await audit(q, a.id, 'cash.bank_move', 'cash_bank_move', x.id, undefined, { amount, note });
+        - COALESCE((SELECT sum(CASE direction WHEN 'bank_to_cash' THEN amount_egp ELSE -amount_egp END) FROM cash_bank_moves WHERE cashbox = 'office'), 0) AS bank,
+          COALESCE((SELECT sum(amount) FROM cash_ledger WHERE cashbox = 'office'), 0) AS total`);
+      const bank = Number(s.bank), cash = Number(s.total) - bank;
+      if (direction === 'bank_to_cash' && amount > bank + 0.001) throw invalid(`رصيد البنك ${fmt(bank)} بس`, { field: 'amount' });
+      if (direction === 'cash_to_bank' && amount > cash + 0.001) throw invalid(`النقدي في خزنة المكتب ${fmt(Math.max(cash, 0))} بس`, { field: 'amount' });
+      const x = await one(q, `INSERT INTO cash_bank_moves (cashbox, direction, amount_egp, note, created_by, created_at) VALUES ('office',$1,$2,$3,$4,$5)
+                               RETURNING id, ref_no`, [direction, amount, note, a.id, clock()]);
+      await audit(q, a.id, 'cash.bank_move', 'cash_bank_move', x.id, undefined, { direction, amount, note });
       return x;
     });
     return ok({ move: { id: row.id, refNo: Number(row.ref_no) } }, 201);

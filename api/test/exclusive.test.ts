@@ -111,6 +111,11 @@ test('exclusive project: reservation → contract → collected → owner payout
   }
   s = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}`)).body.project.stats;
   assert.equal(s.commission.earned, 150_000, '3% + 4 × 0.5% = 5%, capped');
+  // the cashbox page's installment boxes read the projects' units too (not only the old sales)
+  const left = (await h.call(c.t.owner, 'GET', '/finance/dashboard/details?key=units_remaining')).body;
+  assert.equal(left.rows.find((x: any) => x.title.includes(pr.body.project.name))?.amount, 3_000_000 - 250_000 - 5 * 343_750);
+  const week = (await h.call(c.t.owner, 'GET', '/finance/dashboard')).body;
+  assert.equal(week.management.unitsRemaining >= 3_000_000 - 250_000 - 5 * 343_750, true);
 
   // تم التحصيل: never more than earned; it leaves the owner's money and enters the commissions
   assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${uid}/commission-collected`, {})).status, 403);
@@ -126,6 +131,9 @@ test('exclusive project: reservation → contract → collected → owner payout
   assert.equal(s.owner.due, collected - 150_000);
   const ov = await h.call(c.t.owner, 'GET', '/cash/overview?from=2026-11-01&to=2026-11-30');
   assert.equal(ov.body.income.commissions, 150_000);
+  // المتاح بعد الأمانة: the owner's money inside the boxes is not the office's
+  assert.equal(ov.body.available.trust, collected - 150_000);
+  assert.equal(ov.body.available.afterTrust, ov.body.available.total - (collected - 150_000));
 
   // owner payout: office cashbox, approved by the other owner
   assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/owner-payout`, { amount: collected })).status, 400);

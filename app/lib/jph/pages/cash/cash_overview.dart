@@ -170,6 +170,25 @@ class _CashOverviewState extends State<CashOverview> {
             ],
           ]),
         ]),
+        // the exclusive projects' owners' money is inside the boxes: what is really the office's
+        if (full && av['afterTrust'] != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.14), borderRadius: BorderRadius.circular(16)),
+            child: Column(children: [
+              Row(children: [
+                const Expanded(child: Text('منها أمانات ملاك المشاريع', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 13))),
+                CountUpText(JphUi.money(av['trust']), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+              ]),
+              const SizedBox(height: 6),
+              Row(children: [
+                const Expanded(child: Text('المتاح بعد الأمانة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15))),
+                CountUpText(JphUi.money(av['afterTrust']), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+              ]),
+            ]),
+          ),
+        ],
       ]),
     );
   }
@@ -270,6 +289,7 @@ class _CashOverviewState extends State<CashOverview> {
         _row(isDark, 'أقساط', s['installment']),
         const Divider(),
         _row(isDark, 'الإجمالي', s['total'], bold: true),
+        if ((num.tryParse('${s['refunded'] ?? 0}') ?? 0) > 0) _row(isDark, 'استرداد وحدات للعملاء (مش مصروف)', s['refunded'], color: Ar.red),
         const SizedBox(height: 8),
         Text('فلوس الوحدات مش ربح: الحصري منها أمانة للمالك، والربح هو العمولة بس.', style: TextStyle(color: JphUi.sub(isDark))),
       ]);

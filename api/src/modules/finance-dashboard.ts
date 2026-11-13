@@ -24,6 +24,31 @@ function prevMonth(period: string) {
   return d.toISOString().slice(0, 10);
 }
 
+/** the clients' money (حجز / مقدم / قسط / تسوية / تحصيل آخر) — not a ضخ, not a developer's commission */
+const CLIENT_KINDS = ['reservation', 'down_payment', 'installment', 'settlement', 'other'];
+
+/** every installment still owed: the old sales (unit_sales) + the projects' contracted units (ex_installments) */
+const INSTALLMENT_LINES = `
+  SELECT i.seq, i.due_date, i.amount_egp, s.buyer_name, s.buyer_phone, s.unit_no, p.name AS project,
+         COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
+    FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id WHERE s.status = 'active'
+  UNION ALL
+  SELECT i.seq, i.due_date, i.amount_egp, u.client_name, u.client_phone, u.unit_no, p.name,
+         COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0)
+    FROM ex_installments i JOIN ex_units u ON u.id = i.unit_id JOIN commission_projects p ON p.id = u.project_id WHERE u.status = 'contracted'`;
+
+/** what is still to come on each sold unit: the old sales' open installments + a contracted unit's price − what it paid */
+const UNITS_LEFT = `
+  SELECT s.buyer_name, s.buyer_phone, s.unit_no, p.name AS project,
+         sum(GREATEST(i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0), 0)) AS left_amount
+    FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id WHERE s.status = 'active'
+   GROUP BY s.id, s.buyer_name, s.buyer_phone, s.unit_no, p.name
+  UNION ALL
+  SELECT u.client_name, u.client_phone, u.unit_no, p.name,
+         GREATEST(u.unit_price - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'
+                                            AND r.kind IN ('reservation','down_payment','installment')), 0), 0)
+    FROM ex_units u JOIN commission_projects p ON p.id = u.project_id WHERE u.status = 'contracted'`;
+
 const IN_MONTH = (col: string, p = '$1') =>
   `${col} >= (${p}::date AT TIME ZONE 'Africa/Cairo') AND ${col} < ((${p}::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')`;
 
@@ -52,23 +77,23 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const t = today();
     const cash = await cashSummary(db, a);
     const m = await one(db, `SELECT
-        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[])
+        COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = ANY($3::text[])
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS collections,
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind IN ('reservation','down_payment')
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS down_payments,
         COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND kind = 'installment'
                    AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS installments,
-        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'hr'
-                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS hr_expenses,
-        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'office'
-                   AND occurred_at >= ($1::date AT TIME ZONE 'Africa/Cairo') AND occurred_at < (($1::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')), 0) AS office_expenses,
-        COALESCE((SELECT sum(amount_egp) FROM payouts WHERE kind = 'salary' AND status <> 'cancelled' AND period = $1), 0) AS salaries_paid,
+        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'hr' AND ex_kind IS NULL AND sale_id IS NULL
+                   AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')}), 0) AS hr_expenses,
+        COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND cashbox = 'office' AND ex_kind IS NULL AND sale_id IS NULL
+                   AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')}), 0) AS office_expenses,
+        COALESCE((SELECT sum(amount_egp) FROM payouts WHERE kind = 'salary' AND status = 'received' AND period = $1), 0) AS salaries_paid,
         COALESCE((SELECT sum(amount_egp) FROM commission_entitlements WHERE status = 'active' AND period = $1), 0) AS commissions,
         COALESCE((SELECT sum(ce.amount_egp) FROM commission_entitlements ce WHERE ce.status = 'active'
                    AND NOT EXISTS (SELECT 1 FROM payouts p WHERE p.commission_entitlement_id = ce.id AND p.status <> 'cancelled')), 0) AS commissions_unpaid,
         (SELECT count(*) FROM payroll_batches WHERE status IN ('draft','returned','pending_approval')) AS batches_open,
         (SELECT count(*) FROM cash_transfers WHERE status IN ('requested','approved','executed')) AS transfers_open`,
-      [period, office ? ['hr', 'office'] : ['hr']]);
+      [period, office ? ['hr', 'office'] : ['hr'], CLIENT_KINDS]);
     // outstanding advances: what is still to come off salaries from this month on
     const adv = await one(db, `SELECT COALESCE(sum(GREATEST(ar.amount_egp - COALESCE(d.done, 0), 0)), 0) AS outstanding
         FROM advance_requests ar
@@ -77,16 +102,13 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
        WHERE ar.kind = 'advance' AND ar.status = 'confirmed'
          AND (EXISTS (SELECT 1 FROM advance_deductions y WHERE y.advance_id = ar.id AND y.status = 'active') OR ar.period >= $1)`, [period]);
     const inst = await one(db, `
-      WITH lines AS (
-        SELECT i.id, i.due_date, i.amount_egp,
-               COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
-          FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id WHERE s.status = 'active')
+      WITH lines AS (${INSTALLMENT_LINES})
       SELECT COALESCE(sum(amount_egp - paid) FILTER (WHERE due_date < $1 AND paid < amount_egp), 0) AS overdue,
              count(*) FILTER (WHERE due_date < $1 AND paid < amount_egp) AS overdue_n,
              COALESCE(sum(amount_egp - paid) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp), 0) AS week,
-             count(*) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp) AS week_n,
-             COALESCE(sum(amount_egp - paid) FILTER (WHERE paid < amount_egp), 0) AS units_remaining
+             count(*) FILTER (WHERE due_date >= $1 AND due_date <= ($1::date + 7) AND paid < amount_egp) AS week_n
         FROM lines`, [t]);
+    const left = await one(db, `SELECT COALESCE(sum(left_amount), 0) AS s FROM (${UNITS_LEFT}) x`, []);
     const sal = await salaries(period);
     const out: Record<string, unknown> = {
       currency: 'EGP', month: period.slice(0, 7), cash,
@@ -106,7 +128,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         transfersOpen: Number(m.transfers_open), hrExpenses: r2(n(m.hr_expenses)), officeExpenses: r2(n(m.office_expenses)),
         salariesPaid: r2(n(m.salaries_paid)), outstandingAdvances: r2(n(adv.outstanding)), commissions: r2(n(m.commissions)),
         downPayments: r2(n(m.down_payments)), installmentsCollected: r2(n(m.installments)),
-        overdueInstallments: r2(n(inst.overdue)), unitsRemaining: r2(n(inst.units_remaining)),
+        overdueInstallments: r2(n(inst.overdue)), unitsRemaining: r2(n(left.s)),
       };
     }
     return ok(out);
@@ -131,7 +153,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     switch (key) {
       case 'collections': case 'down_payments': case 'installments_collected': {
         title = key === 'collections' ? 'تحصيلات الشهر' : key === 'down_payments' ? 'الحجز والمقدمات' : 'الأقساط المحصّلة';
-        const kinds = key === 'collections' ? null : key === 'down_payments' ? ['reservation', 'down_payment'] : ['installment'];
+        const kinds = key === 'collections' ? CLIENT_KINDS : key === 'down_payments' ? ['reservation', 'down_payment'] : ['installment'];
         rows = (await q(`SELECT ref_no, payer_name, purpose, amount_egp, cashbox, occurred_at FROM cash_receipts
                           WHERE status = 'posted' AND cashbox = ANY($2::text[]) AND ${IN_MONTH('occurred_at')}
                             AND ($3::text[] IS NULL OR kind = ANY($3::text[])) ORDER BY occurred_at DESC`, [period, boxes, kinds]))
@@ -142,7 +164,8 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
       case 'hr_expenses': case 'office_expenses': {
         title = key === 'hr_expenses' ? 'مصروفات خزنة المحاسب' : 'مصروفات المكتب';
         rows = (await q(`SELECT ref_no, category, reason, beneficiary, amount_egp, occurred_at FROM cash_expenses
-                          WHERE status = 'posted' AND cashbox = $2 AND ${IN_MONTH('occurred_at')} ORDER BY occurred_at DESC`,
+                          WHERE status = 'posted' AND cashbox = $2 AND ex_kind IS NULL AND sale_id IS NULL
+                            AND ${IN_MONTH('COALESCE(approved_at, occurred_at)')} ORDER BY occurred_at DESC`,
           [period, key === 'hr_expenses' ? 'hr' : 'office']))
           .map((x) => ({ title: `${x.category} — ${x.beneficiary}`, sub: `#${x.ref_no} — ${x.reason}`, amount: n(x.amount_egp) }));
         break;
@@ -156,7 +179,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
       case 'salaries_paid': {
         title = 'مرتبات اتصرفت';
         rows = (await q(`SELECT e.full_name, p.amount_egp, p.status, p.created_at FROM payouts p JOIN employees e ON e.id = p.employee_id
-                          WHERE p.kind = 'salary' AND p.status <> 'cancelled' AND p.period = $1 ORDER BY p.created_at DESC`, [period]))
+                          WHERE p.kind = 'salary' AND p.status = 'received' AND p.period = $1 ORDER BY p.created_at DESC`, [period]))
           .map((x) => ({ title: x.full_name, sub: ds(x.created_at).slice(0, 10), amount: n(x.amount_egp),
             tag: x.status === 'received' ? 'استلم' : x.status === 'disputed' ? 'بلاغ مشكلة' : 'مستني تأكيد' }));
         break;
@@ -183,18 +206,20 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
           .map((x) => ({ title: x.full_name, sub: `${x.project} — وحدة ${x.unit_no} — ${ds(x.period).slice(0, 7)}`, amount: n(x.amount_egp) }));
         break;
       }
-      case 'installments_week': case 'installments_overdue': case 'units_remaining': {
-        title = key === 'installments_week' ? 'أقساط مستحقة خلال أسبوع' : key === 'installments_overdue' ? 'أقساط متأخرة' : 'الباقي على الوحدات';
+      case 'installments_week': case 'installments_overdue': {
+        title = key === 'installments_week' ? 'أقساط مستحقة خلال أسبوع' : 'أقساط متأخرة';
         const t = today();
-        const cond = key === 'installments_week' ? `i.due_date >= $1 AND i.due_date <= ($1::date + 7)` : key === 'installments_overdue' ? `i.due_date < $1` : `$1::date IS NOT NULL`;
-        rows = (await q(`SELECT s.buyer_name, s.buyer_phone, s.unit_no, p.name AS project, i.seq, i.due_date,
-               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS left_amount
-            FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id
-           WHERE s.status = 'active' AND ${cond} ORDER BY i.due_date`, [t]))
-          .filter((x) => n(x.left_amount) > 0)
+        const cond = key === 'installments_week' ? `due_date >= $1 AND due_date <= ($1::date + 7)` : `due_date < $1`;
+        rows = (await q(`SELECT * FROM (${INSTALLMENT_LINES}) l WHERE paid < amount_egp AND ${cond} ORDER BY due_date`, [t]))
           .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`,
             sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone ? ` — ${x.buyer_phone}` : ''}`,
-            amount: n(x.left_amount) }));
+            amount: r2(n(x.amount_egp) - n(x.paid)) }));
+        break;
+      }
+      case 'units_remaining': {
+        title = 'الباقي على الوحدات';
+        rows = (await q(`SELECT * FROM (${UNITS_LEFT}) x WHERE left_amount > 0 ORDER BY left_amount DESC`, []))
+          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`, sub: x.buyer_phone ?? '', amount: n(x.left_amount) }));
         break;
       }
       case 'transfers_open': {

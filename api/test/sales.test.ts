@@ -108,6 +108,12 @@ test('cancel (manager / owner) → lines cancelled, collections kept, full refun
   assert.equal(over.body.error.details.reason, 'over_refund');
   const rf = await h.call(tGm, 'POST', `/sales/${saleId}/refund`, { cashbox: 'office', amount: 400_000, reason: 'رد المقدم' });
   assert.equal(rf.body.sale.refundDue, 80_000);
+  // a unit's refund is the client's own money going back: not one of the office's costs
+  const ov = (await h.call(tGm, 'GET', '/cash/overview')).body;
+  assert.equal(ov.income.sales.refunded, 400_000);
+  assert.ok(!ov.expenses.byCategory.some((x: any) => x.name === 'استرداد وحدة'));
+  const fd = (await h.call(tGm, 'GET', '/finance/dashboard/details?key=office_expenses')).body;
+  assert.ok(!fd.rows.some((x: any) => x.title.startsWith('استرداد وحدة')));
   assert.equal((await h.call(tGm, 'GET', '/cash/summary')).body.office.bookBalance, 0);
   // the unit can be sold again now
   assert.equal((await h.call(c.t.hr, 'POST', '/sales', { projectId: project, unitNo: 'A-101', buyerName: 'مشتري جديد', totalPrice: 1000, downPayment: 1000,
