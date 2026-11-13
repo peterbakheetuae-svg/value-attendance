@@ -415,6 +415,8 @@ class _ResForm {
       address = TextEditingController(), plannedDown = TextEditingController(), plannedInst = TextEditingController();
   DateTime? downDue;
   DateTime? paidOn = DateTime.now();
+  /// القسط كل كام شهر (null = not chosen)
+  int? everyMonths;
 
   static const unitTypes = ['تجاري', 'إداري', 'سكني', 'طبي'];
   static const floors = ['بدروم', 'أرضي', 'ميزانين', 'أول علوي', 'ثاني علوي', 'ثالث علوي', 'رابع علوي', 'خامس علوي', 'روف'];
@@ -434,6 +436,7 @@ class _ResForm {
     nationalId.text = '${f['clientNationalId'] ?? ''}';
     address.text = '${f['clientAddress'] ?? ''}';
     plannedInst.text = f['plannedInstallments'] == null ? '' : '${f['plannedInstallments']}';
+    everyMonths = int.tryParse('${f['plannedEveryMonths'] ?? ''}');
     downDue = DateTime.tryParse('${f['downPaymentDue'] ?? ''}');
     paidOn = DateTime.tryParse('${f['depositPaidOn'] ?? ''}');
   }
@@ -450,6 +453,17 @@ class _ResForm {
 
   static num? _num(TextEditingController c) => num.tryParse(c.text.replaceAll(',', '').trim());
   static String _iso(DateTime? d) => d == null ? '' : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// the agreed down payment as an amount (a % of the price becomes its amount)
+  num? downAmount(TextEditingController price) {
+    final v = _num(plannedDown);
+    if (v == null) return null;
+    if (!downPct) return v;
+    final p = _num(price);
+    return p == null ? null : (p * v / 100).round();
+  }
+
+  static String everyLabel(int m) => m == 1 ? 'كل شهر' : m == 2 ? 'كل شهرين' : m <= 10 ? 'كل $m شهور' : 'كل $m شهر';
 
   /// the loaded area × the meter price → the unit's price
   void _price(TextEditingController price) {
@@ -534,6 +548,35 @@ class _ResForm {
       pctOrAmount('إجمالي المقدم المتفق عليه', Icons.payments_rounded, plannedDown, downPct, (x) => downPct = x),
       date('آخر موعد لاستكمال المقدم', downDue, (d) => downDue = d),
       JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: plannedInst, icon: Icons.format_list_numbered_rounded, number: true),
+      // القسط كل كام شهر: شهر / شهرين / 3 / 6 شهور، أو عدد تاني
+      JphUi.picker(
+        isDark: isDark, icon: Icons.event_repeat_rounded, iconColor: Ar.accent, label: 'القسط',
+        value: everyMonths == null ? 'كل كام شهر؟' : everyLabel(everyMonths!),
+        onTap: () async {
+          final v = await JphUi.sheet<String>(context, isDark, 'القسط كل كام شهر', [
+            for (final m in const [1, 2, 3, 6]) ('$m', everyLabel(m), Icons.event_repeat_rounded),
+            if (everyMonths != null && ![1, 2, 3, 6].contains(everyMonths)) ('$everyMonths', everyLabel(everyMonths!), Icons.event_repeat_rounded),
+            ('__other', 'عدد شهور تاني…', Icons.edit_rounded),
+          ], selected: everyMonths == null ? null : '$everyMonths', icon: Icons.event_repeat_rounded);
+          if (v == null) return;
+          if (v != '__other') return set(() => everyMonths = int.parse(v));
+          if (!context.mounted) return;
+          final c = TextEditingController(text: everyMonths == null ? '' : '$everyMonths');
+          final t = await showDialog<String>(
+            context: context,
+            builder: (ctx) => GlassAlertDialog(
+              title: const Text('القسط كل كام شهر'),
+              content: TextField(controller: c, autofocus: true, keyboardType: TextInputType.number, decoration: const InputDecoration(suffixText: 'شهر')),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('تمام')),
+              ],
+            ),
+          );
+          final m = int.tryParse(t ?? '');
+          if (m != null && m >= 1 && m <= 60) set(() => everyMonths = m);
+        },
+      ),
       if (reservation) date('تاريخ سداد دفعة الحجز', paidOn, (d) => paidOn = d),
       JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
       JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
@@ -546,8 +589,24 @@ class _ResForm {
         'maintenancePct': maintPct ? _num(maintenance) : null, 'maintenanceDeposit': maintPct ? 0 : (_num(maintenance) ?? 0),
         'plannedDownPct': downPct ? _num(plannedDown) : null, 'plannedDownPayment': downPct ? null : _num(plannedDown),
         'downPaymentDue': downDue == null ? null : _iso(downDue), 'plannedInstallments': int.tryParse(plannedInst.text),
+        'plannedEveryMonths': everyMonths,
         'depositPaidOn': paidOn == null ? null : _iso(paidOn),
       };
+}
+
+/// a unit's down payment: the contract's, else the one agreed on the reservation form
+num _downOf(Map<String, dynamic> u) {
+  final c = _m(u['contract']);
+  final d = c.isNotEmpty ? _n(c['downPayment']) : 0;
+  return d > 0 ? d : _n(_m(u['form'])['plannedDownPayment']);
+}
+
+/// what is still to come of the down payment: the down payment − what was received toward it
+num _downLeft(Map<String, dynamic> u) {
+  final m = _m(u['money']);
+  final paid = _n(m['downPaid']); // the deposit + the down payment money received (both count toward it)
+  final left = _downOf(u) - paid;
+  return left > 0 ? left : 0;
 }
 
 /// «تم استلام المبلغ»: whoever receives the money says where it went in — نقدي أو بنك.
@@ -825,8 +884,24 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
       JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
       _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
-      if (exclusive && !contract)
+      if (exclusive && !contract) ...[
         JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
+        // الباقي من المقدم بعد العربون (the agreed down payment is filled further down)
+        AnimatedBuilder(
+          animation: Listenable.merge([deposit, price, rf.plannedDown]),
+          builder: (_, __) {
+            final dep = num.tryParse(deposit.text.replaceAll(',', '')) ?? 0;
+            final down = rf.downAmount(price);
+            if (dep <= 0) return const SizedBox.shrink();
+            if (down == null || down <= 0) {
+              return Text('اكتب «إجمالي المقدم المتفق عليه» تحت عشان يظهر الباقي من المقدم', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark)));
+            }
+            final left = down - dep;
+            return Text(left >= 0 ? 'الباقي من المقدم بعد العربون: ${_money(left)}' : 'العربون أكبر من المقدم المتفق عليه',
+                style: TextStyle(fontWeight: FontWeight.w800, color: left >= 0 ? Ar.green.shade600 : Ar.red));
+          },
+        ),
+      ],
       if (!contract)
         JphUi.picker(
           isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.accent, label: 'التاريخ المتوقع للتعاقد',
@@ -1448,7 +1523,14 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         _kv(isDark, 'السيلز', '${u['salesName']}'),
         if (u['marketingCompanyName'] != null) _kv(isDark, 'عن طريق', _seesKind() ? '${u['marketingCompanyName']} (${JphUi.pct(u['marketingPct'])})' : '${u['marketingCompanyName']}'),
         _kv(isDark, 'سعر الوحدة', _money(u['unitPrice'])),
+        if (_downOf(u) > 0) ...[
+          _kv(isDark, 'المقدم', _money(_downOf(u))),
+          _kv(isDark, 'المتبقي من المقدم', _money(_downLeft(u)), color: _downLeft(u) > 0 ? Ar.amber.shade800 : Ar.green),
+        ],
         _kv(isDark, 'العربون', _money(u['depositAmount'])),
+        if (_m(u['form'])['plannedInstallments'] != null && c.isEmpty)
+          _kv(isDark, 'الأقساط المتفق عليها', '${_m(u['form'])['plannedInstallments']} قسط'
+              '${_m(u['form'])['plannedEveryMonths'] == null ? '' : ' ${_ResForm.everyLabel(int.parse('${_m(u['form'])['plannedEveryMonths']}'))}'}'),
         if (c.isNotEmpty) ...[
           const Divider(),
           _kv(isDark, 'طريقة الدفع', c['paymentType'] == 'cash' ? 'كاش' : 'تقسيط'),

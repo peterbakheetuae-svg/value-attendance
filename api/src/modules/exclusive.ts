@@ -103,7 +103,7 @@ function shapeUnit(u: any, a: Actor) {
     form: { unitType: u.unit_type, floor: u.floor, areaM2: u.area_m2 == null ? null : n(u.area_m2), activity: u.activity,
       maintenanceDeposit: n(u.maintenance_deposit), clientNationalId: u.client_national_id, clientAddress: u.client_address,
       plannedDownPayment: u.planned_down_payment == null ? null : n(u.planned_down_payment), downPaymentDue: isoDay(u.down_payment_due),
-      plannedInstallments: u.planned_installments, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at),
+      plannedInstallments: u.planned_installments, plannedEveryMonths: u.planned_every_months ?? null, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at),
       netAreaM2: u.net_area_m2 == null ? null : n(u.net_area_m2), meterPrice: u.meter_price == null ? null : n(u.meter_price),
       maintenancePct: u.maintenance_pct == null ? null : n(u.maintenance_pct), plannedDownPct: u.planned_down_pct == null ? null : n(u.planned_down_pct),
       inventoryId: u.inventory_id ?? null },
@@ -201,13 +201,14 @@ function formFields(b: Record<string, unknown>, old?: any) {
     maintenance_deposit: num0('maintenanceDeposit', 0, 10_000_000_000) ?? 0, client_national_id: s('clientNationalId', 20),
     client_address: s('clientAddress', 300), planned_down_payment: num0('plannedDownPayment', 0, 10_000_000_000),
     down_payment_due: d('downPaymentDue'), planned_installments: num0('plannedInstallments', 0, 240), deposit_paid_on: d('depositPaidOn'),
+    planned_every_months: num0('plannedEveryMonths', 1, 60),
     net_area_m2: num0('netAreaM2', 0.0001, 1_000_000), meter_price: num0('meterPrice', 0.01, 10_000_000_000),
     maintenance_pct: num0('maintenancePct', 0, 100), planned_down_pct: num0('plannedDownPct', 0, 100),
   };
 }
 const snake = (k: string) => ({ unitType: 'unit_type', floor: 'floor', areaM2: 'area_m2', activity: 'activity', maintenanceDeposit: 'maintenance_deposit',
   clientNationalId: 'client_national_id', clientAddress: 'client_address', plannedDownPayment: 'planned_down_payment',
-  downPaymentDue: 'down_payment_due', plannedInstallments: 'planned_installments', depositPaidOn: 'deposit_paid_on', netAreaM2: 'net_area_m2',
+  downPaymentDue: 'down_payment_due', plannedInstallments: 'planned_installments', plannedEveryMonths: 'planned_every_months', depositPaidOn: 'deposit_paid_on', netAreaM2: 'net_area_m2',
   meterPrice: 'meter_price', maintenancePct: 'maintenance_pct', plannedDownPct: 'planned_down_pct' } as Record<string, string>)[k] ?? k;
 /** Saves the form; a maintenance deposit / agreed down payment given as a % of the unit's price becomes its amount. */
 async function saveForm(q: Q, id: string, f: ReturnType<typeof formFields>, price?: number) {
@@ -216,9 +217,10 @@ async function saveForm(q: Q, id: string, f: ReturnType<typeof formFields>, pric
   const down = pctOf(f.planned_down_pct) ?? f.planned_down_payment;
   await q.query(`UPDATE ex_units SET unit_type = $2, floor = $3, area_m2 = $4, activity = $5, maintenance_deposit = $6, client_national_id = $7,
       client_address = $8, planned_down_payment = $9, down_payment_due = $10, planned_installments = $11, deposit_paid_on = $12,
-      net_area_m2 = $13, meter_price = $14, maintenance_pct = $15, planned_down_pct = $16 WHERE id = $1`,
+      net_area_m2 = $13, meter_price = $14, maintenance_pct = $15, planned_down_pct = $16, planned_every_months = $17 WHERE id = $1`,
     [id, f.unit_type, f.floor, f.area_m2, f.activity, maint, f.client_national_id, f.client_address, down,
-      f.down_payment_due, f.planned_installments, f.deposit_paid_on, f.net_area_m2, f.meter_price, f.maintenance_pct, f.planned_down_pct]);
+      f.down_payment_due, f.planned_installments, f.deposit_paid_on, f.net_area_m2, f.meter_price, f.maintenance_pct, f.planned_down_pct,
+      f.planned_every_months == null ? null : Math.round(f.planned_every_months)]);
 }
 const isoDay = (v: unknown) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : null);
 

@@ -253,7 +253,7 @@ class _NewReceiptState extends State<_NewReceipt> {
     final isDark = widget.isDark;
     final who = _people.where((p) => p['id'] == _employeeId).map((p) => '${p['name']}').firstOrNull;
     return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
-      _title('أولًا: بيانات الموظف'),
+      _title('أولاً: بيانات الموظف'),
       JphUi.picker(
         isDark: isDark, icon: Icons.badge_rounded, iconColor: Ar.green, label: 'الموظف *',
         value: _loadingPrefill ? 'جاري تحميل بياناته...' : (who ?? 'اختار الموظف — بياناته بتتملي لوحدها'),
@@ -274,7 +274,7 @@ class _NewReceiptState extends State<_NewReceipt> {
       _gap(),
       JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.amber, label: 'تاريخ استلام العهدة',
           value: _show(_iso(_receiptDate)), onTap: () => _pickDate(true)),
-      _title(_laptop ? 'ثانيًا: بيانات كمبيوتر محمول' : 'ثانيًا: بيانات الهاتف المحمول'),
+      _title(_laptop ? 'ثانياً: بيانات كمبيوتر محمول' : 'ثانياً: بيانات الهاتف المحمول'),
       if (_employeeId != null) ...[
         JphUi.picker(
           isDark: isDark, icon: Icons.inventory_2_rounded, iconColor: Ar.accent, label: 'العهدة المسلَّمة للموظف',
@@ -329,7 +329,7 @@ class _NewReceiptState extends State<_NewReceipt> {
         _gap(),
         JphUi.input(isDark: isDark, label: 'أخرى: (اكتب الملحقات) *', controller: _accOther, icon: Icons.edit_note_rounded, big: false),
       ],
-      _title('سادسًا: الإقرار والتوقيعات'),
+      _title('سادساً: الإقرار والتوقيعات'),
       JphUi.input(isDark: isDark, label: 'اسم الموظف (في الإقرار)', controller: _signName, icon: Icons.person_rounded, big: false),
       _gap(),
       JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.green, label: 'التاريخ',

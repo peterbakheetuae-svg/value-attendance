@@ -26,7 +26,7 @@ class PaymentVoucher {
     final d = DateTime.tryParse('${x['occurredAt'] ?? ''}')?.toLocal() ?? DateTime.now();
     final day = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
     final box = x['cashbox'] == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب';
-    final method = x['paymentMethod'] == 'bank' ? 'تحويل بنكي' : 'نقدًا';
+    final method = x['paymentMethod'] == 'bank' ? 'تحويل بنكي' : 'نقداً';
     final t = pw.TextStyle(font: bold, fontSize: 13);
     final r = pw.TextStyle(font: regular, fontSize: 12.5);
 
@@ -66,7 +66,7 @@ class PaymentVoucher {
             ]),
             pw.SizedBox(height: 8),
             row('صرفنا للسيد / ة', '${x['beneficiary'] ?? ''}'),
-            row('مبلغ وقدره', '${_group(amount)} جنيه (${arabicWords(amount)} جنيهًا مصريًا فقط لا غير)'),
+            row('مبلغ وقدره', '${_group(amount)} جنيه (${arabicWords(amount)} جنيهاً مصرياً فقط لا غير)'),
             row('وذلك عن', '${x['category'] ?? ''} — ${x['reason'] ?? ''}'),
             row('طريقة الصرف', '$method — من $box'),
             if ('${x['notes'] ?? ''}'.trim().isNotEmpty) row('ملاحظات', '${x['notes']}'),

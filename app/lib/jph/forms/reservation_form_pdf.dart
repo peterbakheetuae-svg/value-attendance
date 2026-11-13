@@ -26,7 +26,8 @@ class ReservationForm {
     final devLogo = unit['developerId'] == null || unit['developerLogoAt'] == null
         ? null
         : await DocLogos.developer('${unit['developerId']}', at: unit['developerLogoAt']);
-    final logo = pw.MemoryImage(devLogo ?? (await rootBundle.load('assets/forms/reservation/value_group_logo.png')).buffer.asUint8List());
+    // the logo is the unit's developer's own (uploaded in «المطورين»); none uploaded → no logo, never another company's
+    final logo = devLogo == null ? null : pw.MemoryImage(devLogo);
     final f = ((unit['form'] as Map?) ?? const {}).cast<String, dynamic>();
     final contract = ((unit['contract'] as Map?) ?? const {}).cast<String, dynamic>();
 
@@ -48,9 +49,10 @@ class ReservationForm {
     final downRest = down > deposit ? down - deposit : 0;
     final afterDown = down > 0 ? price - down : 0;
     final installments = n(f['plannedInstallments'] ?? contract['installmentsCount']);
+    final every = n(f['plannedEveryMonths'] ?? contract['everyMonths']).toInt();
     final maintenance = n(f['maintenanceDeposit']);
     final method = '${unit['depositMethod'] ?? ''}';
-    final cashOrBank = method.isEmpty ? 'نقدًا او بتحويل بنكي' : (method == 'cash' ? 'نقدًا' : 'بتحويل بنكي');
+    final cashOrBank = method.isEmpty ? 'نقداً او بتحويل بنكي' : (method == 'cash' ? 'نقداً' : 'بتحويل بنكي');
 
     final base = pw.TextStyle(font: bold, fontSize: 11.5, lineSpacing: 3);
     pw.Widget para(String text, {pw.TextAlign align = pw.TextAlign.right, double top = 7, pw.TextStyle? style}) => pw.Padding(
@@ -71,7 +73,7 @@ class ReservationForm {
             decoration: pw.BoxDecoration(border: pw.Border.all(width: 1)),
             child: pw.Text('استمارة حجز', textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: bold, fontSize: 16)),
           ),
-          pw.Image(logo, width: 140),
+          if (logo != null) pw.Image(logo, width: 140, height: 70, fit: pw.BoxFit.contain) else pw.SizedBox(width: 140, height: 40),
         ]),
         pw.SizedBox(height: 14),
         pw.Center(
@@ -80,22 +82,23 @@ class ReservationForm {
         ),
         pw.SizedBox(height: 6),
         para('السادة / $company'),
-        para('برجاء قبول مبلغ وقدره: (${money(deposit)}) جنيه (${arabicWords(deposit)}) جنيهًا مصريًا فقط.'),
+        para('برجاء قبول مبلغ وقدره: (${money(deposit)}) جنيه (${arabicWords(deposit)}) جنيهاً مصرياً فقط.'),
         para('والمسدد $cashOrBank بتاريخ : ${day(f['depositPaidOn'] ?? f['reservedOn'])} م'),
         para('كدفعة حجز للوحدة (${blank(f['unitType'], 'تجاري – اداري')}) - (${blank(f['floor'], 'ارضي – اول علوي – ثاني علوي')})'),
-        para('رقم (${unit['unitNo'] ?? ''}) بإجمالي مساحة (${area > 0 ? _plain(area) : '……'} مترًا) تحت العجز والزيادة على أن تكون المساحة الفعلية '
+        para('رقم (${unit['unitNo'] ?? ''}) بإجمالي مساحة (${area > 0 ? _plain(area) : '……'} متراً) تحت العجز والزيادة على أن تكون المساحة الفعلية '
             'وقت كتابة العقد في ${unit['projectName'] ?? ''} بنشاط (${blank(f['activity'], '                    ')})'),
         para('بإجمالي مبلغ قدره : (${money(price)} جنيه (${arabicWords(price)}) جنيه مصري فقط.'
-            '${maintenance > 0 ? ' وذلك بخلاف وديعة الصيانة البالغة : (${money(maintenance)}) جنيه (${arabicWords(maintenance)}) جنيهًا مصريًا فقط' : ''}'),
+            '${maintenance > 0 ? ' وذلك بخلاف وديعة الصيانة البالغة : (${money(maintenance)}) جنيه (${arabicWords(maintenance)}) جنيهاً مصرياً فقط' : ''}'),
         para('قيمة مقدم الوحدة ${down > 0 ? _plain(double.parse(downPct.toStringAsFixed(2))) : '……'}% من الإجمالي بقيمة (${down > 0 ? money(down) : '……'}) جنيه '
-            '${down > 0 ? '(${arabicWords(down)}) ' : ''}جنيهًا مصريًا. ويتم استكمال الباقي من المقدم للوحدة وقدره: (${down > 0 ? money(downRest) : '……'}) جنيه مصري '
+            '${down > 0 ? '(${arabicWords(down)}) ' : ''}جنيهاً مصرياً. ويتم استكمال الباقي من المقدم للوحدة وقدره: (${down > 0 ? money(downRest) : '……'}) جنيه مصري '
             '${down > 0 ? '(${arabicWords(downRest)}) ' : ''}وذلك في موعد أقصاه : ${day(f['downPaymentDue'])} م'),
         para('وتبقى بعد سداد المقدم من إجمالي ثمن الوحدة مبلغ وقدره: (${down > 0 ? money(afterDown) : '……'}) جنيه مصري '
-            '${down > 0 ? '(${arabicWords(afterDown)}) ' : ''}جنيهًا مصريًا ويتم استكمال المتبقي على (${installments > 0 ? installments.toInt() : '……'}) قسط'),
+            '${down > 0 ? '(${arabicWords(afterDown)}) ' : ''}جنيهاً مصرياً ويتم استكمال المتبقي على (${installments > 0 ? installments.toInt() : '……'}) قسط'
+            '${every > 0 ? ' ${_every(every)}' : ''}'),
         para('سعر المتر : (${perM > 0 ? money(perM) : '……'}) ${perM > 0 ? '(${arabicWords(perM)}) ' : ''}جنيه مصري فقط.'),
-        para('وفي حالة عدم الوفاء بسداد باقي دفعة التعاقد في الموعد المحدد أعلاه يعتبر الحجز لاغيًا، ويحق للشركة رد قيمة دفعة الحجز بعد خصم 1% من '
+        para('وفي حالة عدم الوفاء بسداد باقي دفعة التعاقد في الموعد المحدد أعلاه يعتبر الحجز لاغياً، ويحق للشركة رد قيمة دفعة الحجز بعد خصم 1% من '
             'إجمالي قيمة الوحدة مقابل مصاريف إدارية وإضرار حجب الوحدة عن البيع خلال فترة الحجز، وذلك دون حاجة لتنبيه أو إنذار أو حكم قضائي.', top: 2),
-        para('وعلى هذا تم التوقيع والإقرار بما ورد أعلاه.', align: pw.TextAlign.center, top: 12),
+        para('وعلى هذا تم التوقيع والإقرار  بما ورد أعلاه.', align: pw.TextAlign.center, top: 12),
         para('اسم العميل :  ${unit['clientName'] ?? ''}', top: 12),
         para('الرقم القومي: ${blank(f['clientNationalId'])}', top: 10),
         para('العنوان: ${blank(f['clientAddress'])}', top: 10),
@@ -107,7 +110,7 @@ class ReservationForm {
         pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           pw.Expanded(child: para('شركة $company', top: 0)),
           pw.Expanded(
-            child: para('تحريرًا في: ${day(f['reservedOn'])} وحررت هذه الاستمارة من نسختين مكونة من ورقة واحدة - نسخة تسلم ليد العميل ونسخة تسلم للشركة .',
+            child: para('تحريراً في: ${day(f['reservedOn'])} وحررت هذه الاستمارة من نسختين مكونة من ورقة واحدة - نسخة تسلم ليد العميل ونسخة تسلم للشركة .',
                 top: 0, style: pw.TextStyle(font: bold, fontSize: 10.5)),
           ),
         ]),
@@ -129,7 +132,10 @@ String _group(num v) {
 
 String _plain(num v) => v == v.roundToDouble() ? v.toInt().toString() : v.toString();
 
-/// Egyptian amount in Arabic words: 1,328,032 → «مليون وثلاثمائة وثمانية وعشرون ألفًا واثنان وثلاثون».
+/// «القسط كل …»
+String _every(int m) => m == 1 ? 'كل شهر' : m == 2 ? 'كل شهرين' : m <= 10 ? 'كل $m شهور' : 'كل $m شهراً';
+
+/// Egyptian amount in Arabic words: 1,328,032 → «مليون وثلاثمائة وثمانية وعشرون ألفاً واثنان وثلاثون».
 String arabicWords(num value) {
   var x = value.round();
   if (x == 0) return 'صفر';
@@ -152,12 +158,15 @@ String arabicWords(num value) {
     return parts.join(' و');
   }
 
-  // [one, two, 3-10 (plural), 11+ (accusative)]
+  // [one, two, plural (3–10), accusative (11–99)] — the counted word follows the number's last two digits:
+  // 5,000 خمسة آلاف · 405,000 أربعمائة وخمسة آلاف · 15,000 خمسة عشر ألفاً · 300,000 ثلاثمائة ألف · 102,000 مائة واثنان ألف
   String scale(int n, List<String> w) {
     if (n == 1) return w[0];
     if (n == 2) return w[1];
-    if (n >= 3 && n <= 10) return '${below1000(n)} ${w[2]}';
-    return '${below1000(n)} ${w[3]}';
+    final r = n % 100;
+    if (r >= 3 && r <= 10) return '${below1000(n)} ${w[2]}';
+    if (r >= 11) return '${below1000(n)} ${w[3]}';
+    return '${below1000(n)} ${w[0]}';
   }
 
   final parts = <String>[];
@@ -167,9 +176,9 @@ String arabicWords(num value) {
   x %= 1000000;
   final thousands = x ~/ 1000;
   final rest = x % 1000;
-  if (billions > 0) parts.add(scale(billions, const ['مليار', 'ملياران', 'مليارات', 'مليارًا']));
-  if (millions > 0) parts.add(scale(millions, const ['مليون', 'مليونان', 'ملايين', 'مليونًا']));
-  if (thousands > 0) parts.add(scale(thousands, const ['ألف', 'ألفان', 'آلاف', 'ألفًا']));
+  if (billions > 0) parts.add(scale(billions, const ['مليار', 'ملياران', 'مليارات', 'ملياراً']));
+  if (millions > 0) parts.add(scale(millions, const ['مليون', 'مليونان', 'ملايين', 'مليوناً']));
+  if (thousands > 0) parts.add(scale(thousands, const ['ألف', 'ألفان', 'آلاف', 'ألفاً']));
   if (rest > 0) parts.add(below1000(rest));
   return parts.join(' و');
 }

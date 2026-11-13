@@ -31,10 +31,11 @@ test('exclusive project: reservation → contract → collected → owner payout
   const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000,
     depositAmount: 50_000, paymentMethod: 'bank_transfer', expectedContractDate: '2026-12-15',
     unitType: 'تجاري', floor: 'أرضي', areaM2: 42.5, clientNationalId: '29001011234567', clientAddress: 'المعادي', maintenanceDeposit: 150_000,
-    plannedDownPayment: 250_000, downPaymentDue: '2026-12-01', plannedInstallments: 8, depositPaidOn: '2026-11-10' });
+    plannedDownPayment: 250_000, downPaymentDue: '2026-12-01', plannedInstallments: 8, plannedEveryMonths: 3, depositPaidOn: '2026-11-10' });
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
   assert.equal(u.body.unit.status, 'reserving');
+  assert.equal(u.body.unit.form.plannedEveryMonths, 3, 'القسط كل 3 شهور');
   assert.deepEqual([u.body.unit.form.unitType, u.body.unit.form.areaM2, u.body.unit.form.plannedInstallments, u.body.unit.form.downPaymentDue],
     ['تجاري', 42.5, 8, '2026-12-01']);
   assert.equal(u.body.unit.money.pending, 50_000);
