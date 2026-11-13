@@ -218,9 +218,9 @@ class _MoreSheet extends StatelessWidget {
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(app.companyName?.isNotEmpty == true ? app.companyName! : 'Value',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Glass.ink(d))),
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Glass.ink(d))),
                         const SizedBox(height: 2),
-                        Text('${AppMenu.name} · كل الصفحات', style: TextStyle(fontSize: 14.5, color: Glass.muted(d))),
+                        Text('${AppMenu.name} · كل الصفحات', style: TextStyle(fontSize: 13, color: Glass.muted(d))),
                       ]),
                     ),
                     IconButton(onPressed: () => Navigator.pop(context), icon: Icon(Icons.close_rounded, color: Glass.ink(d), size: 26)),
@@ -237,7 +237,7 @@ class _MoreSheet extends StatelessWidget {
                           child: GestureDetector(
                             onTap: () => onOpen(q),
                             child: Container(
-                              height: 92,
+                              height: 78,
                               decoration: BoxDecoration(
                                 color: Glass.blue.withOpacity(d ? 0.22 : 0.12),
                                 borderRadius: BorderRadius.circular(16),
@@ -246,7 +246,7 @@ class _MoreSheet extends StatelessWidget {
                               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                                 Icon(q.icon, color: d ? Glass.blueHi : Glass.blue, size: 24),
                                 const SizedBox(height: 8),
-                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: d ? const Color(0xFFFF8A63) : Glass.blue)),
+                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: d ? const Color(0xFFFF8A63) : Glass.blue)),
                               ]),
                             ),
                           ),
@@ -281,13 +281,13 @@ class _MoreSheet extends StatelessWidget {
           onTap: e.isGroup ? null : () => onOpen(e),
           child: Row(children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 40,
+              height: 40,
               decoration: on && !e.isGroup ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(14)) : Glass.tile(d),
-              child: Icon(e.icon, size: 21, color: on && !e.isGroup ? Colors.white : (d ? Glass.blueHi : Glass.blue)),
+              child: Icon(e.icon, size: 19, color: on && !e.isGroup ? Colors.white : (d ? Glass.blueHi : Glass.blue)),
             ),
             const SizedBox(width: 16),
-            Expanded(child: Text(e.title, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: Glass.ink(d)))),
+            Expanded(child: Text(e.title, style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: Glass.ink(d)))),
             if (e.isGroup)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
@@ -298,18 +298,18 @@ class _MoreSheet extends StatelessWidget {
         ),
         if (e.isGroup)
           Padding(
-            padding: const EdgeInsetsDirectional.only(start: 62, top: 12),
+            padding: const EdgeInsetsDirectional.only(start: 56, top: 10),
             child: Wrap(spacing: 8, runSpacing: 8, children: [
               for (final c in e.children)
                 GestureDetector(
                   onTap: () => onOpen(c),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
                     decoration: c.key == active
                         ? BoxDecoration(color: Glass.blue, borderRadius: BorderRadius.circular(14))
                         : Glass.tile(d),
                     child: Text(c.title,
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: c.key == active ? Colors.white : Glass.ink(d))),
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: c.key == active ? Colors.white : Glass.ink(d))),
                   ),
                 ),
             ]),
@@ -326,7 +326,7 @@ Widget _darkRow(BuildContext context, bool d, AppController app, {bool small = f
         SizedBox(width: small ? 10 : 14),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text('الوضع الداكن', style: TextStyle(fontSize: small ? 13.5 : 17, fontWeight: FontWeight.w700, color: Glass.ink(d))),
+            Text('الوضع الداكن', style: TextStyle(fontSize: small ? 13 : 14.5, fontWeight: FontWeight.w600, color: Glass.ink(d))),
             if (!small) Text('للتطبيق كله', style: TextStyle(fontSize: 13, color: Glass.muted(d))),
           ]),
         ),

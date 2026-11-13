@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
 /// The «Ardena» glass look (the reference the owner picked): warm smoked-glass squares, soft inner tiles,
-/// pill segments and meters — with our blue in place of their orange.
+/// pill segments and meters — in the site's own colours, its orange included.
 class Glass {
   Glass._();
 
@@ -135,7 +135,7 @@ class AppBackdrop extends StatelessWidget {
       );
 }
 
-/// Pill segments (Holdings / Rent roll / Loans — Value / Yield / Growth): the chosen one filled with our blue.
+/// Pill segments (Holdings / Rent roll / Loans — Value / Yield / Growth): the chosen one filled with the orange.
 class GlassSegments extends StatelessWidget {
   final bool isDark;
   final List<(String, int?)> items; // label, optional count badge
@@ -157,7 +157,7 @@ class GlassSegments extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            padding: EdgeInsets.symmetric(horizontal: big ? 20 : 16, vertical: big ? 12 : 8),
+            padding: EdgeInsets.symmetric(horizontal: big ? 16 : 13, vertical: big ? 9 : 7),
             decoration: BoxDecoration(
               color: on ? (big ? Glass.blue : (isDark ? Colors.white.withOpacity(0.12) : Colors.white)) : Colors.transparent,
               borderRadius: BorderRadius.circular(99),
@@ -166,7 +166,7 @@ class GlassSegments extends StatelessWidget {
             child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
               Text(label,
                   style: TextStyle(
-                      fontSize: big ? 15 : 13.5,
+                      fontSize: big ? 13.5 : 12.5,
                       fontWeight: FontWeight.w700,
                       color: on ? (big ? Colors.white : Glass.ink(isDark)) : Glass.ink(isDark).withOpacity(0.85))),
               if (count != null && count > 0) ...[
@@ -174,7 +174,7 @@ class GlassSegments extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(color: (on ? Colors.white : Glass.ink(isDark)).withOpacity(0.18), borderRadius: BorderRadius.circular(99)),
-                  child: Text('$count', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: on ? Colors.white : Glass.ink(isDark))),
+                  child: Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? Colors.white : Glass.ink(isDark))),
                 ),
               ],
             ]),
@@ -213,13 +213,13 @@ class GlassChip extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: on ? Glass.blue : (isDark ? Colors.white.withOpacity(0.06) : Colors.white.withOpacity(0.55)),
               borderRadius: BorderRadius.circular(99),
               border: Border.all(color: on ? Colors.transparent : Glass.rim(isDark)),
             ),
-            child: Text(label, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: on ? Colors.white : Glass.ink(isDark))),
+            child: Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? Colors.white : Glass.ink(isDark))),
           ),
         ),
       );
@@ -281,15 +281,15 @@ class GlassStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: Glass.tile(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: Glass.muted(isDark))),
-          const SizedBox(height: 3),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Glass.muted(isDark))),
+          const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
-            child: Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: color ?? Glass.ink(isDark))),
+            child: Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color ?? Glass.ink(isDark))),
           ),
         ]),
       );
@@ -322,7 +322,7 @@ class Ar {
   static const MaterialColor red = MaterialColor(0xFFFF7D6E, <int, Color>{50: Color(0xFFFFEFEE), 100: Color(0xFFFFE0DC), 200: Color(0xFFFFC8C2), 300: Color(0xFFFFAEA5), 400: Color(0xFFFF9488), 500: Color(0xFFFF7D6E), 600: Color(0xFFE06E61), 700: Color(0xFFC25F54), 800: Color(0xFFA35046), 900: Color(0xFF854139)});
   /// warning / pending (their #f7a928)
   static const MaterialColor amber = MaterialColor(0xFFF7A928, <int, Color>{50: Color(0xFFFEF5E5), 100: Color(0xFFFDEACB), 200: Color(0xFFFCDBA5), 300: Color(0xFFFACA7A), 400: Color(0xFFF8B84F), 500: Color(0xFFF7A928), 600: Color(0xFFD99523), 700: Color(0xFFBC801E), 800: Color(0xFF9E6C1A), 900: Color(0xFF805815)});
-  /// our blue (their orange accent)
+  /// the site's orange accent (#ff6a3d; fills #d4401a)
   static const MaterialColor accent = MaterialColor(0xFFFF6A3D, <int, Color>{50: Color(0xFFFFF0EB), 100: Color(0xFFFFE3D8), 200: Color(0xFFFFC8B5), 300: Color(0xFFFFA98D), 400: Color(0xFFFF8A63), 500: Color(0xFFFF6A3D), 600: Color(0xFFE04B22), 700: Color(0xFFD4401A), 800: Color(0xFFA93214), 900: Color(0xFF7A240E)});
   /// info / neutral data (their #7fb4e8)
   static const MaterialColor info = MaterialColor(0xFF7FB4E8, <int, Color>{50: Color(0xFFF0F6FC), 100: Color(0xFFE0EDF9), 200: Color(0xFFC9E0F5), 300: Color(0xFFB0D0F1), 400: Color(0xFF96C2EC), 500: Color(0xFF7FB4E8), 600: Color(0xFF709ECC), 700: Color(0xFF6189B0), 800: Color(0xFF517394), 900: Color(0xFF425E79)});
