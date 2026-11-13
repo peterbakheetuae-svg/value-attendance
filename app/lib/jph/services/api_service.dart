@@ -367,6 +367,8 @@ class JphRouter {
             'deductionMode': 'tiers',
             'lateTiers': p['tiers'],
             'earlyTiers': p['tiers'],
+            if (p['earlyDeduction'] != null) 'earlyDeduction': p['earlyDeduction'] == true,
+            if (p['weekendAbsenceRule'] != null) 'weekendAbsenceRule': p['weekendAbsenceRule'] == true,
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
         // ---- صرف مالية: salary / advance / commission / work-expense payouts and cash handed to HR

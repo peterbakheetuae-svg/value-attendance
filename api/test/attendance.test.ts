@@ -112,6 +112,26 @@ test('monthly calendar: weekend, holiday, missing check-out, unapproved absence,
   assert.ok(m.body.summary.unapprovedAbsenceDays >= 7);
 });
 
+test('weekly rest rule (a switch): absent the day before AND after the rest → the rest day is absence; one side present → rest', async () => {
+  at('2026-03-11T08:00:00Z');
+  const before = (await h.call(c.t.e2, 'GET', '/attendance?month=2026-03')).body;
+  assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { weekendAbsenceRule: true })).status, 200);
+  const on = (await h.call(c.t.e2, 'GET', '/attendance?month=2026-03')).body;
+  const day = (m: any, d: string) => m.days.find((x: any) => x.date === d);
+  // e2 was absent Thursday 5 and Saturday 7 → Friday 6 becomes absence (and a day more of it)
+  assert.equal(day(on, '2026-03-05').status, 'absent');
+  assert.equal(day(on, '2026-03-06').status, 'absent', 'Friday between two absences');
+  assert.ok(on.summary.unapprovedAbsenceDays > before.summary.unapprovedAbsenceDays);
+  // e1 came on the 10th (Tuesday): no rest day sits between two of his absences there, but the earlier ones do
+  const e1 = (await h.call(c.t.e1, 'GET', '/attendance?month=2026-03')).body;
+  assert.equal(day(e1, '2026-03-10').status, 'present');
+  // off again → a weekly rest as before
+  assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { weekendAbsenceRule: false })).status, 200);
+  const off = (await h.call(c.t.e2, 'GET', '/attendance?month=2026-03')).body;
+  assert.equal(day(off, '2026-03-06').status, 'weekend');
+  assert.equal(off.summary.unapprovedAbsenceDays, before.summary.unapprovedAbsenceDays);
+});
+
 test('offline punches: device time within 48 h is accepted and flagged; older or future is refused', async () => {
   const t0 = h.now.value;
   try {

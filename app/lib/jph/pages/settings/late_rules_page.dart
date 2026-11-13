@@ -29,6 +29,10 @@ class _Tier {
 class _LateRulesPageState extends State<LateRulesPage> {
   final List<_Tier> _tiers = [];
   bool _enabled = false;
+  /// خصم الانصراف بدري (off → counted and shown, not deducted)
+  bool _early = true;
+  /// قاعدة الإجازة الأسبوعية: غياب الخميس والسبت معاً ← الجمعة غياب
+  bool _weekendRule = false;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -64,6 +68,8 @@ class _LateRulesPageState extends State<LateRulesPage> {
     setState(() {
       _loading = false;
       _enabled = s['payroll_auto_deductions'] == true && s['deduction_mode'] == 'tiers';
+      _early = s['early_deduction'] != false;
+      _weekendRule = s['weekend_absence_rule'] == true;
       _tiers.clear();
       if (saved.isEmpty) {
         for (final d in _defaults) {
@@ -101,7 +107,8 @@ class _LateRulesPageState extends State<LateRulesPage> {
       _saving = true;
       _error = null;
     });
-    final r = await ApiService.post({'action': 'save_late_rules', 'enabled': _enabled, 'tiers': list});
+    final r = await ApiService.post({'action': 'save_late_rules', 'enabled': _enabled, 'tiers': list, 'earlyDeduction': _early,
+      'weekendAbsenceRule': _weekendRule});
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -144,6 +151,31 @@ class _LateRulesPageState extends State<LateRulesPage> {
                       title: const Text('تفعيل الخصم من المرتب', style: TextStyle(fontWeight: FontWeight.w700)),
                       subtitle: Text('لو مقفول، التأخير والانصراف بدري بيتحسبوا ويظهروا في التقارير من غير خصم', style: sub),
                       onChanged: (v) => setState(() => _enabled = v),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  GlassCard(
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _early,
+                      activeColor: AppColors.primary,
+                      title: const Text('تفعيل خصم الانصراف بدري', style: TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('لو مقفول، الانصراف بدري بيتحسب ويظهر في التقارير من غير ما يتخصم — التأخير بس اللي بيتخصم', style: sub),
+                      onChanged: (v) => setState(() => _early = v),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  GlassCard(
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _weekendRule,
+                      activeColor: AppColors.primary,
+                      title: const Text('قاعدة الإجازة الأسبوعية (الجمعة)', style: TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('• غياب الخميس والسبت معاً ← الجمعة تتحسب غياب.\n'
+                          '• غياب يوم واحد بس منهم ← الجمعة تفضل راحة أسبوعية.\n'
+                          '• حضور اليومين ← الجمعة راحة أسبوعية.\n'
+                          'الغياب هنا هو الغياب من غير إذن — الإجازة المتوافق عليها مش بتتحسب.', style: sub),
+                      onChanged: (v) => setState(() => _weekendRule = v),
                     ),
                   ),
                   const SizedBox(height: 14),

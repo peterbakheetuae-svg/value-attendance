@@ -8,6 +8,8 @@ export interface PayrollRules {
   auto: boolean; dayDivisor: number; mode: 'per_minute' | 'tiers' | 'hourly';
   lateTiers: Tier[]; earlyTiers: Tier[]; absencePenaltyDays: number;
   lateFixedAfterMinutes: number; lateFixedAmount: number; lateHourAmount: number;
+  /** الانصراف بدري is deducted (off → it is only counted and shown) */
+  earlyDeduction: boolean;
 }
 
 export async function loadRules(q: Q): Promise<PayrollRules> {
@@ -15,7 +17,7 @@ export async function loadRules(q: Q): Promise<PayrollRules> {
   return { auto: s.payroll_auto_deductions, dayDivisor: s.day_divisor, mode: s.deduction_mode,
     lateTiers: s.late_tiers ?? [], earlyTiers: s.early_tiers ?? [], absencePenaltyDays: Number(s.absence_penalty_days),
     lateFixedAfterMinutes: Number(s.late_fixed_after_minutes ?? 30), lateFixedAmount: Number(s.late_fixed_amount ?? 0),
-    lateHourAmount: Number(s.late_hour_amount ?? 0) };
+    lateHourAmount: Number(s.late_hour_amount ?? 0), earlyDeduction: s.early_deduction !== false };
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -109,6 +111,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     } else if (rules.mode === 'hourly') {
       const la = hourlyLateAmount(rules, late, minuteWage);
       if (la) { lateDays++; lateMin += late; lateAmt += la; }
+      const ea = hourlyLateAmount(rules, early, minuteWage);
+      if (ea) { earlyDays++; earlyMin += early; earlyAmt += ea; }
     } else {
       const la = tierAmount(rules.lateTiers, late), ea = tierAmount(rules.earlyTiers, early);
       if (la) { lateDays++; lateMin += late; lateAmt += la; }
@@ -116,6 +120,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     }
   }
   if (rules.mode === 'per_minute' && minuteWage !== null) { lateAmt = lateMin * minuteWage; earlyAmt = earlyMin * minuteWage; }
+  // «خصم الانصراف بدري» off: the early leave is still counted and shown, nothing is deducted for it
+  if (!rules.earlyDeduction) earlyAmt = 0;
 
   const absentDays = summary.unapprovedAbsenceDays, unpaidDays = summary.unpaidAbsenceDays;
   // salary for the days: every elapsed day of the month is paid (work days, weekends, holidays, paid leave)
@@ -147,7 +153,8 @@ export async function computePayroll(q: Q, employeeId: string, period: string, t
     complete: summary.complete, baseSalary: base, dayWage: dayWage === null ? null : r2(dayWage),
     minuteWage: minuteWage === null ? null : Math.round(minuteWage * 10000) / 10000,
     rules: { auto: rules.auto, mode: rules.mode, dayDivisor: rules.dayDivisor, absencePenaltyDays: rules.absencePenaltyDays,
-      lateFixedAfterMinutes: rules.lateFixedAfterMinutes, lateFixedAmount: rules.lateFixedAmount, lateHourAmount: rules.lateHourAmount },
+      lateFixedAfterMinutes: rules.lateFixedAfterMinutes, lateFixedAmount: rules.lateFixedAmount, lateHourAmount: rules.lateHourAmount,
+      earlyDeduction: rules.earlyDeduction },
     late: { days: lateDays, minutes: lateMin, amount: auto ? r2(lateAmt) : 0 },
     early: { days: earlyDays, minutes: earlyMin, amount: auto ? r2(earlyAmt) : 0 },
     absence: { days: absentDays, amount: auto ? r2(absenceAmt) : 0 },

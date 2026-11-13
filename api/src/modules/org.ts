@@ -234,7 +234,9 @@ export const orgModule: Module = (r, { db }) => {
       await db.query(`UPDATE employees SET selfie_required = $1`, [b.selfieRequired]);
     }
     // simple lateness rule (late > N min → fixed amount; late ≥ 1 h → amount per hour)
-    const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3 RETURNING *`, lateRule);
+    const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3,
+        early_deduction = $4, weekend_absence_rule = $5 RETURNING *`,
+      [...lateRule, bool(b, 'earlyDeduction') ?? before.early_deduction, bool(b, 'weekendAbsenceRule') ?? before.weekend_absence_rule]);
     await audit(db, a.id, 'settings.update', 'settings', null, before, s2);
     return ok({ settings: s2 });
   });

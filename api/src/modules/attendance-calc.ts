@@ -68,7 +68,7 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
      WHERE e.id = $1`, [employeeId]);
   const days = daysInMonth(period);
   const first = days[0], last = days[days.length - 1];
-  const [att, hol, abs, hourly] = await Promise.all([
+  const [att, hol, abs, hourly, cfg] = await Promise.all([
     q.query<AttendanceRow & { has_selfie: boolean }>(`SELECT a.*, EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
                                 FROM attendance a WHERE a.employee_id = $1 AND a.work_date BETWEEN $2 AND $3`, [employeeId, first, last]),
     q.query(`SELECT day, name FROM holidays WHERE day BETWEEN $1 AND $2`, [first, last]),
@@ -78,7 +78,9 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
     q.query(`SELECT day, duration_minutes FROM requests
               WHERE employee_id = $1 AND type IN ('hourly_permission','short_leave','emergency_permission')
                 AND status = 'approved' AND day BETWEEN $2 AND $3`, [employeeId, first, last]),
+    q.query(`SELECT weekend_absence_rule FROM company_settings LIMIT 1`),
   ]);
+  const weekendRule = cfg.rows[0]?.weekend_absence_rule === true;
   const attBy = new Map(att.rows.map((a) => [a.work_date, a]));
   const holBy = new Map(hol.rows.map((h) => [h.day, h.name]));
   const hourlyBy = new Map<string, number>();
@@ -96,7 +98,6 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
   for (const d of days) {
     const a = attBy.get(d);
     const entry: DayEntry = { date: d, status: 'absent', hourlyPermissionMinutes: hourlyBy.get(d) ?? 0 };
-    if (entry.hourlyPermissionMinutes) { s.hourlyPermissions++; s.hourlyPermissionMinutes += entry.hourlyPermissionMinutes; }
     const absence = abs.rows.find((x) => x.start_date <= d && x.end_date >= d);
     if (a) {
       const m = metrics(a, today);
@@ -118,8 +119,30 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
       entry.absenceType = absence.absence_type;
       entry.status = absence.absence_type === 'mission' ? 'mission' : absence.absence_type === 'unpaid' ? 'unpaid_absence' : 'approved_absence';
     }
+    out.push(entry);
+  }
 
-    const isWorkingDay = d <= today && !(emp && d < emp.joining_date) && !holBy.has(d) && !weekend.includes(isoDow(d));
+  // قاعدة الإجازة الأسبوعية: absent (no excuse) the working day before AND the working day after the weekly rest
+  // (e.g. Thursday and Saturday) → the rest day(s) between them (Friday) become absence. One of them only, or both
+  // attended → it stays a weekly rest.
+  const sandwiched = new Set<string>();
+  if (weekendRule) {
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].status !== 'weekend') continue;
+      let j = i;
+      while (j + 1 < out.length && out[j + 1].status === 'weekend') j++;
+      const before = out[i - 1], after = out[j + 1];
+      if (before?.status === 'absent' && after?.status === 'absent') {
+        for (let k = i; k <= j; k++) { out[k].status = 'absent'; sandwiched.add(out[k].date); }
+      }
+      i = j;
+    }
+  }
+
+  for (const entry of out) {
+    const d = entry.date;
+    if (entry.hourlyPermissionMinutes) { s.hourlyPermissions++; s.hourlyPermissionMinutes += entry.hourlyPermissionMinutes; }
+    const isWorkingDay = d <= today && !(emp && d < emp.joining_date) && !holBy.has(d) && (!weekend.includes(isoDow(d)) || sandwiched.has(d));
     if (isWorkingDay) {
       s.workingDays++; s.throughDate = d;
       if (entry.status === 'present' || entry.status === 'mission') s.attendedDays++;
@@ -135,7 +158,6 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
       if (m.missingCheckout) s.missingCheckouts++;
       s.workedMinutes += m.workedMinutes; s.overtimeMinutes += m.overtimeMinutes;
     }
-    out.push(entry);
   }
   s.attendancePercent = s.workingDays ? Math.round((s.attendedDays / s.workingDays) * 1000) / 10 : null;
   return { days: out, summary: s };

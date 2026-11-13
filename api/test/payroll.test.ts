@@ -50,13 +50,23 @@ test('payroll: tiers — highest tier reached, once per day; same for early leav
   const r = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(r.late.amount, 100, '40 min passed the 30-minute tier');
   assert.equal(r.early.amount, 40, 'left at 16:00 = 120 min early → tier');
+  // «خصم الانصراف بدري» off: still counted, not deducted
+  await h.call(c.t.owner, 'PATCH', '/settings', { earlyDeduction: false });
+  const off = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
+  assert.equal(off.early.amount, 0);
+  assert.ok(off.early.minutes > 0, 'the early leave is still shown');
+  assert.equal(off.net, Math.round((r.net + 40) * 100) / 100);
+  await h.call(c.t.owner, 'PATCH', '/settings', { earlyDeduction: true });
 });
 
 test('payroll: simple rule — late > 30 min fixed amount, an hour or more per hour', async () => {
   await h.call(c.t.owner, 'PATCH', '/settings', { deductionMode: 'hourly', lateFixedAfterMinutes: 30, lateFixedAmount: 75, lateHourAmount: 120 });
   const r = (await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(r.late.amount, 75, '40 min late → fixed amount');
-  assert.equal(r.early.amount, 0, 'the simple rule is for lateness only');
+  assert.equal(r.early.amount, 240, 'early leave on (the switch): 120 min early = 2 hours × 120');
+  await h.call(c.t.owner, 'PATCH', '/settings', { earlyDeduction: false });
+  assert.equal((await h.call(c.t.owner, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll.early.amount, 0, 'switch off');
+  await h.call(c.t.owner, 'PATCH', '/settings', { earlyDeduction: true });
   assert.equal(r.rules.lateHourAmount, 120);
   assert.equal((await h.call(c.t.owner, 'PATCH', '/settings', { lateFixedAfterMinutes: 90 })).status, 400);
   await h.call(c.t.owner, 'PATCH', '/settings', { deductionMode: 'tiers' });
