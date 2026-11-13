@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart'; // 🔥 استيراد الحزمة
 import '../../theme/app_colors.dart';
 import '../../l10n/app_localizations.dart';
+import '../../widgets/glass_ui.dart';
 
 class AttendanceExpandableCards extends StatefulWidget {
   final List<Map<String, dynamic>> days;
@@ -104,17 +105,17 @@ class AttendanceExpandableCard extends StatelessWidget {
     final ceoConfirm = AppLocalizations.of(context, 'ceo_confirm');
 
     // 🔥 تحديد لون الحالة
-    Color statusColor = Colors.grey;
+    Color statusColor = Ar.grey;
     IconData statusIcon = Icons.info_outline;
 
     if (attendanceStatus.contains('منصرف')) {
-      statusColor = isDark ? Colors.green.shade300 : Colors.green.shade700;
+      statusColor = isDark ? Ar.green.shade300 : Ar.green.shade700;
       statusIcon = Icons.check_circle;
     } else if (attendanceStatus.contains('اجازه') || attendanceStatus.contains('عطلة')) {
-      statusColor = isDark ? Colors.orange.shade300 : Colors.orange.shade700;
+      statusColor = isDark ? Ar.amber.shade300 : Ar.amber.shade700;
       statusIcon = Icons.emoji_events;
     } else if (attendanceStatus.contains('غياب')) {
-      statusColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
+      statusColor = isDark ? Ar.red.shade300 : Ar.red.shade700;
       statusIcon = Icons.cancel;
     }
 
@@ -203,7 +204,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                             Icon(
                               Icons.open_in_new,
                               size: 16,
-                              color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                              color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -211,7 +212,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                                color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                                 decoration: TextDecoration.underline,
                               ),
                             ),
@@ -244,7 +245,7 @@ class AttendanceExpandableCard extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey[100],
+          color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey[100],
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -356,7 +357,7 @@ class AttendanceExpandableCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.black.withOpacity(0.3) : Colors.grey[50],
+                  color: isDark ? Colors.black.withOpacity(0.3) : Ar.grey[50],
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(20),
                     bottomRight: Radius.circular(20),
@@ -394,8 +395,8 @@ class AttendanceExpandableCard extends StatelessWidget {
                           label: ceoConfirm,
                           value: dayData['startCeoConfirm'] ?? '--',
                           valueColor: dayData['startCeoConfirm'] != '--'
-                              ? Colors.green
-                              : Colors.grey,
+                              ? Ar.green
+                              : Ar.grey,
                         ),
                       ],
                     ),
@@ -432,8 +433,8 @@ class AttendanceExpandableCard extends StatelessWidget {
                           label: ceoConfirm,
                           value: dayData['endCeoConfirm'] ?? '--',
                           valueColor: dayData['endCeoConfirm'] != '--'
-                              ? Colors.green
-                              : Colors.grey,
+                              ? Ar.green
+                              : Ar.grey,
                         ),
                       ],
                     ),
@@ -444,7 +445,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text('تم التعديل بواسطة ${dayData['correctedBy']}',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.deepOrange)),
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Ar.amber)),
                       ),
                     if (onEdit != null)
                       Padding(
@@ -493,7 +494,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                             icon: o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded,
                             label: '${o['label']}',
                             value: '${o['text']}',
-                            valueColor: Colors.teal,
+                            valueColor: Ar.green,
                           ),
                       ],
                     ),
@@ -508,19 +509,19 @@ class AttendanceExpandableCard extends StatelessWidget {
                           icon: Icons.timer,
                           label: workHours,
                           value: dayData['workHours'] ?? '--',
-                          valueColor: Colors.blue,
+                          valueColor: Ar.info,
                         ),
                         _buildDetailItem(
                           icon: Icons.timer_outlined,
                           label: lateLabel,
                           value: dayData['lateTime'] ?? '--',
-                          valueColor: Colors.orange,
+                          valueColor: Ar.amber,
                         ),
                         _buildDetailItem(
                           icon: Icons.work,
                           label: project,
                           value: '${dayData['projectName']}',
-                          valueColor: Colors.purple,
+                          valueColor: Ar.accent,
                         ),
                       ],
                     ),

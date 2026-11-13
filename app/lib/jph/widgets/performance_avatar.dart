@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import 'glass_ui.dart';
 
 /// Monthly performance ring around the user's photo: 100% on the 1st of the month and it goes down with
 /// unexcused absence, lateness, early leave and penalties; a published evaluation is averaged in.
@@ -19,7 +20,7 @@ class PerformanceScore {
     } catch (_) {/* keep the last value (offline) */}
   }
 
-  static Color colorFor(int s) => s >= 80 ? const Color(0xFF2E9B67) : (s >= 50 ? Colors.orange : Colors.red);
+  static Color colorFor(int s) => s >= 80 ? const Color(0xFF2FA65A) : (s >= 50 ? Ar.amber : Ar.red);
 }
 
 class PerformanceAvatar extends StatefulWidget {
@@ -54,7 +55,7 @@ class _PerformanceAvatarState extends State<PerformanceAvatar> {
               percent: (score ?? 100) / 100,
               stroke: widget.stroke,
               color: PerformanceScore.colorFor(score ?? 100),
-              track: Colors.grey.withOpacity(0.25),
+              track: Ar.grey.withOpacity(0.25),
             ),
           ),
           widget.child,

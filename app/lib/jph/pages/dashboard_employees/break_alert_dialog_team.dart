@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import 'fingerprint_config_team.dart';
 import '../../services/dashboard_state.dart';
 import 'dash_mode_team.dart';
+import '../../widgets/glass_ui.dart';
 
 Future<void> showBreakAlertDialog({
   required BuildContext context,
@@ -43,7 +44,7 @@ Future<void> showBreakAlertDialog({
             borderRadius: BorderRadius.circular(24.0),
           ),
           backgroundColor: isDark
-              ? Colors.grey.shade900.withOpacity(0.98)
+              ? Ar.grey.shade900.withOpacity(0.98)
               : Colors.white.withOpacity(0.98),
           insetPadding: const EdgeInsets.all(16),
           child: SingleChildScrollView(
@@ -73,12 +74,12 @@ Future<void> showBreakAlertDialog({
                         height: 100,
                         decoration: BoxDecoration(
                           color: isBreakExceeded
-                              ? Colors.orange.withOpacity(0.1)
+                              ? Ar.amber.withOpacity(0.1)
                               : AppColors.secondary.withOpacity(0.1),
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: isBreakExceeded
-                                ? Colors.orange.withOpacity(0.3)
+                                ? Ar.amber.withOpacity(0.3)
                                 : AppColors.secondary.withOpacity(0.3),
                             width: 3,
                           ),
@@ -86,7 +87,7 @@ Future<void> showBreakAlertDialog({
                         child: Icon(
                           Icons.coffee,
                           size: 50,
-                          color: isBreakExceeded ? Colors.orange : AppColors.secondary,
+                          color: isBreakExceeded ? Ar.amber : AppColors.secondary,
                         ),
                       ),
                       if (isBreakExceeded)
@@ -97,7 +98,7 @@ Future<void> showBreakAlertDialog({
                             width: 32,
                             height: 32,
                             decoration: BoxDecoration(
-                              color: Colors.red,
+                              color: Ar.red,
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: isDark ? Colors.black : Colors.white,
@@ -122,7 +123,7 @@ Future<void> showBreakAlertDialog({
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: isBreakExceeded ? Colors.orange : (isDark ? Colors.white : Colors.black),
+                      color: isBreakExceeded ? Ar.amber : (isDark ? Colors.white : Colors.black),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -134,7 +135,7 @@ Future<void> showBreakAlertDialog({
                         : AppLocalizations.of(dialogContext, 'breakStarted'),
                     style: TextStyle(
                       fontSize: 16,
-                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                      color: isDark ? Colors.white70 : Ar.grey.shade700,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -145,12 +146,12 @@ Future<void> showBreakAlertDialog({
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
                     decoration: BoxDecoration(
                       color: isBreakExceeded
-                          ? Colors.orange.withOpacity(0.1)
+                          ? Ar.amber.withOpacity(0.1)
                           : AppColors.secondary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isBreakExceeded
-                            ? Colors.orange.withOpacity(0.3)
+                            ? Ar.amber.withOpacity(0.3)
                             : AppColors.secondary.withOpacity(0.3),
                         width: 1,
                       ),
@@ -161,7 +162,7 @@ Future<void> showBreakAlertDialog({
                           AppLocalizations.of(dialogContext, 'breakStarted'),
                           style: TextStyle(
                             fontSize: 14,
-                            color: isDark ? Colors.white70 : Colors.grey.shade700,
+                            color: isDark ? Colors.white70 : Ar.grey.shade700,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -170,7 +171,7 @@ Future<void> showBreakAlertDialog({
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: isBreakExceeded ? Colors.orange : AppColors.secondary,
+                            color: isBreakExceeded ? Ar.amber : AppColors.secondary,
                           ),
                         ),
                       ],
@@ -182,12 +183,12 @@ Future<void> showBreakAlertDialog({
                     padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
                     decoration: BoxDecoration(
                       color: isBreakExceeded
-                          ? Colors.orange.withOpacity(0.05)
+                          ? Ar.amber.withOpacity(0.05)
                           : AppColors.secondary.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isBreakExceeded
-                            ? Colors.orange.withOpacity(0.2)
+                            ? Ar.amber.withOpacity(0.2)
                             : AppColors.secondary.withOpacity(0.2),
                         width: 1,
                       ),
@@ -198,7 +199,7 @@ Future<void> showBreakAlertDialog({
                           AppLocalizations.of(dialogContext, 'totalBreakTime'),
                           style: TextStyle(
                             fontSize: 14,
-                            color: isDark ? Colors.white70 : Colors.grey.shade700,
+                            color: isDark ? Colors.white70 : Ar.grey.shade700,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -207,7 +208,7 @@ Future<void> showBreakAlertDialog({
                           style: TextStyle(
                             fontSize: 26,
                             fontWeight: FontWeight.bold,
-                            color: isBreakExceeded ? Colors.orange : (isDark ? Colors.white : Colors.black),
+                            color: isBreakExceeded ? Ar.amber : (isDark ? Colors.white : Colors.black),
                           ),
                         ),
                         if (isBreakExceeded) ...[
@@ -216,7 +217,7 @@ Future<void> showBreakAlertDialog({
                             AppLocalizations.of(dialogContext, 'breakLimitExceeded'),
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.orange,
+                              color: Ar.amber,
                               fontStyle: FontStyle.italic,
                             ),
                           ),
@@ -230,8 +231,8 @@ Future<void> showBreakAlertDialog({
                     config: FingerUiConfig(
                       title: AppLocalizations.of(dialogContext, 'endBreak'),
                       subtitle: "",
-                      color: isBreakExceeded ? Colors.orange : AppColors.secondary,
-                      iconBg: isBreakExceeded ? Colors.orange : AppColors.secondary,
+                      color: isBreakExceeded ? Ar.amber : AppColors.secondary,
+                      iconBg: isBreakExceeded ? Ar.amber : AppColors.secondary,
                     ),
                     onSuccess: () async {
                       await stopSound();

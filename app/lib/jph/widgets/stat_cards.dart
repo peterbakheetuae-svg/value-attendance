@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_colors.dart';
+import 'glass_ui.dart';
 
 /* ================= MODEL ================= */
 
@@ -546,6 +547,6 @@ class _OutingCountdownState extends State<OutingCountdown> {
     final a = d.abs();
     String two(int v) => v.toString().padLeft(2, '0');
     final txt = '${late ? '+' : ''}${two(a.inHours)}:${two(a.inMinutes % 60)}:${two(a.inSeconds % 60)}';
-    return Text(txt, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: late ? Colors.red : null));
+    return Text(txt, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: late ? Ar.red : null));
   }
 }

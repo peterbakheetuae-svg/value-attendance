@@ -13,6 +13,7 @@ import '../widgets/jph_form_ui.dart';
 import '../widgets/swipe_tabs.dart';
 import 'custody_receipt_pdf.dart';
 import 'form_delete.dart';
+import '../widgets/glass_ui.dart';
 
 Future<Map<String, dynamic>> _get(String path, [Map<String, dynamic> q = const {}]) =>
     ApiService.post({'action': 'cash_get', 'path': path, 'query': q});
@@ -204,7 +205,7 @@ class _NewReceiptState extends State<_NewReceipt> {
       err = 'اكتب الملحقات الأخرى';
     }
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
       return;
     }
     setState(() => _saving = true);
@@ -254,7 +255,7 @@ class _NewReceiptState extends State<_NewReceipt> {
     return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
       _title('أولًا: بيانات الموظف'),
       JphUi.picker(
-        isDark: isDark, icon: Icons.badge_rounded, iconColor: Colors.teal, label: 'الموظف *',
+        isDark: isDark, icon: Icons.badge_rounded, iconColor: Ar.green, label: 'الموظف *',
         value: _loadingPrefill ? 'جاري تحميل بياناته...' : (who ?? 'اختار الموظف — بياناته بتتملي لوحدها'),
         onTap: _pickEmployee,
       ),
@@ -271,12 +272,12 @@ class _NewReceiptState extends State<_NewReceipt> {
       _gap(),
       JphUi.input(isDark: isDark, label: 'المدير المباشر', controller: _manager, icon: Icons.supervisor_account_rounded, big: false),
       _gap(),
-      JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.orange, label: 'تاريخ استلام العهدة',
+      JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.amber, label: 'تاريخ استلام العهدة',
           value: _show(_iso(_receiptDate)), onTap: () => _pickDate(true)),
       _title(_laptop ? 'ثانيًا: بيانات كمبيوتر محمول' : 'ثانيًا: بيانات الهاتف المحمول'),
       if (_employeeId != null) ...[
         JphUi.picker(
-          isDark: isDark, icon: Icons.inventory_2_rounded, iconColor: Colors.indigo, label: 'العهدة المسلَّمة للموظف',
+          isDark: isDark, icon: Icons.inventory_2_rounded, iconColor: Ar.accent, label: 'العهدة المسلَّمة للموظف',
           value: _items.isEmpty
               ? 'مفيش ${_laptop ? 'لابتوب' : 'موبايل'} مسلَّم له — سلّمه من صفحة الموظف'
               : '${(_items.where((x) => '${x['id']}' == _itemId).firstOrNull ?? const {})['name'] ?? 'اختار العهدة'}',
@@ -296,13 +297,13 @@ class _NewReceiptState extends State<_NewReceipt> {
       // the device data comes from the chosen custody item only (Settings → العهدة) — not typed by hand
       if (_itemId != null) ...[
         JphUi.readOnly(isDark: isDark, label: 'نوع / الماركة', value: _brand.text,
-            icon: _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, color: Colors.indigo),
+            icon: _laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, color: Ar.accent),
         _gap(),
         JphUi.readOnly(isDark: isDark, label: _laptop ? 'سريل الجهاز / SN' : 'رقم الجهاز / IMEI', value: _imei.text.isEmpty ? '—' : _imei.text,
-            icon: Icons.qr_code_rounded, color: Colors.indigo),
+            icon: Icons.qr_code_rounded, color: Ar.accent),
         _gap(),
         if (!_laptop) ...[
-          JphUi.readOnly(isDark: isDark, label: 'رقم الخط', value: _line.text.isEmpty ? '—' : _line.text, icon: Icons.sim_card_rounded, color: Colors.indigo),
+          JphUi.readOnly(isDark: isDark, label: 'رقم الخط', value: _line.text.isEmpty ? '—' : _line.text, icon: Icons.sim_card_rounded, color: Ar.accent),
           _gap(),
         ],
       ],
@@ -331,7 +332,7 @@ class _NewReceiptState extends State<_NewReceipt> {
       _title('سادسًا: الإقرار والتوقيعات'),
       JphUi.input(isDark: isDark, label: 'اسم الموظف (في الإقرار)', controller: _signName, icon: Icons.person_rounded, big: false),
       _gap(),
-      JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.teal, label: 'التاريخ',
+      JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.green, label: 'التاريخ',
           value: _show(_iso(_signDate)), onTap: () => _pickDate(false)),
       _gap(),
       JphUi.input(isDark: isDark, label: 'مسؤول العهدة / IT', controller: _custodian, icon: Icons.computer_rounded, big: false),
@@ -405,7 +406,7 @@ class _HistoryState extends State<_History> {
               padding: const EdgeInsets.all(14),
               decoration: JphUi.box(isDark),
               child: Row(children: [
-                JphUi.iconTile(isDark, Icons.description_rounded, Colors.indigo),
+                JphUi.iconTile(isDark, Icons.description_rounded, Ar.accent),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

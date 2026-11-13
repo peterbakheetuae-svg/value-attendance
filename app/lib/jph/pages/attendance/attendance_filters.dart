@@ -93,7 +93,7 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
         borderRadius: BorderRadius.circular(26),
         child: Container(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-          color: widget.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          color: widget.isDark ? const Color(0xFF262624) : Colors.white,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -109,10 +109,10 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: widget.isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+                    color: widget.isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
                     width: 1.4,
                   ),
-                  color: widget.isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF3F2FF),
+                  color: widget.isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
                 ),
                 child: Row(
                   children: [
@@ -159,7 +159,7 @@ class _MonthYearSheetState extends State<MonthYearSheet> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: widget.isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE4E4E4),
+                    color: widget.isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE6E3DE),
                   ),
                   color: widget.isDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.95),
                 ),
@@ -359,7 +359,7 @@ class _RangeSheetState extends State<RangeSheet> {
         borderRadius: BorderRadius.circular(26),
         child: Container(
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-          color: widget.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          color: widget.isDark ? const Color(0xFF262624) : Colors.white,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -422,7 +422,7 @@ class _SheetHeader extends StatelessWidget {
           height: 54,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEBFF),
+            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFF0EDE8),
           ),
           child: Icon(
             icon,
@@ -473,7 +473,7 @@ class _RangeRow extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
             width: 1.2,
           ),
           color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF7F6FF),
@@ -492,7 +492,7 @@ class _RangeRow extends StatelessWidget {
               height: 52,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEBFF),
+                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFF0EDE8),
               ),
               child: Icon(
                 icon,

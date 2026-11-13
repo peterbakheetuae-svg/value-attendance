@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_dialog.dart';
+import 'glass_ui.dart';
 
 /// Hourly permission / external visit dialogs — same shell as the original break dialog
 /// (rounded 24 dialog, translucent surface, circular icon badge, full-width buttons).
@@ -38,7 +39,7 @@ Widget _shell(BuildContext context, {required IconData icon, required Color colo
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
             if (subtitle != null) ...[
               const SizedBox(height: 8),
-              Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+              Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Ar.grey.shade700)),
             ],
             const SizedBox(height: 20),
             ...children,
@@ -90,7 +91,7 @@ Future<String?> showOutingKindPicker(BuildContext context) {
         children: [
           _button(ctx, label: 'إذن ساعات', icon: Icons.timelapse_rounded, color: AppColors.primary, onTap: () => Navigator.pop(ctx, 'permission')),
           _button(ctx, label: 'زيارة', icon: Icons.location_city_rounded, color: AppColors.secondary, onTap: () => Navigator.pop(ctx, 'visit')),
-          _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Colors.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
+          _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
         ]),
   );
 }
@@ -111,7 +112,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
       String two(int v) => v.toString().padLeft(2, '0');
       return _shell(ctx,
           icon: extension ? Icons.more_time_rounded : (kind == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded),
-          color: extension ? Colors.orange : AppColors.primary,
+          color: extension ? Ar.amber : AppColors.primary,
           title: extension ? 'طلب تمديد $label' : 'طلب $label',
           subtitle: extension && currentReturn != null
               ? 'ميعاد الرجوع الحالي ${two(currentReturn.hour)}:${two(currentReturn.minute)}'
@@ -154,7 +155,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
                   fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
                 ),
                 child: Text(back == null ? 'اختار الساعة' : back!.format(ctx),
-                    style: TextStyle(fontWeight: FontWeight.w600, color: back == null ? Colors.grey : (isDark ? Colors.white : Colors.black))),
+                    style: TextStyle(fontWeight: FontWeight.w600, color: back == null ? Ar.grey : (isDark ? Colors.white : Colors.black))),
               ),
             ),
             const SizedBox(height: 12),
@@ -168,7 +169,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
                 fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
               ),
             ),
-            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: Colors.red))),
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: Ar.red))),
             const SizedBox(height: 16),
             _button(ctx, label: 'إرسال للموافقة', icon: Icons.send_rounded, color: AppColors.primary, onTap: () {
               final now = DateTime.now();
@@ -195,7 +196,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
                 'reason': reason.text.trim(),
               });
             }),
-            _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Colors.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
+            _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
           ]);
     }),
   );
@@ -210,14 +211,14 @@ Future<String?> showOutingActions(BuildContext context, {required String kind, r
     barrierDismissible: !overdue,
     builder: (ctx) => _shell(ctx,
         icon: overdue ? Icons.notifications_active_rounded : Icons.directions_walk_rounded,
-        color: overdue ? Colors.orange : AppColors.secondary,
+        color: overdue ? Ar.amber : AppColors.secondary,
         title: overdue ? 'ميعاد رجوعك عدّى ⏰' : 'إنت في $label',
         subtitle: 'ميعاد الرجوع ${two(expectedReturn.hour)}:${two(expectedReturn.minute)}',
         children: [
           _button(ctx, label: 'رجعت المكتب', icon: Icons.login_rounded, color: AppColors.success, onTap: () => Navigator.pop(ctx, 'return')),
-          _button(ctx, label: 'طلب تمديد', icon: Icons.more_time_rounded, color: Colors.orange, onTap: () => Navigator.pop(ctx, 'extend')),
+          _button(ctx, label: 'طلب تمديد', icon: Icons.more_time_rounded, color: Ar.amber, onTap: () => Navigator.pop(ctx, 'extend')),
           if (overdue) _button(ctx, label: 'طلب جديد (إذن / زيارة)', icon: Icons.add_rounded, color: AppColors.primary, onTap: () => Navigator.pop(ctx, 'new')),
-          _button(ctx, label: 'إغلاق', icon: Icons.close_rounded, color: Colors.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
+          _button(ctx, label: 'إغلاق', icon: Icons.close_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
         ]),
   );
 }
@@ -233,7 +234,7 @@ Future<void> showOutingDecision(BuildContext context, Map<String, dynamic> o, Fu
     context: context,
     builder: (ctx) => _shell(ctx,
         icon: ext ? Icons.more_time_rounded : Icons.directions_walk_rounded,
-        color: ext ? Colors.orange : AppColors.primary,
+        color: ext ? Ar.amber : AppColors.primary,
         title: '${ext ? 'تمديد ' : ''}$kind — ${o['employee_name'] ?? ''}',
         subtitle: '${back == null ? '' : 'الرجوع ${two(back.hour)}:${two(back.minute)}\n'}${o['reason'] ?? ''}',
         children: [
@@ -246,17 +247,17 @@ Future<void> showOutingDecision(BuildContext context, Map<String, dynamic> o, Fu
             final r = await decide(true, note.text);
             if (ctx.mounted) {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
             }
           }),
           _button(ctx, label: 'رفض', icon: Icons.close_rounded, color: AppColors.error, onTap: () async {
             final r = await decide(false, note.text);
             if (ctx.mounted) {
               Navigator.pop(ctx);
-              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
             }
           }),
-          _button(ctx, label: 'لاحقاً', icon: Icons.schedule_rounded, color: Colors.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
+          _button(ctx, label: 'لاحقاً', icon: Icons.schedule_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
         ]),
   );
 }

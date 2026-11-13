@@ -7,6 +7,7 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/glass_ui.dart';
 
 /// شركات التسويق: one paid a fixed monthly fee (recorded as an office expense «شركة تسويق»), one paid a commission on
 /// the sales it brings (picked on the reservation; its % comes out of the office share of that unit).
@@ -57,7 +58,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
             child: Container(
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+              decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text(c == null ? 'شركة تسويق جديدة' : '${c['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -188,7 +189,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
           decoration: JphUi.box(isDark),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
-              JphUi.iconTile(isDark, commission ? Icons.percent_rounded : Icons.payments_rounded, commission ? Colors.deepPurple : Colors.teal),
+              JphUi.iconTile(isDark, commission ? Icons.percent_rounded : Icons.payments_rounded, commission ? Ar.accent : Ar.green),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -197,16 +198,16 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
                       style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
                 ]),
               ),
-              if (c['status'] != 'active') JphUi.chip('موقوفة', Colors.grey),
+              if (c['status'] != 'active') JphUi.chip('موقوفة', Ar.grey),
             ]),
             if (t.isNotEmpty) ...[
               const SizedBox(height: 8),
               if (commission) ...[
                 kv('عمولتها على ${t['units']} وحدة', t['earned']),
-                kv('اتصرفلها', t['paid'], color: Colors.green),
-                kv('مستحق لها', t['due'], color: Colors.orange),
+                kv('اتصرفلها', t['paid'], color: Ar.green),
+                kv('مستحق لها', t['due'], color: Ar.amber),
               ] else
-                kv('اتصرفلها', t['paid'], color: Colors.green),
+                kv('اتصرفلها', t['paid'], color: Ar.green),
             ],
           ]),
         ),

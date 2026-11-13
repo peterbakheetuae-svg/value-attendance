@@ -16,6 +16,7 @@ import '../widgets/jph_form_ui.dart';
 import 'cash/cash_page.dart';
 import '../widgets/swipe_tabs.dart';
 import '../widgets/adjustment_form.dart';
+import '../widgets/glass_ui.dart';
 
 class AdvanceRequestPage extends StatefulWidget {
   final String uid;
@@ -76,9 +77,9 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
   };
 
   final Map<String, Color> _requestTypeColors = {
-    'سلفة': Colors.blue,
-    'مصاريف عمل': Colors.purple,
-    'عمولة صفقة': Colors.teal,
+    'سلفة': Ar.info,
+    'مصاريف عمل': Ar.accent,
+    'عمولة صفقة': Ar.green,
   };
 
   @override
@@ -264,10 +265,10 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                           decoration: BoxDecoration(
-                                            color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade50,
+                                            color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
                                             borderRadius: BorderRadius.circular(20),
                                             border: Border.all(
-                                              color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
+                                              color: isDark ? Ar.info.shade700 : Ar.info.shade200,
                                               width: 1.5,
                                             ),
                                             boxShadow: [
@@ -285,11 +286,11 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                 height: 44,
                                                 decoration: BoxDecoration(
                                                   borderRadius: BorderRadius.circular(12),
-                                                  color: isDark ? Colors.blue.shade800 : Colors.blue.shade100,
+                                                  color: isDark ? Ar.info.shade800 : Ar.info.shade100,
                                                 ),
                                                 child: Icon(
                                                   Icons.summarize_rounded,
-                                                  color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                  color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                   size: 24,
                                                 ),
                                               ),
@@ -303,7 +304,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                       style: TextStyle(
                                                         fontSize: 16,
                                                         fontWeight: FontWeight.w800,
-                                                        color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                        color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                       ),
                                                     ),
                                                     const SizedBox(height: 4),
@@ -311,7 +312,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                       'كل الطلبات والمصروفات المالية',
                                                       style: TextStyle(
                                                         fontSize: 12,
-                                                        color: isDark ? Colors.blue.shade200 : Colors.blue.shade600,
+                                                        color: isDark ? Ar.info.shade200 : Ar.info.shade600,
                                                       ),
                                                     ),
                                                   ],
@@ -320,7 +321,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               const SizedBox(width: 10),
                                               Icon(
                                                 isRTL ? Icons.arrow_back_ios_rounded : Icons.arrow_forward_ios_rounded,
-                                                color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                 size: 18,
                                               ),
                                             ],
@@ -366,7 +367,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                             ),
                                           ],
                                           border: Border.all(
-                                            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+                                            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
                                             width: 1,
                                           ),
                                         ),
@@ -432,17 +433,17 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         Container(
                                           padding: const EdgeInsets.all(12),
                                           decoration: BoxDecoration(
-                                            color: isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade50,
+                                            color: isDark ? Ar.green.shade900.withOpacity(0.3) : Ar.green.shade50,
                                             borderRadius: BorderRadius.circular(12),
                                             border: Border.all(
-                                              color: isDark ? Colors.green.shade700 : Colors.green.shade200,
+                                              color: isDark ? Ar.green.shade700 : Ar.green.shade200,
                                             ),
                                           ),
                                           child: Row(
                                             children: [
                                               Icon(
                                                 Icons.check_circle_rounded,
-                                                color: isDark ? Colors.green.shade300 : Colors.green.shade600,
+                                                color: isDark ? Ar.green.shade300 : Ar.green.shade600,
                                                 size: 18,
                                               ),
                                               const SizedBox(width: 8),
@@ -452,7 +453,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                   style: TextStyle(
                                                     fontSize: 14,
                                                     fontWeight: FontWeight.w600,
-                                                    color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                                                    color: isDark ? Ar.green.shade300 : Ar.green.shade800,
                                                   ),
                                                 ),
                                               ),
@@ -467,10 +468,10 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade100,
+                                          color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
+                                            color: isDark ? Ar.info.shade700 : Ar.info.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -480,11 +481,11 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.blue.shade800 : Colors.blue.shade50,
+                                                color: isDark ? Ar.info.shade800 : Ar.info.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.info_rounded,
-                                                color: isDark ? Colors.blue.shade300 : Colors.blue,
+                                                color: isDark ? Ar.info.shade300 : Ar.info,
                                                 size: 22,
                                               ),
                                             ),
@@ -498,7 +499,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                      color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -507,7 +508,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
+                                                      color: isDark ? Ar.info.shade200 : Ar.info.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -571,10 +572,10 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.amber.shade900.withOpacity(0.3) : Colors.amber.shade100,
+                                          color: isDark ? Ar.amber.shade900.withOpacity(0.3) : Ar.amber.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.amber.shade700 : Colors.amber.shade200,
+                                            color: isDark ? Ar.amber.shade700 : Ar.amber.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -584,11 +585,11 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.amber.shade800 : Colors.amber.shade50,
+                                                color: isDark ? Ar.amber.shade800 : Ar.amber.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.lightbulb_rounded,
-                                                color: isDark ? Colors.amber.shade300 : Colors.amber,
+                                                color: isDark ? Ar.amber.shade300 : Ar.amber,
                                                 size: 22,
                                               ),
                                             ),
@@ -602,7 +603,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.amber.shade300 : Colors.amber.shade800,
+                                                      color: isDark ? Ar.amber.shade300 : Ar.amber.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -611,7 +612,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.amber.shade200 : Colors.amber.shade700,
+                                                      color: isDark ? Ar.amber.shade200 : Ar.amber.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -657,7 +658,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                   height: 44,
                                                   decoration: BoxDecoration(
                                                     borderRadius: BorderRadius.circular(12),
-                                                    color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                                                    color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
                                                   ),
                                                   child: Icon(
                                                     Icons.add_photo_alternate_rounded,
@@ -757,7 +758,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               IconButton(
                                                 icon: Icon(
                                                   Icons.delete_rounded,
-                                                  color: isDark ? const Color(0xFFEF5350) : const Color(0xFFD04545),
+                                                  color: isDark ? const Color(0xFFFF7D6E) : const Color(0xFFE5604F),
                                                   size: 24,
                                                 ),
                                                 onPressed: () {
@@ -789,10 +790,10 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 24),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade100,
+                                          color: isDark ? Ar.green.shade900.withOpacity(0.3) : Ar.green.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.green.shade700 : Colors.green.shade200,
+                                            color: isDark ? Ar.green.shade700 : Ar.green.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -802,11 +803,11 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.green.shade800 : Colors.green.shade50,
+                                                color: isDark ? Ar.green.shade800 : Ar.green.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.admin_panel_settings_rounded,
-                                                color: isDark ? Colors.green.shade300 : Colors.green,
+                                                color: isDark ? Ar.green.shade300 : Ar.green,
                                                 size: 22,
                                               ),
                                             ),
@@ -820,7 +821,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                                                      color: isDark ? Ar.green.shade300 : Ar.green.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -829,7 +830,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.green.shade200 : Colors.green.shade700,
+                                                      color: isDark ? Ar.green.shade200 : Ar.green.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -930,7 +931,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
             width: 1,
           ),
         ),
@@ -1001,7 +1002,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
             width: 1,
           ),
         ),
@@ -1012,7 +1013,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
               height: 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
               ),
               child: Icon(
                 Icons.calendar_month_rounded,
@@ -1074,7 +1075,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
               borderRadius: BorderRadius.circular(26),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                color: isDark ? const Color(0xFF262624) : Colors.white,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1100,7 +1101,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           onTap: () => Navigator.pop(sheetContext),
                           child: Icon(
                             Icons.close_rounded,
-                            color: isDark ? Colors.white70 : Colors.grey.shade600,
+                            color: isDark ? Colors.white70 : Ar.grey.shade600,
                             size: 28,
                           ),
                         ),
@@ -1110,7 +1111,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
 
                     ..._requestTypes.map((type) {
                       final icon = _requestTypeIcons[type] ?? Icons.account_balance_wallet_rounded;
-                      final iconColor = _requestTypeColors[type] ?? Colors.grey;
+                      final iconColor = _requestTypeColors[type] ?? Ar.grey;
                       final isSelected = type == _requestType;
 
                       return GestureDetector(
@@ -1126,12 +1127,12 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? (isDark ? iconColor.withOpacity(0.3) : iconColor.withOpacity(0.15))
-                                : (isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50),
+                                : (isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isSelected
                                   ? iconColor.withOpacity(0.5)
-                                  : (isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300),
+                                  : (isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300),
                               width: isSelected ? 1.5 : 1,
                             ),
                           ),
@@ -1207,7 +1208,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
               borderRadius: BorderRadius.circular(26),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                color: isDark ? const Color(0xFF262624) : Colors.white,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1233,7 +1234,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                           onTap: () => Navigator.pop(sheetContext),
                           child: Icon(
                             Icons.close_rounded,
-                            color: isDark ? Colors.white70 : Colors.grey.shade600,
+                            color: isDark ? Colors.white70 : Ar.grey.shade600,
                             size: 28,
                           ),
                         ),
@@ -1248,7 +1249,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                         border: Border.all(
                           color: isDark
                               ? Colors.white.withOpacity(0.2)
-                              : const Color(0xFFE4E4E4),
+                              : const Color(0xFFE6E3DE),
                         ),
                         color: isDark
                             ? Colors.black.withOpacity(0.6)
@@ -1275,7 +1276,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                       ? BorderSide(
                                     color: isDark
                                         ? Colors.white.withOpacity(0.1)
-                                        : Colors.grey.shade200,
+                                        : Ar.grey.shade200,
                                   )
                                       : BorderSide.none,
                                 ),
@@ -1293,7 +1294,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           : AppColors.primary.withOpacity(0.15))
                                           : (isDark
                                           ? Colors.white.withOpacity(0.1)
-                                          : Colors.grey.shade50),
+                                          : Ar.grey.shade50),
                                     ),
                                     child: Icon(
                                       Icons.calendar_today_rounded,
@@ -1303,7 +1304,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           : AppColors.primary)
                                           : (isDark
                                           ? Colors.white70
-                                          : Colors.grey.shade600),
+                                          : Ar.grey.shade600),
                                       size: 22,
                                     ),
                                   ),
@@ -1431,7 +1432,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: const Color(0xFFD04545),
+        backgroundColor: const Color(0xFFE5604F),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -1455,7 +1456,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF2E9B67),
+        backgroundColor: const Color(0xFF2FA65A),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),

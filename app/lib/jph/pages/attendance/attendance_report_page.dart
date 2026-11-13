@@ -18,6 +18,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/payslip_pdf.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   final String uid;
@@ -307,7 +308,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           ScaffoldMessenger.of(context!).showSnackBar(
             SnackBar(
               content: Text(errorMessage!),
-              backgroundColor: Colors.redAccent,
+              backgroundColor: Ar.red,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -324,7 +325,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
         ScaffoldMessenger.of(context!).showSnackBar(
           SnackBar(
             content: Text(errorMessage!),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -374,7 +375,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
           ScaffoldMessenger.of(context!).showSnackBar(
             SnackBar(
               content: Text(errorMessage!),
-              backgroundColor: Colors.redAccent,
+              backgroundColor: Ar.red,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -391,7 +392,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
         ScaffoldMessenger.of(context!).showSnackBar(
           SnackBar(
             content: Text(errorMessage!),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -438,7 +439,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               pick('وقت الانصراف', tOut, (t) => tOut = t, clearable: true),
               TextField(controller: reason, decoration: const InputDecoration(labelText: 'سبب التعديل (اختياري)')),
               const SizedBox(height: 8),
-              const Text('المواعيد الأصلية بتفضل محفوظة، والتعديل بيتسجل باسمك.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const Text('المواعيد الأصلية بتفضل محفوظة، والتعديل بيتسجل باسمك.', style: TextStyle(fontSize: 12, color: Ar.grey)),
             ]),
             actions: [
               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
@@ -456,7 +457,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? (r['success'] == true ? 'تم ✅' : 'حصلت مشكلة')}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
     if (r['success'] == true) loadDailyReport();
   }
@@ -505,7 +506,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                               } catch (e) {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('تعذّر الطباعة: $e'), backgroundColor: Colors.red));
+                                      SnackBar(content: Text('تعذّر الطباعة: $e'), backgroundColor: Ar.red));
                                 }
                               }
                             }
@@ -694,13 +695,13 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: isDark ? Colors.red.shade900.withOpacity(0.3) : Colors.red.shade50,
+                color: isDark ? Ar.red.shade900.withOpacity(0.3) : Ar.red.shade50,
                 borderRadius: BorderRadius.circular(40),
               ),
               child: const Icon(
                 Icons.error_outline_rounded,
                 size: 40,
-                color: Colors.redAccent,
+                color: Ar.red,
               ),
             ),
             const SizedBox(height: 20),
@@ -709,7 +710,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: Colors.red,
+                color: Ar.red,
               ),
             ),
             const SizedBox(height: 12),
@@ -761,13 +762,13 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+                color: isDark ? Ar.grey.shade800 : Ar.grey.shade100,
                 borderRadius: BorderRadius.circular(40),
               ),
               child: Icon(
                 Icons.hourglass_empty_rounded,
                 size: 40,
-                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
               ),
             ),
             const SizedBox(height: 20),
@@ -776,7 +777,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: Colors.grey,
+                color: Ar.grey,
               ),
             ),
             const SizedBox(height: 12),
@@ -788,7 +789,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                 ),
               ),
             ),
@@ -803,7 +804,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(AppLocalizations.of(context, 'select_employee_first')),
-          backgroundColor: Colors.orange,
+          backgroundColor: Ar.amber,
           duration: const Duration(seconds: 2),
         ),
       );

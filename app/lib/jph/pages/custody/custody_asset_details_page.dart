@@ -8,6 +8,7 @@ import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/custody_asset_card.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/glass_ui.dart';
 
 /// العهدة ← one item: its card, «تسليم العهدة إلى» (or «استلام العهدة» while it is with someone) and its history —
 /// who had it, from when, when it came back and who received it.
@@ -63,7 +64,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
               child: Container(
                 margin: const EdgeInsets.all(12),
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+                decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Row(children: [
                     Expanded(child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
@@ -98,7 +99,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
     final notes = TextEditingController();
     await _sheet(isDark, 'تسليم العهدة إلى', (set) => [
           JphUi.picker(
-            isDark: isDark, icon: Icons.person_rounded, iconColor: Colors.teal, label: 'الموظف *',
+            isDark: isDark, icon: Icons.person_rounded, iconColor: Ar.green, label: 'الموظف *',
             value: empName ?? (emps.isEmpty ? 'جاري التحميل...' : 'اختار الموظف'),
             onTap: emps.isEmpty
                 ? null
@@ -152,7 +153,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
           const SizedBox(height: 10),
           TextField(controller: notes, decoration: _input(isDark, 'ملاحظات')),
           const SizedBox(height: 16),
-          _button(isDark, 'تأكيد', outcome == 'lost' ? Colors.red : Colors.green, () async {
+          _button(isDark, 'تأكيد', outcome == 'lost' ? Ar.red : Ar.green, () async {
             final r = await ApiService.post({'action': 'custody_close', 'itemId': holder['custodyId'], 'outcome': outcome,
               if (outcome == 'returned') 'condition': cond, 'notes': notes.text.trim()});
             if (!mounted) return;
@@ -165,7 +166,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
 
   Widget _historyRow(bool isDark, Map<String, dynamic> h) {
     final st = '${h['status']}';
-    final color = st == 'assigned' ? Colors.teal : st == 'lost' ? Colors.red : Colors.indigo;
+    final color = st == 'assigned' ? Ar.green : st == 'lost' ? Ar.red : Ar.accent;
     final lines = <String>[
       'استلمها: ${custodyDay(h['assignedOn'])}${'${h['assignedByName'] ?? ''}'.isEmpty ? '' : ' — سلّمها ${h['assignedByName']}'}'
           '${custodyCondAr[h['conditionOut']] == null ? '' : ' (${custodyCondAr[h['conditionOut']]})'}',
@@ -221,7 +222,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
                       if (_canManage && a['status'] == 'active') ...[
                         const SizedBox(height: 4),
                         held
-                            ? _button(isDark, 'استلام العهدة', Colors.green, () => _receive(isDark))
+                            ? _button(isDark, 'استلام العهدة', Ar.green, () => _receive(isDark))
                             : _button(isDark, 'تسليم العهدة إلى', JphUi.primary(isDark), () => _handOver(isDark)),
                       ],
                       const SizedBox(height: 18),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/glass_ui.dart';
 import '../../l10n/app_localizations.dart'; // 🔥 استيراد الترجمة
 
 
@@ -84,7 +85,7 @@ class DailyCardContent extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade100,
+              color: isDark ? Ar.green.shade900.withOpacity(0.3) : Ar.green.shade100,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -92,7 +93,7 @@ class DailyCardContent extends StatelessWidget {
               children: [
                 Icon(
                   Icons.check_circle,
-                  color: isDark ? Colors.green.shade300 : Colors.green.shade700,
+                  color: isDark ? Ar.green.shade300 : Ar.green.shade700,
                   size: 18,
                 ),
                 const SizedBox(width: 8),
@@ -101,7 +102,7 @@ class DailyCardContent extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.green.shade300 : Colors.green.shade700,
+                    color: isDark ? Ar.green.shade300 : Ar.green.shade700,
                   ),
                 ),
               ],
@@ -112,7 +113,7 @@ class DailyCardContent extends StatelessWidget {
             label: startTimeText, // 🔥 استخدام الترجمة
             value: (dayData["start"] ?? "--").toString(),
             icon: Icons.login_rounded,
-            iconColor: isDark ? const Color(0xFF4CAF50) : const Color(0xFF20A45A),
+            iconColor: isDark ? const Color(0xFF4FCF73) : const Color(0xFF2FA65A),
             bgColor: isDark ? const Color(0xFF1A3D2C) : const Color(0xFFDFF3E6),
             isDark: isDark,
           ),
@@ -121,7 +122,7 @@ class DailyCardContent extends StatelessWidget {
             label: endTimeText, // 🔥 استخدام الترجمة
             value: (dayData["end"] ?? "--").toString(),
             icon: Icons.logout_rounded,
-            iconColor: isDark ? const Color(0xFFEF5350) : const Color(0xFFD04545),
+            iconColor: isDark ? const Color(0xFFFF7D6E) : const Color(0xFFE5604F),
             bgColor: isDark ? const Color(0xFF3A2424) : const Color(0xFFFFE0E0),
             isDark: isDark,
           ),
@@ -131,7 +132,7 @@ class DailyCardContent extends StatelessWidget {
             value: (dayData["work"] ?? "--").toString(),
             icon: Icons.access_time_rounded,
             iconColor: isDark ? AppColors.primaryLight : AppColors.primary,
-            bgColor: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+            bgColor: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
             isDark: isDark,
           ),
           const SizedBox(height: 12),
@@ -139,7 +140,7 @@ class DailyCardContent extends StatelessWidget {
             label: lateText,
             value: (dayData["late"] ?? "--").toString(),
             icon: Icons.timer_rounded,
-            iconColor: isDark ? const Color(0xFFFF9800) : const Color(0xFFFF5722),
+            iconColor: isDark ? const Color(0xFFF7A928) : const Color(0xFFFF7D6E),
             bgColor: isDark ? const Color(0xFF332211) : const Color(0xFFFFF3E0),
             isDark: isDark,
           ),
@@ -151,19 +152,19 @@ class DailyCardContent extends StatelessWidget {
       String displayStatus = status;
 
       if (status.contains("اجازه") || status.contains("عطلة")) {
-        statusColor = isDark ? const Color(0xFFFFB74D) : const Color(0xFFFF9800);
+        statusColor = isDark ? const Color(0xFFF7B445) : const Color(0xFFF7A928);
         statusIcon = Icons.emoji_events_rounded;
         displayStatus = holidayText; // 🔥 استخدام الترجمة
       } else if (status.contains("غياب") || status.isEmpty) {
-        statusColor = isDark ? const Color(0xFFEF5350) : const Color(0xFFD04545);
+        statusColor = isDark ? const Color(0xFFFF7D6E) : const Color(0xFFE5604F);
         statusIcon = Icons.cancel_rounded;
         displayStatus = absentText; // 🔥 استخدام الترجمة
       } else if (status.contains("إجازة")) {
-        statusColor = isDark ? const Color(0xFFFFB74D) : const Color(0xFFFF9800);
+        statusColor = isDark ? const Color(0xFFF7B445) : const Color(0xFFF7A928);
         statusIcon = Icons.emoji_events_rounded;
         displayStatus = leaveText; // 🔥 استخدام الترجمة
       } else {
-        statusColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+        statusColor = isDark ? Ar.grey.shade400 : Ar.grey.shade600;
         statusIcon = Icons.info_rounded;
       }
 
@@ -205,7 +206,7 @@ class DailyCardContent extends StatelessWidget {
               "$dateText ${dayData["date"]}", // 🔥 استخدام الترجمة
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
               ),
             ),
           ],

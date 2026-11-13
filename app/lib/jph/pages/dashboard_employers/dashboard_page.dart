@@ -356,11 +356,11 @@ class _DashboardPageState extends State<DashboardPage>
         decoration: BoxDecoration(
           color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.35),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.orange.withOpacity(0.5)),
+          border: Border.all(color: Ar.amber.withOpacity(0.5)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            const Icon(Icons.notifications_active_rounded, color: Colors.orange),
+            const Icon(Icons.notifications_active_rounded, color: Ar.amber),
             const SizedBox(width: 8),
             Text('طلبات إذن / زيارة مستنية موافقتك (${_pendingOutings.length})',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -471,8 +471,8 @@ class _DashboardPageState extends State<DashboardPage>
         title: 'ليس لديه حضور وانصراف',
         subtitle: 'الحساب ده مش محتاج بصمة',
         disabled: true,
-        color: Colors.grey,
-        iconBg: Colors.grey,
+        color: Ar.grey,
+        iconBg: Ar.grey,
       );
     }
     switch (mode) {
@@ -604,8 +604,8 @@ class _DashboardPageState extends State<DashboardPage>
           child: Column(children: [
             Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
             const SizedBox(height: 4),
-            Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.grey.shade700)),
-            if (tap != null) Icon(Icons.chevron_left_rounded, size: 16, color: isDark ? Colors.white54 : Colors.grey.shade600),
+            Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Ar.grey.shade700)),
+            if (tap != null) Icon(Icons.chevron_left_rounded, size: 16, color: isDark ? Colors.white54 : Ar.grey.shade600),
           ]),
         ),
       );
@@ -694,11 +694,11 @@ class _DashboardPageState extends State<DashboardPage>
         if (!mounted) return;
         ScaffoldMessenger.of(currentContext).showSnackBar(SnackBar(
           content: Text(res["message"] ?? (res["success"] == true ? 'تم' : 'حصل خطأ')),
-          backgroundColor: res["success"] == true ? Colors.green : Colors.red,
+          backgroundColor: res["success"] == true ? Ar.green : Ar.red,
         ));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(currentContext).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(currentContext).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Ar.red));
       } finally {
         _cameraInUse = false;
       }
@@ -710,7 +710,7 @@ class _DashboardPageState extends State<DashboardPage>
       final r = await ApiService.post({'action': 'outing_return'});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
       await _loadOuting();
       return;
     }
@@ -722,7 +722,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
     await _loadOuting();
   }
@@ -760,7 +760,7 @@ class _DashboardPageState extends State<DashboardPage>
         color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+          color: isDark ? Colors.white.withOpacity(0.2) : Ar.info.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -775,7 +775,7 @@ class _DashboardPageState extends State<DashboardPage>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.blue[800],
+                  color: isDark ? Colors.white : Ar.info[800],
                 ),
               ),
               if (_leaveRequests.length > 2)
@@ -795,7 +795,7 @@ class _DashboardPageState extends State<DashboardPage>
                   child: Text(
                     AppLocalizations.of(context, 'view_all'),
                     style: TextStyle(
-                      color: isDark ? Colors.blue[300] : Colors.blue,
+                      color: isDark ? Ar.info[300] : Ar.info,
                     ),
                   ),
                 ),
@@ -828,7 +828,7 @@ class _DashboardPageState extends State<DashboardPage>
                       Text(
                         '📅 ${request['requestDate']}',
                         style: TextStyle(
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                          color: isDark ? Colors.white70 : Ar.grey[700],
                         ),
                       ),
                     ],
@@ -839,7 +839,7 @@ class _DashboardPageState extends State<DashboardPage>
                     '🗓️ الفترة: $startDate إلى $endDate',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.white70 : Colors.grey[700],
+                      color: isDark ? Colors.white70 : Ar.grey[700],
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -847,7 +847,7 @@ class _DashboardPageState extends State<DashboardPage>
                     '⏱️ عدد الأيام: $daysCount أيام',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.white70 : Colors.grey[700],
+                      color: isDark ? Colors.white70 : Ar.grey[700],
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -855,7 +855,7 @@ class _DashboardPageState extends State<DashboardPage>
                     '📝 نوع الإجازة: $leaveType',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.white70 : Colors.grey[700],
+                      color: isDark ? Colors.white70 : Ar.grey[700],
                     ),
                   ),
                   if (reason.isNotEmpty && reason != "null") ...[
@@ -864,7 +864,7 @@ class _DashboardPageState extends State<DashboardPage>
                       '💬 السبب: $reason',
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDark ? Colors.white70 : Colors.grey[700],
+                        color: isDark ? Colors.white70 : Ar.grey[700],
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -893,7 +893,7 @@ class _DashboardPageState extends State<DashboardPage>
                               ? Text(AppLocalizations.of(context, 'processing'))
                               : Text(AppLocalizations.of(context, 'approve')),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                            backgroundColor: Ar.green,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -918,7 +918,7 @@ class _DashboardPageState extends State<DashboardPage>
                               ? Text(AppLocalizations.of(context, 'processing'))
                               : Text(AppLocalizations.of(context, 'reject')),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
+                            backgroundColor: Ar.red,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -950,7 +950,7 @@ class _DashboardPageState extends State<DashboardPage>
         color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+          color: isDark ? Colors.white.withOpacity(0.2) : Ar.green.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -965,7 +965,7 @@ class _DashboardPageState extends State<DashboardPage>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.green[800],
+                  color: isDark ? Colors.white : Ar.green[800],
                 ),
               ),
               if (_loanRequests.length > 2)
@@ -975,14 +975,14 @@ class _DashboardPageState extends State<DashboardPage>
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('عرض جميع الطلبات المالية'),
-                        backgroundColor: Colors.blue,
+                        backgroundColor: Ar.info,
                       ),
                     );
                   },
                   child: Text(
                     AppLocalizations.of(context, 'view_all'),
                     style: TextStyle(
-                      color: isDark ? Colors.green[300] : Colors.green,
+                      color: isDark ? Ar.green[300] : Ar.green,
                     ),
                   ),
                 ),
@@ -1001,25 +1001,25 @@ class _DashboardPageState extends State<DashboardPage>
             Color getRequestTypeColor(String type) {
               switch (type) {
                 case 'سلفه':
-                  return Colors.blue;
+                  return Ar.info;
                 case 'مصاريف عمل':
-                  return Colors.orange;
+                  return Ar.amber;
                 case 'قبض':
-                  return Colors.green;
+                  return Ar.green;
                 case 'خصم':
-                  return Colors.red;
+                  return Ar.red;
                 case 'بدلات':
-                  return Colors.purple;
+                  return Ar.accent;
                 case 'علاوة':
-                  return Colors.amber;
+                  return Ar.amber;
                 case 'دفع':
-                  return Colors.cyan;
+                  return Ar.info;
                 case 'استلام':
-                  return Colors.teal;
+                  return Ar.green;
                 case 'زياده الراتب':
-                  return Colors.deepOrange;
+                  return Ar.amber;
                 default:
-                  return Colors.grey;
+                  return Ar.grey;
               }
             }
 
@@ -1046,7 +1046,7 @@ class _DashboardPageState extends State<DashboardPage>
                       Text(
                         '📅 $requestDate',
                         style: TextStyle(
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                          color: isDark ? Colors.white70 : Ar.grey[700],
                         ),
                       ),
                     ],
@@ -1081,7 +1081,7 @@ class _DashboardPageState extends State<DashboardPage>
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white : Colors.green[700],
+                      color: isDark ? Colors.white : Ar.green[700],
                     ),
                   ),
 
@@ -1093,7 +1093,7 @@ class _DashboardPageState extends State<DashboardPage>
                         '🗓️ الشهر: $month',
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                          color: isDark ? Colors.white70 : Ar.grey[700],
                         ),
                       ),
                     ),
@@ -1106,7 +1106,7 @@ class _DashboardPageState extends State<DashboardPage>
                         '📌 الملاحظات: $notes',
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                          color: isDark ? Colors.white70 : Ar.grey[700],
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -1138,7 +1138,7 @@ class _DashboardPageState extends State<DashboardPage>
                               ? Text(AppLocalizations.of(context, 'processing'))
                               : Text(AppLocalizations.of(context, 'approve')),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                            backgroundColor: Ar.green,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
@@ -1164,7 +1164,7 @@ class _DashboardPageState extends State<DashboardPage>
                               ? Text(AppLocalizations.of(context, 'processing'))
                               : Text(AppLocalizations.of(context, 'reject')),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
+                            backgroundColor: Ar.red,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 8),
                           ),
@@ -1196,7 +1196,7 @@ class _DashboardPageState extends State<DashboardPage>
         color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Colors.purple.withOpacity(0.2),
+          color: isDark ? Colors.white.withOpacity(0.2) : Ar.accent.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -1208,7 +1208,7 @@ class _DashboardPageState extends State<DashboardPage>
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.purple[800],
+              color: isDark ? Colors.white : Ar.accent[800],
             ),
           ),
           const SizedBox(height: 12),
@@ -1220,7 +1220,7 @@ class _DashboardPageState extends State<DashboardPage>
                   icon: '👥',
                   title: AppLocalizations.of(context, 'total_employees'),
                   value: _todayStats['totalEmployees'].toString(),
-                  color: Colors.blue,
+                  color: Ar.info,
                 ),
               ),
               Expanded(
@@ -1229,7 +1229,7 @@ class _DashboardPageState extends State<DashboardPage>
                   icon: '✅',
                   title: AppLocalizations.of(context, 'present'),
                   value: _todayStats['presentCount'].toString(),
-                  color: Colors.green,
+                  color: Ar.green,
                 ),
               ),
               Expanded(
@@ -1238,7 +1238,7 @@ class _DashboardPageState extends State<DashboardPage>
                   icon: '❌',
                   title: AppLocalizations.of(context, 'absent'),
                   value: _todayStats['absentCount'].toString(),
-                  color: Colors.red,
+                  color: Ar.red,
                 ),
               ),
             ],
@@ -1262,7 +1262,7 @@ class _DashboardPageState extends State<DashboardPage>
         color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+          color: isDark ? Colors.white.withOpacity(0.2) : Ar.amber.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -1274,7 +1274,7 @@ class _DashboardPageState extends State<DashboardPage>
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.orange[800],
+              color: isDark ? Colors.white : Ar.amber[800],
             ),
           ),
           const SizedBox(height: 12),
@@ -1295,14 +1295,14 @@ class _DashboardPageState extends State<DashboardPage>
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white.withOpacity(0.2) : Colors.orange.withOpacity(0.1),
+                      color: isDark ? Colors.white.withOpacity(0.2) : Ar.amber.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       '${project['attendanceCount']} ${AppLocalizations.of(context, 'employees')}',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.orange[800],
+                        color: isDark ? Colors.white : Ar.amber[800],
                       ),
                     ),
                   ),
@@ -1345,7 +1345,7 @@ class _DashboardPageState extends State<DashboardPage>
           title,
           style: TextStyle(
             fontSize: 12,
-            color: isDark ? Colors.white70 : Colors.grey[700],
+            color: isDark ? Colors.white70 : Ar.grey[700],
           ),
           textAlign: TextAlign.center,
         ),
@@ -1383,7 +1383,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "تمت الموافقة على طلب الإجازة"),
-              backgroundColor: Colors.green,
+              backgroundColor: Ar.green,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1398,7 +1398,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "فشل في الموافقة على الطلب"),
-              backgroundColor: Colors.red,
+              backgroundColor: Ar.red,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1414,7 +1414,7 @@ class _DashboardPageState extends State<DashboardPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("خطأ في الاتصال: $e"),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: Duration(seconds: 3),
           ),
         );
@@ -1450,7 +1450,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "تم رفض طلب الإجازة"),
-              backgroundColor: Colors.green,
+              backgroundColor: Ar.green,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1465,7 +1465,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "فشل في رفض الطلب"),
-              backgroundColor: Colors.red,
+              backgroundColor: Ar.red,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1481,7 +1481,7 @@ class _DashboardPageState extends State<DashboardPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("خطأ في الاتصال: $e"),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: Duration(seconds: 3),
           ),
         );
@@ -1517,7 +1517,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "تمت الموافقة على طلب السلف"),
-              backgroundColor: Colors.green,
+              backgroundColor: Ar.green,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1532,7 +1532,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "فشل في الموافقة على الطلب"),
-              backgroundColor: Colors.red,
+              backgroundColor: Ar.red,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1548,7 +1548,7 @@ class _DashboardPageState extends State<DashboardPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("خطأ في الاتصال: $e"),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: Duration(seconds: 3),
           ),
         );
@@ -1584,7 +1584,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "تم رفض طلب السلف"),
-              backgroundColor: Colors.green,
+              backgroundColor: Ar.green,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1599,7 +1599,7 @@ class _DashboardPageState extends State<DashboardPage>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result["message"] ?? "فشل في رفض الطلب"),
-              backgroundColor: Colors.red,
+              backgroundColor: Ar.red,
               duration: Duration(seconds: 3),
             ),
           );
@@ -1615,7 +1615,7 @@ class _DashboardPageState extends State<DashboardPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("خطأ في الاتصال: $e"),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
             duration: Duration(seconds: 3),
           ),
         );
@@ -1794,7 +1794,7 @@ class _DashboardPageState extends State<DashboardPage>
                 child: const Icon(
                   Icons.notifications,
                   size: 24,
-                  color: Colors.blue,
+                  color: Ar.info,
                 ),
               ),
             ),
@@ -1805,7 +1805,7 @@ class _DashboardPageState extends State<DashboardPage>
                   _getTodayLabel(context),
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    color: isDark ? Colors.white70 : Ar.grey.shade700,
                   ),
                 ),
                 Text(
@@ -1820,7 +1820,7 @@ class _DashboardPageState extends State<DashboardPage>
                   widget.role,
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                    color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),
                 ),
               ],
@@ -1899,7 +1899,7 @@ class _DashboardPageState extends State<DashboardPage>
       child: Icon(
         Icons.person,
         size: 24,
-        color: isDark ? Colors.white70 : Colors.grey.shade700,
+        color: isDark ? Colors.white70 : Ar.grey.shade700,
       ),
     );
   }
@@ -1920,8 +1920,8 @@ class _DashboardPageState extends State<DashboardPage>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: isDark
-                      ? [Colors.black87, Colors.grey[900]!]
-                      : [Colors.blue[50]!, Colors.white],
+                      ? [Colors.black87, Ar.grey[900]!]
+                      : [Ar.info[50]!, Colors.white],
                 ),
               ),
             );
@@ -2020,8 +2020,8 @@ class _DashboardCirclePainter extends CustomPainter {
     final orangePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.orangeAccent, Colors.deepOrange]
-            : [Colors.orange, Colors.deepOrange],
+            ? [Ar.amber, Ar.amber]
+            : [Ar.amber, Ar.amber],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -2038,8 +2038,8 @@ class _DashboardCirclePainter extends CustomPainter {
     final bluePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.blue.shade200, Colors.blue.shade400]
-            : [Colors.blue.shade300, Colors.blue.shade700],
+            ? [Ar.info.shade200, Ar.info.shade400]
+            : [Ar.info.shade300, Ar.info.shade700],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -2054,7 +2054,7 @@ class _DashboardCirclePainter extends CustomPainter {
     );
 
     final glowPaint = Paint()
-      ..color = (isDark ? Colors.blue.shade200 : Colors.blue).withOpacity(0.1)
+      ..color = (isDark ? Ar.info.shade200 : Ar.info).withOpacity(0.1)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15.0);
 
     canvas.drawCircle(center, radius + 5, glowPaint);

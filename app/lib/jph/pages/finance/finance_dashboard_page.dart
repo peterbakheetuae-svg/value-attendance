@@ -8,6 +8,7 @@ import '../../services/api_service.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../cash/cash_page.dart';
+import '../../widgets/glass_ui.dart';
 
 /// لوحة المالية — role-based: HR sees the HR cashbox side only; المدير / owner also see the office cashbox and the
 /// company-wide figures. Second tab: مؤشرات الموظفين (month vs previous month, alerts and suggestions — advice only).
@@ -132,34 +133,34 @@ class _DashboardTabState extends State<_DashboardTab> {
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         _section(isDark, 'الخزن'),
         _grid([
-          JphUi.stat(isDark, 'خزنة المحاسب', m(hrBox['bookBalance']), Icons.account_balance_wallet_rounded, Colors.teal),
-          if (office != null) JphUi.stat(isDark, 'خزنة المكتب', m(office['bookBalance']), Icons.account_balance_rounded, Colors.indigo),
-          if (cash['total'] != null) JphUi.stat(isDark, 'الإجمالي', m(cash['total']), Icons.summarize_rounded, Colors.blue),
-          JphUi.stat(isDark, 'مطلوب من المكتب', m(hr['requiredFromOffice']), Icons.call_received_rounded, Colors.red),
+          JphUi.stat(isDark, 'خزنة المحاسب', m(hrBox['bookBalance']), Icons.account_balance_wallet_rounded, Ar.green),
+          if (office != null) JphUi.stat(isDark, 'خزنة المكتب', m(office['bookBalance']), Icons.account_balance_rounded, Ar.accent),
+          if (cash['total'] != null) JphUi.stat(isDark, 'الإجمالي', m(cash['total']), Icons.summarize_rounded, Ar.info),
+          JphUi.stat(isDark, 'مطلوب من المكتب', m(hr['requiredFromOffice']), Icons.call_received_rounded, Ar.red),
         ]),
         _section(isDark, 'الشهر ده'),
         _grid([
-          JphUi.stat(isDark, 'التحصيلات', m(hr['collections']), Icons.savings_rounded, Colors.green),
-          JphUi.stat(isDark, 'مصروفات خزنة المحاسب', m(hr['expenses']), Icons.receipt_long_rounded, Colors.orange),
-          JphUi.stat(isDark, 'سلف لسه هتتخصم', m(hr['outstandingAdvances']), Icons.request_quote_rounded, Colors.purple),
-          JphUi.stat(isDark, 'عمولات مستنية الصرف', m(hr['commissionsAwaitingPayment']), Icons.workspace_premium_rounded, Colors.amber),
-          JphUi.stat(isDark, 'دفعات مرتبات مفتوحة', '${hr['payrollBatchesOpen'] ?? 0}', Icons.payments_rounded, Colors.teal),
+          JphUi.stat(isDark, 'التحصيلات', m(hr['collections']), Icons.savings_rounded, Ar.green),
+          JphUi.stat(isDark, 'مصروفات خزنة المحاسب', m(hr['expenses']), Icons.receipt_long_rounded, Ar.amber),
+          JphUi.stat(isDark, 'سلف لسه هتتخصم', m(hr['outstandingAdvances']), Icons.request_quote_rounded, Ar.accent),
+          JphUi.stat(isDark, 'عمولات مستنية الصرف', m(hr['commissionsAwaitingPayment']), Icons.workspace_premium_rounded, Ar.amber),
+          JphUi.stat(isDark, 'دفعات مرتبات مفتوحة', '${hr['payrollBatchesOpen'] ?? 0}', Icons.payments_rounded, Ar.green),
         ]),
         _section(isDark, 'الأقساط'),
         _grid([
-          JphUi.stat(isDark, 'مستحق خلال أسبوع (${week['count'] ?? 0})', m(week['amount']), Icons.event_available_rounded, Colors.blue),
-          JphUi.stat(isDark, 'متأخر (${overdue['count'] ?? 0})', m(overdue['amount']), Icons.warning_amber_rounded, Colors.red),
+          JphUi.stat(isDark, 'مستحق خلال أسبوع (${week['count'] ?? 0})', m(week['amount']), Icons.event_available_rounded, Ar.info),
+          JphUi.stat(isDark, 'متأخر (${overdue['count'] ?? 0})', m(overdue['amount']), Icons.warning_amber_rounded, Ar.red),
         ]),
         if (mg != null) ...[
           _section(isDark, 'الإدارة'),
           _grid([
-            JphUi.stat(isDark, 'مرتبات اتصرفت', m(mg['salariesPaid']), Icons.payments_rounded, Colors.teal),
-            JphUi.stat(isDark, 'مصروفات المكتب', m(mg['officeExpenses']), Icons.receipt_rounded, Colors.orange),
-            JphUi.stat(isDark, 'عمولات الشهر', m(mg['commissions']), Icons.workspace_premium_rounded, Colors.amber),
-            JphUi.stat(isDark, 'حجز ومقدمات', m(mg['downPayments']), Icons.key_rounded, Colors.green),
-            JphUi.stat(isDark, 'أقساط اتحصلت', m(mg['installmentsCollected']), Icons.check_circle_rounded, Colors.green),
-            JphUi.stat(isDark, 'باقي على الوحدات', m(mg['unitsRemaining']), Icons.home_work_rounded, Colors.indigo),
-            JphUi.stat(isDark, 'تحويلات مفتوحة', '${mg['transfersOpen'] ?? 0}', Icons.swap_horiz_rounded, Colors.blueGrey),
+            JphUi.stat(isDark, 'مرتبات اتصرفت', m(mg['salariesPaid']), Icons.payments_rounded, Ar.green),
+            JphUi.stat(isDark, 'مصروفات المكتب', m(mg['officeExpenses']), Icons.receipt_rounded, Ar.amber),
+            JphUi.stat(isDark, 'عمولات الشهر', m(mg['commissions']), Icons.workspace_premium_rounded, Ar.amber),
+            JphUi.stat(isDark, 'حجز ومقدمات', m(mg['downPayments']), Icons.key_rounded, Ar.green),
+            JphUi.stat(isDark, 'أقساط اتحصلت', m(mg['installmentsCollected']), Icons.check_circle_rounded, Ar.green),
+            JphUi.stat(isDark, 'باقي على الوحدات', m(mg['unitsRemaining']), Icons.home_work_rounded, Ar.accent),
+            JphUi.stat(isDark, 'تحويلات مفتوحة', '${mg['transfersOpen'] ?? 0}', Icons.swap_horiz_rounded, Ar.grey),
           ]),
         ],
       ]),
@@ -202,7 +203,7 @@ class _InsightsTabState extends State<_InsightsTab> {
     IconData? ic;
     if (c != null && p != null && c != p) {
       final better = lowerIsBetter ? c < p : c > p;
-      col = better ? Colors.green : Colors.red;
+      col = better ? Ar.green : Ar.red;
       ic = c > p ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded;
     }
     return Container(
@@ -262,10 +263,10 @@ class _InsightsTabState extends State<_InsightsTab> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.person_rounded, alerts.isEmpty ? Colors.green : Colors.orange),
+          JphUi.iconTile(isDark, Icons.person_rounded, alerts.isEmpty ? Ar.green : Ar.amber),
           const SizedBox(width: 10),
           Expanded(child: Text('${e['name']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-          if (c['punctuality'] != null) JphUi.chip('التزام ${c['punctuality']}%', (c['punctuality'] as num) >= 90 ? Colors.green : Colors.orange),
+          if (c['punctuality'] != null) JphUi.chip('التزام ${c['punctuality']}%', (c['punctuality'] as num) >= 90 ? Ar.green : Ar.amber),
         ]),
         const SizedBox(height: 10),
         Wrap(spacing: 6, runSpacing: 6, children: [
@@ -285,7 +286,7 @@ class _InsightsTabState extends State<_InsightsTab> {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(children: [
-              const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+              const Icon(Icons.warning_amber_rounded, color: Ar.amber, size: 16),
               const SizedBox(width: 6),
               Expanded(child: Text(a, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
             ]),
@@ -307,8 +308,8 @@ class _InsightsTabState extends State<_InsightsTab> {
 
 const _payKindAr = {'salary': 'مرتب', 'advance': 'سلفة', 'commission': 'عمولة', 'work_expense': 'مصاريف عمل'};
 const _payStatusAr = {
-  'pending': ('مستني تأكيد', Colors.orange), 'received': ('استلم', Colors.green),
-  'cancelled': ('ملغي', Colors.grey), 'disputed': ('بلاغ مشكلة', Colors.red),
+  'pending': ('مستني تأكيد', Ar.amber), 'received': ('استلم', Ar.green),
+  'cancelled': ('ملغي', Ar.grey), 'disputed': ('بلاغ مشكلة', Ar.red),
 };
 
 /// كشف حساب الموظف — what was paid to him (and whether he confirmed it), his advances with their deduction plan,
@@ -389,7 +390,7 @@ class _EmployeeAccountPageState extends State<EmployeeAccountPage> {
                               if (coms.isEmpty) Text('مفيش', style: TextStyle(color: JphUi.sub(isDark))),
                               for (final x in coms)
                                 _row(isDark, '${x['project']} — وحدة ${x['unitNo']}', JphUi.monthAr('${x['month']}'), JphUi.money(x['amount']),
-                                    x['status'] == 'cancelled' ? ('ملغية', Colors.grey) : null),
+                                    x['status'] == 'cancelled' ? ('ملغية', Ar.grey) : null),
                             ]),
                     ),
                   ),

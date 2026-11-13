@@ -11,6 +11,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../../widgets/custody_asset_card.dart';
 import 'custody_asset_details_page.dart';
+import '../../widgets/glass_ui.dart';
 
 /// الإعدادات ← العهدة: the company's mobiles and laptops. Each item is added once here (button top-right), then
 /// handed to an employee from his page ("تسليم عهدة" picks from this list) and used to fill the custody receipt form.
@@ -125,12 +126,12 @@ Future<bool> _addSheet(BuildContext context, bool isDark, String type) async {
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xF21E1E1E) : Colors.white,
+              color: isDark ? const Color(0xF2262624) : Colors.white,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
             ),
             child: SingleChildScrollView(
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-                Center(child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)))),
+                Center(child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(4)))),
                 const SizedBox(height: 12),
                 Text(laptop ? 'إضافة كمبيوتر محمول' : 'إضافة موبايل', textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -241,12 +242,12 @@ class _AssetsListState extends State<_AssetsList> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => GlassAlertDialog(
-        icon: const Icon(Icons.archive_rounded, color: Colors.orange, size: 40),
+        icon: const Icon(Icons.archive_rounded, color: Ar.amber, size: 40),
         title: const Text('أرشفة'),
         content: Text('«${x['name']}» هتتشال من القايمة ومش هتظهر في التسليم. تقدر ترجعها تاني من «المؤرشفة». متأكد؟', textAlign: TextAlign.center),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.orange), onPressed: () => Navigator.pop(ctx, true), child: const Text('أرشفة')),
+          FilledButton(style: FilledButton.styleFrom(backgroundColor: Ar.amber), onPressed: () => Navigator.pop(ctx, true), child: const Text('أرشفة')),
         ],
       ),
     );
@@ -273,9 +274,9 @@ class _AssetsListState extends State<_AssetsList> {
       onRefresh: load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 60), children: [
         JphUi.statGrid([
-          JphUi.stat(isDark, 'الإجمالي', '${active.length}', Icons.inventory_2_rounded, Colors.indigo),
-          JphUi.stat(isDark, 'مع موظفين', '$withSomeone', Icons.person_rounded, Colors.teal),
-          JphUi.stat(isDark, 'متاح', '${active.length - withSomeone}', Icons.check_circle_rounded, Colors.green),
+          JphUi.stat(isDark, 'الإجمالي', '${active.length}', Icons.inventory_2_rounded, Ar.accent),
+          JphUi.stat(isDark, 'مع موظفين', '$withSomeone', Icons.person_rounded, Ar.green),
+          JphUi.stat(isDark, 'متاح', '${active.length - withSomeone}', Icons.check_circle_rounded, Ar.green),
         ], phone: 3),
         const SizedBox(height: 12),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),

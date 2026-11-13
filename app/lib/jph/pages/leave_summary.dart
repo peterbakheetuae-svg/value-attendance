@@ -12,6 +12,7 @@ import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'attendance/attendance_filters.dart';
 import '../widgets/glass_dialog.dart';
+import '../widgets/glass_ui.dart';
 
 class LeaveSummaryPage extends StatefulWidget {
   final String uid;
@@ -287,7 +288,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 borderRadius: BorderRadius.circular(26),
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                  color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                  color: isDark ? const Color(0xFF262624) : Colors.white,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -304,7 +305,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE4E4E4),
+                            color: isDark ? Colors.white.withOpacity(0.2) : const Color(0xFFE6E3DE),
                           ),
                           color: isDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.95),
                         ),
@@ -412,10 +413,10 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
                             width: 1.4,
                           ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF3F2FF),
+                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,7 +455,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                                   fontWeight: FontWeight.w700,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
-                                dropdownColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+                                dropdownColor: isDark ? const Color(0xFF35342F) : Colors.white,
                                 borderRadius: BorderRadius.circular(14),
                                 onChanged: (String? newValue) {
                                   setState(() {
@@ -555,16 +556,16 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'مقبؤل':
-        return const Color(0xFF4CAF50);
+        return const Color(0xFF4FCF73);
       case 'مرفوض':
-        return const Color(0xFFEF5350);
+        return const Color(0xFFFF7D6E);
       case 'قيد المراجعة':
-        return const Color(0xFFFF9800);
+        return const Color(0xFFF7A928);
       case 'ملغي':
       case 'ملغى':
-        return const Color(0xFF9E9E9E);
+        return const Color(0xFF8F8B84);
       default:
-        return const Color(0xFF9E9E9E);
+        return const Color(0xFF8F8B84);
     }
   }
 
@@ -597,20 +598,20 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     final isRTL = appController.isRTL;
 
     String actionText = '';
-    Color actionColor = const Color(0xFF4CAF50);
+    Color actionColor = const Color(0xFF4FCF73);
 
     switch (status) {
       case 'approved':
         actionText = 'موافقة';
-        actionColor = const Color(0xFF4CAF50);
+        actionColor = const Color(0xFF4FCF73);
         break;
       case 'rejected':
         actionText = 'رفض';
-        actionColor = const Color(0xFFEF5350);
+        actionColor = const Color(0xFFFF7D6E);
         break;
       case 'cancelled':
         actionText = 'إلغاء';
-        actionColor = const Color(0xFF9E9E9E);
+        actionColor = const Color(0xFF8F8B84);
         break;
     }
 
@@ -620,7 +621,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
         textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
         child: GlassAlertDialog(
           backgroundColor:
-          appController.isDark ? Colors.grey[900] : Colors.white,
+          appController.isDark ? Ar.grey[900] : Colors.white,
           title: Text(
             'تأكيد $actionText',
             style: TextStyle(
@@ -632,7 +633,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             'هل أنت متأكد من $actionText طلب الإجازة؟',
             style: TextStyle(
               color:
-              appController.isDark ? Colors.white70 : Colors.grey[700],
+              appController.isDark ? Colors.white70 : Ar.grey[700],
             ),
           ),
           actions: [
@@ -642,8 +643,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 'إلغاء',
                 style: TextStyle(
                   color: appController.isDark
-                      ? Colors.blue[300]
-                      : Colors.blue,
+                      ? Ar.info[300]
+                      : Ar.info,
                 ),
               ),
             ),
@@ -699,7 +700,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 ),
               ],
             ),
-            backgroundColor: const Color(0xFF2E9B67),
+            backgroundColor: const Color(0xFF2FA65A),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -738,7 +739,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result["message"] ?? 'فشل في تحديث حالة الطلب'),
-            backgroundColor: const Color(0xFFD04545),
+            backgroundColor: const Color(0xFFE5604F),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -750,7 +751,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('حدث خطأ أثناء التحديث: $e'),
-          backgroundColor: const Color(0xFFD04545),
+          backgroundColor: const Color(0xFFE5604F),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -786,7 +787,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
           children: [
             Icon(
               Icons.search,
-              color: isDark ? Colors.white70 : Colors.grey.shade600,
+              color: isDark ? Colors.white70 : Ar.grey.shade600,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -799,7 +800,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 decoration: InputDecoration(
                   hintText: 'بحث باسم الموظف، السبب، النوع...',
                   hintStyle: TextStyle(
-                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                    color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),
                   border: InputBorder.none,
                 ),
@@ -817,7 +818,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 },
                 icon: Icon(
                   Icons.clear,
-                  color: isDark ? Colors.white70 : Colors.grey.shade600,
+                  color: isDark ? Colors.white70 : Ar.grey.shade600,
                   size: 20,
                 ),
               ),
@@ -844,7 +845,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
         final cardColor =
         isDark ? Colors.white.withOpacity(0.15) : Colors.white;
         final dividerColor =
-        isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300;
+        isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300;
 
         return AppBackground(
           child: Directionality(
@@ -944,8 +945,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                           const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
                             color: isDark
-                                ? Colors.blue.shade900.withOpacity(0.3)
-                                : Colors.blue.shade50,
+                                ? Ar.info.shade900.withOpacity(0.3)
+                                : Ar.info.shade50,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
@@ -954,8 +955,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                                 Icons.filter_alt_rounded,
                                 size: 16,
                                 color: isDark
-                                    ? Colors.blue.shade300
-                                    : Colors.blue.shade700,
+                                    ? Ar.info.shade300
+                                    : Ar.info.shade700,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -964,8 +965,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: isDark
-                                        ? Colors.blue.shade300
-                                        : Colors.blue.shade700,
+                                        ? Ar.info.shade300
+                                        : Ar.info.shade700,
                                   ),
                                 ),
                               ),
@@ -977,8 +978,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     color: isDark
-                                        ? Colors.blue.shade300
-                                        : Colors.blue.shade700,
+                                        ? Ar.info.shade300
+                                        : Ar.info.shade700,
                                   ),
                                 ),
                               ),
@@ -1055,7 +1056,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 title: 'قيد المراجعة',
                 count: _stats['pending'] ?? 0,
                 icon: Icons.pending_rounded,
-                iconColor: const Color(0xFFFF9800),
+                iconColor: const Color(0xFFF7A928),
                 bgColor: isDark
                     ? const Color(0xFFE65100).withOpacity(0.3)
                     : const Color(0xFFFFF3E0),
@@ -1070,7 +1071,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 title: 'المقبولة',
                 count: _stats['approved'] ?? 0,
                 icon: Icons.check_circle_rounded,
-                iconColor: const Color(0xFF4CAF50),
+                iconColor: const Color(0xFF4FCF73),
                 bgColor: isDark
                     ? const Color(0xFF1B5E20).withOpacity(0.3)
                     : const Color(0xFFE8F5E9),
@@ -1085,7 +1086,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 title: 'المرفوضة',
                 count: _stats['rejected'] ?? 0,
                 icon: Icons.cancel_rounded,
-                iconColor: const Color(0xFFEF5350),
+                iconColor: const Color(0xFFFF7D6E),
                 bgColor: isDark
                     ? const Color(0xFFB71C1C).withOpacity(0.3)
                     : const Color(0xFFFFEBEE),
@@ -1100,10 +1101,10 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                 title: 'الملغية',
                 count: _stats['cancelled'] ?? 0,
                 icon: Icons.block_rounded,
-                iconColor: const Color(0xFF9E9E9E),
+                iconColor: const Color(0xFF8F8B84),
                 bgColor: isDark
-                    ? Colors.grey.withOpacity(0.3)
-                    : Colors.grey.shade100,
+                    ? Ar.grey.withOpacity(0.3)
+                    : Ar.grey.shade100,
                 isDark: isDark,
               ),
             ),
@@ -1150,14 +1151,14 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             Icon(
               Icons.error_outline_rounded,
               size: 64,
-              color: const Color(0xFFEF5350),
+              color: const Color(0xFFFF7D6E),
             ),
             const SizedBox(height: 16),
             Text(
               _errorMessage,
               style: TextStyle(
                 fontSize: 16,
-                color: const Color(0xFFEF5350),
+                color: const Color(0xFFFF7D6E),
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
@@ -1290,7 +1291,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
+              color: isDark ? Colors.white70 : Ar.grey.shade700,
             ),
             textAlign: TextAlign.center,
           ),
@@ -1357,7 +1358,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
           ),
         ),
         child: Column(
@@ -1469,9 +1470,9 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     // مين وافق لحد دلوقتي
     if ('${request['approvedBy'] ?? ''}'.isNotEmpty) ...[
     Row(children: [
-    const Icon(Icons.verified_rounded, size: 18, color: Colors.green),
+    const Icon(Icons.verified_rounded, size: 18, color: Ar.green),
     const SizedBox(width: 8),
-    Expanded(child: Text('وافق: ${request['approvedBy']}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.green))),
+    Expanded(child: Text('وافق: ${request['approvedBy']}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Ar.green))),
     ]),
     const SizedBox(height: 6),
     ],
@@ -1493,12 +1494,12 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     index,
     'approved'),
     style: ElevatedButton.styleFrom(
-    backgroundColor: Colors.green.withOpacity(0.1),
-    foregroundColor: Colors.green,
+    backgroundColor: Ar.green.withOpacity(0.1),
+    foregroundColor: Ar.green,
     elevation: 0,
     shape: RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(12),
-    side: BorderSide(color: Colors.green.withOpacity(0.3)),
+    side: BorderSide(color: Ar.green.withOpacity(0.3)),
     ),
     ),
     child: const Row(
@@ -1521,12 +1522,12 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     index,
     'rejected'),
     style: ElevatedButton.styleFrom(
-    backgroundColor: Colors.red.withOpacity(0.1),
-    foregroundColor: Colors.red,
+    backgroundColor: Ar.red.withOpacity(0.1),
+    foregroundColor: Ar.red,
     elevation: 0,
     shape: RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(12),
-    side: BorderSide(color: Colors.red.withOpacity(0.3)),
+    side: BorderSide(color: Ar.red.withOpacity(0.3)),
     ),
     ),
     child: const Row(
@@ -1691,7 +1692,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     border: Border.all(
     color: isDark
     ? Colors.white.withOpacity(0.2)
-        : Colors.grey.shade300,
+        : Ar.grey.shade300,
     ),
     ),
     child: ClipRRect(
@@ -1713,8 +1714,8 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     errorBuilder: (context, error, stackTrace) {
     return Container(
     color: isDark
-    ? Colors.grey.shade800
-        : Colors.grey.shade200,
+    ? Ar.grey.shade800
+        : Ar.grey.shade200,
     child: Center(
     child: Column(
     mainAxisAlignment: MainAxisAlignment.center,
@@ -1782,7 +1783,7 @@ class _SheetHeader extends StatelessWidget {
           height: 54,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEBFF),
+            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFF0EDE8),
           ),
           child: Icon(
             icon,
@@ -1892,7 +1893,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
               border: Border.all(
                 color: isDark
                     ? Colors.white.withOpacity(0.2)
-                    : Colors.grey.withOpacity(0.3),
+                    : Ar.grey.withOpacity(0.3),
                 width: 1,
               ),
             ),
@@ -1910,7 +1911,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                       bottom: BorderSide(
                         color: isDark
                             ? Colors.white.withOpacity(0.1)
-                            : Colors.grey.withOpacity(0.2),
+                            : Ar.grey.withOpacity(0.2),
                       ),
                     ),
                   ),
@@ -1940,7 +1941,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                             Icons.close_rounded,
                             size: 20,
                             color:
-                            isDark ? Colors.white70 : Colors.grey.shade700,
+                            isDark ? Colors.white70 : Ar.grey.shade700,
                           ),
                         ),
                       ),
@@ -1988,7 +1989,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                                     ? loadingProgress.cumulativeBytesLoaded /
                                     loadingProgress.expectedTotalBytes!
                                     : null,
-                                color: isDark ? Colors.white : Colors.blue,
+                                color: isDark ? Colors.white : Ar.info,
                               ),
                             ),
                           );
@@ -2012,7 +2013,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                                     size: 48,
                                     color: isDark
                                         ? Colors.white60
-                                        : Colors.grey.shade600,
+                                        : Ar.grey.shade600,
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
@@ -2021,7 +2022,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                                       fontSize: 14,
                                       color: isDark
                                           ? Colors.white70
-                                          : Colors.grey.shade700,
+                                          : Ar.grey.shade700,
                                     ),
                                   ),
                                 ],
@@ -2044,7 +2045,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                       top: BorderSide(
                         color: isDark
                             ? Colors.white.withOpacity(0.1)
-                            : Colors.grey.withOpacity(0.2),
+                            : Ar.grey.withOpacity(0.2),
                       ),
                     ),
                     borderRadius: const BorderRadius.only(
@@ -2062,7 +2063,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('تم نسخ رابط الصورة'),
-                                backgroundColor: Colors.green,
+                                backgroundColor: Ar.green,
                               ),
                             );
                           },
@@ -2081,8 +2082,8 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                                   Icons.link_rounded,
                                   size: 18,
                                   color: isDark
-                                      ? Colors.blue.shade300
-                                      : Colors.blue,
+                                      ? Ar.info.shade300
+                                      : Ar.info,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
@@ -2091,8 +2092,8 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                     color: isDark
-                                        ? Colors.blue.shade300
-                                        : Colors.blue,
+                                        ? Ar.info.shade300
+                                        : Ar.info,
                                   ),
                                 ),
                               ],
@@ -2119,7 +2120,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
                               fontWeight: FontWeight.w600,
                               color: isDark
                                   ? Colors.white70
-                                  : Colors.grey.shade700,
+                                  : Ar.grey.shade700,
                             ),
                           ),
                         ),

@@ -9,6 +9,7 @@ import 'jph_bridge.dart';
 import 'notification_service.dart';
 import '../../core/push.dart';
 import '../widgets/glass_dialog.dart';
+import '../widgets/glass_ui.dart';
 
 /// In-app notification center with an audible ring (no push service on the free plan):
 /// polls the API while the app runs (Android keeps running in the background during a shift),
@@ -59,7 +60,7 @@ class AlertCenter with WidgetsBindingObserver {
         textDirection: TextDirection.rtl,
         child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          icon: const Icon(Icons.error_outline_rounded, color: Colors.red, size: 46),
+          icon: const Icon(Icons.error_outline_rounded, color: Ar.red, size: 46),
           title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
           content: Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
           actions: [
@@ -67,7 +68,7 @@ class AlertCenter with WidgetsBindingObserver {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(c),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white,
+                style: ElevatedButton.styleFrom(backgroundColor: Ar.red, foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                 child: const Text('حاضر'),
               ),
@@ -174,7 +175,7 @@ class AlertCenter with WidgetsBindingObserver {
       );
     } else if (r.important > 0) {
       ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(const SnackBar(
-          content: Text('النت رجع ✅ — اتبعت كل اللي اتسجل وإنت أوفلاين'), backgroundColor: Colors.green));
+          content: Text('النت رجع ✅ — اتبعت كل اللي اتسجل وإنت أوفلاين'), backgroundColor: Ar.green));
     }
   }
 
@@ -236,7 +237,7 @@ class AlertCenter with WidgetsBindingObserver {
       final r = await ApiService.post({'action': 'outing_return'});
       if (ctx.mounted) {
         ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
-            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
       }
     } else if (choice == 'extend' || choice == 'new') {
       if (choice == 'new') await ApiService.post({'action': 'outing_return'});
@@ -248,7 +249,7 @@ class AlertCenter with WidgetsBindingObserver {
       final r = await ApiService.post({'action': 'outing_submit', 'kind': kind, ...form, if (choice == 'extend') 'parentId': active['id']});
       if (ctx.mounted) {
         ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
-            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
       }
     }
   }
@@ -263,12 +264,12 @@ class AlertCenter with WidgetsBindingObserver {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Icon(warn ? Icons.warning_amber_rounded : Icons.notifications_active_rounded, size: 52, color: warn ? Colors.orange : const Color(0xFF4F46E5)),
+            Icon(warn ? Icons.warning_amber_rounded : Icons.notifications_active_rounded, size: 52, color: warn ? Ar.amber : const Color(0xFF4F46E5)),
             const SizedBox(height: 14),
             Text('${n['title']}', textAlign: TextAlign.center, style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: dark ? Colors.white : Colors.black)),
             if ('${n['body'] ?? ''}'.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text('${n['body']}', textAlign: TextAlign.center, style: TextStyle(color: dark ? Colors.white70 : Colors.grey.shade700)),
+              Text('${n['body']}', textAlign: TextAlign.center, style: TextStyle(color: dark ? Colors.white70 : Ar.grey.shade700)),
             ],
             const SizedBox(height: 18),
             SizedBox(height: 50, child: ElevatedButton(

@@ -5,6 +5,7 @@ import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_ui.dart';
 
 class AttendanceTodayPage extends StatefulWidget {
   final String uid;
@@ -89,7 +90,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                 child: Text(
                   AppLocalizations.of(context, 'no_attendance_today'),
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey,
+                    color: isDark ? Colors.white70 : Ar.grey,
                   ),
                 ),
               )
@@ -130,7 +131,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
             height: 50,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isDark ? Colors.blue.withOpacity(0.2) : Colors.blue[100],
+              color: isDark ? Ar.info.withOpacity(0.2) : Ar.info[100],
             ),
             child: Center(
               child: Text(
@@ -138,7 +139,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.blue[800],
+                  color: isDark ? Colors.white : Ar.info[800],
                 ),
               ),
             ),
@@ -160,7 +161,7 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                 Text(
                   employee['project'],
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey[700],
+                    color: isDark ? Colors.white70 : Ar.grey[700],
                   ),
                 ),
                 if (widget.filter != 'absent') const SizedBox(height: 8),
@@ -168,12 +169,12 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
                   children: [
                     _buildTimeChip(
                       'الحضور: ${employee['checkIn']}',
-                      isDark ? Colors.green[300]! : Colors.green,
+                      isDark ? Ar.green[300]! : Ar.green,
                     ),
                     const SizedBox(width: 8),
                     _buildTimeChip(
                       'الانصراف: ${employee['checkOut']}',
-                      isDark ? Colors.orange[300]! : Colors.orange,
+                      isDark ? Ar.amber[300]! : Ar.amber,
                     ),
                   ],
                 ),
@@ -183,9 +184,9 @@ class _AttendanceTodayPageState extends State<AttendanceTodayPage> {
           // the chip follows the list that was opened (حاضر / متأخر / غائب)
           Builder(builder: (_) {
             final (label, MaterialColor c) = switch (widget.filter) {
-              'absent' => ('غائب', Colors.red),
-              'late' => ('متأخر', Colors.orange),
-              _ => ('حاضر', Colors.green),
+              'absent' => ('غائب', Ar.red),
+              'late' => ('متأخر', Ar.amber),
+              _ => ('حاضر', Ar.green),
             };
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

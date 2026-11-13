@@ -8,6 +8,7 @@ import '../../services/app_controller.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 /// OTP verification — the "Secure Vault Access" motion (digit pills → digits orbit and spin into the
 /// center → loading ring with a 0–100 counter → success flash, bubbles, confetti, check drawn, badge pop;
@@ -25,8 +26,8 @@ enum _Stage { input, orbit, loading, success, error }
 
 class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
   static const _len = 4;
-  static const _green = Color(0xFF10B981);
-  static const _red = Color(0xFFF43F5E);
+  static const _green = Color(0xFF4FCF73);
+  static const _red = Color(0xFFFF7D6E);
   final _ctrls = List.generate(_len, (_) => TextEditingController());
   final _nodes = List.generate(_len, (_) => FocusNode());
   _Stage _stage = _Stage.input;
@@ -150,7 +151,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
     if (r['success'] == true) { _startTimer(); _reset(); }
   }
@@ -526,7 +527,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-                          colors: [Color(0xFF34D399), _green, Color(0xFF059669)], stops: [0, 0.55, 1]),
+                          colors: [Color(0xFF63D985), _green, Color(0xFF059669)], stops: [0, 0.55, 1]),
                       boxShadow: [
                         BoxShadow(color: _green.withOpacity(0.18), spreadRadius: 8),
                         BoxShadow(color: _green.withOpacity(0.35), blurRadius: 50),
@@ -564,7 +565,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
 }
 
 const _confettiColors = [
-  Color(0xFF10B981), Color(0xFF34D399), Color(0xFF6EE7B7), Color(0xFF6366F1),
+  Color(0xFF4FCF73), Color(0xFF63D985), Color(0xFF6EE7B7), Color(0xFF6A67F5),
   Color(0xFFA78BFA), Color(0xFFFBBF24), Color(0xFFF472B6), Color(0xFF22D3EE),
 ];
 
@@ -626,7 +627,7 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
     if (!mounted) return;
     setState(() => _loading = false);
     if (r['success'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message']}'), backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message']}'), backgroundColor: Ar.green));
       Navigator.of(context).pop(true);
     } else {
       setState(() => _err = '${r['message'] ?? ''}');
@@ -662,7 +663,7 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
                 TextField(controller: _pw, obscureText: _hide, decoration: dec('كلمة المرور الجديدة')),
                 const SizedBox(height: 12),
                 TextField(controller: _confirm, obscureText: _hide, decoration: dec('تأكيد كلمة المرور')),
-                if (_err != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_err!, style: const TextStyle(color: Color(0xFFF43F5E)))),
+                if (_err != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_err!, style: const TextStyle(color: Color(0xFFFF7D6E)))),
                 const SizedBox(height: 20),
                 SizedBox(
                   height: 52,

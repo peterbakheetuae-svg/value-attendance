@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
+import 'glass_ui.dart';
 
 /// "عمولة صفقة" inside the financial request page: project → unit → price/m² × area. The total value, the
 /// salesperson percentage and the expected commission are computed (locked); the server recomputes them anyway
@@ -66,7 +67,7 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
       err = 'اكتب مساحة الوحدة';
     }
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
       return;
     }
     setState(() => _saving = true);
@@ -93,7 +94,7 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
     if (_loading) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       JphUi.picker(
-        isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع *',
+        isDark: isDark, icon: Icons.apartment_rounded, iconColor: Ar.accent, label: 'المشروع *',
         value: _project == null ? (_projects.isEmpty ? 'مفيش مشاريع متاحة' : 'اختار المشروع') : '${_project!['name']}',
         onTap: () async {
           final v = await JphUi.sheet<Map<String, dynamic>>(context, isDark, 'اختار المشروع',
@@ -113,13 +114,13 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
       ]),
       const SizedBox(height: 16),
       JphUi.readOnly(isDark: isDark, label: 'إجمالي قيمة الوحدة (سعر المتر × المساحة)', value: JphUi.money(_value),
-          icon: Icons.home_work_rounded, color: Colors.blue),
+          icon: Icons.home_work_rounded, color: Ar.info),
       const SizedBox(height: 12),
       JphUi.readOnly(isDark: isDark, label: 'نسبة عمولتك (من إعدادات المشروع)', value: JphUi.pct(_pct),
-          icon: Icons.percent_rounded, color: Colors.purple),
+          icon: Icons.percent_rounded, color: Ar.accent),
       const SizedBox(height: 12),
       JphUi.readOnly(isDark: isDark, label: 'العمولة المتوقعة', value: JphUi.money(_commission),
-          icon: Icons.payments_rounded, color: Colors.green),
+          icon: Icons.payments_rounded, color: Ar.green),
       const SizedBox(height: 16),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -139,16 +140,16 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
       Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isDark ? Colors.amber.shade900.withOpacity(0.25) : Colors.amber.shade50,
+          color: isDark ? Ar.amber.shade900.withOpacity(0.25) : Ar.amber.shade50,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDark ? Colors.amber.shade700 : Colors.amber.shade200, width: 1.5),
+          border: Border.all(color: isDark ? Ar.amber.shade700 : Ar.amber.shade200, width: 1.5),
         ),
         child: Row(children: [
-          Icon(Icons.info_outline_rounded, color: isDark ? Colors.amber.shade300 : Colors.amber.shade800),
+          Icon(Icons.info_outline_rounded, color: isDark ? Ar.amber.shade300 : Ar.amber.shade800),
           const SizedBox(width: 10),
           Expanded(
             child: Text('الطلب بيروح للمدير العام يراجعه ويحدد شهر نزول العمولة في المرتب. النسبة والمبلغ بيتحسبوا من إعدادات المشروع.',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Colors.amber.shade200 : Colors.amber.shade900)),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Ar.amber.shade200 : Ar.amber.shade900)),
           ),
         ]),
       ),

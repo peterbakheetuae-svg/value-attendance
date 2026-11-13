@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/glass_ui.dart';
 
 class MonthStats extends StatelessWidget {
   final Map<String, dynamic> monthData;
@@ -20,7 +21,7 @@ class MonthStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'work_days'),
                 icon: Icons.event_available_rounded,
-                color: Colors.green,
+                color: Ar.green,
                 value: (monthData["workDays"] ?? "--").toString(),
               ),
             ),
@@ -30,7 +31,7 @@ class MonthStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'leave_days'),
                 icon: Icons.beach_access_rounded,
-                color: Colors.purple,
+                color: Ar.accent,
                 value: (monthData["leaveDays"] ?? "0").toString(),
               ),
             ),
@@ -40,7 +41,7 @@ class MonthStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'absent_days'),
                 icon: Icons.event_busy_rounded,
-                color: Colors.red,
+                color: Ar.red,
                 value: (monthData["absentDays"] ?? "--").toString(),
               ),
             ),
@@ -54,7 +55,7 @@ class MonthStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'sick_leave'),
                 icon: Icons.healing_rounded,
-                color: Colors.pink,
+                color: Ar.red,
                 value: (monthData["sickLeave"] ?? "0").toString(),
               ),
             ),
@@ -64,7 +65,7 @@ class MonthStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'late_month'),
                 icon: Icons.schedule_rounded,
-                color: Colors.orange,
+                color: Ar.amber,
                 value: (monthData["lateTime"] ?? "--").toString(),
               ),
             ),

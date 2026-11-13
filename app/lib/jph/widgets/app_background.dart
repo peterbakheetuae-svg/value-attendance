@@ -45,8 +45,8 @@ class AppBackground extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isDark
-              ? [Colors.black87, Colors.grey[900]!]
-              : [Colors.blue[50]!, Colors.white],
+              ? [Colors.black87, Ar.grey[900]!]
+              : [Ar.info[50]!, Colors.white],
         ),
       ),
       child: child,

@@ -12,6 +12,7 @@ import 'app_background.dart';
 import 'glass_ui_widgets.dart';
 import 'glass_dialog.dart';
 import 'custody_asset_card.dart';
+import 'glass_ui.dart';
 
 /// Employee documents (acknowledgment PDF, job description PDF, ID image) and custody sections —
 /// same glass cards as the rest of the profile. Files are fetched with the session token only.
@@ -55,7 +56,7 @@ Future<PickedDoc?> pickDocument(BuildContext context, String kind) async {
   if (pdf && mime != 'application/pdf') err = 'لازم يكون ملف PDF';
   if (!pdf && !mime.startsWith('image/')) err = 'لازم تكون صورة';
   if (err != null) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
     return null;
   }
   return PickedDoc(f.name, mime, f.bytes!);
@@ -89,7 +90,7 @@ Future<void> openDocument(BuildContext context, {required String id, required St
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مش قادر أفتح الملف — ممكن مش عندك صلاحية'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مش قادر أفتح الملف — ممكن مش عندك صلاحية'), backgroundColor: Ar.red));
     }
   }
 }
@@ -142,7 +143,7 @@ class _EmployeeDocumentsSectionState extends State<EmployeeDocumentsSection> {
     final r = await ApiService.post({'action': 'upload_document', 'id': widget.employeeId, 'kind': kind, 'fileName': f.fileName, 'mime': f.mime, 'data': f.base64});
     if (!mounted) return;
     setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
     _load();
   }
 
@@ -166,7 +167,7 @@ class _EmployeeDocumentsSectionState extends State<EmployeeDocumentsSection> {
               return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   Icon(cur == null ? Icons.error_outline : (k == 'national_id' ? Icons.badge_outlined : Icons.picture_as_pdf_outlined),
-                      color: cur == null ? Colors.orange : AppColors.primary),
+                      color: cur == null ? Ar.amber : AppColors.primary),
                   const SizedBox(width: 10),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text(docTitles[k]!, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -239,7 +240,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
   }
 
   void _snack(Map<String, dynamic> r) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+      SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
 
   InputDecoration _input(String l) => InputDecoration(labelText: l, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
 
@@ -249,12 +250,12 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
       padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(
-          color: isDark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+          color: isDark ? Ar.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 14),
           Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
@@ -350,7 +351,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
           padding: const EdgeInsets.only(bottom: 10),
           child: GlassCard(
             child: Row(children: [
-              Icon(open ? Icons.inventory_2_rounded : Icons.history_rounded, color: open ? AppColors.primary : Colors.grey),
+              Icon(open ? Icons.inventory_2_rounded : Icons.history_rounded, color: open ? AppColors.primary : Ar.grey),
               const SizedBox(width: 10),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${custodyTypes[it['asset_type']] ?? ''}: ${it['asset_name']}', style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -362,7 +363,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
               if (open && _canManage)
                 TextButton(onPressed: () => _close(it), child: const Text('استلام'))
               else
-                Text(status, style: TextStyle(fontWeight: FontWeight.w700, color: open ? AppColors.primary : (it['status'] == 'lost' ? AppColors.error : Colors.green))),
+                Text(status, style: TextStyle(fontWeight: FontWeight.w700, color: open ? AppColors.primary : (it['status'] == 'lost' ? AppColors.error : Ar.green))),
             ]),
           ),
         );

@@ -12,6 +12,7 @@ import '../../widgets/swipe_tabs.dart';
 import 'commission_project_page.dart';
 import 'project_form_page.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 /// إدارة عمولات المشاريع — one place, tabs by permission:
 ///  مشاريع (owner / المدير / HR / sales manager) • الاعتماد (المدير / owner) • عمولات (عمولاتي — everyone).
@@ -140,13 +141,13 @@ class _ProjectsTabState extends State<_ProjectsTab> {
         LayoutBuilder(builder: (context, c) {
           final cols = c.maxWidth > 700 ? 4 : 2;
           final cards = [
-            JphUi.stat(isDark, 'وحدات مباعة', '${sum('units')}', Icons.home_work_rounded, Colors.indigo),
-            JphUi.stat(isDark, 'قيمة المبيعات', JphUi.money(sum('salesValue')), Icons.trending_up_rounded, Colors.blue),
-            JphUi.stat(isDark, 'عمولات البائعين', JphUi.money(sum('salesCommission')), Icons.person_rounded, Colors.teal),
+            JphUi.stat(isDark, 'وحدات مباعة', '${sum('units')}', Icons.home_work_rounded, Ar.accent),
+            JphUi.stat(isDark, 'قيمة المبيعات', JphUi.money(sum('salesValue')), Icons.trending_up_rounded, Ar.info),
+            JphUi.stat(isDark, 'عمولات البائعين', JphUi.money(sum('salesCommission')), Icons.person_rounded, Ar.green),
             if (companyView)
-              JphUi.stat(isDark, 'أرباح الشركة', JphUi.money(sum('companyCommission')), Icons.account_balance_rounded, Colors.green)
+              JphUi.stat(isDark, 'أرباح الشركة', JphUi.money(sum('companyCommission')), Icons.account_balance_rounded, Ar.green)
             else
-              JphUi.stat(isDark, 'عمولات المديرين', JphUi.money(sum('managerCommission')), Icons.groups_rounded, Colors.purple),
+              JphUi.stat(isDark, 'عمولات المديرين', JphUi.money(sum('managerCommission')), Icons.groups_rounded, Ar.accent),
           ];
           return GridView.count(
             crossAxisCount: cols, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
@@ -238,21 +239,21 @@ class _ProjectsTabState extends State<_ProjectsTab> {
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            JphUi.iconTile(isDark, Icons.apartment_rounded, Colors.indigo),
+            JphUi.iconTile(isDark, Icons.apartment_rounded, Ar.accent),
             const SizedBox(width: 12),
             Expanded(child: Text('${p['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
             JphUi.chip(stAr, stColor),
           ]),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            if (p['totalPct'] != null) _pill('الإجمالي ${JphUi.pct(p['totalPct'])}', Colors.blueGrey),
-            _pill('البائع ${JphUi.pct(p['salesPct'])}', Colors.teal),
-            if (p['managerPct'] != null) _pill('مدير المبيعات ${JphUi.pct(p['managerPct'])}', Colors.purple),
-            if (p['companyPct'] != null) _pill('الشركة ${JphUi.pct(p['companyPct'])}', Colors.green),
+            if (p['totalPct'] != null) _pill('الإجمالي ${JphUi.pct(p['totalPct'])}', Ar.grey),
+            _pill('البائع ${JphUi.pct(p['salesPct'])}', Ar.green),
+            if (p['managerPct'] != null) _pill('مدير المبيعات ${JphUi.pct(p['managerPct'])}', Ar.accent),
+            if (p['companyPct'] != null) _pill('الشركة ${JphUi.pct(p['companyPct'])}', Ar.green),
           ]),
           if (p['units'] != null) ...[
             const SizedBox(height: 12),
-            Divider(height: 1, color: isDark ? Colors.white24 : Colors.grey.shade200),
+            Divider(height: 1, color: isDark ? Colors.white24 : Ar.grey.shade200),
             const SizedBox(height: 10),
             Wrap(spacing: 18, runSpacing: 6, children: [
               _kv('وحدات', '${p['units']}'),
@@ -281,9 +282,9 @@ class _ProjectsTabState extends State<_ProjectsTab> {
 
 String? _statusAr(Object? s) => switch (s) { 'active' => 'شغال', 'paused' => 'متوقف مؤقتاً', 'closed' => 'مقفول', _ => null };
 (String, Color) _statusChip(Object? s) => switch (s) {
-      'paused' => ('متوقف مؤقتاً', Colors.orange),
-      'closed' => ('مقفول', Colors.grey),
-      _ => ('شغال', Colors.green),
+      'paused' => ('متوقف مؤقتاً', Ar.amber),
+      'closed' => ('مقفول', Ar.grey),
+      _ => ('شغال', Ar.green),
     };
 
 // ==================================================================== للاعتماد (المدير العام)
@@ -342,7 +343,7 @@ class _ApproveTabState extends State<_ApproveTab> {
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
             ElevatedButton(
               onPressed: () => Navigator.pop(c, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white),
               child: const Text('اعتماد'),
             ),
           ],
@@ -367,7 +368,7 @@ class _ApproveTabState extends State<_ApproveTab> {
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
             ElevatedButton(
               onPressed: () => Navigator.pop(c, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: Ar.red, foregroundColor: Colors.white),
               child: const Text('رفض'),
             ),
           ],
@@ -376,7 +377,7 @@ class _ApproveTabState extends State<_ApproveTab> {
     );
     if (ok != true) return;
     if (reason.text.trim().length < 3) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لازم تكتب سبب الرفض'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لازم تكتب سبب الرفض'), backgroundColor: Ar.red));
       return;
     }
     await _decide(x, {'decision': 'reject', 'reason': reason.text.trim()});
@@ -407,7 +408,7 @@ class _ApproveTabState extends State<_ApproveTab> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.handshake_rounded, Colors.teal),
+                JphUi.iconTile(isDark, Icons.handshake_rounded, Ar.green),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -415,7 +416,7 @@ class _ApproveTabState extends State<_ApproveTab> {
                     Text('طلب #${x['ref']} • ${JphUi.date(x['createdAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
                 ),
-                JphUi.chip('مستني', Colors.orange),
+                JphUi.chip('مستني', Ar.amber),
               ]),
               const SizedBox(height: 12),
               _detailsGrid(isDark, x),
@@ -428,10 +429,10 @@ class _ApproveTabState extends State<_ApproveTab> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _busy.contains('${x['id']}') ? null : () => _reject(x),
-                    icon: const Icon(Icons.close_rounded, color: Colors.red),
-                    label: const Text('رفض', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w800)),
+                    icon: const Icon(Icons.close_rounded, color: Ar.red),
+                    label: const Text('رفض', style: TextStyle(color: Ar.red, fontWeight: FontWeight.w800)),
                     style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48),
-                        side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                        side: const BorderSide(color: Ar.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -440,7 +441,7 @@ class _ApproveTabState extends State<_ApproveTab> {
                     onPressed: _busy.contains('${x['id']}') ? null : () => _approve(x),
                     icon: const Icon(Icons.check_rounded),
                     label: const Text('اعتماد', style: TextStyle(fontWeight: FontWeight.w800)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white,
+                    style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white,
                         minimumSize: const Size(0, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                   ),
                 ),
@@ -473,7 +474,7 @@ Widget _detailsGrid(bool isDark, Map<String, dynamic> x) {
           width: w,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade50,
+            color: isDark ? Colors.white.withOpacity(0.06) : Ar.grey.shade50,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -527,13 +528,13 @@ class _MineTabState extends State<_MineTab> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         Row(children: [
-          Expanded(child: JphUi.stat(isDark, 'عمولاتي المعتمدة', JphUi.money(approved), Icons.verified_rounded, Colors.green)),
+          Expanded(child: JphUi.stat(isDark, 'عمولاتي المعتمدة', JphUi.money(approved), Icons.verified_rounded, Ar.green)),
           const SizedBox(width: 10),
-          Expanded(child: JphUi.stat(isDark, 'طلبات مستنية', '${_reqs.where((x) => x['status'] == 'pending').length}', Icons.hourglass_top_rounded, Colors.orange)),
+          Expanded(child: JphUi.stat(isDark, 'طلبات مستنية', '${_reqs.where((x) => x['status'] == 'pending').length}', Icons.hourglass_top_rounded, Ar.amber)),
         ]),
         if (_ents.isNotEmpty) ...[
           const SizedBox(height: 10),
-          JphUi.stat(isDark, 'عمولاتي كمدير مبيعات', JphUi.money(mgr), Icons.groups_rounded, Colors.purple),
+          JphUi.stat(isDark, 'عمولاتي كمدير مبيعات', JphUi.money(mgr), Icons.groups_rounded, Ar.accent),
         ],
         const SizedBox(height: 14),
         if (_reqs.isEmpty && _ents.isEmpty)
@@ -546,7 +547,7 @@ class _MineTabState extends State<_MineTab> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.handshake_rounded, Colors.teal),
+                JphUi.iconTile(isDark, Icons.handshake_rounded, Ar.green),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -560,12 +561,12 @@ class _MineTabState extends State<_MineTab> {
               Wrap(spacing: 14, runSpacing: 6, children: [
                 Text('قيمة الوحدة: ${JphUi.money(x['unitValue'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
                 Text('عمولتك (${JphUi.pct(x['salesPct'])}): ${JphUi.money(x['salesAmount'])}', style: const TextStyle(fontWeight: FontWeight.w900)),
-                if (x['period'] != null) Text('تنزل في مرتب ${JphUi.monthAr('${x['period']}')}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.blue)),
+                if (x['period'] != null) Text('تنزل في مرتب ${JphUi.monthAr('${x['period']}')}', style: const TextStyle(fontWeight: FontWeight.w700, color: Ar.info)),
                 for (final p in ((x['payroll'] as List?) ?? const []).whereType<Map>())
                   JphUi.chip(paymentStatus('${p['payment']}').$1, paymentStatus('${p['payment']}').$2),
               ]),
               if (x['status'] == 'rejected' && '${x['rejectReason'] ?? ''}'.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(top: 8), child: Text('سبب الرفض: ${x['rejectReason']}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                Padding(padding: const EdgeInsets.only(top: 8), child: Text('سبب الرفض: ${x['rejectReason']}', style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700))),
               if (x['status'] == 'voided' && '${x['voidReason'] ?? ''}'.isNotEmpty)
                 Padding(padding: const EdgeInsets.only(top: 8), child: Text('اتلغت: ${x['voidReason']}', style: TextStyle(color: JphUi.sub(isDark)))),
             ]),
@@ -576,7 +577,7 @@ class _MineTabState extends State<_MineTab> {
             padding: const EdgeInsets.all(14),
             decoration: JphUi.box(isDark),
             child: Row(children: [
-              JphUi.iconTile(isDark, Icons.groups_rounded, Colors.purple),
+              JphUi.iconTile(isDark, Icons.groups_rounded, Ar.accent),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -101,7 +101,7 @@ class _ProjectsListState extends State<ProjectsList> {
           JphUi.picker(
             isDark: isDark,
             icon: Icons.business_rounded,
-            iconColor: Colors.teal,
+            iconColor: Ar.green,
             label: kind == 'exclusive' ? 'المطور (مالك المشروع)' : 'المطور',
             value: dev != null ? '${dev!['name']}' : (newDev ? 'مطور جديد' : 'اختار المطور'),
             onTap: () async {
@@ -136,7 +136,7 @@ class _ProjectsListState extends State<ProjectsList> {
           AnimatedBuilder(
             animation: Listenable.merge([total, sales, manager]),
             builder: (_, __) => Text('نصيب المكتب: ${JphUi.pct(office())}',
-                style: TextStyle(fontWeight: FontWeight.w800, color: Colors.teal.shade600)),
+                style: TextStyle(fontWeight: FontWeight.w800, color: Ar.green.shade600)),
           ),
         ], () async {
       final Map<String, dynamic> r;
@@ -335,7 +335,7 @@ class _ProjectsListState extends State<ProjectsList> {
       [Color(0xFF2563EB), Color(0xFF0B1E4D)],
       [Color(0xFF4338CA), Color(0xFF111827)],
       [Color(0xFF3B82F6), Color(0xFF1E293B)],
-      [Color(0xFF6366F1), Color(0xFF172554)],
+      [Color(0xFF6A67F5), Color(0xFF172554)],
     ];
     final g = shades[h % shades.length];
     final marketing = p['kind'] == 'marketing';
@@ -625,7 +625,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(children: [
-                  const Icon(Icons.hourglass_top_rounded, color: Colors.orange),
+                  const Icon(Icons.hourglass_top_rounded, color: Ar.amber),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -658,7 +658,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
           _btn(isDark, _stage == 'reservation' ? 'حجز جديد' : 'تعاقد جديد', _stage == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded,
               () => newUnit(context, isDark, _projects.where((p) => _kind.isEmpty || p['kind'] == _kind).toList(),
                   contract: _stage == 'contract', then: _load),
-              color: _stage == 'reservation' ? Colors.teal : JphUi.primary(isDark)),
+              color: _stage == 'reservation' ? Ar.green : JphUi.primary(isDark)),
         if (_stage == 'reservation')
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -667,7 +667,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
         if (_stage == 'reservation' && waiting > 0)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text('$waiting حجز مستني إجراء', style: const TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.w800)),
+            child: Text('$waiting حجز مستني إجراء', style: const TextStyle(color: Ar.amber, fontWeight: FontWeight.w800)),
           ),
         const SizedBox(height: 6),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
@@ -731,10 +731,10 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
               if (_m(x['commission']).isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Wrap(spacing: 6, children: [
-                  if (_n(_m(x['commission'])['potential']) > 0) _pill('عمولة محتملة ${_money(_m(x['commission'])['potential'])}', Colors.indigo),
-                  if (_n(_m(x['commission'])['receivable']) > 0) _pill('واجبة التحصيل ${_money(_m(x['commission'])['receivable'])}', Colors.orange),
+                  if (_n(_m(x['commission'])['potential']) > 0) _pill('عمولة محتملة ${_money(_m(x['commission'])['potential'])}', Ar.accent),
+                  if (_n(_m(x['commission'])['receivable']) > 0) _pill('واجبة التحصيل ${_money(_m(x['commission'])['receivable'])}', Ar.amber),
                   if (st != 'reserved' && _n(_m(x['commission'])['receivable']) == 0 && _n(_m(x['commission'])['collected']) > 0)
-                    _pill('العمولة اتحصّلت', Colors.green),
+                    _pill('العمولة اتحصّلت', Ar.green),
                 ]),
               ],
             ]),
@@ -790,15 +790,15 @@ class _OwnersPageState extends State<OwnersPage> {
                         _kv(isDark, 'المبيعات', _money(o['sales'])),
                         _kv(isDark, 'اتحصّل (أمانة)', _money(o['collected'])),
                         _kv(isDark, 'عمولة اتحوّلت للمكتب', _money(o['commissionTransferred'])),
-                        _kv(isDark, 'اتصرف للمالك', _money(o['paid']), color: Colors.green),
+                        _kv(isDark, 'اتصرف للمالك', _money(o['paid']), color: Ar.green),
                         const Divider(),
                         _kv(isDark, 'في الأمانة دلوقتي', _money(o['inTrust'])),
-                        _kv(isDark, 'الصافي المستحق للمالك', _money(o['due']), color: Colors.teal),
+                        _kv(isDark, 'الصافي المستحق للمالك', _money(o['due']), color: Ar.green),
                         const SizedBox(height: 6),
                         for (final p in _l(o['projects']))
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.apartment_rounded, color: Colors.indigo),
+                            leading: const Icon(Icons.apartment_rounded, color: Ar.accent),
                             title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                             subtitle: Text('مستحق ${_money(p['due'])}', style: TextStyle(color: JphUi.sub(isDark))),
                             trailing: Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -944,8 +944,8 @@ class _ClientsPageState extends State<ClientsPage> {
                           _kv(isDark, 'الحالة', '${u['statusAr']}', color: _statusColor('${u['status']}')),
                           if (seesAll && '${u['salesName'] ?? ''}'.isNotEmpty) _kv(isDark, 'السيلز', '${u['salesName']}'),
                           _kv(isDark, 'السعر', _money(u['price'])),
-                          _kv(isDark, 'دفع', _money(u['paid']), color: Colors.green),
-                          _kv(isDark, 'الباقي', _money((_n(u['price']) - _n(u['paid'])).clamp(0, double.infinity)), color: Colors.orange),
+                          _kv(isDark, 'دفع', _money(u['paid']), color: Ar.green),
+                          _kv(isDark, 'الباقي', _money((_n(u['price']) - _n(u['paid'])).clamp(0, double.infinity)), color: Ar.amber),
                           if (u['at'] != null) _kv(isDark, 'التاريخ', _date('${u['at']}')),
                         ]),
                       ),
@@ -1093,12 +1093,12 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
     num sum(String k) => ps.fold<num>(0, (t, p) => t + _n(p[k]));
     return [
       JphUi.statGrid([
-        _tile(isDark, 'إجمالي الأمانات', box['total'], Icons.real_estate_agent_rounded, Colors.purple),
-        _tile(isDark, 'من الحجوزات', sum('reservation'), Icons.bookmark_rounded, Colors.teal),
-        _tile(isDark, 'من التعاقد', sum('contract'), Icons.handshake_rounded, Colors.indigo),
-        _tile(isDark, 'من الأقساط', sum('installments'), Icons.event_repeat_rounded, Colors.blue),
-        _tile(isDark, 'اتصرف للملاك', sum('paidToOwner'), Icons.outbox_rounded, Colors.red),
-        _tile(isDark, 'الصافي للملاك', sum('ownerDue'), Icons.account_balance_rounded, Colors.green),
+        _tile(isDark, 'إجمالي الأمانات', box['total'], Icons.real_estate_agent_rounded, Ar.accent),
+        _tile(isDark, 'من الحجوزات', sum('reservation'), Icons.bookmark_rounded, Ar.green),
+        _tile(isDark, 'من التعاقد', sum('contract'), Icons.handshake_rounded, Ar.accent),
+        _tile(isDark, 'من الأقساط', sum('installments'), Icons.event_repeat_rounded, Ar.info),
+        _tile(isDark, 'اتصرف للملاك', sum('paidToOwner'), Icons.outbox_rounded, Ar.red),
+        _tile(isDark, 'الصافي للملاك', sum('ownerDue'), Icons.account_balance_rounded, Ar.green),
       ]),
       const SizedBox(height: 16),
       Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -1113,7 +1113,7 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
             padding: const EdgeInsets.all(16),
             decoration: JphUi.box(isDark),
             child: Row(children: [
-              JphUi.iconTile(isDark, Icons.apartment_rounded, Colors.purple),
+              JphUi.iconTile(isDark, Icons.apartment_rounded, Ar.accent),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1122,7 +1122,7 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
                 ]),
               ),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(_money(p['inTrust']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.purple)),
+                Text(_money(p['inTrust']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.accent)),
                 Text('أمانات', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
               ]),
               Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -1175,15 +1175,15 @@ class _ProjectTrustPageState extends _OverviewPageState<ProjectTrustPage> {
       Text('المالك / المطور: ${p['ownerName'] ?? '—'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
       const SizedBox(height: 10),
       JphUi.statGrid([
-        _tile(isDark, 'موجود أمانات (دلوقتي)', p['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
-        _tile(isDark, 'من الحجز', p['reservation'], Icons.bookmark_rounded, Colors.teal),
-        _tile(isDark, 'من التعاقد', p['contract'], Icons.handshake_rounded, Colors.indigo),
-        _tile(isDark, 'من الأقساط', p['installments'], Icons.event_repeat_rounded, Colors.blue),
-        _tile(isDark, 'للمالك / المطور (صافي دلوقتي)', p['ownerDue'], Icons.account_balance_rounded, Colors.green),
-        _tile(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], Icons.outbox_rounded, Colors.red),
-        _tile(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-        if (_n(p['refunded']) > 0) _tile(isDark, 'اترد لعملاء لغوا', p['refunded'], Icons.undo_rounded, Colors.orange),
-        if (_n(p['pendingPayout']) > 0) _tile(isDark, 'صرف مستني الموافقة', p['pendingPayout'], Icons.hourglass_top_rounded, Colors.orange),
+        _tile(isDark, 'موجود أمانات (دلوقتي)', p['inTrust'], Icons.real_estate_agent_rounded, Ar.accent),
+        _tile(isDark, 'من الحجز', p['reservation'], Icons.bookmark_rounded, Ar.green),
+        _tile(isDark, 'من التعاقد', p['contract'], Icons.handshake_rounded, Ar.accent),
+        _tile(isDark, 'من الأقساط', p['installments'], Icons.event_repeat_rounded, Ar.info),
+        _tile(isDark, 'للمالك / المطور (صافي دلوقتي)', p['ownerDue'], Icons.account_balance_rounded, Ar.green),
+        _tile(isDark, 'اتصرف للمالك / المطور', p['paidToOwner'], Icons.outbox_rounded, Ar.red),
+        _tile(isDark, 'عمولة اتحوّلت للمكتب', p['commissionMoved'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+        if (_n(p['refunded']) > 0) _tile(isDark, 'اترد لعملاء لغوا', p['refunded'], Icons.undo_rounded, Ar.amber),
+        if (_n(p['pendingPayout']) > 0) _tile(isDark, 'صرف مستني الموافقة', p['pendingPayout'], Icons.hourglass_top_rounded, Ar.amber),
       ]),
       const SizedBox(height: 16),
       if (_d == null) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
@@ -1206,13 +1206,13 @@ class _ProjectTrustPageState extends _OverviewPageState<ProjectTrustPage> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 5),
             child: Row(children: [
-              Icon(s['dir'] == 'in' ? Icons.south_west_rounded : Icons.north_east_rounded, color: s['dir'] == 'in' ? Colors.green : Colors.red, size: 18),
+              Icon(s['dir'] == 'in' ? Icons.south_west_rounded : Icons.north_east_rounded, color: s['dir'] == 'in' ? Ar.green : Ar.red, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text('${s['typeAr']}${s['unitNo'] != null ? ' — وحدة ${s['unitNo']}' : ''} · ${_date(s['at'])}',
                     style: TextStyle(color: JphUi.text(isDark))),
               ),
-              Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Colors.green : Colors.red)),
+              Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Ar.green : Ar.red)),
             ]),
           ),
       ]),
@@ -1239,10 +1239,10 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
     final c = _m(o!['commissions']);
     return [
       JphUi.statGrid([
-        _tile(isDark, 'عمولة مستحقة', c['due'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-        _tile(isDark, 'دخلت خزنة العمولات', c['collected'], Icons.savings_rounded, Colors.green),
-        _tile(isDark, 'متبقي لم يتم أخذه', c['remaining'], Icons.hourglass_top_rounded, Colors.orange),
-        _tile(isDark, 'جاية من أقساط لسه', c['upcoming'], Icons.event_repeat_rounded, Colors.indigo),
+        _tile(isDark, 'عمولة مستحقة', c['due'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+        _tile(isDark, 'دخلت خزنة العمولات', c['collected'], Icons.savings_rounded, Ar.green),
+        _tile(isDark, 'متبقي لم يتم أخذه', c['remaining'], Icons.hourglass_top_rounded, Ar.amber),
+        _tile(isDark, 'جاية من أقساط لسه', c['upcoming'], Icons.event_repeat_rounded, Ar.accent),
       ]),
       const SizedBox(height: 16),
       Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -1257,7 +1257,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
                 JphUi.iconTile(isDark, p['kind'] == 'marketing' ? Icons.storefront_rounded : Icons.apartment_rounded,
-                    p['kind'] == 'marketing' ? Colors.deepPurple : Colors.indigo),
+                    p['kind'] == 'marketing' ? Ar.accent : Ar.accent),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1266,18 +1266,18 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
                   ]),
                 ),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(_money(p['remaining']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.orange)),
+                  Text(_money(p['remaining']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Ar.amber)),
                   Text('متبقي', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                 ]),
                 Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
               ]),
               const SizedBox(height: 8),
               Row(children: [
-                Expanded(child: _mini(isDark, 'مستحقة', p['due'], Colors.amber.shade800)),
+                Expanded(child: _mini(isDark, 'مستحقة', p['due'], Ar.amber.shade800)),
                 const SizedBox(width: 6),
-                Expanded(child: _mini(isDark, 'دخلت', p['collected'], Colors.green)),
+                Expanded(child: _mini(isDark, 'دخلت', p['collected'], Ar.green)),
                 const SizedBox(width: 6),
-                Expanded(child: _mini(isDark, 'متوقعة', p['expected'], Colors.teal)),
+                Expanded(child: _mini(isDark, 'متوقعة', p['expected'], Ar.green)),
               ]),
             ]),
           ),
@@ -1285,7 +1285,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
       if (_n(_m(c['legacy'])['due']) > 0)
         _section(isDark, 'عمولات صفقات قديمة (من غير وحدة)', [
           _kv(isDark, 'مستحقة', _money(_m(c['legacy'])['due'])),
-          _kv(isDark, 'دخلت', _money(_m(c['legacy'])['collected']), color: Colors.green),
+          _kv(isDark, 'دخلت', _money(_m(c['legacy'])['collected']), color: Ar.green),
         ]),
     ];
   }
@@ -1313,8 +1313,8 @@ class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissio
       Text('من الحجوزات، في شهر «التاريخ المتوقع للتعاقد» المكتوب في فورم الحجز', style: TextStyle(color: JphUi.sub(isDark))),
       const SizedBox(height: 10),
       JphUi.statGrid([
-        _tile(isDark, 'إجمالي المتوقع', e['total'], Icons.event_available_rounded, Colors.indigo),
-        for (final m in months.take(5)) _tile(isDark, _ym('${m['month']}'), m['amount'], Icons.calendar_month_rounded, Colors.teal),
+        _tile(isDark, 'إجمالي المتوقع', e['total'], Icons.event_available_rounded, Ar.accent),
+        for (final m in months.take(5)) _tile(isDark, _ym('${m['month']}'), m['amount'], Icons.calendar_month_rounded, Ar.green),
       ]),
       const SizedBox(height: 16),
       if (months.isEmpty)
@@ -1324,11 +1324,11 @@ class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissio
           for (final u in _l(m['units']))
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.bookmark_rounded, color: Colors.indigo),
+              leading: const Icon(Icons.bookmark_rounded, color: Ar.accent),
               title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
               subtitle: Text('${u['clientName']} · ${u['salesName']}${u['expectedContractDate'] != null ? ' · تعاقد متوقع ${_date(u['expectedContractDate'])}' : ''}',
                   style: TextStyle(color: JphUi.sub(isDark))),
-              trailing: Text(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.indigo)),
+              trailing: Text(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.accent)),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
             ),
         ]),
@@ -1414,7 +1414,7 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
   Widget _row(BuildContext ctx, bool isDark, Map<String, dynamic> x, {bool popup = false}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
-          Icon(x['kind'] == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded, color: Colors.orange),
+          Icon(x['kind'] == 'reservation' ? Icons.bookmark_add_rounded : Icons.handshake_rounded, color: Ar.amber),
           const SizedBox(width: 8),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1426,7 +1426,7 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
           ),
           FilledButton(
             onPressed: () => _receive(ctx, x, popup: popup),
-            style: FilledButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(horizontal: 12)),
+            style: FilledButton.styleFrom(backgroundColor: Ar.green, padding: const EdgeInsets.symmetric(horizontal: 12)),
             child: const Text('تم الاستلام', style: TextStyle(fontWeight: FontWeight.w800)),
           ),
         ]),
@@ -1444,11 +1444,11 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
         decoration: BoxDecoration(
           color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.55),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.orange.withOpacity(0.6), width: 1.4),
+          border: Border.all(color: Ar.amber.withOpacity(0.6), width: 1.4),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            const Icon(Icons.notifications_active_rounded, color: Colors.orange),
+            const Icon(Icons.notifications_active_rounded, color: Ar.amber),
             const SizedBox(width: 8),
             Expanded(
               child: Text('مبالغ مبيعات مستنية تأكيد الاستلام (${_items.length}) — ${_money(total)}',
@@ -1488,11 +1488,11 @@ class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissions
       Text(p['kind'] == 'marketing' ? 'مشروع تسويق' : 'مشروع حصري', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
       const SizedBox(height: 10),
       JphUi.statGrid([
-        _tile(isDark, 'عمولة مستحقة', p['due'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-        _tile(isDark, 'دخلت خزنة العمولات', p['collected'], Icons.savings_rounded, Colors.green),
-        _tile(isDark, 'متبقي لم يتم أخذه', p['remaining'], Icons.hourglass_top_rounded, Colors.orange),
-        _tile(isDark, 'جاية من أقساط', p['upcoming'], Icons.event_repeat_rounded, Colors.indigo),
-        if (_n(p['expected']) > 0) _tile(isDark, 'متوقعة من حجوزات', p['expected'], Icons.event_available_rounded, Colors.teal),
+        _tile(isDark, 'عمولة مستحقة', p['due'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+        _tile(isDark, 'دخلت خزنة العمولات', p['collected'], Icons.savings_rounded, Ar.green),
+        _tile(isDark, 'متبقي لم يتم أخذه', p['remaining'], Icons.hourglass_top_rounded, Ar.amber),
+        _tile(isDark, 'جاية من أقساط', p['upcoming'], Icons.event_repeat_rounded, Ar.accent),
+        if (_n(p['expected']) > 0) _tile(isDark, 'متوقعة من حجوزات', p['expected'], Icons.event_available_rounded, Ar.green),
       ]),
       const SizedBox(height: 16),
       if (units.isEmpty)
@@ -1507,7 +1507,7 @@ class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissions
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
                 JphUi.iconTile(isDark, _n(u['remaining']) > 0 ? Icons.hourglass_top_rounded : Icons.task_alt_rounded,
-                    _n(u['remaining']) > 0 ? Colors.orange : Colors.green),
+                    _n(u['remaining']) > 0 ? Ar.amber : Ar.green),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1519,8 +1519,8 @@ class _ProjectCommissionsPageState extends _OverviewPageState<ProjectCommissions
               ]),
               const SizedBox(height: 6),
               _kv(isDark, 'مستحقة', _money(u['due'])),
-              _kv(isDark, 'دخلت', _money(u['collected']), color: Colors.green),
-              _kv(isDark, 'متبقي', _money(u['remaining']), color: Colors.orange),
+              _kv(isDark, 'دخلت', _money(u['collected']), color: Ar.green),
+              _kv(isDark, 'متبقي', _money(u['remaining']), color: Ar.amber),
               if (_n(u['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(u['upcoming'])),
             ]),
           ),
@@ -1615,7 +1615,7 @@ class _DevelopersPageState extends State<DevelopersPage> {
                         for (final p in unlinked)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.link_off_rounded, color: Colors.orange),
+                            leading: const Icon(Icons.link_off_rounded, color: Ar.amber),
                             title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                             trailing: TextButton(onPressed: () => _link(isDark, p), child: const Text('اربطه بمطور')),
                           ),
@@ -1639,7 +1639,7 @@ class _DevelopersPageState extends State<DevelopersPage> {
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            JphUi.iconTile(isDark, Icons.business_rounded, exclusive ? Colors.indigo : Colors.deepPurple),
+            JphUi.iconTile(isDark, Icons.business_rounded, exclusive ? Ar.accent : Ar.accent),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1652,18 +1652,18 @@ class _DevelopersPageState extends State<DevelopersPage> {
           const SizedBox(height: 10),
           Row(children: exclusive
               ? [
-                  Expanded(child: _mini(isDark, 'في الأمانة', k['inTrust'], Colors.purple)),
+                  Expanded(child: _mini(isDark, 'في الأمانة', k['inTrust'], Ar.accent)),
                   const SizedBox(width: 6),
-                  Expanded(child: _mini(isDark, 'اتصرفله', k['paid'], Colors.red)),
+                  Expanded(child: _mini(isDark, 'اتصرفله', k['paid'], Ar.red)),
                   const SizedBox(width: 6),
-                  Expanded(child: _mini(isDark, 'الصافي له', k['due'], Colors.green)),
+                  Expanded(child: _mini(isDark, 'الصافي له', k['due'], Ar.green)),
                 ]
               : [
-                  Expanded(child: _mini(isDark, 'عمولة مستحقة', k['commissionDue'], Colors.amber.shade800)),
+                  Expanded(child: _mini(isDark, 'عمولة مستحقة', k['commissionDue'], Ar.amber.shade800)),
                   const SizedBox(width: 6),
-                  Expanded(child: _mini(isDark, 'اتحصّل', k['commissionCollected'], Colors.green)),
+                  Expanded(child: _mini(isDark, 'اتحصّل', k['commissionCollected'], Ar.green)),
                   const SizedBox(width: 6),
-                  Expanded(child: _mini(isDark, 'متبقي عليه', k['commissionRemaining'], Colors.orange)),
+                  Expanded(child: _mini(isDark, 'متبقي عليه', k['commissionRemaining'], Ar.amber)),
                 ]),
         ]),
       ),
@@ -1734,19 +1734,19 @@ class _DeveloperPageState extends State<DeveloperPage> {
                     const SizedBox(height: 12),
                     JphUi.statGrid(exclusive
                         ? [
-                            _tile(isDark, 'اتحصّل (أمانة)', k['collected'], Icons.savings_rounded, Colors.teal),
-                            _tile(isDark, 'في الأمانة دلوقتي', k['inTrust'], Icons.real_estate_agent_rounded, Colors.purple),
-                            _tile(isDark, 'اتصرفله', k['paid'], Icons.outbox_rounded, Colors.red),
-                            _tile(isDark, 'الصافي المستحق له', k['due'], Icons.account_balance_rounded, Colors.green),
-                            _tile(isDark, 'عمولة اتحوّلت للمكتب', k['commissionMoved'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Colors.indigo),
+                            _tile(isDark, 'اتحصّل (أمانة)', k['collected'], Icons.savings_rounded, Ar.green),
+                            _tile(isDark, 'في الأمانة دلوقتي', k['inTrust'], Icons.real_estate_agent_rounded, Ar.accent),
+                            _tile(isDark, 'اتصرفله', k['paid'], Icons.outbox_rounded, Ar.red),
+                            _tile(isDark, 'الصافي المستحق له', k['due'], Icons.account_balance_rounded, Ar.green),
+                            _tile(isDark, 'عمولة اتحوّلت للمكتب', k['commissionMoved'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Ar.accent),
                           ]
                         : [
-                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Colors.indigo),
-                            _tile(isDark, 'عمولة مستحقة', k['commissionDue'], Icons.workspace_premium_rounded, Colors.amber.shade800),
-                            _tile(isDark, 'اتحصّل منه', k['commissionCollected'], Icons.savings_rounded, Colors.green),
-                            _tile(isDark, 'متبقي عليه', k['commissionRemaining'], Icons.hourglass_top_rounded, Colors.orange),
-                            _tile(isDark, 'عمولة متوقعة', k['commissionExpected'], Icons.event_available_rounded, Colors.teal),
+                            _tile(isDark, 'مبيعات متعاقد عليها', k['sales'], Icons.sell_rounded, Ar.accent),
+                            _tile(isDark, 'عمولة مستحقة', k['commissionDue'], Icons.workspace_premium_rounded, Ar.amber.shade800),
+                            _tile(isDark, 'اتحصّل منه', k['commissionCollected'], Icons.savings_rounded, Ar.green),
+                            _tile(isDark, 'متبقي عليه', k['commissionRemaining'], Icons.hourglass_top_rounded, Ar.amber),
+                            _tile(isDark, 'عمولة متوقعة', k['commissionExpected'], Icons.event_available_rounded, Ar.green),
                           ]),
                     const SizedBox(height: 16),
                     Text('المشاريع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -1763,7 +1763,7 @@ class _DeveloperPageState extends State<DeveloperPage> {
                           decoration: JphUi.box(isDark),
                           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                             Row(children: [
-                              JphUi.iconTile(isDark, exclusive ? Icons.apartment_rounded : Icons.storefront_rounded, exclusive ? Colors.indigo : Colors.deepPurple),
+                              JphUi.iconTile(isDark, exclusive ? Icons.apartment_rounded : Icons.storefront_rounded, exclusive ? Ar.accent : Ar.accent),
                               const SizedBox(width: 10),
                               Expanded(child: Text('${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
                               Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -1771,18 +1771,18 @@ class _DeveloperPageState extends State<DeveloperPage> {
                             const SizedBox(height: 8),
                             Row(children: exclusive
                                 ? [
-                                    Expanded(child: _mini(isDark, 'في الأمانة', p['inTrust'], Colors.purple)),
+                                    Expanded(child: _mini(isDark, 'في الأمانة', p['inTrust'], Ar.accent)),
                                     const SizedBox(width: 6),
-                                    Expanded(child: _mini(isDark, 'اتصرفله', p['paid'], Colors.red)),
+                                    Expanded(child: _mini(isDark, 'اتصرفله', p['paid'], Ar.red)),
                                     const SizedBox(width: 6),
-                                    Expanded(child: _mini(isDark, 'الصافي له', p['due'], Colors.green)),
+                                    Expanded(child: _mini(isDark, 'الصافي له', p['due'], Ar.green)),
                                   ]
                                 : [
-                                    Expanded(child: _mini(isDark, 'مستحقة', p['commissionDue'], Colors.amber.shade800)),
+                                    Expanded(child: _mini(isDark, 'مستحقة', p['commissionDue'], Ar.amber.shade800)),
                                     const SizedBox(width: 6),
-                                    Expanded(child: _mini(isDark, 'اتحصّل', p['commissionCollected'], Colors.green)),
+                                    Expanded(child: _mini(isDark, 'اتحصّل', p['commissionCollected'], Ar.green)),
                                     const SizedBox(width: 6),
-                                    Expanded(child: _mini(isDark, 'متبقي', p['commissionRemaining'], Colors.orange)),
+                                    Expanded(child: _mini(isDark, 'متبقي', p['commissionRemaining'], Ar.amber)),
                                   ]),
                           ]),
                         ),

@@ -269,8 +269,8 @@ class _SplashScreenState extends State<SplashScreen>
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: isDark
-              ? [Colors.black87, Colors.grey[900]!]
-              : [Colors.blue[50]!, Colors.white],
+              ? [Colors.black87, Ar.grey[900]!]
+              : [Ar.info[50]!, Colors.white],
         ),
       ),
     );
@@ -357,8 +357,8 @@ class CirclePainter extends CustomPainter {
     final orangePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.orangeAccent, Colors.deepOrange]
-            : [Colors.orange, Colors.deepOrange],
+            ? [Ar.amber, Ar.amber]
+            : [Ar.amber, Ar.amber],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -376,8 +376,8 @@ class CirclePainter extends CustomPainter {
     final bluePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.blue.shade200, Colors.blue.shade400]
-            : [Colors.blue.shade300, Colors.blue.shade700],
+            ? [Ar.info.shade200, Ar.info.shade400]
+            : [Ar.info.shade300, Ar.info.shade700],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -393,7 +393,7 @@ class CirclePainter extends CustomPainter {
 
     // تأثير الوهج
     final glowPaint = Paint()
-      ..color = (isDark ? Colors.blue.shade200 : Colors.blue).withOpacity(0.1)
+      ..color = (isDark ? Ar.info.shade200 : Ar.info).withOpacity(0.1)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15.0);
 
     canvas.drawCircle(center, radius + 5, glowPaint);

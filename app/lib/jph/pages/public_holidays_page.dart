@@ -9,6 +9,7 @@ import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import '../widgets/glass_dialog.dart';
+import '../widgets/glass_ui.dart';
 
 class PublicHolidaysPage extends StatefulWidget {
   final String uid;
@@ -264,7 +265,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                 borderRadius: BorderRadius.circular(26),
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                  color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                  color: isDark ? const Color(0xFF262624) : Colors.white,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -281,10 +282,10 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
                             width: 1.4,
                           ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF3F2FF),
+                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,7 +324,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                   fontWeight: FontWeight.w700,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
-                                dropdownColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+                                dropdownColor: isDark ? const Color(0xFF35342F) : Colors.white,
                                 borderRadius: BorderRadius.circular(14),
                                 onChanged: (int? newValue) {
                                   if (newValue != null) {
@@ -353,10 +354,10 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
                             width: 1.4,
                           ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF3F2FF),
+                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -395,7 +396,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                   fontWeight: FontWeight.w700,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
-                                dropdownColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+                                dropdownColor: isDark ? const Color(0xFF35342F) : Colors.white,
                                 borderRadius: BorderRadius.circular(14),
                                 onChanged: (String? newValue) {
                                   setState(() {
@@ -423,10 +424,10 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFD7D3FF),
+                            color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFE6E3DE),
                             width: 1.4,
                           ),
-                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF3F2FF),
+                          color: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFF4F2EE),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -465,7 +466,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                   fontWeight: FontWeight.w700,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
-                                dropdownColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+                                dropdownColor: isDark ? const Color(0xFF35342F) : Colors.white,
                                 borderRadius: BorderRadius.circular(14),
                                 onChanged: (String? newValue) {
                                   setState(() {
@@ -671,7 +672,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
       builder: (context) => Directionality(
         textDirection: isRTL ? ui.TextDirection.rtl : ui.TextDirection.ltr,
         child: GlassAlertDialog(
-          backgroundColor: appController.isDark ? Colors.grey[900] : Colors.white,
+          backgroundColor: appController.isDark ? Ar.grey[900] : Colors.white,
           title: Text(
             AppLocalizations.of(context, 'confirm_delete'),
             style: TextStyle(
@@ -682,7 +683,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
           content: Text(
             AppLocalizations.of(context, 'delete_holiday_confirmation'),
             style: TextStyle(
-              color: appController.isDark ? Colors.white70 : Colors.grey[700],
+              color: appController.isDark ? Colors.white70 : Ar.grey[700],
             ),
           ),
           actions: [
@@ -691,14 +692,14 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
               child: Text(
                 AppLocalizations.of(context, 'cancel'),
                 style: TextStyle(
-                  color: appController.isDark ? Colors.blue[300] : Colors.blue,
+                  color: appController.isDark ? Ar.info[300] : Ar.info,
                 ),
               ),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEF5350),
+                backgroundColor: const Color(0xFFFF7D6E),
                 foregroundColor: Colors.white,
               ),
               child: Text(AppLocalizations.of(context, 'delete')),
@@ -742,7 +743,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: const Color(0xFFD04545),
+        backgroundColor: const Color(0xFFE5604F),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -766,7 +767,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF2E9B67),
+        backgroundColor: const Color(0xFF2FA65A),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -796,7 +797,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
           children: [
             Icon(
               Icons.search,
-              color: isDark ? Colors.white70 : Colors.grey.shade600,
+              color: isDark ? Colors.white70 : Ar.grey.shade600,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -808,7 +809,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                 decoration: InputDecoration(
                   hintText: AppLocalizations.of(context, 'search_holidays'),
                   hintStyle: TextStyle(
-                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                    color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),
                   border: InputBorder.none,
                 ),
@@ -826,7 +827,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                 },
                 icon: Icon(
                   Icons.clear,
-                  color: isDark ? Colors.white70 : Colors.grey.shade600,
+                  color: isDark ? Colors.white70 : Ar.grey.shade600,
                   size: 20,
                 ),
               ),
@@ -1002,7 +1003,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
           color: isDark ? Colors.white.withOpacity(0.1) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
           ),
         ),
         child: Column(
@@ -1063,7 +1064,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
             ? AppColors.onSurfaceVariantDark
             : AppColors.onSurfaceVariantLight;
         final cardColor = isDark ? Colors.white.withOpacity(0.15) : Colors.white;
-        final dividerColor = isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300;
+        final dividerColor = isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300;
 
         return AppBackground(
           child: Directionality(
@@ -1194,7 +1195,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     decoration: BoxDecoration(
-                                      color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade50,
+                                      color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Row(
@@ -1202,7 +1203,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                         Icon(
                                           Icons.filter_alt_rounded,
                                           size: 16,
-                                          color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                                          color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                                         ),
                                         const SizedBox(width: 8),
                                         Expanded(
@@ -1210,7 +1211,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                             _getFilterInfo(),
                                             style: TextStyle(
                                               fontSize: 12,
-                                              color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                                              color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                                             ),
                                           ),
                                         ),
@@ -1221,7 +1222,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                                             style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
-                                              color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                                              color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                                             ),
                                           ),
                                         ),
@@ -1302,8 +1303,8 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                   title: AppLocalizations.of(context, 'this_year'),
                   count: _stats['thisYear']?.toString() ?? '0',
                   icon: Icons.calendar_today_rounded,
-                  iconColor: const Color(0xFF2196F3),
-                  bgColor: isDark ? const Color(0xFF2196F3).withOpacity(0.2) : const Color(0xFFE3F2FD),
+                  iconColor: const Color(0xFF7FB4E8),
+                  bgColor: isDark ? const Color(0xFF7FB4E8).withOpacity(0.2) : const Color(0xFFE3F2FD),
                   isDark: isDark,
                 ),
                 const SizedBox(width: 8),
@@ -1313,8 +1314,8 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                   title: AppLocalizations.of(context, 'next_year'),
                   count: _stats['nextYear']?.toString() ?? '0',
                   icon: Icons.calendar_month_rounded,
-                  iconColor: const Color(0xFFFF9800),
-                  bgColor: isDark ? const Color(0xFFFF9800).withOpacity(0.2) : const Color(0xFFFFF3E0),
+                  iconColor: const Color(0xFFF7A928),
+                  bgColor: isDark ? const Color(0xFFF7A928).withOpacity(0.2) : const Color(0xFFFFF3E0),
                   isDark: isDark,
                 ),
               ],
@@ -1369,13 +1370,13 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
     switch (type.toLowerCase()) {
       case 'راس السنة':
       case 'رأس السنة':
-        return const Color(0xFF2196F3);
+        return const Color(0xFF7FB4E8);
       case 'عيد الميلاد':
-        return const Color(0xFF4CAF50);
+        return const Color(0xFF4FCF73);
       case 'عيد الفطر':
-        return const Color(0xFFFF9800);
+        return const Color(0xFFF7A928);
       case 'عيد الأضحى':
-        return const Color(0xFFEF5350);
+        return const Color(0xFFFF7D6E);
       default:
         return const Color(0xFF9C27B0);
     }
@@ -1422,14 +1423,14 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
               Icon(
                 Icons.error_outline_rounded,
                 size: 64,
-                color: const Color(0xFFEF5350),
+                color: const Color(0xFFFF7D6E),
               ),
               const SizedBox(height: 16),
               Text(
                 _errorMessage,
                 style: TextStyle(
                   fontSize: 16,
-                  color: const Color(0xFFEF5350),
+                  color: const Color(0xFFFF7D6E),
                   fontWeight: FontWeight.w600,
                 ),
                 textAlign: TextAlign.center,
@@ -1568,7 +1569,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
+              color: isDark ? Colors.white70 : Ar.grey.shade700,
             ),
             textAlign: TextAlign.center,
             maxLines: 1,
@@ -1650,7 +1651,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
           ),
         ),
         child: Column(
@@ -1753,12 +1754,12 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                     child: ElevatedButton(
                       onPressed: () => _showAddEditForm(holiday: holiday),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.withOpacity(0.1),
-                        foregroundColor: Colors.blue,
+                        backgroundColor: Ar.info.withOpacity(0.1),
+                        foregroundColor: Ar.info,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.blue.withOpacity(0.3)),
+                          side: BorderSide(color: Ar.info.withOpacity(0.3)),
                         ),
                       ),
                       child: Row(
@@ -1776,12 +1777,12 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                     child: ElevatedButton(
                       onPressed: () => _deleteHoliday(holiday['id']),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.withOpacity(0.1),
-                        foregroundColor: Colors.red,
+                        backgroundColor: Ar.red.withOpacity(0.1),
+                        foregroundColor: Ar.red,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.red.withOpacity(0.3)),
+                          side: BorderSide(color: Ar.red.withOpacity(0.3)),
                         ),
                       ),
                       child: Row(
@@ -1936,7 +1937,7 @@ class _SheetHeader extends StatelessWidget {
           height: 54,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEBFF),
+            color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFF0EDE8),
           ),
           child: Icon(
             icon,

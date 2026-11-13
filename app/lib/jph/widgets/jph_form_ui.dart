@@ -131,7 +131,7 @@ class JphUi {
 
   /// A read-only computed value (the employee can't edit it).
   static Widget readOnly({required bool isDark, required String label, required String value, required IconData icon, Color? color}) {
-    final c = color ?? Colors.green;
+    final c = color ?? Ar.green;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -175,7 +175,7 @@ class JphUi {
             borderRadius: BorderRadius.circular(26),
             child: Container(
               padding: const EdgeInsets.all(18),
-              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              color: isDark ? const Color(0xFF262624) : Colors.white,
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Row(children: [
                   Icon(icon ?? Icons.list_alt_rounded, color: c, size: 28),
@@ -185,7 +185,7 @@ class JphUi {
                   ),
                   GestureDetector(
                     onTap: () => Navigator.pop(ctx),
-                    child: Icon(Icons.close_rounded, color: isDark ? Colors.white70 : Colors.grey.shade600, size: 28),
+                    child: Icon(Icons.close_rounded, color: isDark ? Colors.white70 : Ar.grey.shade600, size: 28),
                   ),
                 ]),
                 const SizedBox(height: 16),
@@ -213,10 +213,10 @@ class JphUi {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: on ? c.withOpacity(isDark ? 0.3 : 0.15) : (isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50),
+            color: on ? c.withOpacity(isDark ? 0.3 : 0.15) : (isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-                color: on ? c.withOpacity(0.5) : (isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300), width: on ? 1.5 : 1),
+                color: on ? c.withOpacity(0.5) : (isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300), width: on ? 1.5 : 1),
           ),
           child: Row(children: [
             iconTile(isDark, icon, c),
@@ -358,7 +358,7 @@ class JphUi {
           ),
           const SizedBox(height: 8),
           Text(label, textAlign: TextAlign.center, maxLines: 2,
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Colors.grey.shade700)),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : Ar.grey.shade700)),
           const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -376,21 +376,21 @@ class JphUi {
 
   static void toast(BuildContext context, Map<String, dynamic> r) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
   }
 }
 
 /// Request / commission status in Arabic with a colour.
 (String, Color) commissionStatus(String? s) => switch (s) {
-      'approved' => ('معتمدة', Colors.green),
-      'rejected' => ('مرفوضة', Colors.red),
-      'voided' => ('ملغاة', Colors.grey),
-      _ => ('مستنية الاعتماد', Colors.orange),
+      'approved' => ('معتمدة', Ar.green),
+      'rejected' => ('مرفوضة', Ar.red),
+      'voided' => ('ملغاة', Ar.grey),
+      _ => ('مستنية الاعتماد', Ar.amber),
     };
 
 (String, Color) paymentStatus(String? s) => switch (s) {
-      'paid' => ('اتصرفت', Colors.green),
-      'handed' => ('اتسلمت للموظف — مستني التأكيد', Colors.teal),
-      'cancelled' => ('ملغاة', Colors.grey),
-      _ => ('لسه ماتصرفتش', Colors.orange),
+      'paid' => ('اتصرفت', Ar.green),
+      'handed' => ('اتسلمت للموظف — مستني التأكيد', Ar.green),
+      'cancelled' => ('ملغاة', Ar.grey),
+      _ => ('لسه ماتصرفتش', Ar.amber),
     };

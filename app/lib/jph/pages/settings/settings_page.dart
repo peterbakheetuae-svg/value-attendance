@@ -45,6 +45,7 @@ import '../../widgets/company_selector_sheet.dart';
 import '../../widgets/glass_dialog.dart';
 import '../custody/custody_assets_page.dart';
 import '../../forms/client_intro_page.dart';
+import '../../widgets/glass_ui.dart';
 
 class SettingsPage extends StatefulWidget {
   final String uid;
@@ -143,7 +144,7 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 8),
             Text(
               error,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: const TextStyle(fontSize: 12, color: Ar.grey),
             ),
           ],
         ),
@@ -180,7 +181,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 BoxShadow(
                   color: isDark
                       ? Colors.black.withOpacity(0.3)
-                      : Colors.grey.withOpacity(0.2),
+                      : Ar.grey.withOpacity(0.2),
                   blurRadius: 20,
                   spreadRadius: 2,
                 ),
@@ -195,7 +196,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Icon(
                       Icons.logout,
-                      color: isDark ? Colors.orangeAccent : Colors.orange,
+                      color: isDark ? Ar.amber : Ar.amber,
                       size: 60,
                     ),
                     const SizedBox(height: 20),
@@ -217,7 +218,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 16,
-                        color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                        color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                       ),
                     ),
 
@@ -233,7 +234,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 side: BorderSide(
-                                  color: isDark ? Colors.grey.shade600 : Colors.grey.shade300,
+                                  color: isDark ? Ar.grey.shade600 : Ar.grey.shade300,
                                 ),
                               ),
                             ),
@@ -241,7 +242,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               AppLocalizations.of(context, 'cancel') ?? 'إلغاء',
                               style: TextStyle(
                                 fontSize: 16,
-                                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                                color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                               ),
                             ),
                           ),
@@ -265,7 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               ApiService.signOut().timeout(const Duration(seconds: 12)).catchError((_) {});
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
+                              backgroundColor: Ar.red,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
@@ -540,7 +541,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Colors.grey.withOpacity(0.2),
+                              color: Ar.grey.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(
@@ -549,7 +550,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   : Icons.wb_sunny,
                               color: appController.isDark
                                   ? Colors.white
-                                  : Colors.orange[700],
+                                  : Ar.amber[700],
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -574,7 +575,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                       : AppLocalizations.of(context, 'light_mode_active') ?? 'الوضع الفاتح مفعل',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey[600],
+                                    color: Ar.grey[600],
                                   ),
                                 ),
                               ],
@@ -637,7 +638,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.2),
+                            color: Ar.grey.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Icon(
@@ -661,7 +662,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             : Icon(
                           Icons.arrow_forward_ios,
                           size: 16,
-                          color: Colors.grey[600],
+                          color: Ar.grey[600],
                         ),
                         onTap: _isCheckingUpdate ? null : _checkForUpdates,
                         shape: RoundedRectangleBorder(
@@ -675,7 +676,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     PrimaryButton(
                       label: AppLocalizations.of(context, 'logout') ?? 'تسجيل خروج',
-                      color: Colors.redAccent,
+                      color: Ar.red,
                       onTap: _logout,
                     ),
 
@@ -687,7 +688,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         color: Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: Colors.grey.withOpacity(0.2),
+                          color: Ar.grey.withOpacity(0.2),
                         ),
                       ),
                       child: Column(
@@ -706,7 +707,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               '${AppLocalizations.of(context, 'version') ?? 'الإصدار'}: ${_packageInfo!.version}',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey[600],
+                                color: Ar.grey[600],
                               ),
                             ),
                           ] else ...[
@@ -726,7 +727,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             'Value Attendance © ${DateTime.now().year}',
                             style: TextStyle(
                               fontSize: 10,
-                              color: Colors.grey[500],
+                              color: Ar.grey[500],
                             ),
                           ),
                         ],
@@ -786,7 +787,7 @@ class _SettingsPageState extends State<SettingsPage> {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.withOpacity(0.2)),
+            border: Border.all(color: Ar.grey.withOpacity(0.2)),
           ),
           child: Row(children: [
             Icon(icon, size: 22, color: appController.isDark ? Colors.white : Theme.of(context).primaryColor),
@@ -883,7 +884,7 @@ class _SettingsPageState extends State<SettingsPage> {
             border: Border.all(
               color: isCurrent
                   ? Theme.of(context).primaryColor
-                  : Colors.grey.withOpacity(0.2),
+                  : Ar.grey.withOpacity(0.2),
               width: isCurrent ? 1.5 : 1,
             ),
           ),
@@ -912,7 +913,7 @@ class _SettingsPageState extends State<SettingsPage> {
               if (isCurrent)
                 Icon(
                   Icons.check_circle,
-                  color: Color(0xFF4CAF50), // كود اللون الأخضر HEX
+                  color: Color(0xFF4FCF73), // كود اللون الأخضر HEX
                   size: 20,
                 ),
             ],

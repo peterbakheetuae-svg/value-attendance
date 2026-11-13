@@ -12,6 +12,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_bottom_nav.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class EmployeesPage extends StatefulWidget {
   final String currentUserId;
@@ -74,7 +75,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(response["message"] ?? "فشل في تحميل بيانات الموظفين"),
-              backgroundColor: Colors.red,
+              backgroundColor: Ar.red,
             ),
           );
         }
@@ -87,7 +88,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("خطأ في الاتصال: $e"),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -148,15 +149,15 @@ class _EmployeesPageState extends State<EmployeesPage> {
   Color _getStatusColor(String? status, bool isDark) {
     switch(status) {
       case 'على رأس العمل':
-        return isDark ? Colors.green[300]! : Colors.green;
+        return isDark ? Ar.green[300]! : Ar.green;
       case 'تم التصفيه':
-        return isDark ? Colors.blue[300]! : Colors.blue;
+        return isDark ? Ar.info[300]! : Ar.info;
       case 'مغادر':
-        return isDark ? Colors.red[300]! : Colors.red;
+        return isDark ? Ar.red[300]! : Ar.red;
       case 'إجازة':
-        return isDark ? Colors.orange[300]! : Colors.orange;
+        return isDark ? Ar.amber[300]! : Ar.amber;
       default:
-        return isDark ? Colors.grey[300]! : Colors.grey;
+        return isDark ? Ar.grey[300]! : Ar.grey;
     }
   }
 
@@ -172,7 +173,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
       context: context,
       builder: (context) {
         return GlassAlertDialog(
-          backgroundColor: isDark ? Colors.grey[900] : Colors.white,
+          backgroundColor: isDark ? Ar.grey[900] : Colors.white,
           title: Text(
             'تغيير وضع الموظف',
             style: TextStyle(
@@ -224,7 +225,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('تم تغيير وضع $employeeName إلى "$status"'),
-            backgroundColor: Colors.green,
+            backgroundColor: Ar.green,
           ),
         );
         await _loadEmployees();
@@ -232,7 +233,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(response["message"] ?? 'فشل في تغيير الوضع'),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -241,7 +242,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('خطأ في تغيير الوضع: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -356,7 +357,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           JphUi.picker(
                             isDark: isDark,
                             icon: Icons.filter_list_rounded,
-                            iconColor: Colors.teal,
+                            iconColor: Ar.green,
                             label: 'فلتر',
                             value: _selectedFilter,
                             onTap: () async {
@@ -385,7 +386,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                                 'إجمالي الموظفين',
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: isDark ? Colors.white70 : Colors.grey[700],
+                                  color: isDark ? Colors.white70 : Ar.grey[700],
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -408,14 +409,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
                                 'نشط: ${_employees.where((e) => e['active'] == true).length}',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: isDark ? Colors.green[300] : Colors.green,
+                                  color: isDark ? Ar.green[300] : Ar.green,
                                 ),
                               ),
                               Text(
                                 'غير نشط: ${_employees.where((e) => e['active'] == false).length}',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: isDark ? Colors.red[300] : Colors.red,
+                                  color: isDark ? Ar.red[300] : Ar.red,
                                 ),
                               ),
                             ],
@@ -442,7 +443,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             Icon(
                               Icons.group_off,
                               size: 64,
-                              color: isDark ? Colors.white30 : Colors.grey[400],
+                              color: isDark ? Colors.white30 : Ar.grey[400],
                             ),
                             const SizedBox(height: 16),
                             Text(
@@ -451,7 +452,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                                   : AppLocalizations.of(context, 'no_results') ?? 'لا توجد نتائج',
                               style: TextStyle(
                                 fontSize: 16,
-                                color: isDark ? Colors.white70 : Colors.grey[600],
+                                color: isDark ? Colors.white70 : Ar.grey[600],
                               ),
                             ),
                             if (_searchQuery.isNotEmpty || _selectedFilter != 'الكل')
@@ -580,8 +581,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: active
-                                ? (isDark ? Colors.green.withOpacity(0.2) : Colors.green.withOpacity(0.1))
-                                : (isDark ? Colors.red.withOpacity(0.2) : Colors.red.withOpacity(0.1)),
+                                ? (isDark ? Ar.green.withOpacity(0.2) : Ar.green.withOpacity(0.1))
+                                : (isDark ? Ar.red.withOpacity(0.2) : Ar.red.withOpacity(0.1)),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -589,8 +590,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             style: TextStyle(
                               fontSize: 12,
                               color: active
-                                  ? (isDark ? Colors.green[300] : Colors.green[800])
-                                  : (isDark ? Colors.red[300] : Colors.red[800]),
+                                  ? (isDark ? Ar.green[300] : Ar.green[800])
+                                  : (isDark ? Ar.red[300] : Ar.red[800]),
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -605,14 +606,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         Icon(
                           Icons.work,
                           size: 14,
-                          color: isDark ? Colors.white70 : Colors.grey[600],
+                          color: isDark ? Colors.white70 : Ar.grey[600],
                         ),
                         const SizedBox(width: 4),
                         Text(
                           role,
                           style: TextStyle(
                             fontSize: 14,
-                            color: isDark ? Colors.white70 : Colors.grey[700],
+                            color: isDark ? Colors.white70 : Ar.grey[700],
                           ),
                         ),
                       ],
@@ -658,7 +659,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           _buildInfoChip(
                             icon: Icons.phone,
                             text: phone,
-                            color: isDark ? Colors.blue[300]! : Colors.blue,
+                            color: isDark ? Ar.info[300]! : Ar.info,
                             isDark: isDark,
                           ),
 
@@ -666,7 +667,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           _buildInfoChip(
                             icon: Icons.email,
                             text: email.length > 20 ? '${email.substring(0, 20)}...' : email,
-                            color: isDark ? Colors.green[300]! : Colors.green,
+                            color: isDark ? Ar.green[300]! : Ar.green,
                             isDark: isDark,
                           ),
 
@@ -674,7 +675,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           _buildInfoChip(
                             icon: Icons.star,
                             text: 'مستوى $level',
-                            color: isDark ? Colors.purple[300]! : Colors.purple,
+                            color: isDark ? Ar.accent[300]! : Ar.accent,
                             isDark: isDark,
                           ),
                       ],
@@ -687,14 +688,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
                         Icon(
                           Icons.badge,
                           size: 12,
-                          color: isDark ? Colors.white60 : Colors.grey[600],
+                          color: isDark ? Colors.white60 : Ar.grey[600],
                         ),
                         const SizedBox(width: 4),
                         Text(
                           'ID: $uid',
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? Colors.white60 : Colors.grey[600],
+                            color: isDark ? Colors.white60 : Ar.grey[600],
                           ),
                         ),
                       ],
@@ -762,11 +763,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
           height: 60,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey[200],
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey[200],
             border: Border.all(
               color: active
-                  ? (isDark ? Colors.green.withOpacity(0.3) : Colors.green.withOpacity(0.3))
-                  : (isDark ? Colors.red.withOpacity(0.3) : Colors.red.withOpacity(0.3)),
+                  ? (isDark ? Ar.green.withOpacity(0.3) : Ar.green.withOpacity(0.3))
+                  : (isDark ? Ar.red.withOpacity(0.3) : Ar.red.withOpacity(0.3)),
               width: 2,
             ),
           ),
@@ -794,7 +795,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white70 : Colors.grey[700],
+                      color: isDark ? Colors.white70 : Ar.grey[700],
                     ),
                   ),
                 );
@@ -806,7 +807,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white70 : Colors.grey[700],
+                  color: isDark ? Colors.white70 : Ar.grey[700],
                 ),
               ),
             ),
@@ -821,7 +822,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
             width: 14,
             height: 14,
             decoration: BoxDecoration(
-              color: active ? Colors.green : Colors.red,
+              color: active ? Ar.green : Ar.red,
               shape: BoxShape.circle,
               border: Border.all(
                 color: isDark ? Colors.black : Colors.white,

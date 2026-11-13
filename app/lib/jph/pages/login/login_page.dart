@@ -16,6 +16,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/primary_button.dart';
 import 'forgot_password_page.dart';
+import '../../widgets/glass_ui.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -196,7 +197,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Ar.red,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -450,7 +451,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
           border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1), width: 1.5),
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.1), blurRadius: 10, spreadRadius: 2)],
         ),
-        child: Icon(isDark ? Icons.light_mode : Icons.dark_mode, size: 24, color: isDark ? Colors.white : Colors.orange[700]),
+        child: Icon(isDark ? Icons.light_mode : Icons.dark_mode, size: 24, color: isDark ? Colors.white : Ar.amber[700]),
       ),
     );
   }
@@ -478,7 +479,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         Text(
           AppLocalizations.of(context, 'employers_only') ?? 'الدخول مخصص للمستخدمين المسجلين',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.orange[700]),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Ar.amber[700]),
         ),
       ],
     );
@@ -509,7 +510,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                   ),
                   style: TextStyle(color: textColor),
                 ),
-                if (_uidError != null) Padding(padding: const EdgeInsets.only(top: 4, left: 12), child: Text(_uidError!, style: const TextStyle(color: Colors.red, fontSize: 12))),
+                if (_uidError != null) Padding(padding: const EdgeInsets.only(top: 4, left: 12), child: Text(_uidError!, style: const TextStyle(color: Ar.red, fontSize: 12))),
               ],
             ),
           ),
@@ -538,7 +539,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                   ),
                   style: TextStyle(color: textColor),
                 ),
-                if (_passError != null) Padding(padding: const EdgeInsets.only(top: 4, left: 12), child: Text(_passError!, style: const TextStyle(color: Colors.red, fontSize: 12))),
+                if (_passError != null) Padding(padding: const EdgeInsets.only(top: 4, left: 12), child: Text(_passError!, style: const TextStyle(color: Ar.red, fontSize: 12))),
               ],
             ),
           ),

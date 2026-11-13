@@ -13,6 +13,7 @@ import '../theme/app_colors.dart';
 import '../l10n/app_localizations.dart';
 import 'leave_summary.dart';
 import '../widgets/glass_dialog.dart';
+import '../widgets/glass_ui.dart';
 
 class LeaveRequestPage extends StatefulWidget {
   final String uid;
@@ -61,10 +62,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
   };
 
   final Map<String, Color> _leaveTypeColors = {
-    'إجازة بدون راتب': Colors.grey,
-    'إجازة مرضية': Colors.red,
-    'إجازة عادية': Colors.green,
-    'إجازة طارئة': Colors.orange,
+    'إجازة بدون راتب': Ar.grey,
+    'إجازة مرضية': Ar.red,
+    'إجازة عادية': Ar.green,
+    'إجازة طارئة': Ar.amber,
   };
 
   @override
@@ -242,10 +243,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                           decoration: BoxDecoration(
-                                            color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade50,
+                                            color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
                                             borderRadius: BorderRadius.circular(20),
                                             border: Border.all(
-                                              color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
+                                              color: isDark ? Ar.info.shade700 : Ar.info.shade200,
                                               width: 1.5,
                                             ),
                                             boxShadow: [
@@ -263,11 +264,11 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                 height: 44,
                                                 decoration: BoxDecoration(
                                                   borderRadius: BorderRadius.circular(12),
-                                                  color: isDark ? Colors.blue.shade800 : Colors.blue.shade100,
+                                                  color: isDark ? Ar.info.shade800 : Ar.info.shade100,
                                                 ),
                                                 child: Icon(
                                                   Icons.summarize_rounded,
-                                                  color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                  color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                   size: 24,
                                                 ),
                                               ),
@@ -281,7 +282,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                       style: TextStyle(
                                                         fontSize: 16,
                                                         fontWeight: FontWeight.w800,
-                                                        color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                        color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                       ),
                                                     ),
                                                     const SizedBox(height: 4),
@@ -289,7 +290,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                       'عرض جميع طلبات الإجازة والإحصائيات',
                                                       style: TextStyle(
                                                         fontSize: 12,
-                                                        color: isDark ? Colors.blue.shade200 : Colors.blue.shade600,
+                                                        color: isDark ? Ar.info.shade200 : Ar.info.shade600,
                                                       ),
                                                     ),
                                                   ],
@@ -298,7 +299,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               const SizedBox(width: 10),
                                               Icon(
                                                 isRTL ? Icons.arrow_back_ios_rounded : Icons.arrow_forward_ios_rounded,
-                                                color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                 size: 18,
                                               ),
                                             ],
@@ -338,10 +339,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                           margin: const EdgeInsets.only(bottom: 16),
                                           padding: const EdgeInsets.all(16),
                                           decoration: BoxDecoration(
-                                            color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50,
+                                            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50,
                                             borderRadius: BorderRadius.circular(20),
                                             border: Border.all(
-                                              color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+                                              color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
                                             ),
                                           ),
                                           child: Column(
@@ -377,7 +378,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               if (_fromDate != null && _toDate != null) ...[
                                                 const SizedBox(height: 12),
                                                 Divider(
-                                                  color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade400,
+                                                  color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade400,
                                                   height: 1,
                                                 ),
                                                 const SizedBox(height: 12),
@@ -420,10 +421,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade100,
+                                          color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
+                                            color: isDark ? Ar.info.shade700 : Ar.info.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -433,11 +434,11 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.blue.shade800 : Colors.blue.shade50,
+                                                color: isDark ? Ar.info.shade800 : Ar.info.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.info_rounded,
-                                                color: isDark ? Colors.blue.shade300 : Colors.blue,
+                                                color: isDark ? Ar.info.shade300 : Ar.info,
                                                 size: 22,
                                               ),
                                             ),
@@ -451,7 +452,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                                      color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -460,7 +461,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
+                                                      color: isDark ? Ar.info.shade200 : Ar.info.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -533,10 +534,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 16),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.amber.shade900.withOpacity(0.3) : Colors.amber.shade100,
+                                          color: isDark ? Ar.amber.shade900.withOpacity(0.3) : Ar.amber.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.amber.shade700 : Colors.amber.shade200,
+                                            color: isDark ? Ar.amber.shade700 : Ar.amber.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -546,11 +547,11 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.amber.shade800 : Colors.amber.shade50,
+                                                color: isDark ? Ar.amber.shade800 : Ar.amber.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.lightbulb_rounded,
-                                                color: isDark ? Colors.amber.shade300 : Colors.amber,
+                                                color: isDark ? Ar.amber.shade300 : Ar.amber,
                                                 size: 22,
                                               ),
                                             ),
@@ -564,7 +565,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.amber.shade300 : Colors.amber.shade800,
+                                                      color: isDark ? Ar.amber.shade300 : Ar.amber.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -573,7 +574,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.amber.shade200 : Colors.amber.shade700,
+                                                      color: isDark ? Ar.amber.shade200 : Ar.amber.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -619,7 +620,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                   height: 44,
                                                   decoration: BoxDecoration(
                                                     borderRadius: BorderRadius.circular(12),
-                                                    color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                                                    color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
                                                   ),
                                                   child: Icon(
                                                     Icons.add_photo_alternate_rounded,
@@ -719,7 +720,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               IconButton(
                                                 icon: Icon(
                                                   Icons.delete_rounded,
-                                                  color: isDark ? const Color(0xFFEF5350) : const Color(0xFFD04545),
+                                                  color: isDark ? const Color(0xFFFF7D6E) : const Color(0xFFE5604F),
                                                   size: 24,
                                                 ),
                                                 onPressed: () {
@@ -751,10 +752,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                         margin: const EdgeInsets.only(bottom: 24),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade100,
+                                          color: isDark ? Ar.green.shade900.withOpacity(0.3) : Ar.green.shade100,
                                           borderRadius: BorderRadius.circular(20),
                                           border: Border.all(
-                                            color: isDark ? Colors.green.shade700 : Colors.green.shade200,
+                                            color: isDark ? Ar.green.shade700 : Ar.green.shade200,
                                           ),
                                         ),
                                         child: Row(
@@ -764,11 +765,11 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 borderRadius: BorderRadius.circular(12),
-                                                color: isDark ? Colors.green.shade800 : Colors.green.shade50,
+                                                color: isDark ? Ar.green.shade800 : Ar.green.shade50,
                                               ),
                                               child: Icon(
                                                 Icons.admin_panel_settings_rounded,
-                                                color: isDark ? Colors.green.shade300 : Colors.green,
+                                                color: isDark ? Ar.green.shade300 : Ar.green,
                                                 size: 22,
                                               ),
                                             ),
@@ -782,7 +783,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 16,
                                                       fontWeight: FontWeight.w800,
-                                                      color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                                                      color: isDark ? Ar.green.shade300 : Ar.green.shade800,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 4),
@@ -791,7 +792,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: isDark ? Colors.green.shade200 : Colors.green.shade700,
+                                                      color: isDark ? Ar.green.shade200 : Ar.green.shade700,
                                                     ),
                                                   ),
                                                 ],
@@ -945,11 +946,11 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
             fontWeight: FontWeight.w600,
             color: textColor,
           ),
-          dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          dropdownColor: isDark ? const Color(0xFF262624) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           icon: Icon(
             Icons.arrow_drop_down_rounded,
-            color: isDark ? Colors.blue.shade300 : Colors.blue,
+            color: isDark ? Ar.info.shade300 : Ar.info,
             size: 28,
           ),
           hint: _isLoadingEmployees
@@ -992,7 +993,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
             width: 1,
           ),
         ),
@@ -1063,7 +1064,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
             ),
           ],
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
             width: 1,
           ),
         ),
@@ -1074,7 +1075,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
               height: 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
               ),
               child: Icon(
                 Icons.calendar_month_rounded,
@@ -1137,7 +1138,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
           height: 36,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade100,
+            color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade100,
           ),
           child: Icon(
             icon,
@@ -1184,7 +1185,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
               borderRadius: BorderRadius.circular(26),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                color: isDark ? const Color(0xFF262624) : Colors.white,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1210,7 +1211,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                           onTap: () => Navigator.pop(sheetContext),
                           child: Icon(
                             Icons.close_rounded,
-                            color: isDark ? Colors.white70 : Colors.grey.shade600,
+                            color: isDark ? Colors.white70 : Ar.grey.shade600,
                             size: 28,
                           ),
                         ),
@@ -1220,7 +1221,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
 
                     ..._leaveTypes.map((type) {
                       final icon = _leaveTypeIcons[type] ?? Icons.work_off_rounded;
-                      final iconColor = _leaveTypeColors[type] ?? Colors.grey;
+                      final iconColor = _leaveTypeColors[type] ?? Ar.grey;
                       final isSelected = type == _leaveType;
 
                       return GestureDetector(
@@ -1236,12 +1237,12 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                           decoration: BoxDecoration(
                             color: isSelected
                                 ? (isDark ? iconColor.withOpacity(0.3) : iconColor.withOpacity(0.15))
-                                : (isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50),
+                                : (isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isSelected
                                   ? iconColor.withOpacity(0.5)
-                                  : (isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300),
+                                  : (isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300),
                               width: isSelected ? 1.5 : 1,
                             ),
                           ),
@@ -1322,7 +1323,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                   borderRadius: BorderRadius.circular(26),
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                    color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                    color: isDark ? const Color(0xFF262624) : Colors.white,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1348,7 +1349,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                               onTap: () => Navigator.pop(sheetContext),
                               child: Icon(
                                 Icons.close_rounded,
-                                color: isDark ? Colors.white70 : Colors.grey.shade600,
+                                color: isDark ? Colors.white70 : Ar.grey.shade600,
                                 size: 28,
                               ),
                             ),
@@ -1430,17 +1431,17 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: isDark ? Colors.blue.shade900.withOpacity(0.3) : Colors.blue.shade50,
+                            color: isDark ? Ar.info.shade900.withOpacity(0.3) : Ar.info.shade50,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
+                              color: isDark ? Ar.info.shade700 : Ar.info.shade200,
                             ),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.info_rounded,
-                                color: isDark ? Colors.blue.shade300 : Colors.blue,
+                                color: isDark ? Ar.info.shade300 : Ar.info,
                                 size: 22,
                               ),
                               const SizedBox(width: 12),
@@ -1453,7 +1454,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w800,
-                                        color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                                        color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                                       ),
                                     ),
                                     Text(
@@ -1461,7 +1462,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w900,
-                                        color: isDark ? Colors.white : Colors.blue.shade900,
+                                        color: isDark ? Colors.white : Ar.info.shade900,
                                       ),
                                     ),
                                   ],
@@ -1478,7 +1479,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                               child: ElevatedButton(
                                 onPressed: () => Navigator.pop(sheetContext),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+                                  backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
                                   foregroundColor: isDark ? Colors.white : Colors.black87,
                                   minimumSize: const Size(double.infinity, 50),
                                   shape: RoundedRectangleBorder(
@@ -1549,10 +1550,10 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade50,
+          color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade50,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
           ),
         ),
         child: Row(
@@ -1562,7 +1563,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
               height: 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                color: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
               ),
               child: Icon(
                 Icons.calendar_today_rounded,
@@ -1580,7 +1581,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                      color: isDark ? Colors.white70 : Ar.grey.shade700,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1739,7 +1740,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: const Color(0xFFD04545),
+        backgroundColor: const Color(0xFFE5604F),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -1763,7 +1764,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF2E9B67),
+        backgroundColor: const Color(0xFF2FA65A),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),

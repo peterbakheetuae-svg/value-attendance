@@ -8,6 +8,7 @@ import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
@@ -159,7 +160,7 @@ Value Attendance Support:
                           AppLocalizations.of(context, 'support_description') ?? 'نحن هنا لمساعدتك على مدار الساعة. إذا كان لديك أي أسئلة أو مخاوف أو تحتاج إلى مساعدة بخصوص منتجاتنا أو خدماتنا، فلا تتردد في التواصل مع فريق الدعم لدينا.',
                           style: TextStyle(
                             fontSize: 14,
-                            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                            color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                           ),
                         ),
 
@@ -199,26 +200,26 @@ Value Attendance Support:
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-            Colors.blue.shade900.withOpacity(0.8),
-            Colors.purple.shade900.withOpacity(0.8),
+            Ar.info.shade900.withOpacity(0.8),
+            Ar.accent.shade900.withOpacity(0.8),
           ]
               : [
-            Colors.blue.shade50,
-            Colors.purple.shade50,
+            Ar.info.shade50,
+            Ar.accent.shade50,
           ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isDark
-              ? Colors.blue.shade800.withOpacity(0.3)
-              : Colors.blue.shade200,
+              ? Ar.info.shade800.withOpacity(0.3)
+              : Ar.info.shade200,
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
             color: isDark
-                ? Colors.blue.shade900.withOpacity(0.3)
-                : Colors.blue.shade100.withOpacity(0.5),
+                ? Ar.info.shade900.withOpacity(0.3)
+                : Ar.info.shade100.withOpacity(0.5),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -230,7 +231,7 @@ Value Attendance Support:
           Icon(
             Icons.support_agent,
             size: 60,
-            color: Colors.blueAccent,
+            color: Ar.info,
           ),
           const SizedBox(height: 16),
 
@@ -251,7 +252,7 @@ Value Attendance Support:
             AppLocalizations.of(context, 'support_description') ?? 'نحن هنا لمساعدتك على مدار الساعة',
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+              color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
             ),
             textAlign: TextAlign.center,
           ),
@@ -261,9 +262,9 @@ Value Attendance Support:
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.greenAccent.withOpacity(0.2),
+              color: Ar.green.withOpacity(0.2),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.greenAccent),
+              border: Border.all(color: Ar.green),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -271,13 +272,13 @@ Value Attendance Support:
                 Icon(
                   Icons.access_time,
                   size: 16,
-                  color: Colors.greenAccent,
+                  color: Ar.green,
                 ),
                 const SizedBox(width: 8),
                 Text(
                   '24/7 ${AppLocalizations.of(context, 'available_24_7') ?? 'متاح'}',
                   style: const TextStyle(
-                    color: Colors.greenAccent,
+                    color: Ar.green,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -300,7 +301,7 @@ Value Attendance Support:
           icon: Icons.email,
           title: AppLocalizations.of(context, 'email') ?? 'البريد الإلكتروني',
           subtitle: supportEmail,
-          color: Colors.blue,
+          color: Ar.info,
           onTap: _sendEmail,
           onCopy: () => _copyToClipboard(context, supportEmail, 'Email'),
         ),
@@ -314,7 +315,7 @@ Value Attendance Support:
           icon: Icons.language,
           title: AppLocalizations.of(context, 'website') ?? 'الموقع الإلكتروني',
           subtitle: 'VALUE ATTENDANCE',
-          color: Colors.green,
+          color: Ar.green,
           onTap: () => _launchUrl(websiteUrl),
           onCopy: () => _copyToClipboard(context, websiteUrl, 'Website'),
         ),
@@ -328,7 +329,7 @@ Value Attendance Support:
           icon: Icons.phone,
           title: AppLocalizations.of(context, 'phone_support') ?? 'دعم الهاتف',
           subtitle: supportPhone,
-          color: Colors.orange,
+          color: Ar.amber,
           onTap: _makePhoneCall,
           onCopy: () => _copyToClipboard(context, supportPhone, 'Phone'),
         ),
@@ -342,7 +343,7 @@ Value Attendance Support:
           icon: Icons.chat,
           title: AppLocalizations.of(context, 'whatsapp') ?? 'واتساب',
           subtitle: whatsappNumber,
-          color: Colors.green,
+          color: Ar.green,
           onTap: _openWhatsApp,
           onCopy: () => _copyToClipboard(context, whatsappNumber, 'WhatsApp'),
         ),
@@ -364,7 +365,7 @@ Value Attendance Support:
     return Material(
       borderRadius: BorderRadius.circular(16),
       color: isDark
-          ? Colors.grey.shade900.withOpacity(0.5)
+          ? Ar.grey.shade900.withOpacity(0.5)
           : Colors.white.withOpacity(0.9),
       elevation: 2,
       child: InkWell(
@@ -410,7 +411,7 @@ Value Attendance Support:
                       subtitle,
                       style: TextStyle(
                         fontSize: 14,
-                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                       ),
                     ),
                   ],
@@ -440,22 +441,22 @@ Value Attendance Support:
       {
         'title': AppLocalizations.of(context, 'frequently_asked_questions') ?? 'الأسئلة الشائعة',
         'icon': Icons.question_answer,
-        'color': Colors.blue,
+        'color': Ar.info,
       },
       {
         'title': AppLocalizations.of(context, 'user_guide') ?? 'دليل المستخدم',
         'icon': Icons.book,
-        'color': Colors.green,
+        'color': Ar.green,
       },
       {
         'title': AppLocalizations.of(context, 'troubleshooting') ?? 'استكشاف الأخطاء',
         'icon': Icons.build,
-        'color': Colors.orange,
+        'color': Ar.amber,
       },
       {
         'title': AppLocalizations.of(context, 'report_issue') ?? 'الإبلاغ عن مشكلة',
         'icon': Icons.bug_report,
-        'color': Colors.red,
+        'color': Ar.red,
       },
     ];
 
@@ -487,7 +488,7 @@ Value Attendance Support:
             return Material(
               borderRadius: BorderRadius.circular(16),
               color: isDark
-                  ? Colors.grey.shade900.withOpacity(0.5)
+                  ? Ar.grey.shade900.withOpacity(0.5)
                   : Colors.white.withOpacity(0.9),
               elevation: 2,
               child: InkWell(
@@ -535,13 +536,13 @@ Value Attendance Support:
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.grey.shade900.withOpacity(0.5)
+            ? Ar.grey.shade900.withOpacity(0.5)
             : Colors.white.withOpacity(0.9),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isDark
-              ? Colors.grey.shade800
-              : Colors.grey.shade200,
+              ? Ar.grey.shade800
+              : Ar.grey.shade200,
         ),
       ),
       child: Column(
@@ -562,7 +563,7 @@ Value Attendance Support:
             icon: Icons.access_time,
             title: AppLocalizations.of(context, 'response_time') ?? 'وقت الاستجابة',
             value: AppLocalizations.of(context, 'within_24_hours') ?? 'خلال 24 ساعة',
-            color: Colors.green,
+            color: Ar.green,
             isDark: isDark,
           ),
 
@@ -573,7 +574,7 @@ Value Attendance Support:
             icon: Icons.computer,
             title: AppLocalizations.of(context, 'technical_support') ?? 'الدعم الفني',
             value: 'Available',
-            color: Colors.blue,
+            color: Ar.info,
             isDark: isDark,
           ),
 
@@ -584,7 +585,7 @@ Value Attendance Support:
             icon: Icons.person,
             title: AppLocalizations.of(context, 'account_support') ?? 'دعم الحساب',
             value: 'Available',
-            color: Colors.purple,
+            color: Ar.accent,
             isDark: isDark,
           ),
 
@@ -595,7 +596,7 @@ Value Attendance Support:
             icon: Icons.receipt,
             title: AppLocalizations.of(context, 'billing_support') ?? 'دعم الفواتير',
             value: 'Available',
-            color: Colors.orange,
+            color: Ar.amber,
             isDark: isDark,
           ),
 
@@ -606,20 +607,20 @@ Value Attendance Support:
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: isDark
-                  ? Colors.blue.shade900.withOpacity(0.2)
-                  : Colors.blue.shade50,
+                  ? Ar.info.shade900.withOpacity(0.2)
+                  : Ar.info.shade50,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: isDark
-                    ? Colors.blue.shade800
-                    : Colors.blue.shade200,
+                    ? Ar.info.shade800
+                    : Ar.info.shade200,
               ),
             ),
             child: Row(
               children: [
                 Icon(
                   Icons.schedule,
-                  color: Colors.blueAccent,
+                  color: Ar.info,
                   size: 20,
                 ),
                 const SizedBox(width: 12),
@@ -640,7 +641,7 @@ Value Attendance Support:
                         AppLocalizations.of(context, 'available_24_7') ?? 'متاح 24/7',
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                          color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
                         ),
                       ),
                     ],
@@ -674,7 +675,7 @@ Value Attendance Support:
             title,
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
             ),
           ),
         ),

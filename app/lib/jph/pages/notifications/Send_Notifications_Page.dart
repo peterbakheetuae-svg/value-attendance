@@ -8,6 +8,7 @@ import '../../services/employees_api.dart';
 import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'View_Notifications_Page.dart';
+import '../../widgets/glass_ui.dart';
 
 class SendNotificationsPage extends StatefulWidget {
   final String uid;
@@ -184,7 +185,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Ar.red,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -203,7 +204,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
             Expanded(child: Text(message)),
           ],
         ),
-        backgroundColor: Colors.green,
+        backgroundColor: Ar.green,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -334,13 +335,13 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: isDark
-                                      ? Colors.blue.shade900.withOpacity(0.3)
-                                      : Colors.blue.shade50,
+                                      ? Ar.info.shade900.withOpacity(0.3)
+                                      : Ar.info.shade50,
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
                                     color: isDark
-                                        ? Colors.blue.shade700
-                                        : Colors.blue.shade200,
+                                        ? Ar.info.shade700
+                                        : Ar.info.shade200,
                                     width: 1.5,
                                   ),
                                 ),
@@ -352,14 +353,14 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(12),
                                         color: isDark
-                                            ? Colors.blue.shade800
-                                            : Colors.blue.shade100,
+                                            ? Ar.info.shade800
+                                            : Ar.info.shade100,
                                       ),
                                       child: Icon(
                                         Icons.info_rounded,
                                         color: isDark
-                                            ? Colors.blue.shade300
-                                            : Colors.blue.shade800,
+                                            ? Ar.info.shade300
+                                            : Ar.info.shade800,
                                         size: 22,
                                       ),
                                     ),
@@ -374,8 +375,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                               fontSize: 16,
                                               fontWeight: FontWeight.w800,
                                               color: isDark
-                                                  ? Colors.blue.shade300
-                                                  : Colors.blue.shade800,
+                                                  ? Ar.info.shade300
+                                                  : Ar.info.shade800,
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -384,8 +385,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                             style: TextStyle(
                                               fontSize: 14,
                                               color: isDark
-                                                  ? Colors.blue.shade200
-                                                  : Colors.blue.shade600,
+                                                  ? Ar.info.shade200
+                                                  : Ar.info.shade600,
                                             ),
                                           ),
                                         ],
@@ -453,7 +454,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                       color: textColor,
                                     ),
                                     dropdownColor: isDark
-                                        ? const Color(0xFF1E1E1E)
+                                        ? const Color(0xFF262624)
                                         : Colors.white,
                                     borderRadius: BorderRadius.circular(16),
                                     icon: Icon(
@@ -607,13 +608,13 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: isDark
-                                      ? Colors.green.shade900.withOpacity(0.3)
-                                      : Colors.green.shade100,
+                                      ? Ar.green.shade900.withOpacity(0.3)
+                                      : Ar.green.shade100,
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
                                     color: isDark
-                                        ? Colors.green.shade700
-                                        : Colors.green.shade200,
+                                        ? Ar.green.shade700
+                                        : Ar.green.shade200,
                                   ),
                                 ),
                                 child: Row(
@@ -624,14 +625,14 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(12),
                                         color: isDark
-                                            ? Colors.green.shade800
-                                            : Colors.green.shade50,
+                                            ? Ar.green.shade800
+                                            : Ar.green.shade50,
                                       ),
                                       child: Icon(
                                         Icons.send_rounded,
                                         color: isDark
-                                            ? Colors.green.shade300
-                                            : Colors.green.shade800,
+                                            ? Ar.green.shade300
+                                            : Ar.green.shade800,
                                         size: 22,
                                       ),
                                     ),
@@ -646,8 +647,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                               fontSize: 16,
                                               fontWeight: FontWeight.w800,
                                               color: isDark
-                                                  ? Colors.green.shade300
-                                                  : Colors.green.shade800,
+                                                  ? Ar.green.shade300
+                                                  : Ar.green.shade800,
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -656,8 +657,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                             style: TextStyle(
                                               fontSize: 14,
                                               color: isDark
-                                                  ? Colors.green.shade200
-                                                  : Colors.green.shade700,
+                                                  ? Ar.green.shade200
+                                                  : Ar.green.shade700,
                                             ),
                                           ),
                                         ],
@@ -758,20 +759,20 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: isDark
-              ? Colors.red.shade900.withOpacity(0.3)
-              : Colors.red.shade50,
+              ? Ar.red.shade900.withOpacity(0.3)
+              : Ar.red.shade50,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isDark
-                ? Colors.red.shade700
-                : Colors.red.shade200,
+                ? Ar.red.shade700
+                : Ar.red.shade200,
           ),
         ),
         child: Row(
           children: [
             Icon(
               Icons.warning_rounded,
-              color: isDark ? Colors.red.shade300 : Colors.red.shade800,
+              color: isDark ? Ar.red.shade300 : Ar.red.shade800,
               size: 24,
             ),
             const SizedBox(width: 12),
@@ -781,7 +782,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.red.shade300 : Colors.red.shade800,
+                  color: isDark ? Ar.red.shade300 : Ar.red.shade800,
                 ),
               ),
             ),
@@ -798,8 +799,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             color: isDark
-                ? Colors.blue.shade900.withOpacity(0.3)
-                : Colors.blue.shade50,
+                ? Ar.info.shade900.withOpacity(0.3)
+                : Ar.info.shade50,
           ),
           child: ListTile(
             onTap: _selectAllEmployees,
@@ -809,8 +810,8 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 color: isDark
-                    ? Colors.blue.shade800
-                    : Colors.blue.shade100,
+                    ? Ar.info.shade800
+                    : Ar.info.shade100,
               ),
               child: Icon(
                 _selectedEmployeeIds.length == filteredEmployees.length
@@ -857,13 +858,13 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                   : primaryColor.withOpacity(0.1))
                   : (isDark
                   ? Colors.white.withOpacity(0.1)
-                  : Colors.grey.shade50),
+                  : Ar.grey.shade50),
               border: Border.all(
                 color: isSelected
                     ? primaryColor.withOpacity(0.5)
                     : (isDark
                     ? Colors.white.withOpacity(0.2)
-                    : Colors.grey.shade300),
+                    : Ar.grey.shade300),
               ),
             ),
             child: ListTile(
@@ -877,7 +878,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                       ? primaryColor.withOpacity(0.2)
                       : (isDark
                       ? Colors.white.withOpacity(0.1)
-                      : Colors.grey.shade100),
+                      : Ar.grey.shade100),
                 ),
                 child: Icon(
                   isSelected

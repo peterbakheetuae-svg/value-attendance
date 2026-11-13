@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'Send_Notifications_Page.dart'; // 🔥 استيراد صفحة إرسال الإشعارات
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String uid;
@@ -145,31 +146,31 @@ class NotificationItem {
   Color get iconColor {
     switch (type) {
       case 'checkin':
-        return Colors.green;
+        return Ar.green;
       case 'checkout':
-        return Colors.blue;
+        return Ar.info;
       case 'break_start':
-        return Colors.orange;
+        return Ar.amber;
       case 'break_end':
-        return Colors.purple;
+        return Ar.accent;
       case 'leave_approved':
-        return Colors.green;
+        return Ar.green;
       case 'leave_rejected':
-        return Colors.red;
+        return Ar.red;
       case 'advance_approved':
-        return Colors.green;
+        return Ar.green;
       case 'advance_rejected':
-        return Colors.red;
+        return Ar.red;
       case 'checkin_reminder':
-        return Colors.amber;
+        return Ar.amber;
       case 'system':
-        return Colors.deepPurple;
+        return Ar.accent;
       case 'daily_reminder':
-        return Colors.cyan;
+        return Ar.info;
       case 'broadcast':
-        return Colors.indigo;
+        return Ar.accent;
       default:
-        return Colors.grey;
+        return Ar.grey;
     }
   }
 
@@ -404,7 +405,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 _showErrorSnackbar('فشل في حذف جميع الإشعارات');
               }
             },
-            child: const Text('حذف الكل', style: TextStyle(color: Colors.red)),
+            child: const Text('حذف الكل', style: TextStyle(color: Ar.red)),
           ),
         ],
       ),
@@ -415,7 +416,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Ar.red,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -428,7 +429,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.green,
+        backgroundColor: Ar.green,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -538,7 +539,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   ),
                                   child: Icon(
                                     Icons.notification_add,
-                                    color: isDark ? Colors.purple[300] : Colors.purple,
+                                    color: isDark ? Ar.accent[300] : Ar.accent,
                                     size: 22,
                                   ),
                                 ),
@@ -566,7 +567,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                     ),
                                     child: Icon(
                                       Icons.mark_email_read,
-                                      color: isDark ? Colors.blue[300] : Colors.blue,
+                                      color: isDark ? Ar.info[300] : Ar.info,
                                       size: 22,
                                     ),
                                   ),
@@ -594,7 +595,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                     ),
                                     child: Icon(
                                       Icons.delete_sweep,
-                                      color: isDark ? Colors.red[300] : Colors.red,
+                                      color: isDark ? Ar.red[300] : Ar.red,
                                       size: 22,
                                     ),
                                   ),
@@ -618,10 +619,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                               title: 'إجمالي',
                               count: totalCount,
                               icon: Icons.notifications,
-                              iconColor: Colors.blue,
+                              iconColor: Ar.info,
                               bgColor: isDark
-                                  ? Colors.blue.withOpacity(0.3)
-                                  : Colors.blue.shade50,
+                                  ? Ar.info.withOpacity(0.3)
+                                  : Ar.info.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -633,10 +634,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                               title: 'غير مقروء',
                               count: unreadCount,
                               icon: Icons.mark_email_unread,
-                              iconColor: Colors.red,
+                              iconColor: Ar.red,
                               bgColor: isDark
-                                  ? Colors.red.withOpacity(0.3)
-                                  : Colors.red.shade50,
+                                  ? Ar.red.withOpacity(0.3)
+                                  : Ar.red.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -648,10 +649,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                               title: 'مقروء',
                               count: readCount,
                               icon: Icons.mark_email_read,
-                              iconColor: Colors.green,
+                              iconColor: Ar.green,
                               bgColor: isDark
-                                  ? Colors.green.withOpacity(0.3)
-                                  : Colors.green.shade50,
+                                  ? Ar.green.withOpacity(0.3)
+                                  : Ar.green.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -663,10 +664,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                               title: 'جديد',
                               count: unreadCount,
                               icon: Icons.new_releases,
-                              iconColor: Colors.orange,
+                              iconColor: Ar.amber,
                               bgColor: isDark
-                                  ? Colors.orange.withOpacity(0.3)
-                                  : Colors.orange.shade50,
+                                  ? Ar.amber.withOpacity(0.3)
+                                  : Ar.amber.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -731,7 +732,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
+              color: isDark ? Colors.white70 : Ar.grey.shade700,
             ),
             textAlign: TextAlign.center,
           ),
@@ -751,10 +752,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Widget _buildNotificationsList(bool isDark, bool isRTL) {
     final textColor = isDark ? Colors.white : Colors.black;
-    final subduedTextColor = isDark ? Colors.white70 : Colors.grey.shade600;
+    final subduedTextColor = isDark ? Colors.white70 : Ar.grey.shade600;
     final cardColor = isDark ? Colors.white.withOpacity(0.15) : Colors.white;
     final dividerColor =
-    isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300;
+    isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300;
 
     if (loading) {
       return Center(
@@ -762,7 +763,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              color: isDark ? Colors.white : Colors.blue,
+              color: isDark ? Colors.white : Ar.info,
             ),
             const SizedBox(height: 16),
             Text(
@@ -785,14 +786,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
             Icon(
               Icons.error_outline_rounded,
               size: 64,
-              color: Colors.red,
+              color: Ar.red,
             ),
             const SizedBox(height: 16),
             Text(
               errorMessage,
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.red,
+                color: Ar.red,
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
@@ -801,7 +802,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ElevatedButton(
               onPressed: _loadNotifications,
               style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? Colors.blue[800] : Colors.blue,
+                backgroundColor: isDark ? Ar.info[800] : Ar.info,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -849,7 +850,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
     return RefreshIndicator(
       onRefresh: _loadNotifications,
-      color: isDark ? Colors.white : Colors.blue,
+      color: isDark ? Colors.white : Ar.info,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         itemCount: notifications.length,
@@ -894,11 +895,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: Colors.red,
+              color: Ar.red,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
+                  color: Ar.red.withOpacity(0.5),
                   blurRadius: 8,
                   spreadRadius: 1,
                 ),
@@ -921,11 +922,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: Colors.red,
+              color: Ar.red,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
+                  color: Ar.red.withOpacity(0.5),
                   blurRadius: 8,
                   spreadRadius: 1,
                 ),
@@ -949,11 +950,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: Colors.red,
+              color: Ar.red,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
+                  color: Ar.red.withOpacity(0.5),
                   blurRadius: 8,
                   spreadRadius: 1,
                 ),
@@ -976,11 +977,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: Colors.red,
+              color: Ar.red,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.5),
+                  color: Ar.red.withOpacity(0.5),
                   blurRadius: 8,
                   spreadRadius: 1,
                 ),
@@ -1018,7 +1019,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ],
             border: Border.all(
               color:
-              isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+              isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
             ),
           ),
           child: Column(
@@ -1031,13 +1032,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: notification.read
-                          ? Colors.grey.withOpacity(0.1)
-                          : Colors.blue.withOpacity(0.1),
+                          ? Ar.grey.withOpacity(0.1)
+                          : Ar.info.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: notification.read
-                            ? Colors.grey.withOpacity(0.3)
-                            : Colors.blue.withOpacity(0.3),
+                            ? Ar.grey.withOpacity(0.3)
+                            : Ar.info.withOpacity(0.3),
                       ),
                     ),
                     child: Row(
@@ -1047,7 +1048,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                               ? Icons.mark_email_read
                               : Icons.mark_email_unread,
                           size: 16,
-                          color: notification.read ? Colors.grey : Colors.blue,
+                          color: notification.read ? Ar.grey : Ar.info,
                         ),
                         const SizedBox(width: 6),
                         Text(
@@ -1055,7 +1056,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: notification.read ? Colors.grey : Colors.blue,
+                            color: notification.read ? Ar.grey : Ar.info,
                           ),
                         ),
                       ],
@@ -1141,12 +1142,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
                     ElevatedButton(
                       onPressed: () => _markAsRead(notification.id),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.withOpacity(0.1),
-                        foregroundColor: Colors.green,
+                        backgroundColor: Ar.green.withOpacity(0.1),
+                        foregroundColor: Ar.green,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.green.withOpacity(0.3)),
+                          side: BorderSide(color: Ar.green.withOpacity(0.3)),
                         ),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 6),

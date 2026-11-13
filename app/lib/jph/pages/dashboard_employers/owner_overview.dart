@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/glass_ui.dart';
 import '../attendance/attendance_report_page.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../employees/employees_page.dart';
@@ -34,21 +35,22 @@ class OwnerOverview extends StatefulWidget {
 class _P {
   final bool dark;
   const _P(this.dark);
-  Color get accent => dark ? AppColors.primaryLight : AppColors.primary;
-  Color get accentFrom => const Color(0xFF7C78FF);
-  Color get accentTo => AppColors.primaryDark;
+  // the «Ardena» site's colours (our blue in their orange's place)
+  Color get accent => dark ? Glass.blueHi : Glass.blue;
+  Color get accentFrom => Glass.blueHi;
+  Color get accentTo => Glass.blue;
   LinearGradient get grad => LinearGradient(
       begin: const Alignment(-0.8, -1), end: const Alignment(0.9, 1), colors: [accentFrom, accent, accentTo], stops: const [0, 0.5, 1]);
-  Color get card => dark ? const Color(0xFF23263A).withOpacity(0.92) : Colors.white.withOpacity(0.96);
-  Color get card2 => dark ? Colors.white.withOpacity(0.06) : const Color(0xFFF1F2F8);
-  Color get line => dark ? Colors.white.withOpacity(0.08) : const Color(0xFF14141A).withOpacity(0.08);
-  Color get ink => dark ? Colors.white : const Color(0xFF1D1E21);
-  Color get muted => dark ? Colors.white.withOpacity(0.62) : const Color(0xFF65666C);
-  Color get data => dark ? const Color(0xFF8E909A) : const Color(0xFFB4B6BE);
-  Color get good => const Color(0xFF34C77B);
-  Color get warn => const Color(0xFFF2A43A);
-  Color get bad => const Color(0xFFFF6B7A);
-  Color get info => const Color(0xFF6EA8FE);
+  Color get card => Glass.card(dark);
+  Color get card2 => dark ? Colors.white.withOpacity(0.06) : const Color(0x8CFFFFFF);
+  Color get line => Glass.line(dark);
+  Color get ink => Glass.ink(dark);
+  Color get muted => Glass.muted(dark);
+  Color get data => dark ? const Color(0xFFD9D6D0) : const Color(0xFFB3AEA6);
+  Color get good => dark ? const Color(0xFF63D985) : const Color(0xFF19733A);
+  Color get warn => dark ? const Color(0xFFF7B445) : const Color(0xFFEF9D14);
+  Color get bad => const Color(0xFFFF7D6E);
+  Color get info => dark ? const Color(0xFF93C1FF) : const Color(0xFF3B78C4);
   Color tone(String? t) => switch (t) {
         'good' => good,
         'warn' => warn,
@@ -59,7 +61,7 @@ class _P {
       };
 }
 
-const _ease = Cubic(0.16, 1, 0.3, 1); // expo.out
+const _ease = Glass.ease; // the site's cubic-bezier(.22, 1, .36, 1)
 
 class _OwnerOverviewState extends State<OwnerOverview> {
   String _view = 'finance';
@@ -176,13 +178,14 @@ class _OwnerOverviewState extends State<OwnerOverview> {
       delay: 80 + i * 60,
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: gradient == null ? p.card : null,
-          gradient: gradient,
-          borderRadius: BorderRadius.circular(20),
-          border: gradient == null ? Border.all(color: p.line) : null,
-          boxShadow: shadow ?? [BoxShadow(color: Colors.black.withOpacity(widget.isDark ? 0.25 : 0.06), blurRadius: 30, offset: const Offset(0, 14), spreadRadius: -18)],
-        ),
+        // the «Ardena» glass square (or our blue for the highlighted one)
+        decoration: gradient == null
+            ? Glass.panel(widget.isDark, r: 20)
+            : BoxDecoration(
+                gradient: gradient,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: shadow ?? [BoxShadow(color: Glass.blue.withOpacity(0.35), blurRadius: 30, offset: const Offset(0, 14), spreadRadius: -18)],
+              ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: Stack(children: [

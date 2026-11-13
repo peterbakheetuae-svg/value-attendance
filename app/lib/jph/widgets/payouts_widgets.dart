@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_dialog.dart';
+import 'glass_ui.dart';
 
 const payoutKindsAr = {
   'salary': 'القبض',
@@ -55,7 +56,7 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
     if (!mounted) return;
     _busy.remove('${p['id']}');
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
     await _load();
   }
 
@@ -70,11 +71,11 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
         decoration: BoxDecoration(
           color: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.4),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.green.withOpacity(0.6)),
+          border: Border.all(color: Ar.green.withOpacity(0.6)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
-            const Icon(Icons.payments_rounded, color: Colors.green),
+            const Icon(Icons.payments_rounded, color: Ar.green),
             const SizedBox(width: 8),
             const Expanded(child: Text('فلوس اتصرفتلك — أكّد الاستلام', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
           ]),
@@ -92,7 +93,7 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
                 ),
                 ElevatedButton(
                   onPressed: _busy.contains('${p['id']}') ? null : () => _receive(p),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white,
+                  style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   child: const Text('تم الاستلام'),
                 ),
@@ -120,7 +121,7 @@ class PayoutsList extends StatelessWidget {
         child: Text('مفيش مبالغ مصروفة لسه', textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.white60 : Colors.black54)),
       );
     }
-    Color statusColor(String s) => s == 'received' ? Colors.green : (s == 'cancelled' ? Colors.grey : (s == 'disputed' ? Colors.red : Colors.orange));
+    Color statusColor(String s) => s == 'received' ? Ar.green : (s == 'cancelled' ? Ar.grey : (s == 'disputed' ? Ar.red : Ar.amber));
     String statusAr(String s) => s == 'received' ? 'تم الاستلام' : (s == 'cancelled' ? 'ملغي' : (s == 'disputed' ? 'فيه بلاغ مشكلة' : 'مستني الاستلام'));
     return Column(children: [
       for (final p in items)
@@ -175,11 +176,11 @@ class PayoutsList extends StatelessWidget {
                           'body': {'reason': reason.text.trim()}, 'ok': 'اتبعت البلاغ'});
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'),
-                              backgroundColor: r['success'] == true ? Colors.orange : Colors.red));
+                              backgroundColor: r['success'] == true ? Ar.amber : Ar.red));
                         }
                         await reload();
                       },
-                      child: const Text('بلاغ مشكلة', style: TextStyle(color: Colors.orange)),
+                      child: const Text('بلاغ مشكلة', style: TextStyle(color: Ar.amber)),
                     ),
                   if (p['canCancel'] == true)
                     TextButton(
@@ -198,11 +199,11 @@ class PayoutsList extends StatelessWidget {
                         final r = await ApiService.post({'action': 'payout_receive', 'id': p['id']});
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+                              content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
                         }
                         await reload();
                       },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white),
                       child: const Text('تم الاستلام'),
                     ),
                 ]),

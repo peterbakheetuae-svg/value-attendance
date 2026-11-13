@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import '../../widgets/glass_ui.dart';
 
 class FingerUiConfig {
   final String title;
@@ -138,7 +139,7 @@ class _AnimatedFingerprintActionState extends State<AnimatedFingerprintAction>
     final disabled = c.disabled;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final primaryColor = disabled ? Colors.grey : c.color;
+    final primaryColor = disabled ? Ar.grey : c.color;
     final circleColor = primaryColor.withOpacity(0.2);
 
     return Column(
@@ -247,7 +248,7 @@ class _AnimatedFingerprintActionState extends State<AnimatedFingerprintAction>
           disabled ? "غير متاح الآن" : c.subtitle,
           style: TextStyle(
             fontSize: 13,
-            color: disabled ? Colors.black38 : Colors.grey.shade600,
+            color: disabled ? Colors.black38 : Ar.grey.shade600,
           ),
         ),
       ],

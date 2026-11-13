@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/glass_ui.dart';
 
 class TodayStats extends StatelessWidget {
   final Map<String, dynamic> sheetData;
@@ -20,7 +21,7 @@ class TodayStats extends StatelessWidget {
                 context: context,
                 title: 'وقت العمل',
                 icon: Icons.timer_rounded,
-                color: Colors.blue,
+                color: Ar.info,
                 value: (sheetData["workTime"] ?? "--:--").toString(),
               ),
             ),
@@ -30,7 +31,7 @@ class TodayStats extends StatelessWidget {
                 context: context,
                 title: 'الاستراحة',
                 icon: Icons.free_breakfast_rounded,
-                color: Colors.teal,
+                color: Ar.green,
                 value: (sheetData["breakTime"] ?? "--:--").toString(),
               ),
             ),
@@ -40,7 +41,7 @@ class TodayStats extends StatelessWidget {
                 context: context,
                 title: AppLocalizations.of(context, 'late_time'),
                 icon: Icons.schedule_rounded,
-                color: Colors.orange,
+                color: Ar.amber,
                 value: (sheetData["lateTime"] ?? "00:00").toString(),
               ),
             ),

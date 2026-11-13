@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 // صفحة واحدة موحدة تجمع خصائص الصفحتين: NotificationSettingsPageteam و NotificationSettingsPage
 class NotificationSettingsPage extends StatefulWidget {
@@ -167,7 +168,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: isError ? Colors.red : Colors.green,
+        backgroundColor: isError ? Ar.red : Ar.green,
       ),
     );
   }
@@ -225,25 +226,25 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         '🔑',
                         AppLocalizations.of(context, 'fcm_token') ?? 'FCM Token',
                         _status['hasToken'] == true ? '✅ موجود' : '❌ غير موجود',
-                        _status['hasToken'] == true ? Colors.green : Colors.red,
+                        _status['hasToken'] == true ? Ar.green : Ar.red,
                       ),
                       _buildStatusRow(
                         '📤',
                         AppLocalizations.of(context, 'token_sent_to_server') ?? 'تم إرسال التوكن للخادم',
                         _status['tokenSentToServer'] == true ? '✅ نعم' : '❌ لا',
-                        _status['tokenSentToServer'] == true ? Colors.green : Colors.red,
+                        _status['tokenSentToServer'] == true ? Ar.green : Ar.red,
                       ),
                       _buildStatusRow(
                         '👤',
                         AppLocalizations.of(context, 'sent_for_current_user') ?? 'مرسل للمستخدم الحالي',
                         _status['tokenSentForCurrentUser'] == true ? '✅ نعم' : '❌ لا',
-                        _status['tokenSentForCurrentUser'] == true ? Colors.green : Colors.red,
+                        _status['tokenSentForCurrentUser'] == true ? Ar.green : Ar.red,
                       ),
                       _buildStatusRow(
                         '🔔',
                         AppLocalizations.of(context, 'notifications_enabled') ?? 'الإشعارات مفعلة',
                         _status['notificationsEnabled'] == true ? '✅ نعم' : '❌ لا',
-                        _status['notificationsEnabled'] == true ? Colors.green : Colors.red,
+                        _status['notificationsEnabled'] == true ? Ar.green : Ar.red,
                       ),
                       if (_status['tokenPreview'] != null) ...[
                         const SizedBox(height: 8),
@@ -251,7 +252,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                           '${AppLocalizations.of(context, 'token_preview') ?? 'التوكن'}: ${_status['tokenPreview']}',
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? Colors.white70 : Colors.grey[700],
+                            color: isDark ? Colors.white70 : Ar.grey[700],
                           ),
                         ),
                       ],
@@ -263,7 +264,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                             _status['message'],
                             style: TextStyle(
                               fontSize: 13,
-                              color: _status['message']!.contains('✅') ? Colors.green : Colors.orange,
+                              color: _status['message']!.contains('✅') ? Ar.green : Ar.amber,
                             ),
                           ),
                         ),
@@ -304,7 +305,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                                     rec,
                                     style: TextStyle(
                                       color: isSuccess
-                                          ? Colors.green
+                                          ? Ar.green
                                           : (isDark ? Colors.white70 : Colors.black87),
                                     ),
                                   ),
@@ -399,7 +400,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         label: _checkingStatus
                             ? (AppLocalizations.of(context, 'checking') ?? 'جاري الفحص...')
                             : (AppLocalizations.of(context, 'recheck_status') ?? 'إعادة فحص الحالة'),
-                        color: Colors.blue,
+                        color: Ar.info,
                         loading: _checkingStatus,
                         onTap: _checkNotificationStatus,
                       ),
@@ -409,7 +410,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         label: _sendingToken
                             ? (AppLocalizations.of(context, 'sending') ?? 'جاري الإرسال...')
                             : (AppLocalizations.of(context, 'send_token_manually') ?? 'إرسال التوكن يدوياً'),
-                        color: Colors.orange,
+                        color: Ar.amber,
                         loading: _sendingToken,
                         onTap: _sendTokenManually,
                       ),
@@ -420,7 +421,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                           onPressed: _clearLocalNotifications,
                           child: Text(
                             AppLocalizations.of(context, 'clear_local_notifications') ?? 'مسح الإشعارات المحلية',
-                            style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[700]),
+                            style: TextStyle(color: isDark ? Colors.white70 : Ar.grey[700]),
                           ),
                         ),
                       ),
@@ -468,7 +469,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                                   'ID: ${widget.uid}',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: isDark ? Colors.white70 : Colors.grey[600],
+                                    color: isDark ? Colors.white70 : Ar.grey[600],
                                   ),
                                 ),
                                 if (widget.role.isNotEmpty)
@@ -476,7 +477,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                                     '${AppLocalizations.of(context, 'role') ?? 'الدور'}: ${widget.role}',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: isDark ? Colors.white70 : Colors.grey[600],
+                                      color: isDark ? Colors.white70 : Ar.grey[600],
                                     ),
                                   ),
                               ],
@@ -582,7 +583,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                 description,
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? Colors.white70 : Colors.grey[700],
+                  color: isDark ? Colors.white70 : Ar.grey[700],
                 ),
               ),
             ],

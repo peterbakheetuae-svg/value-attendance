@@ -8,6 +8,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
+import '../../widgets/glass_ui.dart';
 
 /// KPI & performance evaluation — same glass layout and 3 tabs as the original screen:
 /// 1) KPIs per job position, 2) employee performance (targets, actuals, achievement, trend),
@@ -52,7 +53,7 @@ String _num(Object? v) {
 void _snack(BuildContext context, Map<String, dynamic> r) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text('${r['message'] ?? ''}'),
-    backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+    backgroundColor: r['success'] == true ? Ar.green : Ar.red,
   ));
 }
 
@@ -63,13 +64,13 @@ Widget _sheet(BuildContext ctx, String title, List<Widget> children) {
     child: Container(
       constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
       decoration: BoxDecoration(
-        color: isDark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+        color: isDark ? Ar.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 14),
           Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
@@ -95,7 +96,7 @@ Widget _pick(BuildContext ctx, String label, IconData icon, String? value, Map<S
   return JphUi.picker(
     isDark: isDark,
     icon: icon,
-    iconColor: Colors.indigo,
+    iconColor: Ar.accent,
     label: label,
     value: options[value] ?? 'اختار',
     onTap: () async {
@@ -311,8 +312,8 @@ class _PositionsTabState extends State<_PositionsTab> {
             ]);
           }),
           Text('مجموع الأوزان: ${_num(total)}%', textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.w700, color: (total - 100).abs() < 0.01 ? Colors.green : Colors.orange)),
-          if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: const TextStyle(color: Colors.red))),
+              style: TextStyle(fontWeight: FontWeight.w700, color: (total - 100).abs() < 0.01 ? Ar.green : Ar.amber)),
+          if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: const TextStyle(color: Ar.red))),
           const SizedBox(height: 12),
           _primaryButton('حفظ المؤشرات', () async {
             final items = <Map<String, dynamic>>[];
@@ -404,7 +405,7 @@ class _PerformanceTabState extends State<_PerformanceTab> {
           ..._rows.map((x) {
             final e = (x['employee'] as Map).cast<String, dynamic>();
             final score = x['weightedScore'];
-            final color = score == null ? Colors.grey : (score as num) >= 100 ? Colors.green : score >= 70 ? Colors.orange : AppColors.error;
+            final color = score == null ? Ar.grey : (score as num) >= 100 ? Ar.green : score >= 70 ? Ar.amber : AppColors.error;
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: GestureDetector(
@@ -502,7 +503,7 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
           ])),
           if (change != null)
             Column(children: [
-              Icon((change as num) >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded, color: change >= 0 ? Colors.green : AppColors.error),
+              Icon((change as num) >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded, color: change >= 0 ? Ar.green : AppColors.error),
               Text('${change >= 0 ? '+' : ''}${_num(change)}% عن الشهر اللي فات', style: const TextStyle(fontSize: 11)),
             ]),
         ]),
@@ -523,7 +524,7 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
                 Container(
                   height: h, margin: const EdgeInsets.symmetric(horizontal: 6),
                   decoration: BoxDecoration(
-                    color: v == null ? Colors.grey.withOpacity(0.3) : AppColors.primary.withOpacity(0.8),
+                    color: v == null ? Ar.grey.withOpacity(0.3) : AppColors.primary.withOpacity(0.8),
                     borderRadius: BorderRadius.circular(6)),
                 ),
                 const SizedBox(height: 4),
@@ -554,7 +555,7 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
                   Expanded(child: Text('الهدف: ${_num(i['target'])}')),
                   Expanded(child: Text('المحقق: ${i['actual'] == null ? '—' : _num(i['actual'])}')),
                   Text(ach == null ? stateAr : '${_num(ach)}%',
-                      style: TextStyle(fontWeight: FontWeight.w800, color: ach == null ? Colors.grey : (ach as num) >= 100 ? Colors.green : Colors.orange)),
+                      style: TextStyle(fontWeight: FontWeight.w800, color: ach == null ? Ar.grey : (ach as num) >= 100 ? Ar.green : Ar.amber)),
                 ]),
                 const SizedBox(height: 8),
                 ClipRRect(
@@ -562,8 +563,8 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
                   child: LinearProgressIndicator(
                     minHeight: 8,
                     value: ach == null ? 0 : ((ach as num) / 100).clamp(0, 1).toDouble(),
-                    backgroundColor: Colors.grey.withOpacity(0.2),
-                    color: ach != null && ach >= 100 ? Colors.green : AppColors.primary,
+                    backgroundColor: Ar.grey.withOpacity(0.2),
+                    color: ach != null && ach >= 100 ? Ar.green : AppColors.primary,
                   ),
                 ),
               ]),
@@ -655,7 +656,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
                   onTap: () => _show(e),
                   child: GlassCard(
                     child: Row(children: [
-                      Icon(pub ? Icons.verified_rounded : Icons.edit_note_rounded, color: pub ? Colors.green : Colors.orange),
+                      Icon(pub ? Icons.verified_rounded : Icons.edit_note_rounded, color: pub ? Ar.green : Ar.amber),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text('${e['employee_name']}', style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -696,7 +697,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
                 Expanded(child: Text(d.value)),
-                ...List.generate(5, (i) => Icon(i < ((e[_dimCols[d.key]] as num?) ?? 0) ? Icons.star_rounded : Icons.star_outline_rounded, color: Colors.amber, size: 20)),
+                ...List.generate(5, (i) => Icon(i < ((e[_dimCols[d.key]] as num?) ?? 0) ? Icons.star_rounded : Icons.star_outline_rounded, color: Ar.amber, size: 20)),
               ]),
             )),
         if ('${e['feedback'] ?? ''}'.isNotEmpty) ...[const SizedBox(height: 10), const Text('التعليق', style: TextStyle(fontWeight: FontWeight.w700)), Text('${e['feedback']}')],
@@ -709,7 +710,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
               _snack(ctx, r);
               if (r['success'] == true) Navigator.pop(ctx);
             }
-          }, color: Colors.green),
+          }, color: Ar.green),
         ],
       ]),
     );
@@ -755,7 +756,7 @@ class _EvaluationsTabState extends State<_EvaluationsTab> {
                 Expanded(child: Text(d.value)),
                 ...List.generate(5, (i) => GestureDetector(
                       onTap: () => set(() => scores[d.key] = i + 1),
-                      child: Icon(i < scores[d.key]! ? Icons.star_rounded : Icons.star_outline_rounded, color: Colors.amber, size: 28),
+                      child: Icon(i < scores[d.key]! ? Icons.star_rounded : Icons.star_outline_rounded, color: Ar.amber, size: 28),
                     )),
               ])),
           const SizedBox(height: 10),

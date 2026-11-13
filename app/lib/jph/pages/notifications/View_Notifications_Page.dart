@@ -7,6 +7,7 @@ import '../../services/send_notification_api.dart';
 import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'Send_Notifications_Page.dart';
+import '../../widgets/glass_ui.dart';
 
 class SentNotificationsPage extends StatefulWidget {
   final String uid;
@@ -85,11 +86,11 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
 
   Color _getStatusColor(String status) {
     if (status.contains('تم الإرسال') || status.contains('ناجح')) {
-      return Colors.green;
+      return Ar.green;
     } else if (status.contains('فشل')) {
-      return Colors.red;
+      return Ar.red;
     } else {
-      return Colors.orange;
+      return Ar.amber;
     }
   }
 
@@ -220,10 +221,10 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                               title: 'إجمالي المرسلة',
                               count: _totalCount,
                               icon: Icons.send_rounded,
-                              iconColor: Colors.blue,
+                              iconColor: Ar.info,
                               bgColor: isDark
-                                  ? Colors.blue.withOpacity(0.3)
-                                  : Colors.blue.shade50,
+                                  ? Ar.info.withOpacity(0.3)
+                                  : Ar.info.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -236,10 +237,10 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                               n['status']?.toString().contains('تم الإرسال') ?? false)
                                   .length,
                               icon: Icons.check_circle_rounded,
-                              iconColor: Colors.green,
+                              iconColor: Ar.green,
                               bgColor: isDark
-                                  ? Colors.green.withOpacity(0.3)
-                                  : Colors.green.shade50,
+                                  ? Ar.green.withOpacity(0.3)
+                                  : Ar.green.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -252,10 +253,10 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                               n['status']?.toString().contains('فشل') ?? false)
                                   .length,
                               icon: Icons.error_rounded,
-                              iconColor: Colors.red,
+                              iconColor: Ar.red,
                               bgColor: isDark
-                                  ? Colors.red.withOpacity(0.3)
-                                  : Colors.red.shade50,
+                                  ? Ar.red.withOpacity(0.3)
+                                  : Ar.red.shade50,
                               isDark: isDark,
                             ),
                           ),
@@ -319,7 +320,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white70 : Colors.grey.shade700,
+              color: isDark ? Colors.white70 : Ar.grey.shade700,
             ),
             textAlign: TextAlign.center,
           ),
@@ -339,7 +340,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
 
   Widget _buildNotificationsList(bool isDark, bool isRTL) {
     final textColor = isDark ? Colors.white : Colors.black;
-    final subduedTextColor = isDark ? Colors.white70 : Colors.grey.shade600;
+    final subduedTextColor = isDark ? Colors.white70 : Ar.grey.shade600;
     final cardColor = isDark ? Colors.white.withOpacity(0.15) : Colors.white;
 
     if (_isLoading) {
@@ -348,7 +349,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              color: isDark ? Colors.white : Colors.blue,
+              color: isDark ? Colors.white : Ar.info,
             ),
             const SizedBox(height: 16),
             Text(
@@ -371,14 +372,14 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
             Icon(
               Icons.error_outline_rounded,
               size: 64,
-              color: Colors.red,
+              color: Ar.red,
             ),
             const SizedBox(height: 16),
             Text(
               _errorMessage,
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.red,
+                color: Ar.red,
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
@@ -387,7 +388,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
             ElevatedButton(
               onPressed: _loadSentNotifications,
               style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? Colors.blue[800] : Colors.blue,
+                backgroundColor: isDark ? Ar.info[800] : Ar.info,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -443,7 +444,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? Colors.blue[800] : Colors.blue,
+                backgroundColor: isDark ? Ar.info[800] : Ar.info,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -466,7 +467,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
 
     return RefreshIndicator(
       onRefresh: _loadSentNotifications,
-      color: isDark ? Colors.white : Colors.blue,
+      color: isDark ? Colors.white : Ar.info,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         itemCount: _sentNotifications.length,
@@ -522,7 +523,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
           ),
         ],
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.shade200,
+          color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey.shade200,
         ),
       ),
       child: Column(
@@ -587,7 +588,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
           const SizedBox(height: 12),
 
           Divider(
-            color: isDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade300,
+            color: isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300,
             height: 1,
           ),
 
@@ -611,13 +612,13 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: isDark
-                  ? Colors.blue.shade900.withOpacity(0.2)
-                  : Colors.blue.shade50,
+                  ? Ar.info.shade900.withOpacity(0.2)
+                  : Ar.info.shade50,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: isDark
-                    ? Colors.blue.shade700.withOpacity(0.3)
-                    : Colors.blue.shade200,
+                    ? Ar.info.shade700.withOpacity(0.3)
+                    : Ar.info.shade200,
               ),
             ),
             child: Column(
@@ -628,7 +629,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                     Icon(
                       Icons.person_rounded,
                       size: 16,
-                      color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                      color: isDark ? Ar.info.shade300 : Ar.info.shade700,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -645,7 +646,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          color: isDark ? Colors.blue.shade300 : Colors.blue.shade800,
+                          color: isDark ? Ar.info.shade300 : Ar.info.shade800,
                         ),
                       ),
                     ),
@@ -657,7 +658,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                     Icon(
                       Icons.person_outline_rounded,
                       size: 16,
-                      color: isDark ? Colors.green.shade300 : Colors.green.shade700,
+                      color: isDark ? Ar.green.shade300 : Ar.green.shade700,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -674,7 +675,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                          color: isDark ? Ar.green.shade300 : Ar.green.shade800,
                         ),
                       ),
                     ),
@@ -687,7 +688,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                       Icon(
                         Icons.info_rounded,
                         size: 16,
-                        color: isDark ? Colors.amber.shade300 : Colors.amber.shade700,
+                        color: isDark ? Ar.amber.shade300 : Ar.amber.shade700,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -695,7 +696,7 @@ class _SentNotificationsPageState extends State<SentNotificationsPage> {
                           details,
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? Colors.amber.shade200 : Colors.amber.shade800,
+                            color: isDark ? Ar.amber.shade200 : Ar.amber.shade800,
                           ),
                         ),
                       ),

@@ -10,6 +10,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'project_form_page.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 /// One project: its split, the totals and the sold units (approved deals only). Company figures arrive from the
 /// API only for the owner / المدير; the sales manager gets only his team's units.
@@ -62,7 +63,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
             ElevatedButton(
               onPressed: () => Navigator.pop(c, true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: Ar.red, foregroundColor: Colors.white),
               child: const Text('إلغاء العمولة'),
             ),
           ],
@@ -155,19 +156,19 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
 
   Widget _split(bool isDark, Map<String, dynamic> p) {
     final parts = <(String, Object?, Color)>[
-      ('البائع', p['salesPct'], Colors.teal),
-      if (p['managerPct'] != null) ('مدير المبيعات', p['managerPct'], Colors.purple),
-      if (p['companyPct'] != null) ('الشركة', p['companyPct'], Colors.green),
+      ('البائع', p['salesPct'], Ar.green),
+      if (p['managerPct'] != null) ('مدير المبيعات', p['managerPct'], Ar.accent),
+      if (p['companyPct'] != null) ('الشركة', p['companyPct'], Ar.green),
     ];
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.pie_chart_rounded, Colors.indigo),
+          JphUi.iconTile(isDark, Icons.pie_chart_rounded, Ar.accent),
           const SizedBox(width: 12),
           Expanded(child: Text('توزيع العمولة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-          if (p['totalPct'] != null) JphUi.chip('الإجمالي ${JphUi.pct(p['totalPct'])}', Colors.blueGrey),
+          if (p['totalPct'] != null) JphUi.chip('الإجمالي ${JphUi.pct(p['totalPct'])}', Ar.grey),
         ]),
         const SizedBox(height: 12),
         if (p['totalPct'] != null && (p['totalPct'] as num) > 0)
@@ -195,12 +196,12 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
   Widget _stats(bool isDark, Map<String, dynamic> p) {
     final company = p['companyCommission'] != null;
     final cards = [
-      JphUi.stat(isDark, 'الوحدات المعتمدة', '${p['units'] ?? 0}', Icons.home_work_rounded, Colors.indigo),
-      JphUi.stat(isDark, 'إجمالي المبيعات', JphUi.money(p['salesValue']), Icons.trending_up_rounded, Colors.blue),
-      if (company) JphUi.stat(isDark, 'إجمالي العمولة', JphUi.money(p['totalCommission']), Icons.payments_rounded, Colors.teal)
-      else JphUi.stat(isDark, 'عمولات البائعين', JphUi.money(p['salesCommission']), Icons.person_rounded, Colors.teal),
-      if (company) JphUi.stat(isDark, 'أرباح الشركة', JphUi.money(p['companyCommission']), Icons.account_balance_rounded, Colors.green)
-      else JphUi.stat(isDark, 'عمولات مدير المبيعات', JphUi.money(p['managerCommission']), Icons.groups_rounded, Colors.purple),
+      JphUi.stat(isDark, 'الوحدات المعتمدة', '${p['units'] ?? 0}', Icons.home_work_rounded, Ar.accent),
+      JphUi.stat(isDark, 'إجمالي المبيعات', JphUi.money(p['salesValue']), Icons.trending_up_rounded, Ar.info),
+      if (company) JphUi.stat(isDark, 'إجمالي العمولة', JphUi.money(p['totalCommission']), Icons.payments_rounded, Ar.green)
+      else JphUi.stat(isDark, 'عمولات البائعين', JphUi.money(p['salesCommission']), Icons.person_rounded, Ar.green),
+      if (company) JphUi.stat(isDark, 'أرباح الشركة', JphUi.money(p['companyCommission']), Icons.account_balance_rounded, Ar.green)
+      else JphUi.stat(isDark, 'عمولات مدير المبيعات', JphUi.money(p['managerCommission']), Icons.groups_rounded, Ar.accent),
     ];
     return LayoutBuilder(builder: (context, c) {
       final cols = c.maxWidth > 700 ? 4 : 2;
@@ -252,7 +253,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
                 DataCell(Text(JphUi.date(u['decidedAt']))),
                 DataCell(Text(JphUi.monthAr('${u['period']}'))),
                 DataCell(_payChips(u)),
-                if (_canVoid) DataCell(IconButton(icon: const Icon(Icons.block_rounded, color: Colors.red), tooltip: 'إلغاء', onPressed: () => _void(u))),
+                if (_canVoid) DataCell(IconButton(icon: const Icon(Icons.block_rounded, color: Ar.red), tooltip: 'إلغاء', onPressed: () => _void(u))),
               ]),
           ],
         ),
@@ -275,7 +276,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.home_work_rounded, Colors.indigo),
+          JphUi.iconTile(isDark, Icons.home_work_rounded, Ar.accent),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -290,16 +291,16 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
         Wrap(spacing: 14, runSpacing: 6, children: [
           Text('${u['areaM2']} م² × ${JphUi.money(u['pricePerM2'])}', style: TextStyle(color: JphUi.sub(isDark))),
           Text('القيمة: ${JphUi.money(u['unitValue'])}', style: const TextStyle(fontWeight: FontWeight.w800)),
-          Text('البائع: ${JphUi.money(u['salesAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.teal)),
-          if (u['managerAmount'] != null) Text('المدير: ${JphUi.money(u['managerAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.purple)),
-          if (u['companyAmount'] != null) Text('الشركة: ${JphUi.money(u['companyAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.green)),
+          Text('البائع: ${JphUi.money(u['salesAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Ar.green)),
+          if (u['managerAmount'] != null) Text('المدير: ${JphUi.money(u['managerAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Ar.accent)),
+          if (u['companyAmount'] != null) Text('الشركة: ${JphUi.money(u['companyAmount'])}', style: const TextStyle(fontWeight: FontWeight.w800, color: Ar.green)),
           Text('اعتماد ${JphUi.date(u['decidedAt'])} • مرتب ${JphUi.monthAr('${u['period']}')}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
         ]),
         if (_canVoid)
           Align(
             alignment: AlignmentDirectional.centerEnd,
-            child: TextButton.icon(onPressed: () => _void(u), icon: const Icon(Icons.block_rounded, color: Colors.red),
-                label: const Text('إلغاء العمولة', style: TextStyle(color: Colors.red))),
+            child: TextButton.icon(onPressed: () => _void(u), icon: const Icon(Icons.block_rounded, color: Ar.red),
+                label: const Text('إلغاء العمولة', style: TextStyle(color: Ar.red))),
           ),
       ]),
     );

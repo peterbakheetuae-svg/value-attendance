@@ -14,6 +14,7 @@ import '../widgets/jph_form_ui.dart';
 import '../widgets/swipe_tabs.dart';
 import 'custody_receipt_pdf.dart';
 import 'form_delete.dart';
+import '../widgets/glass_ui.dart';
 
 /// الإعدادات ← استمارات ← استمارات عملاء ← استمارة تعارف.
 /// Every employee can fill it. "اسم مسؤول المبيعات" is the employee who fills it (automatic); HR / the management
@@ -157,7 +158,7 @@ class _NewFormState extends State<_NewForm> {
     Widget gap() => const SizedBox(height: 14);
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 60), children: [
       JphUi.picker(
-        isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.indigo, label: 'التاريخ',
+        isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: 'التاريخ',
         value: '${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
         onTap: () async {
           final d = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2024), lastDate: DateTime(2100));
@@ -167,7 +168,7 @@ class _NewFormState extends State<_NewForm> {
       gap(),
       if (_canPick)
         JphUi.picker(
-          isDark: isDark, icon: Icons.support_agent_rounded, iconColor: Colors.teal, label: 'اسم مسؤول المبيعات',
+          isDark: isDark, icon: Icons.support_agent_rounded, iconColor: Ar.green, label: 'اسم مسؤول المبيعات',
           value: _salesName,
           onTap: _employees.isEmpty
               ? null
@@ -183,7 +184,7 @@ class _NewFormState extends State<_NewForm> {
                 },
         )
       else
-        JphUi.readOnly(isDark: isDark, label: 'اسم مسؤول المبيعات', value: _salesName, icon: Icons.support_agent_rounded, color: Colors.teal),
+        JphUi.readOnly(isDark: isDark, label: 'اسم مسؤول المبيعات', value: _salesName, icon: Icons.support_agent_rounded, color: Ar.green),
       gap(),
       Text('بيانات العميل', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
       const SizedBox(height: 10),
@@ -285,7 +286,7 @@ class _HistoryState extends State<_History> {
     final people = _people;
     return [
       JphUi.picker(
-        isDark: isDark, icon: Icons.date_range_rounded, iconColor: Colors.indigo, label: 'الأيام',
+        isDark: isDark, icon: Icons.date_range_rounded, iconColor: Ar.accent, label: 'الأيام',
         value: _range == null ? 'كل الأيام' : '${_show(_range!.start)} - ${_show(_range!.end)}',
         onTap: () async {
           final now = DateTime.now();
@@ -301,7 +302,7 @@ class _HistoryState extends State<_History> {
       if (_canFilterEmployees) ...[
         const SizedBox(height: 10),
         JphUi.picker(
-          isDark: isDark, icon: Icons.person_rounded, iconColor: Colors.teal, label: 'الموظف',
+          isDark: isDark, icon: Icons.person_rounded, iconColor: Ar.green, label: 'الموظف',
           value: _empId == null ? 'كل الموظفين' : (people[_empId] ?? ''),
           onTap: () async {
             final v = await JphUi.sheet<String>(context, isDark, 'الموظف',
@@ -334,7 +335,7 @@ class _HistoryState extends State<_History> {
               padding: const EdgeInsets.all(14),
               decoration: JphUi.box(isDark),
               child: Row(children: [
-                JphUi.iconTile(isDark, Icons.person_search_rounded, Colors.indigo),
+                JphUi.iconTile(isDark, Icons.person_search_rounded, Ar.accent),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

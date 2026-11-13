@@ -533,8 +533,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           return FingerUiConfig(
             title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تم العودة',
             subtitle: _outingOverdue ? 'سجّل رجوعك أو اطلب تمديد' : 'اضغط مطولاً لما ترجع المكتب',
-            color: _outingOverdue ? Colors.orange : getSecondaryColor(),
-            iconBg: _outingOverdue ? Colors.orange : getSecondaryColor(),
+            color: _outingOverdue ? Ar.amber : getSecondaryColor(),
+            iconBg: _outingOverdue ? Ar.amber : getSecondaryColor(),
           );
         }
         if (sheetData['attendanceExempt'] == true) {
@@ -542,8 +542,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
             title: 'ليس لديه حضور وانصراف',
             subtitle: 'حسابك مش محتاج بصمة',
             disabled: true,
-            color: Colors.grey,
-            iconBg: Colors.grey,
+            color: Ar.grey,
+            iconBg: Ar.grey,
           );
         }
         if (dayFinished) {
@@ -561,8 +561,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
               title: AppLocalizations.of(context, 'break_exceeded_alert'),
               subtitle: "انتهِ من الاستراحة أولاً",
               disabled: false,
-              color: Colors.orange,
-              iconBg: Colors.orange,
+              color: Ar.amber,
+              iconBg: Ar.amber,
             );
           }
           return FingerUiConfig(
@@ -603,8 +603,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           return FingerUiConfig(
             title: _outingOverdue ? 'ميعاد الرجوع عدّى' : 'تم العودة',
             subtitle: _outingOverdue ? 'سجّل رجوعك أو اطلب تمديد' : 'اضغط مطولاً لما ترجع المكتب',
-            color: _outingOverdue ? Colors.orange : getSecondaryColor(),
-            iconBg: _outingOverdue ? Colors.orange : getSecondaryColor(),
+            color: _outingOverdue ? Ar.amber : getSecondaryColor(),
+            iconBg: _outingOverdue ? Ar.amber : getSecondaryColor(),
           );
         }
         return FingerUiConfig(
@@ -725,7 +725,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           ScaffoldMessenger.of(currentContext).showSnackBar(
             SnackBar(
               content: Text(AppLocalizations.of(currentContext, 'work_day_ended')),
-              backgroundColor: Colors.orange,
+              backgroundColor: Ar.amber,
             ),
           );
           _cameraInUse = false;
@@ -765,14 +765,14 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         ScaffoldMessenger.of(currentContext).showSnackBar(
           SnackBar(
             content: Text(res["message"] ?? AppLocalizations.of(currentContext, 'operation_success')),
-            backgroundColor: Colors.green,
+            backgroundColor: Ar.green,
           ),
         );
       } else {
         ScaffoldMessenger.of(currentContext).showSnackBar(
           SnackBar(
             content: Text(res["message"] ?? AppLocalizations.of(currentContext, 'operation_failed')),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -781,7 +781,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       ScaffoldMessenger.of(currentContext).showSnackBar(
         SnackBar(
           content: Text("${AppLocalizations.of(currentContext, 'error_occurred')}: ${e.toString()}"),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
     } finally {
@@ -797,7 +797,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         final r = await ApiService.post({'action': 'outing_return'});
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
         await _loadOuting();
         return;
       }
@@ -816,7 +816,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
     await _loadOuting();
   }
@@ -834,7 +834,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         final r = await ApiService.post({'action': 'outing_return'});
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+          content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
         await _loadOuting();
       } else if (choice == 'extend') {
         await _submitOuting('${a['kind']}', parentId: '${a['id']}', currentReturn: back.isAfter(DateTime.now()) ? back : DateTime.now());
@@ -899,14 +899,14 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(res["message"] ?? AppLocalizations.of(context, 'operation_success')),
-            backgroundColor: Colors.green,
+            backgroundColor: Ar.green,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(res["message"] ?? AppLocalizations.of(context, 'operation_failed')),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -915,7 +915,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("${AppLocalizations.of(context, 'error_occurred')}: ${e.toString()}"),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
     } finally {
@@ -951,7 +951,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.9),
+                  color: Ar.amber.withOpacity(0.9),
                 ),
                 child: Row(
                   children: [
@@ -1077,9 +1077,9 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
 
         Color notificationIconColor;
         if (hasUnreadNotifications) {
-          notificationIconColor = Colors.red;
+          notificationIconColor = Ar.red;
         } else if (hasNotifications) {
-          notificationIconColor = Colors.orange;
+          notificationIconColor = Ar.amber;
         } else {
           notificationIconColor = isDark
               ? Colors.white.withOpacity(0.8)
@@ -1135,7 +1135,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                               width: 12,
                               height: 12,
                               decoration: BoxDecoration(
-                                color: Colors.red,
+                                color: Ar.red,
                                 shape: BoxShape.circle,
                                 border: Border.all(
                                   color: isDark
@@ -1145,7 +1145,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.red.withOpacity(0.5),
+                                    color: Ar.red.withOpacity(0.5),
                                     blurRadius: 4,
                                     spreadRadius: 1,
                                   ),
@@ -1171,7 +1171,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   _getTodayLabel(context),
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    color: isDark ? Colors.white70 : Ar.grey.shade700,
                   ),
                 ),
                 Text(
@@ -1188,7 +1188,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       : AppLocalizations.of(context, 'camera_closed'),
                   style: TextStyle(
                     fontSize: 10,
-                    color: isDark ? Colors.white60 : Colors.grey.shade600,
+                    color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),
                 ),
               ],
@@ -1267,7 +1267,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
       child: Icon(
         Icons.person,
         size: 24,
-        color: isDark ? Colors.white70 : Colors.grey.shade700,
+        color: isDark ? Colors.white70 : Ar.grey.shade700,
       ),
     );
   }
@@ -1288,8 +1288,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: isDark
-                      ? [Colors.black87, Colors.grey[900]!]
-                      : [Colors.blue[50]!, Colors.white],
+                      ? [Colors.black87, Ar.grey[900]!]
+                      : [Ar.info[50]!, Colors.white],
                 ),
               ),
             );
@@ -1388,8 +1388,8 @@ class _DashboardCirclePainter extends CustomPainter {
     final orangePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.orangeAccent, Colors.deepOrange]
-            : [Colors.orange, Colors.deepOrange],
+            ? [Ar.amber, Ar.amber]
+            : [Ar.amber, Ar.amber],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -1406,8 +1406,8 @@ class _DashboardCirclePainter extends CustomPainter {
     final bluePaint = Paint()
       ..shader = LinearGradient(
         colors: isDark
-            ? [Colors.blue.shade200, Colors.blue.shade400]
-            : [Colors.blue.shade300, Colors.blue.shade700],
+            ? [Ar.info.shade200, Ar.info.shade400]
+            : [Ar.info.shade300, Ar.info.shade700],
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke
@@ -1422,7 +1422,7 @@ class _DashboardCirclePainter extends CustomPainter {
     );
 
     final glowPaint = Paint()
-      ..color = (isDark ? Colors.blue.shade200 : Colors.blue).withOpacity(0.1)
+      ..color = (isDark ? Ar.info.shade200 : Ar.info).withOpacity(0.1)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15.0);
 
     canvas.drawCircle(center, radius + 5, glowPaint);

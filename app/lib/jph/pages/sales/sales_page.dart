@@ -10,6 +10,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../attendance/attendance_widgets.dart';
 import '../cash/cash_page.dart';
+import '../../widgets/glass_ui.dart';
 
 /// المبيعات والأقساط — the operational page for HR and the manager (the Projects page stays as it is):
 ///  • الأقساط المستحقة: كل المفتوح | المتأخر | النهارده (swipe), period filter icon top-left, search by buyer.
@@ -22,14 +23,14 @@ class SalesPage extends StatefulWidget {
 }
 
 const _lineStatus = {
-  'not_due': ('لسه مجاش ميعاده', Colors.blueGrey), 'due': ('مستحق النهارده', Colors.blue), 'partial': ('مدفوع جزئياً', Colors.orange),
-  'paid': ('مدفوع', Colors.green), 'overdue': ('متأخر', Colors.red), 'cancelled': ('ملغي', Colors.grey),
+  'not_due': ('لسه مجاش ميعاده', Ar.grey), 'due': ('مستحق النهارده', Ar.info), 'partial': ('مدفوع جزئياً', Ar.amber),
+  'paid': ('مدفوع', Ar.green), 'overdue': ('متأخر', Ar.red), 'cancelled': ('ملغي', Ar.grey),
 };
 const _freqAr = {'monthly': 'شهري', 'quarterly': 'كل 3 شهور', 'semiannual': 'كل 6 شهور', 'annual': 'سنوي'};
 const _stageAr = {
-  'reserved': ('حجز — المقدم لسه مكملش', Colors.orange), 'installments': ('أقساط', Colors.blue),
-  'completed': ('اتسدد بالكامل', Colors.green), 'cancelled': ('ملغي', Colors.grey),
-  'pending': ('مستنية اعتماد الإدارة', Colors.orange), 'rejected': ('مرفوضة', Colors.red),
+  'reserved': ('حجز — المقدم لسه مكملش', Ar.amber), 'installments': ('أقساط', Ar.info),
+  'completed': ('اتسدد بالكامل', Ar.green), 'cancelled': ('ملغي', Ar.grey),
+  'pending': ('مستنية اعتماد الإدارة', Ar.amber), 'rejected': ('مرفوضة', Ar.red),
 };
 
 String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -201,9 +202,9 @@ class _DueListState extends State<_DueList> {
         ),
         const SizedBox(height: 10),
         Row(children: [
-          Expanded(child: JphUi.stat(isDark, 'الباقي', JphUi.money(totals['remaining']), Icons.hourglass_bottom_rounded, Colors.orange)),
+          Expanded(child: JphUi.stat(isDark, 'الباقي', JphUi.money(totals['remaining']), Icons.hourglass_bottom_rounded, Ar.amber)),
           const SizedBox(width: 10),
-          Expanded(child: JphUi.stat(isDark, 'منه متأخر', JphUi.money(totals['overdue']), Icons.warning_rounded, Colors.red)),
+          Expanded(child: JphUi.stat(isDark, 'منه متأخر', JphUi.money(totals['overdue']), Icons.warning_rounded, Ar.red)),
         ]),
         const SizedBox(height: 12),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
@@ -220,7 +221,7 @@ class _DueListState extends State<_DueList> {
               padding: const EdgeInsets.all(14),
               decoration: JphUi.box(isDark),
               child: Row(children: [
-                JphUi.iconTile(isDark, Icons.event_note_rounded, (_lineStatus[x['status']] ?? ('', Colors.grey)).$2),
+                JphUi.iconTile(isDark, Icons.event_note_rounded, (_lineStatus[x['status']] ?? ('', Ar.grey)).$2),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -233,7 +234,7 @@ class _DueListState extends State<_DueList> {
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Text(JphUi.money(x['remaining']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                   const SizedBox(height: 4),
-                  JphUi.chip((_lineStatus[x['status']] ?? ('${x['status']}', Colors.grey)).$1, (_lineStatus[x['status']] ?? ('', Colors.grey)).$2),
+                  JphUi.chip((_lineStatus[x['status']] ?? ('${x['status']}', Ar.grey)).$1, (_lineStatus[x['status']] ?? ('', Ar.grey)).$2),
                 ]),
               ]),
             ),
@@ -310,7 +311,7 @@ class _ClientsTabState extends State<_ClientsTab> {
               decoration: JphUi.box(isDark),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
-                  JphUi.iconTile(isDark, Icons.person_rounded, c['paymentMethod'] == 'installments' ? Colors.indigo : Colors.green),
+                  JphUi.iconTile(isDark, Icons.person_rounded, c['paymentMethod'] == 'installments' ? Ar.accent : Ar.green),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -319,15 +320,15 @@ class _ClientsTabState extends State<_ClientsTab> {
                           style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                     ]),
                   ),
-                  JphUi.chip(c['paymentMethod'] == 'installments' ? 'تقسيط' : 'كاش', c['paymentMethod'] == 'installments' ? Colors.indigo : Colors.green),
+                  JphUi.chip(c['paymentMethod'] == 'installments' ? 'تقسيط' : 'كاش', c['paymentMethod'] == 'installments' ? Ar.accent : Ar.green),
                 ]),
                 const SizedBox(height: 8),
                 Wrap(spacing: 14, runSpacing: 4, children: [
                   Text('الإجمالي: ${JphUi.money(c['total'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text('المدفوع: ${JphUi.money(c['collected'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.green)),
-                  Text('المتبقي: ${JphUi.money(c['remaining'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.orange)),
+                  Text('المدفوع: ${JphUi.money(c['collected'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Ar.green)),
+                  Text('المتبقي: ${JphUi.money(c['remaining'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Ar.amber)),
                   if (((c['overdue'] as num?) ?? 0) > 0)
-                    Text('متأخر: ${JphUi.money(c['overdue'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.red)),
+                    Text('متأخر: ${JphUi.money(c['overdue'])}', style: const TextStyle(fontWeight: FontWeight.w700, color: Ar.red)),
                 ]),
               ]),
             ),
@@ -399,15 +400,15 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                             child: Text('الموبايل: ${client['phone']}', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))),
                           ),
                         JphUi.statGrid([
-                          JphUi.stat(isDark, 'إجمالي عدد الأقساط', '${counts['installments'] ?? 0}', Icons.format_list_numbered_rounded, Colors.indigo),
-                          JphUi.stat(isDark, 'المدفوع', '${counts['paid'] ?? 0}', Icons.check_circle_rounded, Colors.green),
-                          JphUi.stat(isDark, 'المتبقي', '${counts['remaining'] ?? 0}', Icons.hourglass_bottom_rounded, Colors.orange),
+                          JphUi.stat(isDark, 'إجمالي عدد الأقساط', '${counts['installments'] ?? 0}', Icons.format_list_numbered_rounded, Ar.accent),
+                          JphUi.stat(isDark, 'المدفوع', '${counts['paid'] ?? 0}', Icons.check_circle_rounded, Ar.green),
+                          JphUi.stat(isDark, 'المتبقي', '${counts['remaining'] ?? 0}', Icons.hourglass_bottom_rounded, Ar.amber),
                         ], phone: 3),
                         const SizedBox(height: 10),
                         JphUi.statGrid([
-                          JphUi.stat(isDark, 'المبلغ المدفوع', JphUi.money(amounts['paid']), Icons.price_check_rounded, Colors.green),
-                          JphUi.stat(isDark, 'المبلغ المتبقي', JphUi.money(amounts['remaining']), Icons.pending_rounded, Colors.orange),
-                          JphUi.stat(isDark, 'إجمالي المبلغ', JphUi.money(amounts['total']), Icons.account_balance_rounded, Colors.indigo),
+                          JphUi.stat(isDark, 'المبلغ المدفوع', JphUi.money(amounts['paid']), Icons.price_check_rounded, Ar.green),
+                          JphUi.stat(isDark, 'المبلغ المتبقي', JphUi.money(amounts['remaining']), Icons.pending_rounded, Ar.amber),
+                          JphUi.stat(isDark, 'إجمالي المبلغ', JphUi.money(amounts['total']), Icons.account_balance_rounded, Ar.accent),
                         ], phone: 3),
                         const SizedBox(height: 16),
                         Text('جدول الأقساط', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
@@ -436,7 +437,7 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                                 },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                                  decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.withOpacity(0.15)))),
+                                  decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Ar.grey.withOpacity(0.15)))),
                                   child: Row(children: [
                                     Expanded(
                                       flex: 3,
@@ -445,11 +446,11 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                                     ),
                                     Expanded(flex: 4, child: Text('${l['dueDate']}', style: const TextStyle(fontSize: 12))),
                                     Expanded(flex: 4, child: Text(JphUi.money(l['amount']), style: const TextStyle(fontSize: 12))),
-                                    Expanded(flex: 4, child: Text(JphUi.money(l['paid']), style: const TextStyle(fontSize: 12, color: Colors.green))),
+                                    Expanded(flex: 4, child: Text(JphUi.money(l['paid']), style: const TextStyle(fontSize: 12, color: Ar.green))),
                                     Expanded(
                                       flex: 4,
-                                      child: Text((_lineStatus[l['status']] ?? ('${l['status']}', Colors.grey)).$1,
-                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: (_lineStatus[l['status']] ?? ('', Colors.grey)).$2)),
+                                      child: Text((_lineStatus[l['status']] ?? ('${l['status']}', Ar.grey)).$1,
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: (_lineStatus[l['status']] ?? ('', Ar.grey)).$2)),
                                     ),
                                   ]),
                                 ),
@@ -470,7 +471,7 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                               padding: const EdgeInsets.all(14),
                               decoration: JphUi.box(isDark),
                               child: Row(children: [
-                                JphUi.iconTile(isDark, Icons.home_work_rounded, Colors.indigo),
+                                JphUi.iconTile(isDark, Icons.home_work_rounded, Ar.accent),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -479,7 +480,7 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                                         style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                                   ]),
                                 ),
-                                JphUi.chip((_stageAr[s['stage']] ?? ('${s['stage']}', Colors.grey)).$1, (_stageAr[s['stage']] ?? ('', Colors.grey)).$2),
+                                JphUi.chip((_stageAr[s['stage']] ?? ('${s['stage']}', Ar.grey)).$1, (_stageAr[s['stage']] ?? ('', Ar.grey)).$2),
                               ]),
                             ),
                           ),
@@ -569,7 +570,7 @@ class _NewSalePageState extends State<NewSalePage> {
       err = 'اختار ميعاد أول قسط';
     }
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
       return;
     }
     setState(() => _saving = true);
@@ -607,7 +608,7 @@ class _NewSalePageState extends State<NewSalePage> {
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 700),
                       child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 40), children: [
-                        JphUi.picker(isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع *',
+                        JphUi.picker(isDark: isDark, icon: Icons.apartment_rounded, iconColor: Ar.accent, label: 'المشروع *',
                             value: _project == null ? 'اختار المشروع' : '${_project!['name']}', onTap: () async {
                           final v = await JphUi.sheet<Map<String, dynamic>>(context, isDark, 'المشروع',
                               [for (final p in _projects) (p, '${p['name']}', Icons.apartment_rounded)]);
@@ -627,10 +628,10 @@ class _NewSalePageState extends State<NewSalePage> {
                         JphUi.input(isDark: isDark, label: 'المقدم * (الحجز بيتحسب منه)', controller: _down, number: true, suffix: 'جنيه', onChanged: (_) => setState(() {})),
                         const SizedBox(height: 12),
                         Row(children: [
-                          Expanded(child: JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: 'تاريخ البيع',
+                          Expanded(child: JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.green, label: 'تاريخ البيع',
                               value: _iso(_saleDate), onTap: () => _pickDate(_saleDate, (d) => _saleDate = d))),
                           const SizedBox(width: 10),
-                          Expanded(child: JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.orange, label: 'ميعاد المقدم',
+                          Expanded(child: JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.amber, label: 'ميعاد المقدم',
                               value: _iso(_downDue), onTap: () => _pickDate(_downDue, (d) => _downDue = d))),
                         ]),
                         if (!full) ...[
@@ -646,11 +647,11 @@ class _NewSalePageState extends State<NewSalePage> {
                           else
                             JphUi.input(isDark: isDark, label: 'قيمة القسط', controller: _each, number: true, suffix: 'جنيه', onChanged: (_) => setState(() {})),
                           const SizedBox(height: 10),
-                          JphUi.picker(isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: Colors.purple, label: 'ميعاد أول قسط *',
+                          JphUi.picker(isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: Ar.accent, label: 'ميعاد أول قسط *',
                               value: _firstDue == null ? 'اختار' : _iso(_firstDue!), onTap: () => _pickDate(_firstDue, (d) => _firstDue = d)),
                           if (_preview.isNotEmpty) ...[
                             const SizedBox(height: 10),
-                            JphUi.readOnly(isDark: isDark, label: 'جدول الأقساط (فرق التقريب على آخر قسط)', value: _preview, icon: Icons.table_chart_rounded, color: Colors.blue),
+                            JphUi.readOnly(isDark: isDark, label: 'جدول الأقساط (فرق التقريب على آخر قسط)', value: _preview, icon: Icons.table_chart_rounded, color: Ar.info),
                           ],
                         ],
                         const SizedBox(height: 12),
@@ -718,7 +719,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
           if (line['seq'] == 0) cashSegmented(isDark, {'reservation': 'مبلغ حجز', 'down_payment': 'مقدم'}, kind, (v) => s(() => kind = v)),
           const SizedBox(height: 10),
           JphUi.readOnly(isDark: isDark, label: 'الخزنة', value: recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب',
-              icon: Icons.account_balance_rounded, color: Colors.indigo),
+              icon: Icons.account_balance_rounded, color: Ar.accent),
           const SizedBox(height: 10),
           JphUi.input(isDark: isDark, label: 'المبلغ (الباقي ${JphUi.money(line['remaining'])})', controller: amount, number: true, suffix: 'جنيه'),
           const SizedBox(height: 10),
@@ -817,7 +818,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                       decoration: JphUi.box(isDark),
                                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                                         Row(children: [
-                                          JphUi.iconTile(isDark, Icons.home_work_rounded, Colors.indigo),
+                                          JphUi.iconTile(isDark, Icons.home_work_rounded, Ar.accent),
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -825,21 +826,21 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                               Text('${sale['buyerName']} • ${sale['buyerPhone']} • بيع #${sale['refNo']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                                             ]),
                                           ),
-                                          JphUi.chip((_stageAr[sale['stage']] ?? ('${sale['stage']}', Colors.grey)).$1, (_stageAr[sale['stage']] ?? ('', Colors.grey)).$2),
+                                          JphUi.chip((_stageAr[sale['stage']] ?? ('${sale['stage']}', Ar.grey)).$1, (_stageAr[sale['stage']] ?? ('', Ar.grey)).$2),
                                         ]),
                                         const SizedBox(height: 12),
                                         Wrap(spacing: 10, runSpacing: 10, children: [
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'السعر', JphUi.money(sale['totalPrice']), Icons.sell_rounded, Colors.indigo)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المقدم المدفوع', '${JphUi.money(sale['downPaid'])} / ${JphUi.money(sale['downPayment'])}', Icons.payments_rounded, Colors.teal)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المحصّل', JphUi.money(sale['collected']), Icons.check_circle_rounded, Colors.green)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'الباقي', JphUi.money(sale['remaining']), Icons.hourglass_bottom_rounded, Colors.orange)),
+                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'السعر', JphUi.money(sale['totalPrice']), Icons.sell_rounded, Ar.accent)),
+                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المقدم المدفوع', '${JphUi.money(sale['downPaid'])} / ${JphUi.money(sale['downPayment'])}', Icons.payments_rounded, Ar.green)),
+                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المحصّل', JphUi.money(sale['collected']), Icons.check_circle_rounded, Ar.green)),
+                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'الباقي', JphUi.money(sale['remaining']), Icons.hourglass_bottom_rounded, Ar.amber)),
                                           if (sale['status'] == 'cancelled')
-                                            SizedBox(width: 150, child: JphUi.stat(isDark, 'مستحق استرداد', JphUi.money(sale['refundDue']), Icons.undo_rounded, Colors.red)),
+                                            SizedBox(width: 150, child: JphUi.stat(isDark, 'مستحق استرداد', JphUi.money(sale['refundDue']), Icons.undo_rounded, Ar.red)),
                                         ]),
                                         if (sale['status'] == 'cancelled')
-                                          Padding(padding: const EdgeInsets.only(top: 8), child: Text('اتلغى: ${sale['cancelReason'] ?? ''}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                                          Padding(padding: const EdgeInsets.only(top: 8), child: Text('اتلغى: ${sale['cancelReason'] ?? ''}', style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700))),
                                         if (sale['status'] == 'rejected')
-                                          Padding(padding: const EdgeInsets.only(top: 8), child: Text('اترفضت: ${sale['rejectReason'] ?? ''}', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700))),
+                                          Padding(padding: const EdgeInsets.only(top: 8), child: Text('اترفضت: ${sale['rejectReason'] ?? ''}', style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700))),
                                         if (sale['commission'] is Map)
                                           Padding(
                                             padding: const EdgeInsets.only(top: 8),
@@ -849,16 +850,16 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                         Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
                                           if (can['decide'] == true) ...[
                                             ElevatedButton.icon(onPressed: () => _decide(true), icon: const Icon(Icons.check_rounded), label: const Text('اعتماد'),
-                                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
-                                            TextButton.icon(onPressed: () => _decide(false), icon: const Icon(Icons.close_rounded, color: Colors.red),
-                                                label: const Text('رفض', style: TextStyle(color: Colors.red))),
+                                                style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white)),
+                                            TextButton.icon(onPressed: () => _decide(false), icon: const Icon(Icons.close_rounded, color: Ar.red),
+                                                label: const Text('رفض', style: TextStyle(color: Ar.red))),
                                           ],
                                           if (can['cancel'] == true)
-                                            TextButton.icon(onPressed: _cancel, icon: const Icon(Icons.block_rounded, color: Colors.red),
-                                                label: const Text('إلغاء البيع', style: TextStyle(color: Colors.red))),
+                                            TextButton.icon(onPressed: _cancel, icon: const Icon(Icons.block_rounded, color: Ar.red),
+                                                label: const Text('إلغاء البيع', style: TextStyle(color: Ar.red))),
                                           if (can['refund'] == true && ((sale['refundDue'] as num?) ?? 0) > 0)
                                             ElevatedButton.icon(onPressed: () => _refund(sale['refundDue'] as num), icon: const Icon(Icons.undo_rounded),
-                                                label: const Text('رد فلوس'), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white)),
+                                                label: const Text('رد فلوس'), style: ElevatedButton.styleFrom(backgroundColor: Ar.red, foregroundColor: Colors.white)),
                                         ]),
                                       ]),
                                     ),
@@ -878,7 +879,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                               Text('مدفوع ${JphUi.money(l['paid'])} • باقي ${JphUi.money(l['remaining'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                                             ]),
                                           ),
-                                          JphUi.chip((_lineStatus[l['status']] ?? ('${l['status']}', Colors.grey)).$1, (_lineStatus[l['status']] ?? ('', Colors.grey)).$2),
+                                          JphUi.chip((_lineStatus[l['status']] ?? ('${l['status']}', Ar.grey)).$1, (_lineStatus[l['status']] ?? ('', Ar.grey)).$2),
                                           if (can['collect'] == true && ((l['remaining'] as num?) ?? 0) > 0)
                                             IconButton(tooltip: 'تحصيل', icon: Icon(Icons.add_card_rounded, color: JphUi.primary(isDark)), onPressed: () => _collect(l)),
                                         ]),
@@ -897,14 +898,14 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                             child: Text('${x['receiptNo']} • ${x['kindAr']} • ${JphUi.date(x['occurredAt'])} • استلمها ${x['actualRecipientName']}${x['status'] == 'reversed' ? ' (اتعكس)' : ''}',
                                                 style: TextStyle(color: JphUi.text(isDark))),
                                           ),
-                                          Text(JphUi.money(x['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.green)),
+                                          Text(JphUi.money(x['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
                                         ]),
                                       ),
                                     if (refunds.isNotEmpty) ...[
                                       const SizedBox(height: 16),
                                       Text('الاسترداد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                                       for (final x in refunds)
-                                        ListTile(title: Text('#${x['refNo']} • ${JphUi.date(x['at'])}'), trailing: Text(JphUi.money(x['amount']), style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w900))),
+                                        ListTile(title: Text('#${x['refNo']} • ${JphUi.date(x['at'])}'), trailing: Text(JphUi.money(x['amount']), style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w900))),
                                     ],
                                   ]),
                                 ),

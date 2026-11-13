@@ -5,6 +5,7 @@ import '../../services/app_controller.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 /// Late arrival / early leave deduction (same glass design as the rest of the app).
 /// Approved policy: fixed-amount tiers by minutes — up to the first tier nothing is deducted; past a tier the
@@ -105,7 +106,7 @@ class _LateRulesPageState extends State<LateRulesPage> {
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
   }
 
@@ -191,7 +192,7 @@ class _LateRulesPageState extends State<LateRulesPage> {
                       Text('إذن الساعات والزيارة المتوافق عليهم مش بيتحسبوا تأخير ولا انصراف بدري.', style: sub),
                     ]),
                   ),
-                  if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
+                  if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Ar.red))),
                   const SizedBox(height: 20),
                   SizedBox(
                     height: 52,

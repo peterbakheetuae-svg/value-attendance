@@ -10,6 +10,7 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class EmployeeDetailsPage extends StatefulWidget {
   final Map<String, dynamic> employeeData;
@@ -98,7 +99,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       _employeeData['selfieRequired'] = _selfieRequired;
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
   }
   TimeOfDay? _workStart;
   TimeOfDay? _workEnd;
@@ -132,8 +133,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: ListTile(
-          leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Colors.grey[600]),
-          title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Colors.grey[700])),
+          leading: Icon(start ? Icons.login_rounded : Icons.logout_rounded, color: isDark ? Colors.white70 : Ar.grey[600]),
+          title: Text(label, style: TextStyle(fontSize: 14, color: isDark ? Colors.white70 : Ar.grey[700])),
           trailing: Text(v == null ? 'دوام الشركة' : _hhmm(v), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
           onTap: editable ? () => _pickTime(start) : null,
         ),
@@ -251,7 +252,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في اختيار الصورة: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
     }
@@ -292,18 +293,18 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('لا يمكنك تعديل بيانات المالك'),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
       return;
     }
 
     if (!_noAttendance && (_workStart == null) != (_workEnd == null)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختار ساعة بداية العمل وساعة نهايته'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اختار ساعة بداية العمل وساعة نهايته'), backgroundColor: Ar.red));
       return;
     }
     if (!_noAttendance && _workStart != null && _workEnd != null && _minutes(_workEnd!) <= _minutes(_workStart!)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ساعة نهاية العمل لازم تكون بعد ساعة البداية'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ساعة نهاية العمل لازم تكون بعد ساعة البداية'), backgroundColor: Ar.red));
       return;
     }
     try {
@@ -360,7 +361,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('تم تحديث بيانات الموظف بنجاح'),
-            backgroundColor: Colors.green,
+            backgroundColor: Ar.green,
           ),
         );
 
@@ -369,7 +370,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(response["message"] ?? 'فشل في تحديث البيانات'),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -377,7 +378,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في التحديث: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
     } finally {
@@ -411,14 +412,14 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
             content: Text(
               _isActive ? 'تم تفعيل حساب الموظف' : 'تم تعطيل حساب الموظف',
             ),
-            backgroundColor: _isActive ? Colors.green : Colors.orange,
+            backgroundColor: _isActive ? Ar.green : Ar.amber,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(response["message"] ?? 'فشل في تغيير الحالة'),
-            backgroundColor: Colors.red,
+            backgroundColor: Ar.red,
           ),
         );
       }
@@ -426,7 +427,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في تغيير الحالة: $e'),
-          backgroundColor: Colors.red,
+          backgroundColor: Ar.red,
         ),
       );
     } finally {
@@ -511,7 +512,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text('لا يمكنك تعديل بيانات المالك'),
-                                      backgroundColor: Colors.red,
+                                      backgroundColor: Ar.red,
                                     ),
                                   );
                                 } else {
@@ -566,11 +567,11 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                         shape: BoxShape.circle,
                                         color: isDark
                                             ? Colors.white.withOpacity(0.2)
-                                            : Colors.grey[200],
+                                            : Ar.grey[200],
                                         border: Border.all(
                                           color: _isActive
-                                              ? (isDark ? Colors.green : Colors.green)
-                                              : (isDark ? Colors.red : Colors.red),
+                                              ? (isDark ? Ar.green : Ar.green)
+                                              : (isDark ? Ar.red : Ar.red),
                                           width: 3,
                                         ),
                                       ),
@@ -833,13 +834,13 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _noAttendance = v) : null,
                                   title: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
                                   subtitle: const Text('مش هيظهر له زرار البصمة ومش هيتحسب غياب أو تأخير'),
-                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Colors.orange : Colors.green),
+                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Ar.amber : Ar.green),
                                 ),
                               )
                             else if (_noAttendance)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
-                                child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Colors.orange.shade700, fontWeight: FontWeight.w600)),
+                                child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Ar.amber.shade700, fontWeight: FontWeight.w600)),
                               ),
                             if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
                               Container(
@@ -856,7 +857,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                     subtitle: Text(_deviceLock
                                         ? 'الموظف يدخل من موبايل واحد بس${(_employeeData['deviceLabel'] ?? '').toString().isNotEmpty ? ' — ${_employeeData['deviceLabel']}' : ''}'
                                         : 'يقدر يدخل من أي جهاز'),
-                                    secondary: Icon(Icons.phonelink_lock_rounded, color: _deviceLock ? Colors.green : Colors.grey),
+                                    secondary: Icon(Icons.phonelink_lock_rounded, color: _deviceLock ? Ar.green : Ar.grey),
                                   ),
                                   if (_deviceLock && _employeeData['deviceBound'] == true)
                                     TextButton.icon(
@@ -865,7 +866,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                         if (!mounted) return;
                                         if (r['success'] == true) setState(() => _employeeData['deviceBound'] = false);
                                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Colors.green : Colors.red));
+                                            content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
                                       },
                                       icon: const Icon(Icons.phonelink_erase_rounded),
                                       label: const Text('فك ربط الموبايل الحالي (لو غيّر موبايله)'),
@@ -884,7 +885,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   onChanged: _savingFlag ? null : (v) => _setFlag(selfieRequired: v),
                                   title: Text('تسجيل الحضور بصورة', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
                                   subtitle: Text(_selfieRequired ? 'لازم سيلفي مع كل بصمة حضور' : 'البصمة من غير صورة'),
-                                  secondary: Icon(Icons.camera_front_rounded, color: _selfieRequired ? Colors.green : Colors.grey),
+                                  secondary: Icon(Icons.camera_front_rounded, color: _selfieRequired ? Ar.green : Ar.grey),
                                 ),
                               ),
                             if (!_noAttendance) ...[
@@ -954,8 +955,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                       Icon(
                                         _isActive ? Icons.check_circle : Icons.remove_circle,
                                         color: _isActive
-                                            ? (isDark ? Colors.green[300] : Colors.green)
-                                            : (isDark ? Colors.red[300] : Colors.red),
+                                            ? (isDark ? Ar.green[300] : Ar.green)
+                                            : (isDark ? Ar.red[300] : Ar.red),
                                       ),
                                       const SizedBox(width: 12),
                                       Text(
@@ -975,23 +976,23 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                           _isActive = value;
                                         });
                                       },
-                                      activeColor: Colors.green,
+                                      activeColor: Ar.green,
                                     )
                                   else
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
                                         color: _isActive
-                                            ? (isDark ? Colors.green.withOpacity(0.2) : Colors.green.withOpacity(0.1))
-                                            : (isDark ? Colors.red.withOpacity(0.2) : Colors.red.withOpacity(0.1)),
+                                            ? (isDark ? Ar.green.withOpacity(0.2) : Ar.green.withOpacity(0.1))
+                                            : (isDark ? Ar.red.withOpacity(0.2) : Ar.red.withOpacity(0.1)),
                                         borderRadius: BorderRadius.circular(20),
                                       ),
                                       child: Text(
                                         _isActive ? 'نشط' : 'غير نشط',
                                         style: TextStyle(
                                           color: _isActive
-                                              ? (isDark ? Colors.green[300] : Colors.green[800])
-                                              : (isDark ? Colors.red[300] : Colors.red[800]),
+                                              ? (isDark ? Ar.green[300] : Ar.green[800])
+                                              : (isDark ? Ar.red[300] : Ar.red[800]),
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -1018,7 +1019,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
                                               content: Text('لا يمكنك تعديل بيانات المالك'),
-                                              backgroundColor: Colors.red,
+                                              backgroundColor: Ar.red,
                                             ),
                                           );
                                         } else {
@@ -1060,14 +1061,14 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                           borderRadius: BorderRadius.circular(12),
                                         ),
                                         side: BorderSide(
-                                          color: isDark ? Colors.white70 : Colors.grey,
+                                          color: isDark ? Colors.white70 : Ar.grey,
                                         ),
                                       ),
                                       child: Text(
                                         'إلغاء',
                                         style: TextStyle(
                                           fontSize: 16,
-                                          color: isDark ? Colors.white70 : Colors.grey[700],
+                                          color: isDark ? Colors.white70 : Ar.grey[700],
                                         ),
                                       ),
                                     ),
@@ -1080,7 +1081,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 child: ElevatedButton(
                                   onPressed: _toggleEmployeeStatus,
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: _isActive ? Colors.orange : Colors.green,
+                                    backgroundColor: _isActive ? Ar.amber : Ar.green,
                                     padding: const EdgeInsets.symmetric(vertical: 16),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
@@ -1150,12 +1151,12 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     final r = await ApiService.post({'action': 'reset_employee_password', 'uid': _employeeData['id'] ?? _employeeData['uid']});
     if (!mounted) return;
     if (r['success'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: Ar.red));
       return;
     }
     if (r['emailed'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('تم إرسال كلمة المرور الجديدة على ${r['emailTo']}'), backgroundColor: Colors.green));
+          content: Text('تم إرسال كلمة المرور الجديدة على ${r['emailTo']}'), backgroundColor: Ar.green));
       return;
     }
     final pw = '${r['password'] ?? ''}';
@@ -1185,7 +1186,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         style: TextStyle(
           fontSize: 40,
           fontWeight: FontWeight.bold,
-          color: isDark ? Colors.white70 : Colors.grey[700],
+          color: isDark ? Colors.white70 : Ar.grey[700],
         ),
       ),
     );
@@ -1212,7 +1213,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  color: isDark ? Colors.white70 : Colors.grey[700],
+                  color: isDark ? Colors.white70 : Ar.grey[700],
                 ),
               ),
               const SizedBox(height: 4),
@@ -1227,7 +1228,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                     children: [
                       Icon(
                         icon,
-                        color: isDark ? Colors.white70 : Colors.grey[600],
+                        color: isDark ? Colors.white70 : Ar.grey[600],
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -1277,7 +1278,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
             'تاريخ الانضمام',
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.white70 : Colors.grey[700],
+              color: isDark ? Colors.white70 : Ar.grey[700],
             ),
           ),
           const SizedBox(height: 4),
@@ -1292,7 +1293,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                 children: [
                   Icon(
                     Icons.calendar_today,
-                    color: isDark ? Colors.white70 : Colors.grey[600],
+                    color: isDark ? Colors.white70 : Ar.grey[600],
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1351,7 +1352,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
             label,
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.white70 : Colors.grey[700],
+              color: isDark ? Colors.white70 : Ar.grey[700],
             ),
           ),
           const SizedBox(height: 4),
@@ -1366,7 +1367,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                 children: [
                   Icon(
                     icon,
-                    color: isDark ? Colors.white70 : Colors.grey[600],
+                    color: isDark ? Colors.white70 : Ar.grey[600],
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1396,7 +1397,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                         fontSize: 16,
                         color: isDark ? Colors.white : Colors.black,
                       ),
-                      dropdownColor: isDark ? Colors.grey[800] : Colors.white,
+                      dropdownColor: isDark ? Ar.grey[800] : Colors.white,
                       hint: Text('اختر $label'),
                     ),
                   ),

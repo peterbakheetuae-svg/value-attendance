@@ -10,6 +10,7 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String uid;
@@ -168,7 +169,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                             fit: BoxFit.cover,
                           )
                               : null,
-                          color: isDark ? AppColors.surfaceVariantDark : Colors.grey[200],
+                          color: isDark ? AppColors.surfaceVariantDark : Ar.grey[200],
                         ),
                         child: (_newPhotoBase64 == null && (widget.currentData["photo"] == null || widget.currentData["photo"].isEmpty))
                             ? Icon(Icons.person, size: 40, color: subduedTextColor)

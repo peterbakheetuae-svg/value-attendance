@@ -310,3 +310,22 @@ class GlassPageTransitions extends PageTransitionsBuilder {
     );
   }
 }
+
+/// The «Ardena» data colours as Material swatches, so every `Colors.green` / `.shade700` in the app now reads them.
+class Ar {
+  Ar._();
+  /// good / money in (their #4fcf73)
+  static const MaterialColor green = MaterialColor(0xFF4FCF73, <int, Color>{50: Color(0xFFEAF9EE), 100: Color(0xFFD5F3DD), 200: Color(0xFFB5EBC4), 300: Color(0xFF92E1A8), 400: Color(0xFF6FD88C), 500: Color(0xFF4FCF73), 600: Color(0xFF46B665), 700: Color(0xFF3C9D57), 800: Color(0xFF33844A), 900: Color(0xFF296C3C)});
+  /// bad / late / refused (their #ff7d6e)
+  static const MaterialColor red = MaterialColor(0xFFFF7D6E, <int, Color>{50: Color(0xFFFFEFEE), 100: Color(0xFFFFE0DC), 200: Color(0xFFFFC8C2), 300: Color(0xFFFFAEA5), 400: Color(0xFFFF9488), 500: Color(0xFFFF7D6E), 600: Color(0xFFE06E61), 700: Color(0xFFC25F54), 800: Color(0xFFA35046), 900: Color(0xFF854139)});
+  /// warning / pending (their #f7a928)
+  static const MaterialColor amber = MaterialColor(0xFFF7A928, <int, Color>{50: Color(0xFFFEF5E5), 100: Color(0xFFFDEACB), 200: Color(0xFFFCDBA5), 300: Color(0xFFFACA7A), 400: Color(0xFFF8B84F), 500: Color(0xFFF7A928), 600: Color(0xFFD99523), 700: Color(0xFFBC801E), 800: Color(0xFF9E6C1A), 900: Color(0xFF805815)});
+  /// our blue (their orange accent)
+  static const MaterialColor accent = MaterialColor(0xFF6A67F5, <int, Color>{50: Color(0xFFEDEDFE), 100: Color(0xFFDBDBFD), 200: Color(0xFFC0BFFB), 300: Color(0xFFA3A1F9), 400: Color(0xFF8582F7), 500: Color(0xFF6A67F5), 600: Color(0xFF5D5BD8), 700: Color(0xFF514EBA), 800: Color(0xFF44429D), 900: Color(0xFF37367F)});
+  /// info / neutral data (their #7fb4e8)
+  static const MaterialColor info = MaterialColor(0xFF7FB4E8, <int, Color>{50: Color(0xFFF0F6FC), 100: Color(0xFFE0EDF9), 200: Color(0xFFC9E0F5), 300: Color(0xFFB0D0F1), 400: Color(0xFF96C2EC), 500: Color(0xFF7FB4E8), 600: Color(0xFF709ECC), 700: Color(0xFF6189B0), 800: Color(0xFF517394), 900: Color(0xFF425E79)});
+  /// the sixth data colour (their #c99a76)
+  static const MaterialColor tan = MaterialColor(0xFFC99A76, <int, Color>{50: Color(0xFFF9F3EF), 100: Color(0xFFF2E7DE), 200: Color(0xFFE8D5C5), 300: Color(0xFFDEC0AA), 400: Color(0xFFD3AC8F), 500: Color(0xFFC99A76), 600: Color(0xFFB18868), 700: Color(0xFF99755A), 800: Color(0xFF81634C), 900: Color(0xFF69503D)});
+  /// warm stone greys instead of the cool Material greys
+  static const MaterialColor grey = MaterialColor(0xFF8F8B84, <int, Color>{50: Color(0xFFFAF9F7), 100: Color(0xFFF2F0EC), 200: Color(0xFFE6E3DE), 300: Color(0xFFD6D2CB), 400: Color(0xFFB3AEA6), 500: Color(0xFF8F8B84), 600: Color(0xFF6F6B65), 700: Color(0xFF57534E), 800: Color(0xFF3A3835), 900: Color(0xFF22211F)});
+}

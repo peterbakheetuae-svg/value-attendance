@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import 'otp_page.dart';
+import '../../widgets/glass_ui.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -41,7 +42,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       if (done == true && mounted) Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(response["message"] ?? 'فشل الإرسال'), backgroundColor: Colors.red),
+        SnackBar(content: Text(response["message"] ?? 'فشل الإرسال'), backgroundColor: Ar.red),
       );
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../l10n/app_localizations.dart';
+import '../../widgets/glass_ui.dart';
 
 class MonthlySection extends StatelessWidget {
   final Map<String, dynamic> monthly;
@@ -95,14 +96,14 @@ class MonthlySection extends StatelessWidget {
                 Icon(
                   Icons.calendar_today_outlined,
                   size: 60,
-                  color: isDark ? Colors.grey[400] : Colors.grey[500],
+                  color: isDark ? Ar.grey[400] : Ar.grey[500],
                 ),
                 const SizedBox(height: 16),
                 Text(
                   noDataText,
                   style: TextStyle(
                     fontSize: 16,
-                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    color: isDark ? Ar.grey[400] : Ar.grey[600],
                     fontWeight: FontWeight.w500,
                   ),
                   textAlign: TextAlign.center,
@@ -175,7 +176,7 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "Days $w",
                   bottom: workDaysText,
-                  bottomColor: const Color(0xFF2E9B67),
+                  bottomColor: const Color(0xFF2FA65A),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
@@ -190,13 +191,13 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "Days $h",
                   bottom: holidaysText,
-                  bottomColor: const Color(0xFFD0902D),
+                  bottomColor: const Color(0xFFD99420),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
                   top: "Days $s",
                   bottom: sickText,
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
               ),
@@ -205,7 +206,7 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "Days $a",
                   bottom: absentText,
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
@@ -227,7 +228,7 @@ class MonthlySection extends StatelessWidget {
                 right: MonthlyMini(
                   top: "ج.م $attendSalary",
                   bottom: attendSalaryText,
-                  bottomColor: const Color(0xFF2E9B67),
+                  bottomColor: const Color(0xFF2FA65A),
                   isDark: isDark,
                 ),
               ),
@@ -236,13 +237,13 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "ج.م $commissions",
                   bottom: 'عمولة المبيعات',
-                  bottomColor: const Color(0xFFD0902D),
+                  bottomColor: const Color(0xFFD99420),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
                   top: "ج.م $bonus",
                   bottom: bonusText,
-                  bottomColor: const Color(0xFFD0902D),
+                  bottomColor: const Color(0xFFD99420),
                   isDark: isDark,
                 ),
               ),
@@ -257,7 +258,7 @@ class MonthlySection extends StatelessWidget {
                 right: MonthlyMini(
                   top: "ج.م $deduction",
                   bottom: deductionText,
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
               ),
@@ -266,13 +267,13 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "ج.م $absentDeduction",
                   bottom: absentDeductionText,
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
                   top: "ج.م $advance",
                   bottom: advanceText,
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
               ),
@@ -281,7 +282,7 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "ج.م $received",
                   bottom: receivedText,
-                  bottomColor: const Color(0xFF2E9B67),
+                  bottomColor: const Color(0xFF2FA65A),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
@@ -296,13 +297,13 @@ class MonthlySection extends StatelessWidget {
                 left: MonthlyMini(
                   top: "ج.م $arrears",
                   bottom: arrearsText,
-                  bottomColor: const Color(0xFFD0902D),
+                  bottomColor: const Color(0xFFD99420),
                   isDark: isDark,
                 ),
                 right: MonthlyMini(
                   top: "—",
                   bottom: " ",
-                  bottomColor: const Color(0xFFB54A3A),
+                  bottomColor: const Color(0xFFC8553F),
                   isDark: isDark,
                 ),
               ),
@@ -357,7 +358,7 @@ class MonthlyMini extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey[200],
+        color: isDark ? Colors.white.withOpacity(0.1) : Ar.grey[200],
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(

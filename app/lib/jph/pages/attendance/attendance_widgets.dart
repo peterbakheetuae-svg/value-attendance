@@ -4,6 +4,7 @@ import '../../l10n/app_localizations.dart'; // 🔥 استيراد الترجم�
 import '../../widgets/jph_form_ui.dart';
 import 'attendance_daily_section.dart';
 import 'attendance_monthly_section.dart';
+import '../../widgets/glass_ui.dart';
 
 // ================== Header ==================
 class Header extends StatelessWidget {
@@ -197,8 +198,8 @@ class TopStats extends StatelessWidget {
                 label: label1, // 🔥 استخدام الترجمة
                 icon: Icons.check_circle_rounded,
                 softIconBg: isDark ? const Color(0xFF1A3D2C) : const Color(0xFFDFF3E6),
-                iconColor: isDark ? const Color(0xFF4CAF50) : const Color(0xFF20A45A),
-                valueColor: isDark ? const Color(0xFF4CAF50) : const Color(0xFF20A45A),
+                iconColor: isDark ? const Color(0xFF4FCF73) : const Color(0xFF2FA65A),
+                valueColor: isDark ? const Color(0xFF4FCF73) : const Color(0xFF2FA65A),
                 isDark: isDark,
               ),
             ),
@@ -208,7 +209,7 @@ class TopStats extends StatelessWidget {
                 value: "$topTotal",
                 label: label2, // 🔥 استخدام الترجمة
                 icon: Icons.calendar_month_rounded,
-                softIconBg: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFE8E6FF),
+                softIconBg: isDark ? AppColors.primaryLight.withOpacity(0.2) : const Color(0xFFEDEAE5),
                 iconColor: isDark ? AppColors.primaryLight : AppColors.primary,
                 valueColor: isDark ? AppColors.primaryLight : AppColors.primary,
                 isDark: isDark,
@@ -487,7 +488,7 @@ class SmallIcon extends StatelessWidget {
       height: 42,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFEDEBFF),
+        color: isDark ? AppColors.primaryLight.withOpacity(0.3) : const Color(0xFFF0EDE8),
       ),
       child: Icon(
         icon,
@@ -692,13 +693,13 @@ class ErrorState extends StatelessWidget {
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.red.shade900.withOpacity(0.3) : Colors.red.shade50,
+                  color: isDark ? Ar.red.shade900.withOpacity(0.3) : Ar.red.shade50,
                   borderRadius: BorderRadius.circular(40),
                 ),
                 child: const Icon(
                   Icons.error_outline_rounded,
                   size: 40,
-                  color: Colors.redAccent,
+                  color: Ar.red,
                 ),
               ),
               const SizedBox(height: 20),
@@ -707,7 +708,7 @@ class ErrorState extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: Colors.red,
+                  color: Ar.red,
                 ),
               ),
               const SizedBox(height: 12),
@@ -773,13 +774,13 @@ class EmptyState extends StatelessWidget {
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+                  color: isDark ? Ar.grey.shade800 : Ar.grey.shade100,
                   borderRadius: BorderRadius.circular(40),
                 ),
                 child: Icon(
                   Icons.hourglass_empty_rounded,
                   size: 40,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                 ),
               ),
               const SizedBox(height: 20),
@@ -788,7 +789,7 @@ class EmptyState extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: Colors.grey,
+                  color: Ar.grey,
                 ),
               ),
               const SizedBox(height: 12),
@@ -800,7 +801,7 @@ class EmptyState extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                   ),
                 ),
               ),
@@ -885,7 +886,7 @@ class EmployeeDropdown extends StatelessWidget {
           children: [
             Icon(
               Icons.warning_rounded,
-              color: isDark ? Colors.orangeAccent : Colors.orange,
+              color: isDark ? Ar.amber : Ar.amber,
               size: 24,
             ),
             const SizedBox(width: 12),
@@ -912,7 +913,7 @@ class EmployeeDropdown extends StatelessWidget {
       child: JphUi.picker(
         isDark: isDark,
         icon: Icons.badge_rounded,
-        iconColor: Colors.teal,
+        iconColor: Ar.green,
         label: selectEmployeeText,
         value: current == null ? (selectedEmployeeName ?? selectEmployeeText) : '${current['name'] ?? ''}',
         onTap: () async {

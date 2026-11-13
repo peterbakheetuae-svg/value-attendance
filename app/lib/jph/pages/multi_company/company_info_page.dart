@@ -9,6 +9,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../services/api_service.dart';
+import '../../widgets/glass_ui.dart';
 
 /// Company information & office location — same glass UI as the original company screen,
 /// with the office geofence drawn on an OpenStreetMap map. The offices here drive geofencing.
@@ -57,7 +58,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
   }
 
@@ -187,10 +188,10 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                 child: GlassCard(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Icon(Icons.apartment_rounded, color: o['active'] == false ? Colors.grey : AppColors.secondary),
+                      Icon(Icons.apartment_rounded, color: o['active'] == false ? Ar.grey : AppColors.secondary),
                       const SizedBox(width: 10),
                       Expanded(child: Text('${o['name']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16))),
-                      if (o['active'] == false) const Text('متوقف', style: TextStyle(color: Colors.grey)),
+                      if (o['active'] == false) const Text('متوقف', style: TextStyle(color: Ar.grey)),
                       if (_canEdit) IconButton(icon: const Icon(Icons.edit_location_alt_outlined), onPressed: () => _editOffice(o)),
                     ]),
                     _row('الإحداثيات', '${(o['lat'] as num).toStringAsFixed(6)}, ${(o['lng'] as num).toStringAsFixed(6)}'),
@@ -316,7 +317,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
                 set(() => pick = LatLng(pos.latitude, pos.longitude));
               } catch (_) {
                 if (ctx.mounted) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('شغّل الـ GPS واسمح للتطبيق بالموقع'), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('شغّل الـ GPS واسمح للتطبيق بالموقع'), backgroundColor: Ar.red));
                 }
               }
             },
@@ -334,7 +335,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
           _saveButton(ctx, () async {
             final rm = int.tryParse(radius.text.trim());
             if (pick == null || rm == null || rm < 5 || rm > 5000 || name.text.trim().length < 2) {
-              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('حدد المكان على الخريطة واكتب الاسم ونصف القطر (من 5 لـ 5000 متر)'), backgroundColor: Colors.red));
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('حدد المكان على الخريطة واكتب الاسم ونصف القطر (من 5 لـ 5000 متر)'), backgroundColor: Ar.red));
               return;
             }
             final res = await ApiService.post({'action': 'save_office', if (o != null) 'id': o['id'], 'name': name.text.trim(),
@@ -354,13 +355,13 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
       padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(
-          color: isDark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+          color: isDark ? Ar.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(2)))),
             const SizedBox(height: 14),
             Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),

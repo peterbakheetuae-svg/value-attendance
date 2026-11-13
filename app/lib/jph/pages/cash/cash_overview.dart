@@ -7,6 +7,7 @@ import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'cash_page.dart' show newClientRef;
 import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard, monthQuery, monthLabel;
+import '../../widgets/glass_ui.dart';
 
 /// الخزنة the office's way (GET /cash/overview):
 ///   المتاح = بنك + نقدي (نقدي = خزنة المكتب + خزنة المحاسب)
@@ -85,11 +86,11 @@ class _CashOverviewState extends State<CashOverview> {
       const SizedBox(height: 14),
       _title(isDark, 'الدخل — ${monthLabel(_filter)}'),
       JphUi.statGrid([
-        if (_office) _tap(JphUi.stat(isDark, 'عمولات (ربحي)', JphUi.money(inc['commissions']), Icons.workspace_premium_rounded, Colors.amber.shade700),
+        if (_office) _tap(JphUi.stat(isDark, 'عمولات (ربحي)', JphUi.money(inc['commissions']), Icons.workspace_premium_rounded, Ar.amber.shade700),
             () => _commissionSheet(isDark)),
-        _tap(JphUi.stat(isDark, 'مبيعات', JphUi.money(_m(inc['sales'])['total']), Icons.home_work_rounded, Colors.teal), () => _salesSheet(isDark, _m(inc['sales']))),
-        JphUi.stat(isDark, 'ضخ من المالك / المدير العام', JphUi.money(inc['injection']), Icons.add_card_rounded, Colors.indigo),
-        if (_office) _tap(JphUi.stat(isDark, 'أمانات (الحصري)', JphUi.money(_m(inc['trust'])['balance']), Icons.real_estate_agent_rounded, Colors.purple),
+        _tap(JphUi.stat(isDark, 'مبيعات', JphUi.money(_m(inc['sales'])['total']), Icons.home_work_rounded, Ar.green), () => _salesSheet(isDark, _m(inc['sales']))),
+        JphUi.stat(isDark, 'ضخ من المالك / المدير العام', JphUi.money(inc['injection']), Icons.add_card_rounded, Ar.accent),
+        if (_office) _tap(JphUi.stat(isDark, 'أمانات (الحصري)', JphUi.money(_m(inc['trust'])['balance']), Icons.real_estate_agent_rounded, Ar.accent),
             () => _trustSheet(isDark, _m(inc['trust']))),
       ]),
       const SizedBox(height: 14),
@@ -188,10 +189,10 @@ class _CashOverviewState extends State<CashOverview> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.receipt_long_rounded, Colors.deepOrange),
+          JphUi.iconTile(isDark, Icons.receipt_long_rounded, Ar.amber),
           const SizedBox(width: 12),
           Expanded(child: Text('المصروفات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-          Text(JphUi.money(exp['total']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.deepOrange)),
+          Text(JphUi.money(exp['total']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.amber)),
         ]),
         const SizedBox(height: 8),
         _row(isDark, 'المرتبات', pay['salary']),
@@ -207,13 +208,13 @@ class _CashOverviewState extends State<CashOverview> {
 
   Widget _result(bool isDark, Map<String, dynamic> r) {
     final net = _n(r['net']);
-    final c = net >= 0 ? Colors.green : Colors.red;
+    final c = net >= 0 ? Ar.green : Ar.red;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _row(isDark, 'العمولات (الدخل الحقيقي)', r['commissions'], color: Colors.amber.shade800),
-        _row(isDark, 'المرتبات والمصاريف', r['costs'], color: Colors.deepOrange),
+        _row(isDark, 'العمولات (الدخل الحقيقي)', r['commissions'], color: Ar.amber.shade800),
+        _row(isDark, 'المرتبات والمصاريف', r['costs'], color: Ar.amber),
         const Divider(),
         Row(children: [
           Icon(net >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded, color: c),
@@ -247,7 +248,7 @@ class _CashOverviewState extends State<CashOverview> {
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(18),
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
-            decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
@@ -279,11 +280,11 @@ class _CashOverviewState extends State<CashOverview> {
     Future<void> open(Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page)).then((_) => _load());
     return JphUi.statGrid([
       GestureDetector(onTap: () => open(ProjectsBoxPage(month: _filter)),
-          child: JphUi.stat(isDark, 'خزنة المشاريع', JphUi.money(box['total']), Icons.real_estate_agent_rounded, Colors.purple)),
+          child: JphUi.stat(isDark, 'خزنة المشاريع', JphUi.money(box['total']), Icons.real_estate_agent_rounded, Ar.accent)),
       GestureDetector(onTap: () => open(CommissionsDuePage(month: _filter)),
-          child: JphUi.stat(isDark, 'عمولات (متبقي)', JphUi.money(cm['remaining']), Icons.workspace_premium_rounded, Colors.amber.shade800)),
+          child: JphUi.stat(isDark, 'عمولات (متبقي)', JphUi.money(cm['remaining']), Icons.workspace_premium_rounded, Ar.amber.shade800)),
       GestureDetector(onTap: () => open(ExpectedCommissionsPage(month: _filter)),
-          child: JphUi.stat(isDark, 'عمولات متوقعة', JphUi.money(ex['total']), Icons.event_available_rounded, Colors.indigo)),
+          child: JphUi.stat(isDark, 'عمولات متوقعة', JphUi.money(ex['total']), Icons.event_available_rounded, Ar.accent)),
     ]);
   }
 
@@ -294,9 +295,9 @@ class _CashOverviewState extends State<CashOverview> {
   }
 
   void _trustSheet(bool isDark, Map<String, dynamic> t) => _sheet(isDark, 'الأمانات — فلوس ملاك المشاريع الحصري', [
-        _row(isDark, 'دخل الشهر (حجز / تعاقد / أقساط)', t['in'], color: Colors.green),
-        _row(isDark, 'خرج الشهر (صرف للمالك / رد عربون)', t['out'], color: Colors.red),
-        _row(isDark, 'عمولة اتحوّلت للمكتب الشهر ده', t['commissionMoved'], color: Colors.amber.shade800),
+        _row(isDark, 'دخل الشهر (حجز / تعاقد / أقساط)', t['in'], color: Ar.green),
+        _row(isDark, 'خرج الشهر (صرف للمالك / رد عربون)', t['out'], color: Ar.red),
+        _row(isDark, 'عمولة اتحوّلت للمكتب الشهر ده', t['commissionMoved'], color: Ar.amber.shade800),
         const Divider(),
         _row(isDark, 'في الأمانة دلوقتي (كل المشاريع)', t['balance'], bold: true),
         const SizedBox(height: 8),
@@ -307,8 +308,8 @@ class _CashOverviewState extends State<CashOverview> {
     final inc = _m(_o['income']);
     final sp = _m(_o['commissionSplit']);
     _sheet(isDark, 'العمولات', [
-      _row(isDark, 'عمولة مستلمة من المطورين', inc['commissionReceived'], color: Colors.green),
-      _row(isDark, 'عمولة اتحوّلت من أمانات الحصري', _m(inc['trust'])['commissionMoved'], color: Colors.green),
+      _row(isDark, 'عمولة مستلمة من المطورين', inc['commissionReceived'], color: Ar.green),
+      _row(isDark, 'عمولة اتحوّلت من أمانات الحصري', _m(inc['trust'])['commissionMoved'], color: Ar.green),
       const Divider(),
       _row(isDark, 'دخل العمولات', inc['commissions'], bold: true),
       const SizedBox(height: 14),
@@ -317,7 +318,7 @@ class _CashOverviewState extends State<CashOverview> {
       _row(isDark, 'السيلز', sp['sales']),
       _row(isDark, 'مدير السيلز', sp['manager']),
       _row(isDark, 'شركات التسويق', sp['marketing']),
-      _row(isDark, 'المكتب', sp['office'], color: Colors.teal),
+      _row(isDark, 'المكتب', sp['office'], color: Ar.green),
       const Divider(),
       _row(isDark, 'إجمالي العمولة', sp['total'], bold: true),
     ]);
@@ -344,7 +345,7 @@ class _CashOverviewState extends State<CashOverview> {
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
               constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+              decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text('عمولة مستلمة من المطور', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -413,7 +414,7 @@ Future<void> showInjectSheet(BuildContext context, bool isDark) async {
             child: Container(
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+              decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Text('ضخ فلوس في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -503,7 +504,7 @@ class _InjectionsTabState extends State<InjectionsTab> {
           child: Container(
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Text('نسب الملكية في الشركة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -564,9 +565,9 @@ class _InjectionsTabState extends State<InjectionsTab> {
         Text(monthLabel(_filter), textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
         const SizedBox(height: 8),
         JphUi.statGrid([
-          JphUi.stat(isDark, 'إجمالي الضخ', JphUi.money(d['total']), Icons.add_card_rounded, Colors.indigo),
+          JphUi.stat(isDark, 'إجمالي الضخ', JphUi.money(d['total']), Icons.add_card_rounded, Ar.accent),
           JphUi.stat(isDark, net >= 0 ? 'صافي ربح المكتب' : 'عجز المكتب', JphUi.money(net.abs()), net >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
-              net >= 0 ? Colors.green : Colors.red),
+              net >= 0 ? Ar.green : Ar.red),
         ]),
         const SizedBox(height: 14),
         Row(children: [
@@ -577,11 +578,11 @@ class _InjectionsTabState extends State<InjectionsTab> {
           Text('${o['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
           const SizedBox(height: 6),
           JphUi.statGrid([
-            JphUi.stat(isDark, 'نسبة الملكية', JphUi.pct(o['pct']), Icons.pie_chart_rounded, Colors.purple),
+            JphUi.stat(isDark, 'نسبة الملكية', JphUi.pct(o['pct']), Icons.pie_chart_rounded, Ar.accent),
             JphUi.stat(isDark, _n(o['profit']) >= 0 ? 'ربحه من صافي العمولة' : 'نصيبه من العجز', JphUi.money(_n(o['profit']).abs()),
-                Icons.workspace_premium_rounded, _n(o['profit']) >= 0 ? Colors.green : Colors.red),
-            JphUi.stat(isDark, 'ضخ', JphUi.money(o['injected']), Icons.add_card_rounded, Colors.indigo),
-            JphUi.stat(isDark, 'إجمالي ضخه (كل الشهور)', JphUi.money(o['injectedAllTime']), Icons.savings_rounded, Colors.teal),
+                Icons.workspace_premium_rounded, _n(o['profit']) >= 0 ? Ar.green : Ar.red),
+            JphUi.stat(isDark, 'ضخ', JphUi.money(o['injected']), Icons.add_card_rounded, Ar.accent),
+            JphUi.stat(isDark, 'إجمالي ضخه (كل الشهور)', JphUi.money(o['injectedAllTime']), Icons.savings_rounded, Ar.green),
           ]),
           const SizedBox(height: 14),
         ],
@@ -598,7 +599,7 @@ class _InjectionsTabState extends State<InjectionsTab> {
             padding: const EdgeInsets.all(14),
             decoration: JphUi.box(isDark),
             child: Row(children: [
-              JphUi.iconTile(isDark, Icons.add_card_rounded, x['status'] == 'posted' ? Colors.indigo : Colors.grey),
+              JphUi.iconTile(isDark, Icons.add_card_rounded, x['status'] == 'posted' ? Ar.accent : Ar.grey),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/glass_ui.dart';
 
 /// Job positions + their permissions, read from the server: any new position shows up here
 /// automatically. Permissions are enforced by the API; this page only edits them.
@@ -105,7 +106,7 @@ class _PositionsPageState extends State<PositionsPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Colors.green : Colors.red,
+      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
     ));
   }
 
@@ -164,8 +165,8 @@ class _PositionsPageState extends State<PositionsPage> {
           child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
             leading: Icon(builtin ? Icons.verified_user_rounded : Icons.work_outline_rounded,
-                color: active ? AppColors.primary : Colors.grey),
-            title: Text('${r['name_ar']}', style: TextStyle(fontWeight: FontWeight.w700, color: active ? null : Colors.grey)),
+                color: active ? AppColors.primary : Ar.grey),
+            title: Text('${r['name_ar']}', style: TextStyle(fontWeight: FontWeight.w700, color: active ? null : Ar.grey)),
             subtitle: Text([
               builtin ? 'دور أساسي' : 'تتبع: ${r['base_name_ar'] ?? _baseRoles[r['base_key']] ?? ''}',
               '${r['employee_count'] ?? 0} موظف',
@@ -240,13 +241,13 @@ class _PositionsPageState extends State<PositionsPage> {
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: Container(
           decoration: BoxDecoration(
-            color: isDark ? Colors.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
+            color: isDark ? Ar.grey.shade900.withOpacity(0.98) : Colors.white.withOpacity(0.98),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(2)))),
               const SizedBox(height: 14),
               Text(r == null ? 'وظيفة جديدة' : 'تعديل الوظيفة', textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
@@ -272,7 +273,7 @@ class _PositionsPageState extends State<PositionsPage> {
                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                   onPressed: () async {
                     if (name.text.trim().length < 2) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('اكتب اسم الوظيفة'), backgroundColor: Colors.red));
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('اكتب اسم الوظيفة'), backgroundColor: Ar.red));
                       return;
                     }
                     final res = r == null

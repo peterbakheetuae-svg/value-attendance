@@ -18,6 +18,7 @@ import '../../widgets/employee_files.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../widgets/employee_kpi_box.dart';
+import '../../widgets/glass_ui.dart';
 
 class ProfilePage extends StatefulWidget {
   final String uid;
@@ -412,7 +413,7 @@ class _ProgressRingAvatar extends StatelessWidget {
               height: inner,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isDark ? AppColors.surfaceVariantDark.withOpacity(0.3) : Colors.teal.shade50,
+                color: isDark ? AppColors.surfaceVariantDark.withOpacity(0.3) : Ar.green.shade50,
               ),
               child: ClipOval(
                 child: hasPhoto
@@ -434,7 +435,7 @@ class _ProgressRingAvatar extends StatelessWidget {
                 children: [
                   Text(percentText, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14)),
                   const SizedBox(width: 8),
-                  const Icon(Icons.star, color: Colors.amber, size: 18),
+                  const Icon(Icons.star, color: Ar.amber, size: 18),
                 ],
               ),
             ),

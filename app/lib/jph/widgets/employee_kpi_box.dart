@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_ui_widgets.dart';
+import 'glass_ui.dart';
 
 /// One box with every KPI of the employee this month: target, actual, achievement and weight.
 class EmployeeKpiBox extends StatefulWidget {
@@ -84,7 +85,7 @@ class _EmployeeKpiBoxState extends State<EmployeeKpiBox> {
                         Expanded(child: Text('المستهدف: ${_n(k['target'])}   •   المحقق: ${_n(k['actual'])}', style: TextStyle(fontSize: 13, color: sub))),
                         Text(k['achievementPercent'] == null ? 'لم يُقيَّم' : '${_n(k['achievementPercent'])}%',
                             style: TextStyle(fontWeight: FontWeight.w700,
-                                color: k['achievementPercent'] == null ? sub : ((k['achievementPercent'] as num) >= 100 ? Colors.green : Colors.orange))),
+                                color: k['achievementPercent'] == null ? sub : ((k['achievementPercent'] as num) >= 100 ? Ar.green : Ar.amber))),
                       ]),
                       if (k['achievementPercent'] is num) ...[
                         const SizedBox(height: 6),
@@ -94,7 +95,7 @@ class _EmployeeKpiBoxState extends State<EmployeeKpiBox> {
                             value: ((k['achievementPercent'] as num) / 100).clamp(0.0, 1.0).toDouble(),
                             minHeight: 6,
                             backgroundColor: sub.withOpacity(0.15),
-                            color: (k['achievementPercent'] as num) >= 100 ? Colors.green : AppColors.primary,
+                            color: (k['achievementPercent'] as num) >= 100 ? Ar.green : AppColors.primary,
                           ),
                         ),
                       ],

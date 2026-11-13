@@ -114,13 +114,13 @@ Widget _btn(bool isDark, String label, IconData icon, VoidCallback onTap, {Color
     );
 
 Color _statusColor(String s) => switch (s) {
-      'reserving' => Colors.orange,
-      'reserved' => Colors.indigo,
-      'contract_pending' || 'cancel_pending' => Colors.deepOrange,
-      'contracted' => Colors.teal,
-      'completed' => Colors.green,
-      'cancelled' => Colors.grey,
-      _ => Colors.blueGrey,
+      'reserving' => Ar.amber,
+      'reserved' => Ar.accent,
+      'contract_pending' || 'cancel_pending' => Ar.amber,
+      'contracted' => Ar.green,
+      'completed' => Ar.green,
+      'cancelled' => Ar.grey,
+      _ => Ar.grey,
     };
 
 Widget _pill(String t, Color c) => Container(
@@ -145,7 +145,7 @@ Future<bool> _form(BuildContext context, bool isDark, String title, List<Widget>
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: isDark ? const Color(0xFF1E2230) : Colors.white, borderRadius: BorderRadius.circular(24)),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF2A2926) : Colors.white, borderRadius: BorderRadius.circular(24)),
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
@@ -170,7 +170,7 @@ Future<bool> _form(BuildContext context, bool isDark, String title, List<Widget>
 
 Widget _methodPicker(BuildContext context, bool isDark, String method, ValueChanged<String> onPick) => JphUi.picker(
       isDark: isDark, icon: method == 'cash' ? Icons.payments_rounded : Icons.account_balance_rounded,
-      iconColor: method == 'cash' ? Colors.green : Colors.indigo, label: 'الفلوس', value: method == 'cash' ? 'نقدي' : 'بنك',
+      iconColor: method == 'cash' ? Ar.green : Ar.accent, label: 'الفلوس', value: method == 'cash' ? 'نقدي' : 'بنك',
       onTap: () async {
         final v = await JphUi.sheet<String>(context, isDark, 'الفلوس', [
           ('cash', 'نقدي', Icons.payments_rounded),
@@ -270,7 +270,7 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            JphUi.iconTile(isDark, Icons.apartment_rounded, Colors.indigo),
+            JphUi.iconTile(isDark, Icons.apartment_rounded, Ar.accent),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -278,15 +278,15 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
                 Text('المالك: ${p['ownerName'] ?? ''}', style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
               ]),
             ),
-            if (p['status'] != 'active') _pill(p['status'] == 'paused' ? 'متوقف' : 'مقفول', Colors.orange),
+            if (p['status'] != 'active') _pill(p['status'] == 'paused' ? 'متوقف' : 'مقفول', Ar.amber),
             Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
           ]),
           const SizedBox(height: 10),
           Wrap(spacing: 6, runSpacing: 6, children: [
-            _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
-            _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Colors.teal),
-            if (_seesKind()) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Colors.purple),
-            _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Colors.blueGrey),
+            _pill('عمولة ${JphUi.pct(p['totalPct'])}', Ar.accent),
+            _pill('عند التعاقد ${JphUi.pct(p['contractPct'])}', Ar.green),
+            if (_seesKind()) _pill('القسط ${JphUi.pct(p['installmentPct'])}', Ar.accent),
+            _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Ar.grey),
           ]),
           if (st.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -299,7 +299,7 @@ class _ExclusiveProjectsListState extends State<ExclusiveProjectsList> {
             const SizedBox(height: 8),
             _kv(isDark, 'في الأمانة', _money(ow['inTrust'])),
             _kv(isDark, 'المستحق للمالك', _money(ow['due'])),
-            _kv(isDark, 'عمولة مستنية التحويل', _money(cm['pending']), color: Colors.orange),
+            _kv(isDark, 'عمولة مستنية التحويل', _money(cm['pending']), color: Ar.amber),
           ],
         ]),
       ),
@@ -315,7 +315,7 @@ Widget _sourcePicker(BuildContext context, bool isDark, List<Map<String, dynamic
       JphUi.picker(
         isDark: isDark,
         icon: Icons.campaign_rounded,
-        iconColor: Colors.teal,
+        iconColor: Ar.green,
         label: 'مصدر العميل',
         value: mk == null ? 'المكتب' : '${mk['name']}',
         onTap: () async {
@@ -348,13 +348,13 @@ class _Terms {
         if (deposit > 0)
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.teal.withOpacity(0.10), borderRadius: BorderRadius.circular(14)),
+            decoration: BoxDecoration(color: Ar.green.withOpacity(0.10), borderRadius: BorderRadius.circular(14)),
             child: Row(children: [
-              const Icon(Icons.lock_rounded, color: Colors.teal, size: 20),
+              const Icon(Icons.lock_rounded, color: Ar.green, size: 20),
               const SizedBox(width: 8),
               Expanded(child: Text('مبلغ الحجز (العربون) — مايتغيرش، وبيتخصم من المقدم',
                   style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
-              Text(_money(deposit), style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.teal)),
+              Text(_money(deposit), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
             ]),
           ),
         SegmentedButton<String>(
@@ -373,13 +373,13 @@ class _Terms {
               builder: (_, __) {
                 final d = num.tryParse(down.text.replaceAll(',', '')) ?? 0;
                 return Text(d >= deposit ? 'الباقي من المقدم بعد العربون: ${_money(d - deposit)}' : 'المقدم لازم يكون أكبر من العربون',
-                    style: TextStyle(fontWeight: FontWeight.w800, color: d >= deposit ? Colors.teal : Colors.red));
+                    style: TextStyle(fontWeight: FontWeight.w800, color: d >= deposit ? Ar.green : Ar.red));
               },
             ),
           JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: count, number: true, icon: Icons.format_list_numbered_rounded),
           JphUi.input(isDark: isDark, label: 'كل كام شهر', controller: every, number: true, icon: Icons.event_repeat_rounded),
           JphUi.picker(
-            isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: 'أول قسط', value: _date(first.toIso8601String()),
+            isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.green, label: 'أول قسط', value: _date(first.toIso8601String()),
             onTap: () async {
               final d = await showDatePicker(context: context, initialDate: first, firstDate: DateTime.now(), lastDate: DateTime(DateTime.now().year + 15));
               if (d != null) set(() => first = d);
@@ -433,7 +433,7 @@ class _ResForm {
           ]),
         ]);
     Widget date(String label, DateTime? v, ValueChanged<DateTime> pick) => JphUi.picker(
-          isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.teal, label: label, value: v == null ? 'اختار التاريخ' : _date(v.toIso8601String()),
+          isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.green, label: label, value: v == null ? 'اختار التاريخ' : _date(v.toIso8601String()),
           onTap: () async {
             final d = await showDatePicker(context: context, initialDate: v ?? DateTime.now(), firstDate: DateTime(DateTime.now().year - 2),
                 lastDate: DateTime(DateTime.now().year + 5));
@@ -444,7 +444,7 @@ class _ResForm {
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
-        leading: const Icon(Icons.description_rounded, color: Colors.indigo),
+        leading: const Icon(Icons.description_rounded, color: Ar.accent),
         title: Text('بيانات استمارة الحجز (للطباعة)', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         childrenPadding: const EdgeInsets.only(bottom: 8),
         children: [
@@ -496,7 +496,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
     final exclusive = p['kind'] == 'exclusive';
     return [
       JphUi.picker(
-        isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع',
+        isDark: isDark, icon: Icons.apartment_rounded, iconColor: Ar.accent, label: 'المشروع',
         value: p.isEmpty ? 'اختار المشروع' : '${p['name']}${_seesKind() ? ' — ${exclusive ? 'حصري' : 'تسويق'}' : ''}',
         onTap: () async {
           final v = await JphUi.sheet<String>(context, isDark, 'المشروع', [
@@ -515,7 +515,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
         JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
       if (!contract)
         JphUi.picker(
-          isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.indigo, label: 'التاريخ المتوقع للتعاقد',
+          isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.accent, label: 'التاريخ المتوقع للتعاقد',
           value: expected == null ? 'اختار التاريخ' : _date(expected!.toIso8601String()),
           onTap: () async {
             final d = await showDatePicker(context: context, initialDate: expected ?? DateTime.now().add(const Duration(days: 30)),
@@ -654,7 +654,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(children: [
-            const Icon(Icons.business_rounded, color: Colors.indigo),
+            const Icon(Icons.business_rounded, color: Ar.accent),
             const SizedBox(width: 8),
             Expanded(child: Text('المطور: ${p['developerName'] ?? 'مش محدد'}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
             if (_m(_d!['can'])['manage'] == true) TextButton(onPressed: () => _changeDeveloper(isDark, p), child: const Text('تغيير')),
@@ -663,16 +663,16 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
       if (marketing && st.isNotEmpty) ...[
         _section(isDark, 'عمولة المشروع', [
           Wrap(spacing: 6, runSpacing: 6, children: [
-            _pill('عمولة ${JphUi.pct(p['totalPct'])}', Colors.indigo),
-            _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Colors.blueGrey),
-            _pill('المكتب ${JphUi.pct(p['companyPct'])}', Colors.teal),
+            _pill('عمولة ${JphUi.pct(p['totalPct'])}', Ar.accent),
+            _pill('سيلز ${JphUi.pct(p['salesPct'])} · مدير ${JphUi.pct(p['managerPct'])}', Ar.grey),
+            _pill('المكتب ${JphUi.pct(p['companyPct'])}', Ar.green),
           ]),
           const SizedBox(height: 8),
           _kv(isDark, 'مبيعات متعاقد عليها', _money(st['sales'])),
           _kv(isDark, 'إجمالي العمولة', _money(cm['earned'])),
           _kv(isDark, 'للسيلز ومدير المبيعات', _money(cm['staff'])),
           _kv(isDark, 'لشركات التسويق', _money(cm['marketing'])),
-          _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Colors.teal),
+          _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Ar.green),
           _kv(isDark, 'محتملة من حجوزات', _money(cm['potential'])),
         ]),
       ],
@@ -689,24 +689,24 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
           _kv(isDark, 'اترد للعملاء', _money(st['refunded'])),
           _kv(isDark, 'عمولة اتحوّلت للمكتب', _money(cm['transferred'])),
           _kv(isDark, 'اتصرف للمالك', _money(ow['paid'])),
-          if (_n(ow['pendingPayout']) > 0) _kv(isDark, 'إذن صرف مستني موافقة', _money(ow['pendingPayout']), color: Colors.orange),
+          if (_n(ow['pendingPayout']) > 0) _kv(isDark, 'إذن صرف مستني موافقة', _money(ow['pendingPayout']), color: Ar.amber),
           const Divider(),
           _kv(isDark, 'في الأمانة دلوقتي', _money(ow['inTrust'])),
-          _kv(isDark, 'الصافي المستحق للمالك', _money(ow['due']), color: Colors.teal),
+          _kv(isDark, 'الصافي المستحق للمالك', _money(ow['due']), color: Ar.green),
         ]),
         _section(isDark, 'عمولتي', [
           _kv(isDark, 'مستحقة لحد دلوقتي', _money(cm['earned'])),
-          _kv(isDark, 'اتحوّلت فعلاً', _money(cm['transferred']), color: Colors.green),
-          _kv(isDark, 'في الأمانة لسه متحوّلتش', _money(cm['pending']), color: Colors.orange),
+          _kv(isDark, 'اتحوّلت فعلاً', _money(cm['transferred']), color: Ar.green),
+          _kv(isDark, 'في الأمانة لسه متحوّلتش', _money(cm['pending']), color: Ar.amber),
           _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
           _kv(isDark, 'محتملة من حجوزات', _money(cm['potential'])),
           _kv(isDark, 'منها للسيلز ومدير المبيعات', _money(cm['staff'])),
           if (_n(cm['marketing']) > 0) _kv(isDark, 'منها لشركات التسويق', _money(cm['marketing'])),
         ]),
         if (can['manage'] == true) ...[
-          _btn(isDark, 'تحويل عمولة من الأمانة', Icons.swap_horiz_rounded, () => _transfer(isDark, _n(cm['pending'])), color: Colors.green),
+          _btn(isDark, 'تحويل عمولة من الأمانة', Icons.swap_horiz_rounded, () => _transfer(isDark, _n(cm['pending'])), color: Ar.green),
           _btn(isDark, 'إذن صرف للمالك', Icons.real_estate_agent_rounded,
-              () => _payout(isDark, _n(ow['due']) - _n(ow['pendingPayout'])), color: Colors.indigo),
+              () => _payout(isDark, _n(ow['due']) - _n(ow['pendingPayout'])), color: Ar.accent),
         ],
       ],
       if (statement.isNotEmpty)
@@ -741,7 +741,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
             decoration: JphUi.box(isDark),
             child: Row(children: [
               Icon(s['dir'] == 'in' ? Icons.south_west_rounded : s['dir'] == 'out' ? Icons.north_east_rounded : Icons.swap_horiz_rounded,
-                  color: s['dir'] == 'in' ? Colors.green : s['dir'] == 'out' ? Colors.red : Colors.orange),
+                  color: s['dir'] == 'in' ? Ar.green : s['dir'] == 'out' ? Ar.red : Ar.amber),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -750,7 +750,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
                       style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                 ]),
               ),
-              Text('${s['dir'] == 'in' ? '+' : '−'}${_money(s['amount'])}', style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Colors.green : Colors.red)),
+              Text('${s['dir'] == 'in' ? '+' : '−'}${_money(s['amount'])}', style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Ar.green : Ar.red)),
             ]),
           ),
     ]);
@@ -834,7 +834,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     if (!kinds.any((x) => x.$1 == k)) k = kinds.first.$1;
     final ok = await _form(context, isDark, 'تسجيل فلوس — وحدة ${_u['unitNo']}', (set) => [
           JphUi.picker(
-            isDark: isDark, icon: Icons.category_rounded, iconColor: Colors.indigo, label: 'النوع',
+            isDark: isDark, icon: Icons.category_rounded, iconColor: Ar.accent, label: 'النوع',
             value: kinds.firstWhere((x) => x.$1 == k).$2,
             onTap: inst != null ? null : () async {
               final v = await JphUi.sheet<String>(context, isDark, 'النوع', kinds, selected: k);
@@ -885,7 +885,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
               JphUi.input(isDark: isDark, label: 'العربون (لسه مستني تأكيد الاستلام)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
             if (exclusive && !depositPending) _kv(isDark, 'العربون (اتأكد استلامه — مايتغيرش)', _money(u['depositAmount'])),
             JphUi.picker(
-              isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.indigo, label: 'التاريخ المتوقع للتعاقد',
+              isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.accent, label: 'التاريخ المتوقع للتعاقد',
               value: expected == null ? 'اختار التاريخ' : _date(expected!.toIso8601String()),
               onTap: () async {
                 final d = await showDatePicker(context: context, initialDate: expected ?? DateTime.now(), firstDate: DateTime.now().subtract(const Duration(days: 365)),
@@ -990,7 +990,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     final ok = await _form(context, isDark, 'تم تحصيل العمولة — وحدة ${_u['unitNo']}', (set) => [
           Text(marketing ? 'العمولة اللي دفعها المطور بتدخل العمولات.' : 'العمولة بتطلع من أمانة المالك وتدخل العمولات.',
               style: TextStyle(color: JphUi.sub(isDark))),
-          _kv(isDark, 'العمولة الواجبة التحصيل', _money(cm['receivable']), color: Colors.amber.shade800),
+          _kv(isDark, 'العمولة الواجبة التحصيل', _money(cm['receivable']), color: Ar.amber.shade800),
           if (marketing) ...[
             Text('اتحصّلت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
             Wrap(spacing: 8, children: [
@@ -1016,7 +1016,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         content: Text(what == 'contract' ? 'توافق على التعاقد؟ هيتعمل جدول الأقساط وعمولة السيلز ومدير المبيعات.' : 'توافق على إلغاء الحجز؟ العربون هيرجع للعميل من المحاسب.',
             textAlign: TextAlign.center),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, 'reject'), child: const Text('رفض', style: TextStyle(color: Colors.red))),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'reject'), child: const Text('رفض', style: TextStyle(color: Ar.red))),
           FilledButton(onPressed: () => Navigator.pop(ctx, 'approve'), child: const Text('موافقة')),
         ],
       ),
@@ -1105,29 +1105,29 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             _kv(isDark, 'أول قسط', _date(c['firstDueDate'])),
             if (u['projectKind'] != 'marketing' && _seesKind()) _kv(isDark, 'عمولة كل قسط', JphUi.pct(c['installmentPct'])),
           ],
-          if ('${c['rejectReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب رفض التعاقد', '${c['rejectReason']}', color: Colors.red),
+          if ('${c['rejectReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب رفض التعاقد', '${c['rejectReason']}', color: Ar.red),
         ],
-        if ('${u['cancelReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب الإلغاء', '${u['cancelReason']}', color: Colors.red),
+        if ('${u['cancelReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب الإلغاء', '${u['cancelReason']}', color: Ar.red),
       ]),
       _section(isDark, 'الفلوس', [
         _kv(isDark, 'اتحصّل', _money(money['collected'])),
-        if (_n(money['pending']) > 0) _kv(isDark, 'مستني تأكيد الاستلام', _money(money['pending']), color: Colors.orange),
+        if (_n(money['pending']) > 0) _kv(isDark, 'مستني تأكيد الاستلام', _money(money['pending']), color: Ar.amber),
         _kv(isDark, 'نقدي', _money(money['cash'])),
         _kv(isDark, 'بنك', _money(money['bank'])),
-        if (_n(money['refunded']) > 0) _kv(isDark, 'اترد للعميل', _money(money['refunded']), color: Colors.red),
+        if (_n(money['refunded']) > 0) _kv(isDark, 'اترد للعميل', _money(money['refunded']), color: Ar.red),
         _kv(isDark, 'الباقي من السعر', _money(money['remaining'])),
       ]),
       if (cm.isNotEmpty)
         _section(isDark, 'عمولة الوحدة', [
-          if (_n(cm['potential']) > 0) _kv(isDark, 'محتملة (لحد التعاقد)', _money(cm['potential']), color: Colors.indigo),
+          if (_n(cm['potential']) > 0) _kv(isDark, 'محتملة (لحد التعاقد)', _money(cm['potential']), color: Ar.accent),
           if (st == 'contracted' || st == 'completed') ...[
-            _kv(isDark, 'واجبة التحصيل', _money(cm['receivable']), color: Colors.orange),
-            _kv(isDark, 'اتحصّلت', _money(cm['collected']), color: Colors.green),
+            _kv(isDark, 'واجبة التحصيل', _money(cm['receivable']), color: Ar.amber),
+            _kv(isDark, 'اتحصّلت', _money(cm['collected']), color: Ar.green),
           ],
           if (_n(cm['upcoming']) > 0) _kv(isDark, 'جاية من أقساط', _money(cm['upcoming'])),
           _kv(isDark, 'للسيلز ومدير المبيعات', _money(cm['staff'])),
           if (_n(cm['marketing']) > 0) _kv(isDark, 'لشركة التسويق', _money(cm['marketing'])),
-          if (_n(cm['office']) > 0) _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Colors.teal),
+          if (_n(cm['office']) > 0) _kv(isDark, 'نصيب المكتب', _money(cm['office']), color: Ar.green),
         ]),
       if (pending.isNotEmpty)
         _section(isDark, 'مستني تأكيد الاستلام', [
@@ -1135,7 +1135,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
-                const Icon(Icons.hourglass_top_rounded, color: Colors.orange),
+                const Icon(Icons.hourglass_top_rounded, color: Ar.amber),
                 const SizedBox(width: 8),
                 Expanded(child: Text('${x['kindAr']} · ${x['methodAr']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
                 Text(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
@@ -1144,13 +1144,13 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           if (can['receive'] == true) ...[
             const SizedBox(height: 8),
             for (final x in pending)
-              _btn(isDark, 'تم استلام ${x['kindAr']} (${_money(x['amount'])})', Icons.task_alt_rounded, () => _receive(isDark, x), color: Colors.green),
+              _btn(isDark, 'تم استلام ${x['kindAr']} (${_money(x['amount'])})', Icons.task_alt_rounded, () => _receive(isDark, x), color: Ar.green),
           ],
         ]),
       if (_m(u['myCommission']).isNotEmpty)
         _section(isDark, 'عمولتك', [
           _kv(isDark, _m(u['myCommission'])['state'] == 'earned' ? 'مستحقة (بعد اعتماد المدير)' : 'محتملة (لحد التعاقد)',
-              _money(_m(u['myCommission'])['amount']), color: Colors.teal),
+              _money(_m(u['myCommission'])['amount']), color: Ar.green),
         ]),
       if (can['edit'] == true)
         Padding(
@@ -1183,9 +1183,9 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                   height: 54,
                   child: OutlinedButton.icon(
                     onPressed: () => _cancel(isDark),
-                    icon: const Icon(Icons.cancel_rounded, color: Colors.red),
-                    label: const Text('إلغاء الحجز', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w900, fontSize: 16)),
-                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                    icon: const Icon(Icons.cancel_rounded, color: Ar.red),
+                    label: const Text('إلغاء الحجز', style: TextStyle(color: Ar.red, fontWeight: FontWeight.w900, fontSize: 16)),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Ar.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                   ),
                 ),
               ),
@@ -1207,17 +1207,17 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         Padding(padding: const EdgeInsets.only(bottom: 10),
             child: Text('التعاقد بيتفتح بعد ما المحاسب / المدير يأكد استلام العربون.', style: TextStyle(color: JphUi.sub(isDark)))),
       if (can['collectCommission'] == true)
-        _btn(isDark, 'تم تحصيل العمولة', Icons.workspace_premium_rounded, () => _collectCommission(isDark), color: Colors.amber.shade800),
-      if (can['decideContract'] == true) _btn(isDark, 'موافقة / رفض التعاقد', Icons.fact_check_rounded, () => _decide(isDark, 'contract'), color: Colors.deepOrange),
-      if (can['decideCancel'] == true) _btn(isDark, 'موافقة / رفض الإلغاء', Icons.fact_check_rounded, () => _decide(isDark, 'cancel'), color: Colors.deepOrange),
-      if (can['refund'] == true) _btn(isDark, 'رد العربون للعميل', Icons.undo_rounded, () => _refund(isDark), color: Colors.red),
+        _btn(isDark, 'تم تحصيل العمولة', Icons.workspace_premium_rounded, () => _collectCommission(isDark), color: Ar.amber.shade800),
+      if (can['decideContract'] == true) _btn(isDark, 'موافقة / رفض التعاقد', Icons.fact_check_rounded, () => _decide(isDark, 'contract'), color: Ar.amber),
+      if (can['decideCancel'] == true) _btn(isDark, 'موافقة / رفض الإلغاء', Icons.fact_check_rounded, () => _decide(isDark, 'cancel'), color: Ar.amber),
+      if (can['refund'] == true) _btn(isDark, 'رد العربون للعميل', Icons.undo_rounded, () => _refund(isDark), color: Ar.red),
       if (inst.isNotEmpty)
         _section(isDark, 'الأقساط', [
           for (final i in inst)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(children: [
-                CircleAvatar(radius: 15, backgroundColor: (i['status'] == 'paid' ? Colors.green : i['status'] == 'overdue' ? Colors.red : Colors.indigo).withOpacity(0.15),
+                CircleAvatar(radius: 15, backgroundColor: (i['status'] == 'paid' ? Ar.green : i['status'] == 'overdue' ? Ar.red : Ar.accent).withOpacity(0.15),
                     child: Text('${i['seq']}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1227,10 +1227,10 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                         style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                   ]),
                 ),
-                if (i['status'] == 'paid') _pill('اتدفع', Colors.green)
+                if (i['status'] == 'paid') _pill('اتدفع', Ar.green)
                 else if (can['collect'] == true)
                   TextButton(onPressed: () => _receiveInstallment(isDark, i), child: const Text('تم الاستلام'))
-                else _pill(i['status'] == 'overdue' ? 'متأخر' : 'مستحق', i['status'] == 'overdue' ? Colors.red : Colors.indigo),
+                else _pill(i['status'] == 'overdue' ? 'متأخر' : 'مستحق', i['status'] == 'overdue' ? Ar.red : Ar.accent),
               ]),
             ),
         ]),

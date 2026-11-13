@@ -5,6 +5,7 @@ import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_ui.dart';
 
 class BreakPage extends StatefulWidget {
   final String uid;
@@ -86,7 +87,7 @@ class _BreakPageState extends State<BreakPage> {
                 child: Text(
                   AppLocalizations.of(context, 'no_employees_on_break'),
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey,
+                    color: isDark ? Colors.white70 : Ar.grey,
                   ),
                 ),
               )
@@ -127,12 +128,12 @@ class _BreakPageState extends State<BreakPage> {
             height: 50,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isDark ? Colors.orange.withOpacity(0.2) : Colors.orange[100],
+              color: isDark ? Ar.amber.withOpacity(0.2) : Ar.amber[100],
             ),
             child: const Center(
               child: Icon(
                 Icons.coffee,
-                color: Colors.orange,
+                color: Ar.amber,
                 size: 24,
               ),
             ),
@@ -154,7 +155,7 @@ class _BreakPageState extends State<BreakPage> {
                 Text(
                   employee['project'],
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey[700],
+                    color: isDark ? Colors.white70 : Ar.grey[700],
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -163,13 +164,13 @@ class _BreakPageState extends State<BreakPage> {
                     _buildInfoChip(
                       'بداية: ${employee['breakStart']}',
                       Icons.access_time,
-                      isDark ? Colors.blue[300]! : Colors.blue,
+                      isDark ? Ar.info[300]! : Ar.info,
                     ),
                     const SizedBox(width: 8),
                     _buildInfoChip(
                       'المدة: ${employee['breakDuration']}',
                       Icons.timer,
-                      isDark ? Colors.purple[300]! : Colors.purple,
+                      isDark ? Ar.accent[300]! : Ar.accent,
                     ),
                   ],
                 ),
@@ -181,8 +182,8 @@ class _BreakPageState extends State<BreakPage> {
               Icon(
                 Icons.warning,
                 color: employee['breakDuration'] == '55 دقيقة'
-                    ? Colors.red
-                    : isDark ? Colors.green[300] : Colors.green,
+                    ? Ar.red
+                    : isDark ? Ar.green[300] : Ar.green,
               ),
               const SizedBox(height: 4),
               Text(
@@ -190,8 +191,8 @@ class _BreakPageState extends State<BreakPage> {
                 style: TextStyle(
                   fontSize: 12,
                   color: employee['breakDuration'] == '55 دقيقة'
-                      ? Colors.red
-                      : isDark ? Colors.green[300] : Colors.green,
+                      ? Ar.red
+                      : isDark ? Ar.green[300] : Ar.green,
                 ),
               ),
             ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
+import 'glass_ui.dart';
 
 /// One item of العهدة (mobile / laptop) — the same card on the العهدة page, its details page and «تسليم عهدة».
 const custodyAccAr = {'charger': 'شاحن', 'cable': 'كابل', 'case': 'جراب', 'headset': 'سماعة', 'bag': 'شنطة', 'mouse': 'ماوس', 'other': 'أخرى'};
@@ -40,7 +41,7 @@ class CustodyAssetCard extends StatelessWidget {
             border: selected ? Border.all(color: JphUi.primary(isDark), width: 2) : null,
           ),
           child: Row(children: [
-            JphUi.iconTile(isDark, laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, holder != null ? Colors.teal : Colors.green),
+            JphUi.iconTile(isDark, laptop ? Icons.laptop_rounded : Icons.phone_android_rounded, holder != null ? Ar.green : Ar.green),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -61,7 +62,7 @@ class CustodyAssetCard extends StatelessWidget {
                         : holder != null
                             ? 'مع ${holder['name']} من ${custodyDay(holder['since'])}'
                             : 'متاحة للتسليم',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: holder != null ? Colors.teal : Colors.green)),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: holder != null ? Ar.green : Ar.green)),
               ]),
             ),
             if (trailing != null) trailing! else if (onTap != null) Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -93,7 +94,7 @@ Future<Map<String, dynamic>?> pickCustodyAsset(BuildContext context, bool isDark
         margin: const EdgeInsets.all(12),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E2230) : Colors.white,
+          color: isDark ? const Color(0xFF2A2926) : Colors.white,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [

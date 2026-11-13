@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
+import 'glass_ui.dart';
 
 /// طلبات مالية ← علاوة / خصم: same look as "طلب".
 ///  • جزاء: comes off that month's salary (shows in "خصومات" in the monthly report).
@@ -24,9 +25,9 @@ class AdjustmentsTab extends StatefulWidget {
 }
 
 const _kinds = {
-  'deduction': ('جزاء', Icons.gavel_rounded, Colors.red),
-  'raise': ('زيادة راتب', Icons.trending_up_rounded, Colors.teal),
-  'bonus': ('علاوة', Icons.card_giftcard_rounded, Colors.green),
+  'deduction': ('جزاء', Icons.gavel_rounded, Ar.red),
+  'raise': ('زيادة راتب', Icons.trending_up_rounded, Ar.green),
+  'bonus': ('علاوة', Icons.card_giftcard_rounded, Ar.green),
 };
 const _monthsAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
@@ -111,7 +112,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: widget.isDark ? const Color(0xF21E1E1E) : Colors.white,
+              color: widget.isDark ? const Color(0xF2262624) : Colors.white,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -146,7 +147,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
           Text('علاوة / خصم', textAlign: TextAlign.right, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
           const SizedBox(height: 12),
           JphUi.picker(
-            isDark: isDark, icon: Icons.badge_rounded, iconColor: Colors.teal, label: 'الموظف *',
+            isDark: isDark, icon: Icons.badge_rounded, iconColor: Ar.green, label: 'الموظف *',
             value: _empName ?? (_employees.isEmpty ? 'جاري التحميل...' : 'اختار الموظف'),
             onTap: _employees.isEmpty
                 ? null
@@ -172,7 +173,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
           ),
           const SizedBox(height: 16),
           JphUi.picker(
-            isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: Colors.indigo,
+            isDark: isDark, icon: Icons.calendar_month_rounded, iconColor: Ar.accent,
             label: _kind == 'raise' ? 'من شهر *' : 'الشهر *', value: '${_monthsAr[_month.month - 1]} ${_month.year}',
             onTap: () async {
               final m = await JphUi.pickMonth(context, isDark, _month);
@@ -190,7 +191,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
               padding: const EdgeInsets.all(16),
               decoration: JphUi.box(isDark),
               child: Row(children: [
-                JphUi.iconTile(isDark, Icons.add_photo_alternate_rounded, Colors.orange),
+                JphUi.iconTile(isDark, Icons.add_photo_alternate_rounded, Ar.amber),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(_image == null ? 'إضافة صورة (اختياري)' : 'تم اختيار صورة ✅',
@@ -230,11 +231,11 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
   }
 
   Widget _card(bool isDark, Map<String, dynamic> x) {
-    final k = _kinds['${x['kind']}'] ?? ('${x['kind']}', Icons.tune_rounded, Colors.grey);
+    final k = _kinds['${x['kind']}'] ?? ('${x['kind']}', Icons.tune_rounded, Ar.grey);
     final st = switch ('${x['status']}') {
-      'approved' => ('معتمد', Colors.green),
-      'rejected' => ('مرفوض', Colors.red),
-      _ => ('مستني موافقة المدير', Colors.orange),
+      'approved' => ('معتمد', Ar.green),
+      'rejected' => ('مرفوض', Ar.red),
+      _ => ('مستني موافقة المدير', Ar.amber),
     };
     final period = '${x['period'] ?? ''}';
     final m = int.tryParse(period.length >= 7 ? period.substring(5, 7) : '') ?? 1;
@@ -268,16 +269,16 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => _decide(x, true),
-                icon: const Icon(Icons.check_rounded, color: Colors.green),
-                label: const Text('موافقة', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.check_rounded, color: Ar.green),
+                label: const Text('موافقة', style: TextStyle(color: Ar.green, fontWeight: FontWeight.w800)),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => _decide(x, false),
-                icon: const Icon(Icons.close_rounded, color: Colors.red),
-                label: const Text('رفض', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.close_rounded, color: Ar.red),
+                label: const Text('رفض', style: TextStyle(color: Ar.red, fontWeight: FontWeight.w800)),
               ),
             ),
           ]),

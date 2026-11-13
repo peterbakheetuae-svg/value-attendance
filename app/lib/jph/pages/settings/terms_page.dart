@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
 import '../settings/privacy_policy_page.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 class TermsPage extends StatefulWidget {
   const TermsPage({super.key});
@@ -64,7 +65,7 @@ class _TermsPageState extends State<TermsPage> {
         content: Text(
           AppLocalizations.of(context, 'must_agree') ?? 'يجب الموافقة على الشروط والأحكام لاستخدام التطبيق',
           style: TextStyle(
-            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
           ),
         ),
         actions: [
@@ -182,7 +183,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.check_circle,
                           title: AppLocalizations.of(context, 'acceptance_of_terms') ?? 'القبول',
                           content: AppLocalizations.of(context, 'acceptance_of_terms_text') ?? 'باستخدامك تطبيق Value...',
-                          color: Colors.green,
+                          color: Ar.green,
                         ),
 
                         const SizedBox(height: 16),
@@ -194,7 +195,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.app_settings_alt,
                           title: AppLocalizations.of(context, 'app_usage') ?? 'استخدام التطبيق',
                           content: AppLocalizations.of(context, 'app_usage_text') ?? 'يُمنع النسخ أو التعديل...',
-                          color: Colors.blue,
+                          color: Ar.info,
                         ),
 
                         const SizedBox(height: 16),
@@ -206,7 +207,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.copyright,
                           title: AppLocalizations.of(context, 'intellectual_property') ?? 'الملكية الفكرية',
                           content: AppLocalizations.of(context, 'intellectual_property_text') ?? 'جميع حقوق الملكية الفكرية...',
-                          color: Colors.purple,
+                          color: Ar.accent,
                         ),
 
                         const SizedBox(height: 16),
@@ -218,7 +219,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.people,
                           title: AppLocalizations.of(context, 'user_responsibilities') ?? 'مسؤوليات المستخدم',
                           content: AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على المستخدمين الحفاظ على أمان أجهزتهم...',
-                          color: Colors.orange,
+                          color: Ar.amber,
                         ),
 
                         const SizedBox(height: 16),
@@ -230,7 +231,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.block,
                           title: AppLocalizations.of(context, 'prohibited_activities') ?? 'الأنشطة المحظورة',
                           content: AppLocalizations.of(context, 'prohibited_activities_text') ?? 'يحظر استخدام التطبيق لأي غرض غير قانوني...',
-                          color: Colors.red,
+                          color: Ar.red,
                         ),
 
                         const SizedBox(height: 16),
@@ -242,7 +243,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.update,
                           title: AppLocalizations.of(context, 'app_modifications') ?? 'تعديلات التطبيق',
                           content: AppLocalizations.of(context, 'app_modifications_text') ?? 'قد يقوم مزود الخدمة بتحديث أو تعديل...',
-                          color: Colors.amber,
+                          color: Ar.amber,
                         ),
 
                         const SizedBox(height: 16),
@@ -254,7 +255,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.gavel,
                           title: AppLocalizations.of(context, 'liability_limitation') ?? 'تحديد المسؤولية',
                           content: AppLocalizations.of(context, 'liability_limitation_text') ?? 'لا يتحمل مزود الخدمة المسؤولية...',
-                          color: Colors.brown,
+                          color: Ar.tan,
                         ),
 
                         const SizedBox(height: 16),
@@ -266,7 +267,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.exit_to_app,
                           title: AppLocalizations.of(context, 'termination') ?? 'إنهاء الخدمة',
                           content: AppLocalizations.of(context, 'termination_text') ?? 'يحق لمزود الخدمة إنهاء أو تعليق...',
-                          color: Colors.grey,
+                          color: Ar.grey,
                         ),
 
                         const SizedBox(height: 16),
@@ -278,7 +279,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                           icon: Icons.balance,
                           title: AppLocalizations.of(context, 'governing_law') ?? 'القانون الحاكم',
                           content: AppLocalizations.of(context, 'governing_law_text') ?? 'تخضع هذه الشروط والأحكام للقوانين...',
-                          color: Colors.indigo,
+                          color: Ar.accent,
                         ),
 
                         const SizedBox(height: 24),
@@ -318,26 +319,26 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-            Colors.deepPurple.shade900.withOpacity(0.8),
-            Colors.blue.shade900.withOpacity(0.8),
+            Ar.accent.shade900.withOpacity(0.8),
+            Ar.info.shade900.withOpacity(0.8),
           ]
               : [
-            Colors.deepPurple.shade50,
-            Colors.blue.shade50,
+            Ar.accent.shade50,
+            Ar.info.shade50,
           ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isDark
-              ? Colors.deepPurple.shade800.withOpacity(0.3)
-              : Colors.deepPurple.shade200,
+              ? Ar.accent.shade800.withOpacity(0.3)
+              : Ar.accent.shade200,
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
             color: isDark
-                ? Colors.deepPurple.shade900.withOpacity(0.3)
-                : Colors.deepPurple.shade100.withOpacity(0.5),
+                ? Ar.accent.shade900.withOpacity(0.3)
+                : Ar.accent.shade100.withOpacity(0.5),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -349,7 +350,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
           Icon(
             Icons.description,
             size: 60,
-            color: Colors.deepPurpleAccent,
+            color: Ar.accent,
           ),
           const SizedBox(height: 16),
 
@@ -372,14 +373,14 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
               Icon(
                 Icons.person,
                 size: 16,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
               ),
               const SizedBox(width: 8),
               Text(
                 '${AppLocalizations.of(context, 'service_provider') ?? 'مزود الخدمة'}: $serviceProvider',
                 style: TextStyle(
                   fontSize: 14,
-                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
                 ),
               ),
             ],
@@ -393,14 +394,14 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
               Icon(
                 Icons.calendar_today,
                 size: 16,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
               ),
               const SizedBox(width: 8),
               Text(
                 '${AppLocalizations.of(context, 'last_updated') ?? 'آخر تحديث'}: $lastUpdated',
                 style: TextStyle(
                   fontSize: 14,
-                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
                 ),
               ),
             ],
@@ -422,7 +423,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
     return Material(
       borderRadius: BorderRadius.circular(16),
       color: isDark
-          ? Colors.grey.shade900.withOpacity(0.5)
+          ? Ar.grey.shade900.withOpacity(0.5)
           : Colors.white.withOpacity(0.9),
       elevation: 2,
       child: Padding(
@@ -468,7 +469,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
               content,
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                 height: 1.6,
               ),
             ),
@@ -484,21 +485,21 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
       {
         'title': AppLocalizations.of(context, 'data_privacy') ?? 'خصوصية البيانات',
         'icon': Icons.privacy_tip,
-        'color': Colors.teal,
+        'color': Ar.green,
         'content': AppLocalizations.of(context, 'data_privacy_text') ?? 'يتم التعامل مع بيانات المستخدم...',
         'action': _openPrivacyPolicy,
       },
       {
         'title': AppLocalizations.of(context, 'account_security') ?? 'أمان الحساب',
         'icon': Icons.security,
-        'color': Colors.cyan,
+        'color': Ar.info,
         'content': AppLocalizations.of(context, 'account_security_text') ?? 'أنت مسؤول عن الحفاظ على سرية...',
         'action': null,
       },
       {
         'title': AppLocalizations.of(context, 'changes_to_terms') ?? 'تغييرات الشروط',
         'icon': Icons.notifications_active,
-        'color': Colors.amber,
+        'color': Ar.amber,
         'content': AppLocalizations.of(context, 'changes_to_terms_text') ?? 'تحتفظ الشركة بالحق في تحديث...',
         'action': null,
       },
@@ -529,7 +530,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
             return Material(
               borderRadius: BorderRadius.circular(16),
               color: isDark
-                  ? Colors.grey.shade900.withOpacity(0.5)
+                  ? Ar.grey.shade900.withOpacity(0.5)
                   : Colors.white.withOpacity(0.9),
               elevation: 2,
               child: InkWell(
@@ -573,7 +574,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
                               section['content'] as String,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                               ),
                             ),
                             if (section['action'] != null) ...[
@@ -616,20 +617,20 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.amber.shade900.withOpacity(0.2)
-            : Colors.amber.shade50,
+            ? Ar.amber.shade900.withOpacity(0.2)
+            : Ar.amber.shade50,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isDark
-              ? Colors.amber.shade800
-              : Colors.amber.shade200,
+              ? Ar.amber.shade800
+              : Ar.amber.shade200,
         ),
       ),
       child: Row(
         children: [
           Icon(
             Icons.info,
-            color: Colors.amber,
+            color: Ar.amber,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -637,7 +638,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
               AppLocalizations.of(context, 'read_accept') ?? 'يرجى قراءة وقبول الشروط والأحكام',
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
               ),
             ),
           ),
@@ -652,11 +653,11 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.grey.shade900.withOpacity(0.8)
+            ? Ar.grey.shade900.withOpacity(0.8)
             : Colors.white.withOpacity(0.9),
         border: Border(
           top: BorderSide(
-            color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+            color: isDark ? Ar.grey.shade800 : Ar.grey.shade200,
           ),
         ),
       ),
@@ -713,7 +714,7 @@ ${AppLocalizations.of(context, 'user_responsibilities_text') ?? 'يجب على �
             style: ElevatedButton.styleFrom(
               backgroundColor: _hasAgreed
                   ? Theme.of(context).primaryColor
-                  : Colors.grey.shade400,
+                  : Ar.grey.shade400,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               shape: RoundedRectangleBorder(

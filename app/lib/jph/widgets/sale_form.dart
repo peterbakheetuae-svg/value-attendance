@@ -5,6 +5,7 @@ import '../pages/sales/sales_page.dart';
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
 import 'glass_dialog.dart';
+import 'glass_ui.dart';
 
 /// تبويب "مبيعات" في طلبات المالية: بيع وحدة (كاش أو تقسيط) ببيانات العميل، ومعاه طلب العمولة.
 ///  - السيلز: البيعة بتروح للإدارة تعتمدها، وطلب العمولة باسمه.
@@ -21,11 +22,11 @@ class SalesTab extends StatefulWidget {
 const _freqAr = {'monthly': 'شهري', 'quarterly': 'كل 3 شهور', 'semiannual': 'كل 6 شهور', 'annual': 'سنوي'};
 
 (String, Color) saleStatusAr(String? s) => switch (s) {
-      'pending' => ('مستنية اعتماد الإدارة', Colors.orange),
-      'active' => ('معتمدة', Colors.green),
-      'rejected' => ('مرفوضة', Colors.red),
-      'cancelled' => ('ملغية', Colors.grey),
-      _ => ('--', Colors.grey),
+      'pending' => ('مستنية اعتماد الإدارة', Ar.amber),
+      'active' => ('معتمدة', Ar.green),
+      'rejected' => ('مرفوضة', Ar.red),
+      'cancelled' => ('ملغية', Ar.grey),
+      _ => ('--', Ar.grey),
     };
 
 String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -134,7 +135,7 @@ class _SalesTabState extends State<SalesTab> {
       err = 'المقدم لازم يبقى أقل من الإجمالي في التقسيط';
     }
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
       return;
     }
     setState(() => _saving = true);
@@ -172,7 +173,7 @@ class _SalesTabState extends State<SalesTab> {
           content: TextField(controller: reason, decoration: const InputDecoration(hintText: 'السبب')),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('رفض', style: TextStyle(color: Colors.red))),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('رفض', style: TextStyle(color: Ar.red))),
           ],
         ),
       );
@@ -214,12 +215,12 @@ class _SalesTabState extends State<SalesTab> {
           ]),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 6, children: [
-            JphUi.chip(JphUi.money(s['totalPrice']), Colors.indigo),
-            JphUi.chip(s['paymentMethod'] == 'installments' ? 'تقسيط (${s['installmentsCount']} قسط)' : 'كاش', Colors.teal),
+            JphUi.chip(JphUi.money(s['totalPrice']), Ar.accent),
+            JphUi.chip(s['paymentMethod'] == 'installments' ? 'تقسيط (${s['installmentsCount']} قسط)' : 'كاش', Ar.green),
             if (com != null) JphUi.chip('عمولة ${com['employeeName'] ?? ''}: ${commissionStatus('${com['status']}').$1}', commissionStatus('${com['status']}').$2),
           ]),
           if ('${s['rejectReason'] ?? ''}'.isNotEmpty)
-            Padding(padding: const EdgeInsets.only(top: 6), child: Text('السبب: ${s['rejectReason']}', style: const TextStyle(color: Colors.red, fontSize: 12.5))),
+            Padding(padding: const EdgeInsets.only(top: 6), child: Text('السبب: ${s['rejectReason']}', style: const TextStyle(color: Ar.red, fontSize: 12.5))),
           if (decide)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -229,7 +230,7 @@ class _SalesTabState extends State<SalesTab> {
                     onPressed: () => _decide(s, true),
                     icon: const Icon(Icons.check_rounded),
                     label: const Text('اعتماد'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white,
+                    style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                   ),
                 ),
@@ -237,8 +238,8 @@ class _SalesTabState extends State<SalesTab> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _decide(s, false),
-                    icon: const Icon(Icons.close_rounded, color: Colors.red),
-                    label: const Text('رفض', style: TextStyle(color: Colors.red)),
+                    icon: const Icon(Icons.close_rounded, color: Ar.red),
+                    label: const Text('رفض', style: TextStyle(color: Ar.red)),
                     style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                   ),
                 ),
@@ -268,7 +269,7 @@ class _SalesTabState extends State<SalesTab> {
         Text('بيع وحدة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         const SizedBox(height: 12),
         JphUi.picker(
-          isDark: isDark, icon: Icons.apartment_rounded, iconColor: Colors.indigo, label: 'المشروع *',
+          isDark: isDark, icon: Icons.apartment_rounded, iconColor: Ar.accent, label: 'المشروع *',
           value: _project == null ? (_projects.isEmpty ? 'مفيش مشاريع متاحة' : 'اختار المشروع') : '${_project!['name']}',
           onTap: () async {
             final v = await JphUi.sheet<String>(context, isDark, 'اختار المشروع',
@@ -288,7 +289,7 @@ class _SalesTabState extends State<SalesTab> {
               icon: Icons.sell_rounded, onChanged: (_) => setState(() {}))),
         ]),
         const SizedBox(height: 14),
-        JphUi.readOnly(isDark: isDark, label: 'إجمالي قيمة الوحدة', value: JphUi.money(_total), icon: Icons.home_work_rounded, color: Colors.blue),
+        JphUi.readOnly(isDark: isDark, label: 'إجمالي قيمة الوحدة', value: JphUi.money(_total), icon: Icons.home_work_rounded, color: Ar.info),
         const SizedBox(height: 18),
         Text('بيانات العميل', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         const SizedBox(height: 10),
@@ -306,7 +307,7 @@ class _SalesTabState extends State<SalesTab> {
           JphUi.input(isDark: isDark, label: 'المقدم', controller: _down, hint: '0', number: true, icon: Icons.savings_rounded,
               onChanged: (_) => setState(() {})),
           const SizedBox(height: 14),
-          JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Colors.orange, label: 'ميعاد دفع المقدم',
+          JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.amber, label: 'ميعاد دفع المقدم',
               value: JphUi.date(_downDue.toIso8601String()), onTap: () => _pickDate(false)),
           const SizedBox(height: 14),
           Row(children: [
@@ -314,7 +315,7 @@ class _SalesTabState extends State<SalesTab> {
                 icon: Icons.format_list_numbered_rounded, onChanged: (_) => setState(() {}), big: false)),
             const SizedBox(width: 12),
             Expanded(
-              child: JphUi.picker(isDark: isDark, icon: Icons.repeat_rounded, iconColor: Colors.purple, label: 'كل قد إيه',
+              child: JphUi.picker(isDark: isDark, icon: Icons.repeat_rounded, iconColor: Ar.accent, label: 'كل قد إيه',
                   value: _freqAr[_freq]!, onTap: () async {
                 final v = await JphUi.sheet<String>(context, isDark, 'دورية الأقساط',
                     [for (final e in _freqAr.entries) (e.key, e.value, Icons.repeat_rounded)], selected: _freq, icon: Icons.repeat_rounded);
@@ -323,11 +324,11 @@ class _SalesTabState extends State<SalesTab> {
             ),
           ]),
           const SizedBox(height: 14),
-          JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Colors.teal, label: 'ميعاد أول قسط',
+          JphUi.picker(isDark: isDark, icon: Icons.event_available_rounded, iconColor: Ar.green, label: 'ميعاد أول قسط',
               value: JphUi.date(_firstDue.toIso8601String()), onTap: () => _pickDate(true)),
           if (_each != null) ...[
             const SizedBox(height: 14),
-            JphUi.readOnly(isDark: isDark, label: 'قيمة القسط تقريبًا', value: JphUi.money(_each), icon: Icons.calculate_rounded, color: Colors.teal),
+            JphUi.readOnly(isDark: isDark, label: 'قيمة القسط تقريبًا', value: JphUi.money(_each), icon: Icons.calculate_rounded, color: Ar.green),
           ],
         ],
         const SizedBox(height: 18),
@@ -345,7 +346,7 @@ class _SalesTabState extends State<SalesTab> {
         if (_withCommission && _manage) ...[
           const SizedBox(height: 14),
           JphUi.picker(
-            isDark: isDark, icon: Icons.badge_rounded, iconColor: Colors.teal, label: 'العمولة لمين', value: sellerName,
+            isDark: isDark, icon: Icons.badge_rounded, iconColor: Ar.green, label: 'العمولة لمين', value: sellerName,
             onTap: () async {
               final v = await JphUi.sheet<String>(context, isDark, 'اختار الموظف صاحب العمولة',
                   [('', 'أنا', Icons.person_rounded), for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)],
@@ -360,19 +361,19 @@ class _SalesTabState extends State<SalesTab> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: isDark ? Colors.amber.shade900.withOpacity(0.25) : Colors.amber.shade50,
+            color: isDark ? Ar.amber.shade900.withOpacity(0.25) : Ar.amber.shade50,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isDark ? Colors.amber.shade700 : Colors.amber.shade200, width: 1.5),
+            border: Border.all(color: isDark ? Ar.amber.shade700 : Ar.amber.shade200, width: 1.5),
           ),
           child: Row(children: [
-            Icon(Icons.info_outline_rounded, color: isDark ? Colors.amber.shade300 : Colors.amber.shade800),
+            Icon(Icons.info_outline_rounded, color: isDark ? Ar.amber.shade300 : Ar.amber.shade800),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                   _manage
                       ? 'البيعة بتتسجل على طول وجدول الأقساط بيتعمل لوحده. طلب العمولة بيروح للمدير العام يعتمده ويحدد شهر نزولها.'
                       : 'البيعة بتروح للإدارة تعتمدها قبل أي تحصيل، وطلب العمولة بيروح للمدير العام يعتمده.',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Colors.amber.shade200 : Colors.amber.shade900)),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Ar.amber.shade200 : Ar.amber.shade900)),
             ),
           ]),
         ),

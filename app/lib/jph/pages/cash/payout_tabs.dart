@@ -10,6 +10,7 @@ import '../../widgets/swipe_tabs.dart';
 import '../advance_summary.dart';
 import '../attendance/attendance_report_page.dart';
 import '../../widgets/glass_dialog.dart';
+import '../../widgets/glass_ui.dart';
 
 /// الخزنة ← الطلبات: شريط تاني تحت شريط الصفحة — سلف | مرتبات | عمولات.
 /// الطريقة الوحيدة لصرف السلف والمرتبات والعمولات:
@@ -226,11 +227,11 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
   }
 
   (String, Color) _status(String? s) => switch (s) {
-        'unpaid' => ('لم يُصرف', Colors.orange),
-        'partly_paid' => ('اتصرف جزء', Colors.orange),
-        'awaiting_receipt' => ('اتصرف — مستني تأكيد الاستلام', Colors.teal),
-        'received' => ('تم الاستلام ✅', Colors.green),
-        _ => ('مفيش مستحق', Colors.grey),
+        'unpaid' => ('لم يُصرف', Ar.amber),
+        'partly_paid' => ('اتصرف جزء', Ar.amber),
+        'awaiting_receipt' => ('اتصرف — مستني تأكيد الاستلام', Ar.green),
+        'received' => ('تم الاستلام ✅', Ar.green),
+        _ => ('مفيش مستحق', Ar.grey),
       };
 
   @override
@@ -246,10 +247,10 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
     return list(isDark, [
       // المستحق • قيد المراجعة (اتصرف ولسه المستلم ما أكدش) • اتصرف (اتأكد استلامه) • الباقي
       JphUi.statGrid([
-        JphUi.stat(isDark, 'المستحق', JphUi.money(_totals['due']), Icons.payments_rounded, Colors.indigo),
-        JphUi.stat(isDark, 'قيد المراجعة', JphUi.money(_totals['awaiting']), Icons.pending_actions_rounded, Colors.teal),
-        JphUi.stat(isDark, 'اتصرف', JphUi.money(_totals['received']), Icons.check_circle_rounded, Colors.green),
-        JphUi.stat(isDark, 'الباقي', JphUi.money(_totals['remaining']), Icons.hourglass_bottom_rounded, Colors.orange),
+        JphUi.stat(isDark, 'المستحق', JphUi.money(_totals['due']), Icons.payments_rounded, Ar.accent),
+        JphUi.stat(isDark, 'قيد المراجعة', JphUi.money(_totals['awaiting']), Icons.pending_actions_rounded, Ar.green),
+        JphUi.stat(isDark, 'اتصرف', JphUi.money(_totals['received']), Icons.check_circle_rounded, Ar.green),
+        JphUi.stat(isDark, 'الباقي', JphUi.money(_totals['remaining']), Icons.hourglass_bottom_rounded, Ar.amber),
       ]),
       const SizedBox(height: 12),
       if (_rowsAll.isEmpty) _empty(isDark, 'مفيش مرتبات للشهر ده'),
@@ -273,7 +274,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.person_rounded, Colors.indigo),
+                JphUi.iconTile(isDark, Icons.person_rounded, Ar.accent),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -300,7 +301,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
               ],
               for (final p in mineToConfirm) ...[
                 const SizedBox(height: 10),
-                _actionButton('تم الاستلام', Icons.check_circle_rounded, Colors.green,
+                _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green,
                     busy ? null : () => _receive('${p['id']}', p['amount'])),
               ],
             ]),
@@ -318,14 +319,14 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.payments_rounded, received ? Colors.green : Colors.teal),
+          JphUi.iconTile(isDark, Icons.payments_rounded, received ? Ar.green : Ar.green),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('مرتب ${JphUi.monthAr('${p['period'] ?? ''}'.padRight(7).substring(0, 7))}',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
               Text(received ? 'تم الاستلام ✅' : 'من ${p['created_by_name'] ?? ''} — مستني تأكيدك',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: received ? Colors.green : Colors.teal)),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: received ? Ar.green : Ar.green)),
             ]),
           ),
           Text(JphUi.money(p['amount_egp']),
@@ -333,7 +334,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
         ]),
         if (p['canReceive'] == true) ...[
           const SizedBox(height: 10),
-          _actionButton('تم الاستلام', Icons.check_circle_rounded, Colors.green,
+          _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green,
               busy ? null : () => _receive('${p['id']}', p['amount_egp'])),
         ],
       ]),
@@ -403,8 +404,8 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
     final canPay = ApiService.can('finance.disburse');
     return list(isDark, [
       JphUi.statGrid([
-        JphUi.stat(isDark, 'عمولات الشهر', JphUi.money(_totals['amount']), Icons.trending_up_rounded, Colors.purple),
-        JphUi.stat(isDark, 'لسه ماتصرفتش', JphUi.money(_totals['unpaid']), Icons.hourglass_bottom_rounded, Colors.orange),
+        JphUi.stat(isDark, 'عمولات الشهر', JphUi.money(_totals['amount']), Icons.trending_up_rounded, Ar.accent),
+        JphUi.stat(isDark, 'لسه ماتصرفتش', JphUi.money(_totals['unpaid']), Icons.hourglass_bottom_rounded, Ar.amber),
       ]),
       const SizedBox(height: 12),
       if (_items.isEmpty) _empty(isDark, 'مفيش عمولات للشهر ده'),
@@ -421,7 +422,7 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, Icons.handshake_rounded, Colors.purple),
+          JphUi.iconTile(isDark, Icons.handshake_rounded, Ar.accent),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -431,7 +432,7 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
                   style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
               const SizedBox(height: 2),
               Text(x['payment'] == 'unpaid' ? 'لم تُصرف' : pay.$1,
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: x['payment'] == 'unpaid' ? Colors.orange : pay.$2)),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: x['payment'] == 'unpaid' ? Ar.amber : pay.$2)),
             ]),
           ),
           Text(JphUi.money(x['amount']),
@@ -443,7 +444,7 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
         ],
         if (mine && x['payment'] == 'handed' && (x['payoutId'] ?? '').toString().isNotEmpty) ...[
           const SizedBox(height: 10),
-          _actionButton('تم الاستلام', Icons.check_circle_rounded, Colors.green, busy ? null : () => _receive(x)),
+          _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green, busy ? null : () => _receive(x)),
         ],
       ]),
     );

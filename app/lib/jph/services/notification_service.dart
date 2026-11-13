@@ -6,6 +6,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'api_service.dart';
+import '../widgets/glass_ui.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -98,7 +99,7 @@ class NotificationService {
           enableVibration: true,
           vibrationPattern: vibrationPattern,
           enableLights: true,
-          ledColor: Colors.purple,
+          ledColor: Ar.accent,
           showBadge: true,
         );
 
@@ -159,7 +160,7 @@ class NotificationService {
         enableVibration: true,
         vibrationPattern: vibrationPattern,
         enableLights: true,
-        ledColor: Colors.purple,
+        ledColor: Ar.accent,
         color: const Color(0xFF4F46E5),
         largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
         styleInformation: BigTextStyleInformation(

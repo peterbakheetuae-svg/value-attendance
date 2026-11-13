@@ -13,6 +13,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../forms/payment_voucher_pdf.dart';
 import 'cash_overview.dart';
+import '../../widgets/glass_ui.dart';
 
 /// الخزينة — the office cashbox (المدير / owner only) and the HR cashbox.
 /// Tabs by permission: الأرصدة • الحركات • التحويلات • المصروفات • التحصيلات.
@@ -210,27 +211,27 @@ class _SummaryTabState extends State<_SummaryTab> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, key == 'office' ? Icons.account_balance_rounded : Icons.badge_rounded, key == 'office' ? Colors.indigo : Colors.teal),
+          JphUi.iconTile(isDark, key == 'office' ? Icons.account_balance_rounded : Icons.badge_rounded, key == 'office' ? Ar.accent : Ar.green),
           const SizedBox(width: 12),
           Expanded(child: Text(_boxAr[key]!, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
         ]),
         const SizedBox(height: 10),
         Text('الرصيد الدفتري', style: TextStyle(color: JphUi.sub(isDark), fontWeight: FontWeight.w600)),
-        Text(JphUi.money(bal), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: neg ? Colors.red : JphUi.text(isDark))),
+        Text(JphUi.money(bal), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: neg ? Ar.red : JphUi.text(isDark))),
         if (key == 'hr' && ((b['deficit'] as num?) ?? 0) > 0)
           Container(
             margin: const EdgeInsets.only(top: 8),
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: Ar.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
             child: Text('عجز: مطلوب تحويل ${JphUi.money(b['deficit'])} من خزينة المكتب لتغطيته. الرصيد السالب مش فلوس موجودة — ده مبلغ مستحق بين الخزنتين.',
-                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
+                style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700)),
           ),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 6, children: [
-          if (((inT['count'] as num?) ?? 0) > 0) JphUi.chip('وارد في الطريق: ${JphUi.money(inT['amount'])}', Colors.blue),
-          if (((outT['count'] as num?) ?? 0) > 0) JphUi.chip('صادر في الطريق: ${JphUi.money(outT['amount'])}', Colors.orange),
+          if (((inT['count'] as num?) ?? 0) > 0) JphUi.chip('وارد في الطريق: ${JphUi.money(inT['amount'])}', Ar.info),
+          if (((outT['count'] as num?) ?? 0) > 0) JphUi.chip('صادر في الطريق: ${JphUi.money(outT['amount'])}', Ar.amber),
           if (key == 'hr' && (((b['expensesAwaitingApproval'] as Map?)?['count'] as num?) ?? 0) > 0)
-            JphUi.chip('مصروفات مستنية موافقة: ${JphUi.money((b['expensesAwaitingApproval'] as Map)['amount'])}', Colors.purple),
+            JphUi.chip('مصروفات مستنية موافقة: ${JphUi.money((b['expensesAwaitingApproval'] as Map)['amount'])}', Ar.accent),
         ]),
       ]),
     );
@@ -250,7 +251,7 @@ class _SummaryTabState extends State<_SummaryTab> {
           margin: const EdgeInsets.all(16),
           constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.8),
           padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(26)),
+          decoration: BoxDecoration(color: isDark ? const Color(0xFF262624) : Colors.white, borderRadius: BorderRadius.circular(26)),
           child: FutureBuilder<Map<String, dynamic>>(
             future: future,
             builder: (_, snap) {
@@ -269,7 +270,7 @@ class _SummaryTabState extends State<_SummaryTab> {
                 else if (r['success'] == false)
                   Padding(padding: const EdgeInsets.all(20), child: Text('${r['message'] ?? 'مش متاح'}', textAlign: TextAlign.center))
                 else ...[
-                  JphUi.stat(isDark, 'الإجمالي (${rows.length})', JphUi.money(r['total']), Icons.summarize_rounded, Colors.indigo),
+                  JphUi.stat(isDark, 'الإجمالي (${rows.length})', JphUi.money(r['total']), Icons.summarize_rounded, Ar.accent),
                   const SizedBox(height: 10),
                   if (rows.isEmpty)
                     Padding(padding: const EdgeInsets.all(20), child: Text('مفيش حاجة', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -280,9 +281,9 @@ class _SummaryTabState extends State<_SummaryTab> {
                           margin: const EdgeInsets.only(bottom: 8),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade50,
+                            color: isDark ? Colors.white.withOpacity(0.08) : Ar.grey.shade50,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300),
+                            border: Border.all(color: isDark ? Colors.white24 : Ar.grey.shade300),
                           ),
                           child: Row(children: [
                             Expanded(
@@ -293,7 +294,7 @@ class _SummaryTabState extends State<_SummaryTab> {
                             ),
                             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                               Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                              if ('${x['tag'] ?? ''}'.isNotEmpty) JphUi.chip('${x['tag']}', Colors.blueGrey),
+                              if ('${x['tag'] ?? ''}'.isNotEmpty) JphUi.chip('${x['tag']}', Ar.grey),
                             ]),
                           ]),
                         ),
@@ -339,28 +340,28 @@ class _SummaryTabState extends State<_SummaryTab> {
         if (!_loading && _d['success'] == true) ...[
           _section('الشهر ده — دوس على أي مربع تشوف تفاصيله'),
           JphUi.statGrid([
-            _tile('المرتبات المستحقة', hr['salariesDue'], Icons.payments_rounded, Colors.teal, 'salaries'),
-            _tile('مرتبات اتصرفت', hr['salariesPaid'], Icons.price_check_rounded, Colors.green, 'salaries_paid'),
-            _tile('باقي من المرتبات', hr['salariesRemaining'], Icons.hourglass_bottom_rounded, Colors.orange, 'salaries'),
-            _tile('التحصيلات', hr['collections'], Icons.savings_rounded, Colors.green, 'collections'),
-            _tile('مصروفات خزنة المحاسب', hr['expenses'], Icons.receipt_long_rounded, Colors.deepOrange, 'hr_expenses'),
-            _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Colors.purple, 'advances'),
-            _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Colors.amber, 'commissions_unpaid'),
+            _tile('المرتبات المستحقة', hr['salariesDue'], Icons.payments_rounded, Ar.green, 'salaries'),
+            _tile('مرتبات اتصرفت', hr['salariesPaid'], Icons.price_check_rounded, Ar.green, 'salaries_paid'),
+            _tile('باقي من المرتبات', hr['salariesRemaining'], Icons.hourglass_bottom_rounded, Ar.amber, 'salaries'),
+            _tile('التحصيلات', hr['collections'], Icons.savings_rounded, Ar.green, 'collections'),
+            _tile('مصروفات خزنة المحاسب', hr['expenses'], Icons.receipt_long_rounded, Ar.amber, 'hr_expenses'),
+            _tile('سلف لسه هتتخصم', hr['outstandingAdvances'], Icons.request_quote_rounded, Ar.accent, 'advances'),
+            _tile('عمولات مستنية الصرف', hr['commissionsAwaitingPayment'], Icons.workspace_premium_rounded, Ar.amber, 'commissions_unpaid'),
           ]),
           _section('الأقساط'),
           JphUi.statGrid([
-            _tile('مستحق خلال أسبوع (${week['count'] ?? 0})', week['amount'], Icons.event_available_rounded, Colors.blue, 'installments_week'),
-            _tile('متأخر (${overdue['count'] ?? 0})', overdue['amount'], Icons.warning_amber_rounded, Colors.red, 'installments_overdue'),
+            _tile('مستحق خلال أسبوع (${week['count'] ?? 0})', week['amount'], Icons.event_available_rounded, Ar.info, 'installments_week'),
+            _tile('متأخر (${overdue['count'] ?? 0})', overdue['amount'], Icons.warning_amber_rounded, Ar.red, 'installments_overdue'),
           ]),
           if (mg != null) ...[
             _section('الإدارة'),
             JphUi.statGrid([
-              _tile('مصروفات المكتب', mg['officeExpenses'], Icons.receipt_rounded, Colors.orange, 'office_expenses'),
-              _tile('عمولات الشهر', mg['commissions'], Icons.workspace_premium_rounded, Colors.amber, 'commissions'),
-              _tile('حجز ومقدمات', mg['downPayments'], Icons.key_rounded, Colors.green, 'down_payments'),
-              _tile('أقساط اتحصلت', mg['installmentsCollected'], Icons.check_circle_rounded, Colors.green, 'installments_collected'),
-              _tile('باقي على الوحدات', mg['unitsRemaining'], Icons.home_work_rounded, Colors.indigo, 'units_remaining'),
-              _tile('تحويلات مفتوحة', mg['transfersOpen'], Icons.swap_horiz_rounded, Colors.blueGrey, 'transfers_open', money: false),
+              _tile('مصروفات المكتب', mg['officeExpenses'], Icons.receipt_rounded, Ar.amber, 'office_expenses'),
+              _tile('عمولات الشهر', mg['commissions'], Icons.workspace_premium_rounded, Ar.amber, 'commissions'),
+              _tile('حجز ومقدمات', mg['downPayments'], Icons.key_rounded, Ar.green, 'down_payments'),
+              _tile('أقساط اتحصلت', mg['installmentsCollected'], Icons.check_circle_rounded, Ar.green, 'installments_collected'),
+              _tile('باقي على الوحدات', mg['unitsRemaining'], Icons.home_work_rounded, Ar.accent, 'units_remaining'),
+              _tile('تحويلات مفتوحة', mg['transfersOpen'], Icons.swap_horiz_rounded, Ar.grey, 'transfers_open', money: false),
             ]),
           ],
         ],
@@ -550,12 +551,12 @@ Future<void> _formSheet(BuildContext context, bool isDark, String title, List<Wi
           constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.92),
           padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + MediaQuery.of(ctx).viewInsets.bottom),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            color: isDark ? const Color(0xFF262624) : Colors.white,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
           ),
           child: SingleChildScrollView(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-              Center(child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(4)))),
+              Center(child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Ar.grey.shade400, borderRadius: BorderRadius.circular(4)))),
               const SizedBox(height: 12),
               Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               const SizedBox(height: 14),
@@ -657,9 +658,9 @@ class _LedgerTabState extends State<CashLedgerView> {
         }),
         const SizedBox(height: 6),
         Row(children: [
-          Expanded(child: JphUi.stat(isDark, 'إجمالي الوارد', JphUi.money(totals['in']), Icons.south_west_rounded, Colors.green)),
+          Expanded(child: JphUi.stat(isDark, 'إجمالي الوارد', JphUi.money(totals['in']), Icons.south_west_rounded, Ar.green)),
           const SizedBox(width: 10),
-          Expanded(child: JphUi.stat(isDark, 'إجمالي الصادر', JphUi.money(totals['out']), Icons.north_east_rounded, Colors.red)),
+          Expanded(child: JphUi.stat(isDark, 'إجمالي الصادر', JphUi.money(totals['out']), Icons.north_east_rounded, Ar.red)),
         ]),
         const SizedBox(height: 12),
         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
@@ -672,7 +673,7 @@ class _LedgerTabState extends State<CashLedgerView> {
             decoration: JphUi.box(isDark),
             child: Row(children: [
               Icon(((e['amount'] as num?) ?? 0) >= 0 ? Icons.add_circle_rounded : Icons.remove_circle_rounded,
-                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Colors.green : Colors.red),
+                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Ar.green : Ar.red),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -683,7 +684,7 @@ class _LedgerTabState extends State<CashLedgerView> {
                 ]),
               ),
               Text(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900,
-                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Colors.green : Colors.red)),
+                  color: ((e['amount'] as num?) ?? 0) >= 0 ? Ar.green : Ar.red)),
             ]),
           ),
       ]),
@@ -693,9 +694,9 @@ class _LedgerTabState extends State<CashLedgerView> {
 
 // ==================================================================== التحويلات
 const _trStatus = {
-  'requested': ('مطلوب', Colors.orange), 'approved': ('اتوافق — مستني التسليم', Colors.blue),
-  'executed': ('اتسلّم — مستني تأكيد الاستلام', Colors.teal), 'received': ('تم', Colors.green),
-  'rejected': ('مرفوض', Colors.red), 'cancelled': ('ملغي', Colors.grey),
+  'requested': ('مطلوب', Ar.amber), 'approved': ('اتوافق — مستني التسليم', Ar.info),
+  'executed': ('اتسلّم — مستني تأكيد الاستلام', Ar.green), 'received': ('تم', Ar.green),
+  'rejected': ('مرفوض', Ar.red), 'cancelled': ('ملغي', Ar.grey),
 };
 
 class _TransfersTab extends StatefulWidget {
@@ -839,7 +840,7 @@ class _TransfersTabState extends State<_TransfersTab> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
-                const Icon(Icons.account_balance_rounded, color: Colors.teal, size: 20),
+                const Icon(Icons.account_balance_rounded, color: Ar.green, size: 20),
                 const SizedBox(width: 8),
                 Expanded(child: Text('${m['byName']} · ${'${m['at'] ?? ''}'.length >= 10 ? '${m['at']}'.substring(0, 10) : ''}${'${m['note'] ?? ''}'.isEmpty ? '' : ' · ${m['note']}'}',
                     style: TextStyle(color: JphUi.sub(isDark)))),
@@ -861,7 +862,7 @@ class _TransfersTabState extends State<_TransfersTab> {
   Widget _card(Map<String, dynamic> t) {
     final isDark = widget.isDark;
     final can = ((t['can'] as Map?) ?? const {});
-    final st = _trStatus[t['status']] ?? ('${t['status']}', Colors.grey);
+    final st = _trStatus[t['status']] ?? ('${t['status']}', Ar.grey);
     final toHr = t['direction'] == 'office_to_hr';
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -869,7 +870,7 @@ class _TransfersTabState extends State<_TransfersTab> {
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, toHr ? Icons.call_received_rounded : Icons.call_made_rounded, toHr ? Colors.teal : Colors.indigo),
+          JphUi.iconTile(isDark, toHr ? Icons.call_received_rounded : Icons.call_made_rounded, toHr ? Ar.green : Ar.accent),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -882,22 +883,22 @@ class _TransfersTabState extends State<_TransfersTab> {
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 6, children: [
           JphUi.chip(st.$1, st.$2),
-          if (t['executedByName'] != null) JphUi.chip('سلّمها: ${t['executedByName']}', Colors.blueGrey),
-          if (t['receivedByName'] != null) JphUi.chip('استلمها: ${t['receivedByName']}', Colors.green),
-          if ('${t['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${t['rejectReason']}', Colors.red),
+          if (t['executedByName'] != null) JphUi.chip('سلّمها: ${t['executedByName']}', Ar.grey),
+          if (t['receivedByName'] != null) JphUi.chip('استلمها: ${t['receivedByName']}', Ar.green),
+          if ('${t['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${t['rejectReason']}', Ar.red),
         ]),
         Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
           if (can['decide'] == true) ...[
-            TextButton(onPressed: () => _reject(t), child: const Text('رفض', style: TextStyle(color: Colors.red))),
+            TextButton(onPressed: () => _reject(t), child: const Text('رفض', style: TextStyle(color: Ar.red))),
             ElevatedButton(onPressed: () => _act('/cash/transfers/${t['id']}/decision', {'decision': 'approve'}, 'اتوافق ✅'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('موافقة')),
+                style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white), child: const Text('موافقة')),
           ],
           if (can['execute'] == true)
-            ElevatedButton(onPressed: () => _execute(t), style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+            ElevatedButton(onPressed: () => _execute(t), style: ElevatedButton.styleFrom(backgroundColor: Ar.info, foregroundColor: Colors.white),
                 child: const Text('تسليم الفلوس')),
           if (can['receive'] == true)
             ElevatedButton(onPressed: () => _act('/cash/transfers/${t['id']}/receive', {}, 'تم تأكيد الاستلام ✅'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('تم الاستلام')),
+                style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white), child: const Text('تم الاستلام')),
           if (can['cancel'] == true)
             TextButton(onPressed: () => _act('/cash/transfers/${t['id']}/cancel', {}, 'اتلغى'), child: const Text('إلغاء')),
         ]),
@@ -937,8 +938,8 @@ Widget _bigButton(bool isDark, String label, IconData icon, VoidCallback onTap) 
 
 // ==================================================================== المصروفات
 const _expStatus = {
-  'posted': ('اتصرف', Colors.green), 'pending_approval': ('مستني موافقة المدير', Colors.orange),
-  'rejected': ('مرفوض', Colors.red), 'reversed': ('اتعكس', Colors.grey),
+  'posted': ('اتصرف', Ar.green), 'pending_approval': ('مستني موافقة المدير', Ar.amber),
+  'rejected': ('مرفوض', Ar.red), 'reversed': ('اتعكس', Ar.grey),
 };
 
 class _ExpensesTab extends StatefulWidget {
@@ -1049,7 +1050,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
               title: 'تسجيل مصروف', opener: 'تسجيل مصروف', icon: Icons.shopping_bag_rounded, button: 'تسجيل المصروف', saving: _saving, onSubmit: _add,
               children: [
                 JphUi.readOnly(isDark: isDark, label: 'من', value: _boxAr[_box]!, icon: Icons.account_balance_wallet_rounded,
-                    color: _box == 'hr' ? Colors.teal : Colors.indigo),
+                    color: _box == 'hr' ? Ar.green : Ar.accent),
                 const SizedBox(height: 14),
                 JphUi.input(isDark: isDark, label: 'المبلغ *', controller: _amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
                 const SizedBox(height: 14),
@@ -1100,7 +1101,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.shopping_bag_rounded, Colors.deepOrange),
+                JphUi.iconTile(isDark, Icons.shopping_bag_rounded, Ar.amber),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1113,24 +1114,24 @@ class _ExpensesTabState extends State<_ExpensesTab> {
               ]),
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 6, children: [
-                JphUi.chip((_expStatus[x['status']] ?? ('${x['status']}', Colors.grey)).$1, (_expStatus[x['status']] ?? ('', Colors.grey)).$2),
-                if (x['reviewedAt'] != null) JphUi.chip('اتراجع: ${x['reviewedByName'] ?? ''}', Colors.blueGrey),
-                if ('${x['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${x['rejectReason']}', Colors.red),
-                if ('${x['reverseReason'] ?? ''}'.isNotEmpty) JphUi.chip('عكس: ${x['reverseReason']}', Colors.grey),
+                JphUi.chip((_expStatus[x['status']] ?? ('${x['status']}', Ar.grey)).$1, (_expStatus[x['status']] ?? ('', Ar.grey)).$2),
+                if (x['reviewedAt'] != null) JphUi.chip('اتراجع: ${x['reviewedByName'] ?? ''}', Ar.grey),
+                if ('${x['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${x['rejectReason']}', Ar.red),
+                if ('${x['reverseReason'] ?? ''}'.isNotEmpty) JphUi.chip('عكس: ${x['reverseReason']}', Ar.grey),
               ]),
               if (office)
                 Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
                   if (x['status'] == 'pending_approval') ...[
                     TextButton(onPressed: () => _withReason('سبب الرفض', '/cash/expenses/${x['id']}/decision', {'decision': 'reject'}, 'اترفض'),
-                        child: const Text('رفض', style: TextStyle(color: Colors.red))),
+                        child: const Text('رفض', style: TextStyle(color: Ar.red))),
                     ElevatedButton(onPressed: () => _act('/cash/expenses/${x['id']}/decision', {'decision': 'approve'}, 'اتوافق ✅'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: const Text('موافقة')),
+                        style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white), child: const Text('موافقة')),
                   ],
                   if (x['status'] == 'posted' && x['reviewedAt'] == null)
                     TextButton(onPressed: () => _act('/cash/expenses/${x['id']}/review', {}, 'اتراجع ✅'), child: const Text('تمت المراجعة')),
                   if (x['status'] == 'posted')
                     TextButton(onPressed: () => _withReason('عكس المصروف', '/cash/expenses/${x['id']}/reverse', {}, 'اتعكس'),
-                        child: const Text('عكس', style: TextStyle(color: Colors.red))),
+                        child: const Text('عكس', style: TextStyle(color: Ar.red))),
                 ]),
               if (x['status'] == 'posted' || x['status'] == 'pending_approval')
                 _receiptActions(context, isDark, x, x['hasAttachment'] == true, _load),
@@ -1155,7 +1156,7 @@ Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x
       if (hasPhoto)
         OutlinedButton.icon(
           onPressed: () => _viewReceiptPhoto(context, '${x['id']}'),
-          icon: const Icon(Icons.image_rounded, size: 18, color: Colors.green),
+          icon: const Icon(Icons.image_rounded, size: 18, color: Ar.green),
           label: const Text('صورة الإيصال'),
         ),
       OutlinedButton.icon(
@@ -1291,7 +1292,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
           JphUi.picker(
             isDark: isDark,
             icon: Icons.category_rounded,
-            iconColor: Colors.indigo,
+            iconColor: Ar.accent,
             label: 'البند *',
             value: category.text.trim().isEmpty ? 'اختار البند' : category.text.trim(),
             onTap: () async {
@@ -1418,7 +1419,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.event_repeat_rounded, active ? Colors.indigo : Colors.grey),
+                JphUi.iconTile(isDark, Icons.event_repeat_rounded, active ? Ar.accent : Ar.grey),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1431,12 +1432,12 @@ class _FixedExpensesState extends State<_FixedExpenses> {
               ]),
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 6, children: [
-                if (!active) JphUi.chip('موقوف', Colors.grey),
+                if (!active) JphUi.chip('موقوف', Ar.grey),
                 if (paid != null && paid['status'] == 'posted')
-                  JphUi.chip('اتصرف $_monthAr من ${_boxAr[paid['cashbox']] ?? ''} • #${paid['refNo']}', Colors.green),
-                if (paid != null && paid['status'] == 'pending_approval') JphUi.chip('مستني موافقة المدير', Colors.orange),
-                if (paid == null && active) JphUi.chip('لسه متصرفش $_monthAr', Colors.deepOrange),
-                if (paid != null && paid['hasAttachment'] == true) JphUi.chip('الإيصال الموقّع متصوّر', Colors.teal),
+                  JphUi.chip('اتصرف $_monthAr من ${_boxAr[paid['cashbox']] ?? ''} • #${paid['refNo']}', Ar.green),
+                if (paid != null && paid['status'] == 'pending_approval') JphUi.chip('مستني موافقة المدير', Ar.amber),
+                if (paid == null && active) JphUi.chip('لسه متصرفش $_monthAr', Ar.amber),
+                if (paid != null && paid['hasAttachment'] == true) JphUi.chip('الإيصال الموقّع متصوّر', Ar.green),
               ]),
               const SizedBox(height: 6),
               Wrap(alignment: WrapAlignment.end, spacing: 8, runSpacing: 6, children: [
@@ -1446,7 +1447,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
                     onPressed: () => _pay(f),
                     icon: const Icon(Icons.payments_rounded, size: 18),
                     label: const Text('صرف'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                    style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white),
                   ),
               ]),
               if (paid != null) _receiptActions(context, isDark, _voucher(f, paid), paid['hasAttachment'] == true, _load),
@@ -1571,7 +1572,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
               title: 'تسجيل تحصيل (إيصال)', opener: 'تحصيل', icon: Icons.receipt_rounded, button: 'تسجيل التحصيل', saving: _saving, onSubmit: _add,
               children: [
                 JphUi.readOnly(isDark: isDark, label: 'الخزنة',
-                    value: _recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Colors.indigo),
+                    value: _recipient == 'hr' ? 'خزنة المحاسب' : 'خزنة المكتب', icon: Icons.account_balance_rounded, color: Ar.accent),
                 const SizedBox(height: 14),
                 _segmented(isDark, _receiptKinds, _kind, (v) => setState(() => _kind = v)),
                 const SizedBox(height: 14),
@@ -1579,7 +1580,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
                   JphUi.picker(
                     isDark: isDark,
                     icon: Icons.people_alt_rounded,
-                    iconColor: Colors.indigo,
+                    iconColor: Ar.accent,
                     label: 'العميل (بيتربط بأقساطه تلقائي)',
                     value: _sale == null ? 'اختار العميل' : '${_sale!['buyerName']} — ${_sale!['projectName']} ${_sale!['unitNo']}',
                     onTap: _pickClient,
@@ -1628,7 +1629,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
             decoration: JphUi.box(isDark),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                JphUi.iconTile(isDark, Icons.receipt_rounded, Colors.green),
+                JphUi.iconTile(isDark, Icons.receipt_rounded, Ar.green),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1639,10 +1640,10 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
                   ]),
                 ),
                 Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900,
-                    color: x['status'] == 'reversed' ? Colors.grey : Colors.green, decoration: x['status'] == 'reversed' ? TextDecoration.lineThrough : null)),
+                    color: x['status'] == 'reversed' ? Ar.grey : Ar.green, decoration: x['status'] == 'reversed' ? TextDecoration.lineThrough : null)),
               ]),
               if (x['status'] == 'reversed')
-                Padding(padding: const EdgeInsets.only(top: 6), child: JphUi.chip('اتعكس: ${x['reverseReason'] ?? ''}', Colors.grey)),
+                Padding(padding: const EdgeInsets.only(top: 6), child: JphUi.chip('اتعكس: ${x['reverseReason'] ?? ''}', Ar.grey)),
               if (widget.can['office'] == true && x['status'] == 'posted')
                 Align(
                   alignment: AlignmentDirectional.centerEnd,
@@ -1654,7 +1655,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
                       await _load();
                       await widget.onChanged();
                     },
-                    child: const Text('عكس', style: TextStyle(color: Colors.red)),
+                    child: const Text('عكس', style: TextStyle(color: Ar.red)),
                   ),
                 ),
             ]),

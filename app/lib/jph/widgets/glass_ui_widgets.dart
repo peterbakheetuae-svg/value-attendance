@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_colors.dart';
+import 'glass_ui.dart';
 
 /* ===================== PAGE HEADER ===================== */
 
@@ -183,7 +184,7 @@ class SettingTile extends StatelessWidget {
 
     final trailingColor = isDark
         ? AppColors.onSurfaceVariantDark
-        : Colors.grey;
+        : Ar.grey;
 
     return ListTile(
       leading: Icon(

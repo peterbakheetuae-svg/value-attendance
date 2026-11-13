@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/glass_ui.dart';
 
 class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
@@ -96,7 +97,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.collections_bookmark,
                             title: AppLocalizations.of(context, 'information_we_collect') ?? 'المعلومات التي نجمعها',
                             content: AppLocalizations.of(context, 'information_we_collect_text') ?? 'يجمع تطبيق Value Attendance معلومات الجهاز والاستخدام...',
-                            color: Colors.blue,
+                            color: Ar.info,
                           ),
 
                           const SizedBox(height: 16),
@@ -108,7 +109,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.how_to_reg,
                             title: AppLocalizations.of(context, 'how_we_use_information') ?? 'كيف نستخدم المعلومات',
                             content: AppLocalizations.of(context, 'how_we_use_information_text') ?? 'نستخدم المعلومات التي نجمعها لتقديم خدماتنا...',
-                            color: Colors.green,
+                            color: Ar.green,
                           ),
 
                           const SizedBox(height: 16),
@@ -120,7 +121,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.share,
                             title: AppLocalizations.of(context, 'data_sharing') ?? 'مشاركة البيانات',
                             content: AppLocalizations.of(context, 'data_sharing_text') ?? 'قد تتم مشاركة البيانات المجمعة والمجهولة...',
-                            color: Colors.orange,
+                            color: Ar.amber,
                           ),
 
                           const SizedBox(height: 16),
@@ -132,7 +133,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.save,
                             title: AppLocalizations.of(context, 'data_retention') ?? 'احتفاظ البيانات',
                             content: AppLocalizations.of(context, 'data_retention_text') ?? 'يتم الاحتفاظ بالبيانات الشخصية فقط...',
-                            color: Colors.purple,
+                            color: Ar.accent,
                           ),
 
                           const SizedBox(height: 16),
@@ -144,7 +145,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.child_care,
                             title: AppLocalizations.of(context, 'children_privacy') ?? 'خصوصية الأطفال',
                             content: AppLocalizations.of(context, 'children_privacy_text') ?? 'التطبيق لا يجمع معلومات عن قصد...',
-                            color: Colors.pink,
+                            color: Ar.red,
                           ),
 
                           const SizedBox(height: 16),
@@ -156,7 +157,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.verified_user,
                             title: AppLocalizations.of(context, 'user_rights') ?? 'حقوق المستخدم',
                             content: AppLocalizations.of(context, 'user_rights_text') ?? 'يمكنك إلغاء الاشتراك في أي وقت...',
-                            color: Colors.teal,
+                            color: Ar.green,
                           ),
 
                           const SizedBox(height: 16),
@@ -168,7 +169,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.security,
                             title: AppLocalizations.of(context, 'data_protection') ?? 'حماية البيانات',
                             content: AppLocalizations.of(context, 'data_protection_text') ?? 'تم تنفيذ ضمانات لحماية بياناتك...',
-                            color: Colors.red,
+                            color: Ar.red,
                           ),
 
                           const SizedBox(height: 16),
@@ -180,7 +181,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             icon: Icons.gpp_good,
                             title: AppLocalizations.of(context, 'consent') ?? 'الموافقة',
                             content: AppLocalizations.of(context, 'consent_text') ?? 'يوافق المستخدم على سياسة الخصوصية...',
-                            color: Colors.indigo,
+                            color: Ar.accent,
                           ),
 
                           const SizedBox(height: 24),
@@ -220,26 +221,26 @@ class PrivacyPolicyPage extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-            Colors.indigo.shade900.withOpacity(0.8),
-            Colors.purple.shade900.withOpacity(0.8),
+            Ar.accent.shade900.withOpacity(0.8),
+            Ar.accent.shade900.withOpacity(0.8),
           ]
               : [
-            Colors.indigo.shade50,
-            Colors.purple.shade50,
+            Ar.accent.shade50,
+            Ar.accent.shade50,
           ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isDark
-              ? Colors.indigo.shade800.withOpacity(0.3)
-              : Colors.indigo.shade200,
+              ? Ar.accent.shade800.withOpacity(0.3)
+              : Ar.accent.shade200,
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
             color: isDark
-                ? Colors.indigo.shade900.withOpacity(0.3)
-                : Colors.indigo.shade100.withOpacity(0.5),
+                ? Ar.accent.shade900.withOpacity(0.3)
+                : Ar.accent.shade100.withOpacity(0.5),
             blurRadius: 20,
             spreadRadius: 2,
           ),
@@ -251,7 +252,7 @@ class PrivacyPolicyPage extends StatelessWidget {
           Icon(
             Icons.privacy_tip,
             size: 60,
-            color: Colors.indigoAccent,
+            color: Ar.accent,
           ),
           const SizedBox(height: 16),
 
@@ -274,14 +275,14 @@ class PrivacyPolicyPage extends StatelessWidget {
               Icon(
                 Icons.update,
                 size: 16,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
               ),
               const SizedBox(width: 8),
               Text(
                 '${AppLocalizations.of(context, 'last_updated') ?? 'آخر تحديث'}: $lastUpdated',
                 style: TextStyle(
                   fontSize: 14,
-                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
                 ),
               ),
             ],
@@ -293,7 +294,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             AppLocalizations.of(context, 'introduction_text') ?? 'نحن في تطبيق Value Attendance ندرك أهمية خصوصية معلوماتك...',
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+              color: isDark ? Ar.grey.shade300 : Ar.grey.shade600,
             ),
             textAlign: TextAlign.center,
           ),
@@ -314,7 +315,7 @@ class PrivacyPolicyPage extends StatelessWidget {
     return Material(
       borderRadius: BorderRadius.circular(16),
       color: isDark
-          ? Colors.grey.shade900.withOpacity(0.5)
+          ? Ar.grey.shade900.withOpacity(0.5)
           : Colors.white.withOpacity(0.9),
       elevation: 2,
       child: Padding(
@@ -360,7 +361,7 @@ class PrivacyPolicyPage extends StatelessWidget {
               content,
               style: TextStyle(
                 fontSize: 14,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                 height: 1.6,
               ),
             ),
@@ -376,19 +377,19 @@ class PrivacyPolicyPage extends StatelessWidget {
       {
         'title': AppLocalizations.of(context, 'encryption') ?? 'التشفير',
         'icon': Icons.lock,
-        'color': Colors.green,
+        'color': Ar.green,
         'description': AppLocalizations.of(context, 'encryption_text') ?? 'جميع البيانات المرسلة بين جهازك وخوادمنا مشفرة...',
       },
       {
         'title': AppLocalizations.of(context, 'local_storage') ?? 'التخزين المحلي',
         'icon': Icons.storage,
-        'color': Colors.blue,
+        'color': Ar.info,
         'description': AppLocalizations.of(context, 'local_storage_text') ?? 'يتم تخزين بعض البيانات محلياً على جهازك...',
       },
       {
         'title': AppLocalizations.of(context, 'permissions') ?? 'الأذونات',
         'icon': Icons.perm_device_information,
-        'color': Colors.orange,
+        'color': Ar.amber,
         'description': AppLocalizations.of(context, 'permissions_text') ?? 'التطبيق يطلب فقط الأذونات الضرورية...',
       },
     ];
@@ -418,7 +419,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             return Material(
               borderRadius: BorderRadius.circular(16),
               color: isDark
-                  ? Colors.grey.shade900.withOpacity(0.5)
+                  ? Ar.grey.shade900.withOpacity(0.5)
                   : Colors.white.withOpacity(0.9),
               elevation: 2,
               child: Padding(
@@ -457,7 +458,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                             feature['description'] as String,
                             style: TextStyle(
                               fontSize: 12,
-                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                             ),
                           ),
                         ],
@@ -479,13 +480,13 @@ class PrivacyPolicyPage extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.teal.shade900.withOpacity(0.3)
-            : Colors.teal.shade50,
+            ? Ar.green.shade900.withOpacity(0.3)
+            : Ar.green.shade50,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isDark
-              ? Colors.teal.shade800
-              : Colors.teal.shade200,
+              ? Ar.green.shade800
+              : Ar.green.shade200,
         ),
       ),
       child: Column(
@@ -505,7 +506,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             AppLocalizations.of(context, 'contact_us_privacy_text') ?? 'إذا كانت لديك أي أسئلة أو استفسارات حول سياسة الخصوصية، يمكنك التواصل معنا عبر البريد الإلكتروني.',
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
               height: 1.6,
             ),
           ),
@@ -515,7 +516,7 @@ class PrivacyPolicyPage extends StatelessWidget {
           Material(
             borderRadius: BorderRadius.circular(12),
             color: isDark
-                ? Colors.teal.shade800.withOpacity(0.5)
+                ? Ar.green.shade800.withOpacity(0.5)
                 : Colors.white,
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -527,7 +528,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                     children: [
                       Icon(
                         Icons.email,
-                        color: Colors.teal,
+                        color: Ar.green,
                       ),
                       const SizedBox(width: 12),
                       Text(
@@ -548,7 +549,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                     privacyEmail,
                     style: TextStyle(
                       fontSize: 15,
-                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                      color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
                     ),
                   ),
 
@@ -563,12 +564,12 @@ class PrivacyPolicyPage extends StatelessWidget {
                         child: ElevatedButton.icon(
                           onPressed: () => _copyEmailToClipboard(context),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.teal.withOpacity(0.2),
-                            foregroundColor: Colors.teal,
+                            backgroundColor: Ar.green.withOpacity(0.2),
+                            foregroundColor: Ar.green,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
-                              side: BorderSide(color: Colors.teal.withOpacity(0.3)),
+                              side: BorderSide(color: Ar.green.withOpacity(0.3)),
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                           ),
@@ -587,7 +588,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                         child: ElevatedButton.icon(
                           onPressed: _sendEmail,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.teal,
+                            backgroundColor: Ar.green,
                             foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
@@ -619,13 +620,13 @@ class PrivacyPolicyPage extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.grey.shade900.withOpacity(0.5)
+            ? Ar.grey.shade900.withOpacity(0.5)
             : Colors.white.withOpacity(0.9),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isDark
-              ? Colors.grey.shade800
-              : Colors.grey.shade200,
+              ? Ar.grey.shade800
+              : Ar.grey.shade200,
         ),
       ),
       child: Column(
@@ -635,7 +636,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             children: [
               Icon(
                 Icons.notifications_active,
-                color: Colors.amber,
+                color: Ar.amber,
               ),
               const SizedBox(width: 12),
               Text(
@@ -654,7 +655,7 @@ class PrivacyPolicyPage extends StatelessWidget {
             AppLocalizations.of(context, 'update_policy_text') ?? 'قد نقوم بتحديث سياسة الخصوصية هذه من وقت لآخر. سنقوم بإعلامك بأي تغييرات جوهرية.',
             style: TextStyle(
               fontSize: 14,
-              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              color: isDark ? Ar.grey.shade300 : Ar.grey.shade700,
               height: 1.6,
             ),
           ),
@@ -665,22 +666,22 @@ class PrivacyPolicyPage extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.1),
+                  color: Ar.amber.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                  border: Border.all(color: Ar.amber.withOpacity(0.3)),
                 ),
                 child: Row(
                   children: [
                     Icon(
                       Icons.info,
                       size: 10,
-                      color: Colors.amber,
+                      color: Ar.amber,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       'Important',
                       style: TextStyle(
-                        color: Colors.amber,
+                        color: Ar.amber,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -692,7 +693,7 @@ class PrivacyPolicyPage extends StatelessWidget {
                 'Check this page regularly for updates',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  color: isDark ? Ar.grey.shade400 : Ar.grey.shade600,
                 ),
               ),
             ],

@@ -7,6 +7,7 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/glass_ui.dart';
 
 /// Add / edit a project. The three shares must add up to the total exactly (checked live here and again by
 /// the server). Changing the split later never touches commissions that were already approved.
@@ -59,7 +60,7 @@ class _ProjectFormPageState extends State<ProjectFormPage> {
   Future<void> _save() async {
     final err = _problem;
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err), backgroundColor: Ar.red));
       return;
     }
     setState(() => _saving = true);
@@ -115,13 +116,13 @@ class _ProjectFormPageState extends State<ProjectFormPage> {
                         Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: (problem == null ? Colors.green : Colors.orange).withOpacity(isDark ? 0.18 : 0.08),
+                            color: (problem == null ? Ar.green : Ar.amber).withOpacity(isDark ? 0.18 : 0.08),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: (problem == null ? Colors.green : Colors.orange).withOpacity(0.5), width: 1.4),
+                            border: Border.all(color: (problem == null ? Ar.green : Ar.amber).withOpacity(0.5), width: 1.4),
                           ),
                           child: Row(children: [
                             Icon(problem == null ? Icons.check_circle_rounded : Icons.info_rounded,
-                                color: problem == null ? Colors.green : Colors.orange),
+                                color: problem == null ? Ar.green : Ar.amber),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -133,7 +134,7 @@ class _ProjectFormPageState extends State<ProjectFormPage> {
                         ),
                         const SizedBox(height: 16),
                         JphUi.picker(
-                          isDark: isDark, icon: Icons.toggle_on_rounded, iconColor: Colors.green, label: 'حالة المشروع',
+                          isDark: isDark, icon: Icons.toggle_on_rounded, iconColor: Ar.green, label: 'حالة المشروع',
                           value: switch (_status) { 'paused' => 'متوقف مؤقتاً', 'closed' => 'مقفول', _ => 'شغال (بيستقبل صفقات)' },
                           onTap: () async {
                             final v = await JphUi.sheet<String>(context, isDark, 'حالة المشروع', [
