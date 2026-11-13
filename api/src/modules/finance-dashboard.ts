@@ -70,6 +70,71 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     return rows;
   }
 
+  /**
+   * تكلفة تشغيل الشهر (a view only — it changes no other figure):
+   *  المرتبات = every employee's monthly salary before any deduction + every fixed marketing company's monthly fee
+   *  المصروفات الشهرية = the fixed expenses (paid or not) + the month's other office expenses
+   *  تم دفعه = what left the boxes this month for them: salaries (no commissions), advances, work expenses, expenses, marketing companies
+   *  المطلوب للشهر = المرتبات + المصروفات الشهرية · متبقي = المطلوب − تم دفعه · التغطية = عمولة المكتب في الشهر − المطلوب
+   */
+  async function operating(period: string, office: boolean) {
+    const sal = await salaries(period);
+    const mk = (await db.query(`SELECT id, name, monthly_fee FROM marketing_companies WHERE status = 'active' AND kind = 'fixed' AND monthly_fee > 0
+                                 ORDER BY name`)).rows;
+    type It = { title: string; sub: string; amount: number; tag?: string };
+    const salaryItems: It[] = [
+      ...sal.filter((x) => x.base > 0).sort((x, y) => y.base - x.base).map((x) => ({ title: x.name, sub: 'المرتب الشهري', amount: x.base })),
+      ...mk.map((x) => ({ title: x.name, sub: 'شركة تسويق — المرتب الشهري', amount: r2(n(x.monthly_fee)) })),
+    ];
+    const fixed = (await db.query(`SELECT f.name, f.category, f.amount_egp,
+        (SELECT x.amount_egp FROM cash_expenses x WHERE x.fixed_expense_id = f.id AND x.fixed_period = $1 AND x.status = 'posted' LIMIT 1) AS paid_amount
+        FROM fixed_expenses f WHERE f.active ORDER BY f.name`, [period])).rows;
+    const variable = (await db.query(`SELECT x.category, x.reason, x.beneficiary, x.amount_egp, COALESCE(x.approved_at, x.occurred_at) AS at
+        FROM cash_expenses x WHERE x.status = 'posted' AND x.ex_kind IS NULL AND x.sale_id IS NULL AND x.owner_draw_id IS NULL
+         AND x.fixed_expense_id IS NULL AND x.marketing_company_id IS NULL AND ${IN_MONTH('COALESCE(x.approved_at, x.occurred_at)')}
+         ${office ? '' : "AND x.cashbox = 'hr'"} ORDER BY at`, [period])).rows;
+    const expenseItems: It[] = [
+      ...fixed.map((f) => ({ title: f.name, sub: `مصروف ثابت — ${f.category}`, amount: r2(n(f.amount_egp)), tag: f.paid_amount != null ? 'اتدفع' : 'لسه' })),
+      ...variable.map((x) => ({ title: x.reason || x.category, sub: `${x.category}${x.beneficiary ? ' — ' + x.beneficiary : ''} — ${ds(x.at).slice(0, 10)}`,
+        amount: r2(n(x.amount_egp)), tag: 'اتصرف' })),
+    ];
+    // what was paid this month
+    const pays = (await db.query(`SELECT p.kind, p.amount_egp, p.received_at, e.full_name FROM payouts p JOIN employees e ON e.id = p.employee_id
+        WHERE p.status = 'received' AND p.kind IN ('salary', 'advance', 'work_expense')
+          AND ((p.kind = 'salary' AND p.period = $1) OR (p.kind <> 'salary' AND ${IN_MONTH('p.received_at')})) ORDER BY p.received_at`, [period])).rows;
+    const mkPaid = (await db.query(`SELECT m.name, x.amount_egp, COALESCE(x.approved_at, x.occurred_at) AS at FROM cash_expenses x
+        JOIN marketing_companies m ON m.id = x.marketing_company_id WHERE x.status = 'posted' AND m.kind = 'fixed'
+         AND ${IN_MONTH('COALESCE(x.approved_at, x.occurred_at)')}`, [period])).rows;
+    const kindAr: Record<string, string> = { salary: 'مرتب', advance: 'سلفة', work_expense: 'مصاريف عمل' };
+    const paidItems: It[] = [
+      ...pays.map((p) => ({ title: p.full_name, sub: `${kindAr[p.kind]} — ${ds(p.received_at).slice(0, 10)}`, amount: r2(n(p.amount_egp)) })),
+      ...(office ? mkPaid.map((x) => ({ title: x.name, sub: `شركة تسويق — ${ds(x.at).slice(0, 10)}`, amount: r2(n(x.amount_egp)) })) : []),
+      ...fixed.filter((f) => f.paid_amount != null).map((f) => ({ title: f.name, sub: 'مصروف ثابت', amount: r2(n(f.paid_amount)) })),
+      ...variable.map((x) => ({ title: x.reason || x.category, sub: `${x.category} — ${ds(x.at).slice(0, 10)}`, amount: r2(n(x.amount_egp)) })),
+    ];
+    const sum = (xs: It[]) => r2(xs.reduce((t, x) => t + x.amount, 0));
+    const salariesT = sum(salaryItems), expensesT = sum(expenseItems), paid = sum(paidItems);
+    const required = r2(salariesT + expensesT);
+    const remaining = r2(Math.max(required - paid, 0));
+    // عمولة المكتب في الشهر: developers' commissions received + the exclusive projects' commission moved to the office
+    let commissionItems: It[] = [];
+    if (office) {
+      commissionItems = [
+        ...(await db.query(`SELECT r.amount_egp, r.occurred_at, COALESCE(p.name, '') AS project, r.payer_name FROM cash_receipts r
+            LEFT JOIN commission_projects p ON p.id = r.project_id WHERE r.status = 'posted' AND r.kind = 'commission' AND ${IN_MONTH('r.occurred_at')}`,
+          [period])).rows.map((x) => ({ title: x.project || x.payer_name || 'عمولة', sub: `عمولة من المطور — ${ds(x.occurred_at).slice(0, 10)}`, amount: r2(n(x.amount_egp)) })),
+        ...(await db.query(`SELECT t.amount_egp, t.created_at, p.name FROM ex_commission_transfers t JOIN commission_projects p ON p.id = t.project_id
+            WHERE ${IN_MONTH('t.created_at')}`, [period])).rows.map((x) => ({ title: x.name, sub: `عمولة الحصري — ${ds(x.created_at).slice(0, 10)}`, amount: r2(n(x.amount_egp)) })),
+      ];
+    }
+    const commissions = sum(commissionItems);
+    const summary = { salaries: salariesT, expenses: expensesT, total: required, required, paid, remaining,
+      officeCommission: office ? commissions : null, cover: office ? r2(commissions - required) : null,
+      // kept for older apps
+      fixed: r2(fixed.reduce((t, f) => t + n(f.amount_egp), 0)) };
+    return { summary, salaryItems, expenseItems, paidItems, commissionItems };
+  }
+
   r.get('/finance/dashboard', async (req) => {
     const a = await authenticate(db, req);
     const hr = canHrView(a), office = canOffice(a);
@@ -115,19 +180,10 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         FROM lines`, [t]);
     const left = await one(db, `SELECT COALESCE(sum(left_amount), 0) AS s FROM (${UNITS_LEFT}) x`, []);
     const sal = await salaries(period);
-    // تكلفة تشغيل الشهر: the month's fixed expenses + the month's salaries; what was paid of them and what is left
-    const fx = await one(db, `SELECT COALESCE(sum(f.amount_egp), 0) AS total,
-        COALESCE(sum(f.amount_egp) FILTER (WHERE EXISTS (SELECT 1 FROM cash_expenses x WHERE x.fixed_expense_id = f.id AND x.fixed_period = $1
-                                                          AND x.status = 'posted')), 0) AS paid
-        FROM fixed_expenses f WHERE f.active`, [period]);
-    // المرتبات here = every employee's full monthly salary BEFORE any deduction (what the month may cost at most)
-    const salDue = r2(sal.reduce((x, y) => x + y.base, 0));
-    const salPaid = r2(sal.reduce((x, y) => x + Math.max(y.paid, 0), 0));
-    const opTotal = r2(n(fx.total) + salDue), opPaid = r2(n(fx.paid) + salPaid);
-    const operating = { fixed: r2(n(fx.total)), fixedPaid: r2(n(fx.paid)), salaries: salDue, salariesPaid: salPaid,
-      total: opTotal, paid: opPaid, remaining: r2(Math.max(opTotal - opPaid, 0)) };
+    const op = await operating(period, office);
+    const operating_ = op.summary;
     const out: Record<string, unknown> = {
-      currency: 'EGP', month: period.slice(0, 7), cash, operating,
+      currency: 'EGP', month: period.slice(0, 7), cash, operating: operating_,
       hr: {
         salariesDue: r2(sal.reduce((x, y) => x + y.net, 0)), salariesPaid: r2(n(m.salaries_paid)),
         salariesRemaining: r2(sal.reduce((x, y) => x + Math.max(y.remaining, 0), 0)),
@@ -192,6 +248,31 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         title = 'مرتبات الشهر';
         rows = (await salaries(period)).map((x) => ({ title: x.name, sub: `الصافي ${x.net} — اتصرف ${x.paid}`, amount: x.remaining,
           tag: x.remaining <= 0 ? 'اتصرف' : x.paid > 0 ? 'جزء' : 'مستحق' }));
+        break;
+      }
+      case 'op_salaries': case 'op_expenses': case 'op_paid': case 'op_remaining': case 'op_required': case 'op_cover': {
+        const o = await operating(period, office);
+        const S = o.summary;
+        const total = (label: string, amount: number, tag?: string): Row => ({ title: label, sub: '', amount, tag });
+        switch (key) {
+          case 'op_salaries': title = 'المرتبات الشهرية'; rows = o.salaryItems; break;
+          case 'op_expenses': title = 'المصروفات الشهرية'; rows = o.expenseItems; break;
+          case 'op_paid': title = 'تم دفعه الشهر ده'; rows = o.paidItems; break;
+          case 'op_remaining':
+            title = 'متبقي دفعه';
+            rows = [total('المرتبات الشهرية', S.salaries), total('المصروفات الشهرية', S.expenses), total('− تم دفعه', -S.paid),
+              total('= متبقي دفعه', S.remaining, 'الباقي')];
+            break;
+          case 'op_required':
+            title = 'المبلغ المطلوب للشهر';
+            rows = [...o.salaryItems, ...o.expenseItems, total('= الإجمالي', S.required, 'الإجمالي')];
+            break;
+          default:
+            if (!office) throw forbidden();
+            title = 'فائض / عجز التغطية';
+            rows = [...o.commissionItems, total('إجمالي عمولة المكتب', S.officeCommission ?? 0), total('− المبلغ المطلوب للشهر', -S.required),
+              total(`= ${(S.cover ?? 0) >= 0 ? 'فائض' : 'عجز'}`, S.cover ?? 0, (S.cover ?? 0) >= 0 ? 'فائض' : 'عجز')];
+        }
         break;
       }
       case 'salaries_gross': {

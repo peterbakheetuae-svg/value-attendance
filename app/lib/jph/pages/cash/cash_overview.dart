@@ -120,7 +120,7 @@ class _CashOverviewState extends State<CashOverview> {
       ]),
       // ------------------------------------------------ تكلفة تشغيل الشهر
       if (hasDash) ...[
-        _title(isDark, 'تكلفة تشغيل الشهر'),
+        _title(isDark, 'تكلفة تشغيل شهر ${monthLabel(DateTime.tryParse('${dash['month']}-01') ?? DateTime.now())}'),
         _operating(isDark, op, av),
       ],
       // ------------------------------------------------ صافي ربح المكتب
@@ -299,23 +299,31 @@ class _CashOverviewState extends State<CashOverview> {
     ]);
   }
 
-  /// تكلفة تشغيل الشهر: المصروفات الثابتة + المرتبات (قبل أي خصم), what was paid, what is left, and whether the money covers it
+  /// تكلفة تشغيل الشهر (always one month — the picked one, or this month when «كل الشهور»); every box opens its details
   Widget _operating(bool isDark, Map<String, dynamic> op, Map<String, dynamic> av) {
-    final remaining = _n(op['remaining']);
-    final cover = (_office ? _n(av['afterTrust'] ?? av['total']) : _n(_m(av['hr'])['total'])) - remaining;
+    Widget tap(String key, String title, Widget child) => GestureDetector(onTap: () => widget.onDetails?.call(key, title), child: child);
+    final cover = op['cover'];
+    final c = _n(cover);
     return _orange(isDark, [
-      _piece('إجمالي تكلفة تشغيل الشهر', op['total'], icon: Icons.summarize_rounded, size: 28, sub: 'إجمالي الالتزامات التشغيلية للشهر'),
-      _two(_piece('المصروفات الثابتة', op['fixed'], icon: Icons.calendar_month_rounded, sub: 'الإيجار والخدمات والفواتير'),
-          GestureDetector(
-            onTap: () => widget.onDetails?.call('salaries_gross', 'المرتبات قبل أي خصم'),
-            child: _piece('المرتبات', op['salaries'], icon: Icons.groups_rounded, sub: 'كل مرتبات الموظفين قبل أي خصومات — دوس للتفاصيل'),
-          )),
-      _two(_piece('تم دفعه', op['paid'], icon: Icons.check_circle_rounded), _piece('متبقي دفعه', op['remaining'], icon: Icons.hourglass_bottom_rounded)),
-      _piece('المبلغ المطلوب توفيره لباقي الشهر', remaining, icon: Icons.savings_rounded, size: 24,
-          sub: 'الالتزامات التشغيلية المستحقة وغير المدفوعة حتى نهاية الشهر'),
-      _piece(cover >= 0 ? 'فائض التغطية' : 'عجز التغطية', cover.abs(), icon: cover >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
-          size: 24, prefix: cover >= 0 ? '+' : '−',
-          sub: _office ? 'المتاح بعد الأمانة − المطلوب توفيره' : 'رصيد خزنة المحاسب − المطلوب توفيره'),
+      tap('op_required', 'تكلفة تشغيل الشهر',
+          _piece('إجمالي تكلفة تشغيل الشهر', op['total'], icon: Icons.summarize_rounded, size: 28, sub: 'إجمالي الالتزامات التشغيلية للشهر')),
+      _two(
+        tap('op_expenses', 'المصروفات الشهرية',
+            _piece('المصروفات الشهرية', op['expenses'], icon: Icons.receipt_long_rounded, sub: 'الثابتة (إيجار وخدمات وفواتير) + مصروفات الشهر')),
+        tap('op_salaries', 'المرتبات الشهرية',
+            _piece('المرتبات', op['salaries'], icon: Icons.groups_rounded, sub: 'الموظفين قبل أي خصم + شركات التسويق الشهرية')),
+      ),
+      _two(
+        tap('op_paid', 'تم دفعه الشهر ده', _piece('تم دفعه', op['paid'], icon: Icons.check_circle_rounded, sub: 'مرتبات وسلف ومصاريف (من غير عمولات)')),
+        tap('op_remaining', 'متبقي دفعه', _piece('متبقي دفعه', op['remaining'], icon: Icons.hourglass_bottom_rounded, sub: 'المطلوب − تم دفعه')),
+      ),
+      tap('op_required', 'المبلغ المطلوب للشهر',
+          _piece('إجمالي المبلغ المطلوب للشهر', op['required'] ?? op['total'], icon: Icons.savings_rounded, size: 24,
+              sub: 'المرتبات الشهرية + المصروفات الشهرية')),
+      if (cover != null)
+        tap('op_cover', 'فائض / عجز التغطية',
+            _piece(c >= 0 ? 'فائض التغطية' : 'عجز التغطية', c.abs(), icon: c >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                size: 24, prefix: c >= 0 ? '+' : '−', sub: 'إجمالي عمولة المكتب في الشهر (${JphUi.money(op['officeCommission'])}) − المطلوب للشهر')),
     ]);
   }
 

@@ -223,7 +223,15 @@ test('مصروفات ثابتة (once a month, the signed receipt photo after) a
   assert.equal(ovf.variable, Math.round((ovf.other - ovf.fixed) * 100) / 100);
   const opx = (await h.call(c.t.owner, 'GET', '/finance/dashboard')).body.operating;
   assert.equal(opx.fixed, 20_500);
-  assert.equal(opx.fixedPaid, 20_500);
+  assert.ok(opx.expenses >= 20_500, 'المصروفات الشهرية = the fixed + the month\'s other expenses');
+  assert.equal(opx.required, Math.round((opx.salaries + opx.expenses) * 100) / 100);
+  assert.equal(opx.remaining, Math.max(Math.round((opx.required - opx.paid) * 100) / 100, 0));
+  assert.equal(opx.cover, Math.round((opx.officeCommission - opx.required) * 100) / 100);
+  const opd = (await h.call(c.t.owner, 'GET', '/finance/dashboard/details?key=op_expenses')).body;
+  assert.equal(opd.rows.filter((x: any) => x.sub.startsWith('مصروف ثابت') && x.tag === 'اتدفع').length >= 2, true);
+  const ops = (await h.call(c.t.owner, 'GET', '/finance/dashboard/details?key=op_salaries')).body;
+  assert.equal(Math.round(ops.rows.reduce((t: number, x: any) => t + x.amount, 0) * 100) / 100, opx.salaries);
+  assert.equal((await h.call(c.t.hr, 'GET', '/finance/dashboard/details?key=op_cover')).status, 403, 'the office commission is not the accountant\'s');
   assert.equal((await h.call(c.t.owner, 'PATCH', `/cash/fixed-expenses/${f.body.fixed.id}`, { amount: 22_000 })).body.fixed.amount, 22_000);
   assert.equal((await h.call(c.t.e1, 'GET', '/cash/fixed-expenses')).status, 403);
   // the signed receipt's photo
