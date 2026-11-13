@@ -382,19 +382,39 @@ function shapeExpense(x: any) {
   };
 }
 
-function shapeTransfer(x: any, a: Actor) {
+/**
+ * The two sides of a transfer: خزنة المكتب (المالك / المدير العام: cash.office) and خزنة المحاسب (the accountant: cash.hr_operate
+ * without cash.office). Someone with both counts as the office side; he acts for the accountant's box only when the company has
+ * no accountant at all.
+ */
+async function hasHrDesk(q: Q) {
+  return !!(await one(q, `SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
+     WHERE e.status = 'active' AND rp.perm_key = 'cash.hr_operate'
+       AND NOT EXISTS (SELECT 1 FROM role_permissions o WHERE o.role_key = rp.role_key AND o.perm_key = 'cash.office') LIMIT 1`));
+}
+const hrSideOf = (a: Actor, desk: boolean) => hrDesk(a) || (canHrOperate(a) && !desk);
+
+function shapeTransfer(x: any, a: Actor, desk: boolean) {
   const toHr = x.direction === 'office_to_hr';
+  const hrSide = hrSideOf(a, desk), office = canOffice(a);
+  // the viewer's own box: the office side sees it from خزنة المكتب, the accountant from his box
+  const myBox = office ? 'office' : 'hr';
+  const incoming = toHr ? myBox === 'hr' : myBox === 'office';
   return {
     id: x.id, refNo: Number(x.ref_no), direction: x.direction, amountRequested: Number(x.amount_requested),
     amountExecuted: x.amount_executed == null ? null : Number(x.amount_executed), reason: x.reason, status: x.status,
     requestedByName: x.requested_by_name, requestedAt: x.requested_at, decidedByName: x.decided_by_name, decidedAt: x.decided_at,
     rejectReason: x.reject_reason, executedByName: x.executed_by_name, executedAt: x.executed_at,
     receivedByName: x.received_by_name, receivedAt: x.received_at,
+    // in = the money comes INTO the viewer's box (green), out = it leaves it (red)
+    flow: incoming ? 'in' : 'out',
     // what this person can do next
     can: {
-      decide: toHr && x.status === 'requested' && canOffice(a),
-      execute: (toHr && x.status === 'approved' && canOffice(a)) || (!toHr && x.status === 'requested' && canHrOperate(a)),
-      receive: x.status === 'executed' && x.executed_by !== a.id && (toHr ? canHrOperate(a) : canOffice(a)),
+      decide: toHr && x.status === 'requested' && office && x.requested_by !== a.id,
+      execute: (toHr && x.status === 'approved' && office) || (!toHr && x.status === 'requested' && (hrDesk(a) || (!desk && canHrOperate(a)))),
+      // only the side the money goes TO confirms it, never the one who handed it over
+      receive: x.status === 'executed' && x.executed_by !== a.id && (toHr ? hrSide && !(office && desk) : office),
+      notReceived: x.status === 'executed' && x.executed_by !== a.id && (toHr ? hrSide && !(office && desk) : office),
       cancel: ['requested', 'approved'].includes(x.status) && x.requested_by === a.id,
     },
   };
@@ -982,10 +1002,15 @@ export const cashModule: Module = (r, { db, clock }) => {
     const amount = money(b);
     const reason = str(b, 'reason', { min: 2, max: 500 })!.trim();
     const row = await db.tx(async (q) => {
-      const x = await one(q, `INSERT INTO cash_transfers (direction, amount_requested, reason, requested_by) VALUES ($1,$2,$3,$4) RETURNING id`,
-        [direction, amount, reason, a.id]);
+      const desk = await hasHrDesk(q);
+      // the office side sending money to the accountant: no approval of his own request — he hands it over next
+      const selfApproved = direction === 'office_to_hr' && canOffice(a) && !hrDesk(a);
+      if (direction === 'office_to_hr' && !canOffice(a) && !hrSideOf(a, desk)) throw forbidden();
+      const x = await one(q, `INSERT INTO cash_transfers (direction, amount_requested, reason, requested_by, status, decided_by, decided_at)
+                               VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [direction, amount, reason, a.id, selfApproved ? 'approved' : 'requested', selfApproved ? a.id : null, selfApproved ? clock() : null]);
       await audit(q, a.id, 'cash.transfer.request', 'cash_transfer', x.id, undefined, { direction, amount, reason });
-      const to = direction === 'office_to_hr' ? await cashOfficers(q, a.id) : await hrOperators(q, a.id);
+      const to = selfApproved ? [] : direction === 'office_to_hr' ? await cashOfficers(q, a.id) : await hrOperators(q, a.id);
       for (const id of to) {
         await notify(q, { to: id, type: 'cash_transfer', title: direction === 'office_to_hr' ? `طلب تحويل من خزينة المكتب: ${fmt(amount)}` : `مطلوب تسليم ${fmt(amount)} لخزينة المكتب`,
           body: reason, entity: 'cash_transfer', entityId: x.id, dedupeKey: `cash:transfer:${x.id}:requested` });
@@ -993,7 +1018,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       return x;
     });
     const full = await one(db, `${TRANSFER_SELECT} WHERE t.id = $1`, [row.id]);
-    return ok({ transfer: shapeTransfer(full, a) }, 201);
+    return ok({ transfer: shapeTransfer(full, a, await hasHrDesk(db)) }, 201);
   });
 
   r.get('/cash/transfers', async (req) => {
@@ -1004,7 +1029,8 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (st === 'open') where.push(`t.status IN ('requested','approved','executed')`);
     else if (st) { vals.push(st); where.push(`t.status = $${vals.length}`); }
     const rows = await db.query(`${TRANSFER_SELECT} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY t.requested_at DESC LIMIT 300`, vals);
-    return ok({ currency: 'EGP', transfers: rows.rows.map((x) => shapeTransfer(x, a)) });
+    const desk = await hasHrDesk(db);
+    return ok({ currency: 'EGP', transfers: rows.rows.map((x) => shapeTransfer(x, a, desk)) });
   });
 
   async function transferStep(id: string, fn: (q: Q, x: any) => Promise<{ to: string[]; title: string } | void>) {
@@ -1030,6 +1056,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const reason = decision === 'reject' ? str(b, 'reason', { min: 3, max: 500 })! : null;
     await transferStep(req.params.id, async (q, x) => {
       if (x.direction !== 'office_to_hr' || x.status !== 'requested') throw conflict('This transfer is not waiting for approval');
+      if (x.requested_by === a.id) throw forbidden('مينفعش توافق على طلب انت عامله');
       await q.query(`UPDATE cash_transfers SET status = $2, decided_by = $3, decided_at = now(), reject_reason = $4 WHERE id = $1`,
         [x.id, decision === 'approve' ? 'approved' : 'rejected', a.id, reason]);
       await audit(q, a.id, `cash.transfer.${decision}`, 'cash_transfer', x.id, { status: x.status }, { status: decision === 'approve' ? 'approved' : 'rejected', reason });
@@ -1044,11 +1071,15 @@ export const cashModule: Module = (r, { db, clock }) => {
     const b = obj(req.body);
     await transferStep(req.params.id, async (q, x) => {
       const toHr = x.direction === 'office_to_hr';
-      if (toHr ? !(x.status === 'approved' && canOffice(a)) : !(x.status === 'requested' && canHrOperate(a))) {
-        if (toHr ? !canOffice(a) : !canHrOperate(a)) throw forbidden();
-        throw conflict('This transfer cannot be handed over now');
-      }
+      const desk = await hasHrDesk(q);
+      // office → المحاسب: the office hands it over · المحاسب → office (توريد): the accountant hands it over
+      const mine = toHr ? canOffice(a) : hrDesk(a) || (!desk && canHrOperate(a));
+      if (!mine) throw forbidden(toHr ? 'خزنة المكتب هي اللي بتسلّم الفلوس' : 'المحاسب هو اللي بيسلّم التوريد');
+      if (x.status !== (toHr ? 'approved' : 'requested')) throw conflict('This transfer cannot be handed over now');
       const amount = num(b, 'amount', { optional: true, min: 0.01, max: 100_000_000 }) ?? Number(x.amount_requested);
+      const from = toHr ? 'office' : 'hr';
+      const bal = Number((await one(q, `SELECT COALESCE(sum(amount), 0) AS s FROM cash_ledger WHERE cashbox = $1`, [from])).s);
+      if (amount > bal + 0.001) throw invalid(`${from === 'office' ? 'رصيد خزنة المكتب' : 'رصيد خزنة المحاسب'} ${fmt(Math.max(bal, 0))} بس`, { field: 'amount' });
       await q.query(`UPDATE cash_transfers SET status = 'executed', executed_by = $2, executed_at = now(), amount_executed = $3 WHERE id = $1`,
         [x.id, a.id, amount]);
       await audit(q, a.id, 'cash.transfer.execute', 'cash_transfer', x.id, { status: x.status }, { status: 'executed', amount });
@@ -1063,12 +1094,33 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     await transferStep(req.params.id, async (q, x) => {
       const toHr = x.direction === 'office_to_hr';
-      if (toHr ? !canHrOperate(a) : !canOffice(a)) throw forbidden();
+      const desk = await hasHrDesk(q);
+      // the money goes to the accountant → the accountant (not the manager) confirms; to the office → the office
+      if (toHr ? !(hrSideOf(a, desk) && !(canOffice(a) && desk)) : !canOffice(a)) {
+        throw forbidden(toHr ? 'المحاسب هو اللي يأكد إنه استلم' : 'خزنة المكتب هي اللي تأكد الاستلام');
+      }
       if (x.status !== 'executed') throw conflict('Nothing was handed over yet');
       if (x.executed_by === a.id) throw forbidden('The person who handed the money over cannot confirm receiving it');
       await q.query(`UPDATE cash_transfers SET status = 'received', received_by = $2, received_at = now() WHERE id = $1`, [x.id, a.id]);
       await audit(q, a.id, 'cash.transfer.receive', 'cash_transfer', x.id, { status: 'executed' }, { status: 'received', amount: Number(x.amount_executed) });
       return { to: [x.executed_by], title: `تم استلام التحويل: ${fmt(Number(x.amount_executed))}` };
+    });
+    return ok({ ok: true });
+  });
+
+  /** «مستلمتش»: the receiving side says the money did not reach it — the transfer closes, no balance moved. */
+  r.post('/cash/transfers/:id/not-received', async (req) => {
+    const a = await authenticate(db, req);
+    const reason = (str(obj(req.body), 'reason', { optional: true, max: 500 }) ?? '').trim();
+    await transferStep(req.params.id, async (q, x) => {
+      const toHr = x.direction === 'office_to_hr';
+      const desk = await hasHrDesk(q);
+      if (toHr ? !(hrSideOf(a, desk) && !(canOffice(a) && desk)) : !canOffice(a)) throw forbidden();
+      if (x.status !== 'executed') throw conflict('Nothing was handed over yet');
+      if (x.executed_by === a.id) throw forbidden();
+      await q.query(`UPDATE cash_transfers SET status = 'cancelled', reject_reason = $2 WHERE id = $1`, [x.id, `مستلمتش${reason ? ' — ' + reason : ''}`]);
+      await audit(q, a.id, 'cash.transfer.not_received', 'cash_transfer', x.id, { status: 'executed' }, { status: 'cancelled', reason });
+      return { to: [x.executed_by], title: `التحويل ما اتستلمش: ${fmt(Number(x.amount_executed))}` };
     });
     return ok({ ok: true });
   });

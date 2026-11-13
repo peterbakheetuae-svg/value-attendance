@@ -611,7 +611,7 @@ class _LedgerTabState extends State<CashLedgerView> {
 // ==================================================================== التحويلات
 const _trStatus = {
   'requested': ('مطلوب', Ar.amber), 'approved': ('اتوافق — مستني التسليم', Ar.info),
-  'executed': ('اتسلّم — مستني تأكيد الاستلام', Ar.green), 'received': ('تم', Ar.green),
+  'executed': ('اتسلّم — مستني تأكيد الاستلام', Ar.amber), 'received': ('تم', Ar.green),
   'rejected': ('مرفوض', Ar.red), 'cancelled': ('ملغي', Ar.grey),
 };
 
@@ -635,7 +635,8 @@ class _TransfersTabState extends State<_TransfersTab> {
 
   Map<String, (String, IconData)> get _kinds => {
         if (widget.can['office'] == true) 'hr_to_office': ('طلب توريد أموال', Icons.call_made_rounded),
-        if (widget.can['hrDesk'] == true || widget.can['office'] == true) 'office_to_hr': ('طلب تحويل أموال', Icons.call_received_rounded),
+        if (widget.can['hrDesk'] == true || widget.can['office'] == true)
+          'office_to_hr': widget.can['office'] == true ? ('تحويل أموال للمحاسب', Icons.call_made_rounded) : ('طلب تحويل أموال', Icons.call_received_rounded),
       };
   List<Map<String, dynamic>> _moves = [];
 
@@ -643,7 +644,10 @@ class _TransfersTabState extends State<_TransfersTab> {
   Future<void> _request(String dir) async {
     final isDark = widget.isDark;
     final amount = TextEditingController(), reason = TextEditingController();
-    await _formSheet(context, isDark, dir == 'office_to_hr' ? 'طلب تحويل أموال من خزنة المكتب إلى المحاسب' : 'طلب توريد أموال من خزنة المحاسب للمكتب',
+    await _formSheet(context, isDark,
+        dir == 'office_to_hr'
+            ? (widget.can['office'] == true ? 'تحويل أموال من خزنة المكتب للمحاسب' : 'طلب تحويل أموال من خزنة المكتب إلى المحاسب')
+            : 'طلب توريد أموال من خزنة المحاسب للمكتب',
         (setS) => [
               JphUi.input(isDark: isDark, label: 'المبلغ *', controller: amount, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
               const SizedBox(height: 14),
@@ -771,13 +775,15 @@ class _TransfersTabState extends State<_TransfersTab> {
     final can = ((t['can'] as Map?) ?? const {});
     final st = _trStatus[t['status']] ?? ('${t['status']}', Ar.grey);
     final toHr = t['direction'] == 'office_to_hr';
+    // the money comes into MY box → green arrow in; it leaves my box → red arrow out
+    final incoming = t['flow'] == 'in';
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          JphUi.iconTile(isDark, toHr ? Icons.call_received_rounded : Icons.call_made_rounded, toHr ? Ar.green : Ar.accent),
+          JphUi.iconTile(isDark, incoming ? Icons.call_received_rounded : Icons.call_made_rounded, incoming ? Ar.green : Ar.red),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -785,7 +791,8 @@ class _TransfersTabState extends State<_TransfersTab> {
               Text('${t['reason']} • ${t['requestedByName']} • ${JphUi.date(t['requestedAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
             ]),
           ),
-          CountUpText(JphUi.money(t['amountExecuted'] ?? t['amountRequested']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+          CountUpText('${incoming ? '+' : '−'}${JphUi.money(t['amountExecuted'] ?? t['amountRequested'])}',
+              style: TextStyle(fontWeight: FontWeight.w900, color: incoming ? Ar.green : Ar.red)),
         ]),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 6, children: [
@@ -803,14 +810,31 @@ class _TransfersTabState extends State<_TransfersTab> {
           if (can['execute'] == true)
             ElevatedButton(onPressed: () => _execute(t), style: ElevatedButton.styleFrom(backgroundColor: Ar.info, foregroundColor: Colors.white),
                 child: const Text('تسليم الفلوس')),
+          if (can['notReceived'] == true)
+            TextButton(onPressed: () => _notReceived(t), child: const Text('مستلمتش', style: TextStyle(color: Ar.red))),
           if (can['receive'] == true)
             ElevatedButton(onPressed: () => _act('/cash/transfers/${t['id']}/receive', {}, 'تم تأكيد الاستلام ✅'),
                 style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white), child: const Text('تم الاستلام')),
+          // handed over, waiting for the other side to press «تم الاستلام»
+          if (t['status'] == 'executed' && can['receive'] != true && can['notReceived'] != true)
+            JphUi.chip(toHr ? 'مستني المحاسب يأكد الاستلام' : 'مستني خزنة المكتب تأكد الاستلام', Ar.amber),
           if (can['cancel'] == true)
             TextButton(onPressed: () => _act('/cash/transfers/${t['id']}/cancel', {}, 'اتلغى'), child: const Text('إلغاء')),
         ]),
       ]),
     );
+  }
+
+  /// «مستلمتش»: the money did not reach me — the transfer closes, nothing moves
+  Future<void> _notReceived(Map<String, dynamic> t) async {
+    final reason = TextEditingController();
+    await _formSheet(context, widget.isDark, 'الفلوس ماوصلتش؟', (s) => [
+          Text('التحويل هيتقفل ومفيش رصيد هيتحرك. اللي سلّم هيوصله إشعار.', style: TextStyle(color: JphUi.sub(widget.isDark))),
+          const SizedBox(height: 10),
+          JphUi.input(isDark: widget.isDark, label: 'ملاحظة', controller: reason, big: false),
+        ], () => _post('/cash/transfers/${t['id']}/not-received', {'reason': reason.text.trim()}, ok: 'اتسجل إنك مستلمتش'));
+    await _load();
+    await widget.onChanged();
   }
 
   Future<void> _reject(Map<String, dynamic> t) async {

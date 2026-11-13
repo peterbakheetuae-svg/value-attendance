@@ -106,6 +106,13 @@ test('transfer office → HR: HR asks, manager approves and hands over, HR confi
   assert.equal((await sum(tGm)).hr.bookBalance, -14200, 'not moved before receipt');
   assert.equal((await sum(tGm)).hr.incomingTransfers.amount, 14200);
   assert.equal((await h.call(tGm, 'POST', `/cash/transfers/${id}/receive`, {})).status, 403, 'the giver cannot confirm');
+  assert.equal((await h.call(c.t.owner, 'POST', `/cash/transfers/${id}/receive`, {})).status, 403, 'only the accountant confirms what reached him');
+  const seen = (await h.call(c.t.owner, 'GET', '/cash/transfers')).body.transfers.find((x: any) => x.id === id);
+  assert.equal(seen.can.receive, false, 'no «تم الاستلام» button for the manager');
+  assert.equal(seen.flow, 'out', 'the office sees the money leaving (red)');
+  const hrSeen = (await h.call(c.t.hr, 'GET', '/cash/transfers')).body.transfers.find((x: any) => x.id === id);
+  assert.equal(hrSeen.flow, 'in', 'the accountant sees it coming in (green)');
+  assert.equal(hrSeen.can.receive, true);
   assert.equal((await h.call(c.t.hr, 'POST', `/cash/transfers/${id}/receive`, {})).status, 200);
   const s = await sum(tGm);
   assert.equal(s.hr.bookBalance, 0);
@@ -129,6 +136,25 @@ test('transfer HR → office: manager asks, HR hands over the actual amount, man
   // every step is in the audit log
   const log = await h.db.query(`SELECT action FROM audit_log WHERE entity = 'cash_transfer' AND entity_id = $1 ORDER BY at, id`, [id]);
   assert.deepEqual(log.rows.map((x) => x.action), ['cash.transfer.request', 'cash.transfer.execute', 'cash.transfer.receive']);
+});
+
+test('transfers: the office sending to the accountant needs no approval of its own; never more than the box; «مستلمتش» closes it', async () => {
+  const t = await h.call(tGm, 'POST', '/cash/transfers', { direction: 'office_to_hr', amount: 1000, reason: 'مصاريف الأسبوع' });
+  assert.equal(t.status, 201);
+  assert.equal(t.body.transfer.status, 'approved', 'his own request is not waiting for himself');
+  assert.equal(t.body.transfer.can.execute, true);
+  const big = await h.call(tGm, 'POST', '/cash/transfers', { direction: 'office_to_hr', amount: 99_000_000, reason: 'كتير' });
+  assert.equal((await h.call(tGm, 'POST', `/cash/transfers/${big.body.transfer.id}/execute`, {})).status, 400, 'more than the office box holds');
+  await h.call(tGm, 'POST', `/cash/transfers/${big.body.transfer.id}/cancel`, {});
+  const id = t.body.transfer.id;
+  assert.equal((await h.call(tGm, 'POST', `/cash/transfers/${id}/execute`, {})).status, 200);
+  const before = (await h.call(tGm, 'GET', '/cash/summary')).body;
+  assert.equal((await h.call(c.t.hr, 'POST', `/cash/transfers/${id}/not-received`, { reason: 'ماوصلش' })).status, 200);
+  const after = (await h.call(tGm, 'GET', '/cash/summary')).body;
+  assert.equal(after.hr.bookBalance, before.hr.bookBalance, 'nothing moved');
+  const x = (await h.call(c.t.hr, 'GET', '/cash/transfers')).body.transfers.find((y: any) => y.id === id);
+  assert.equal(x.status, 'cancelled');
+  assert.match(x.rejectReason, /مستلمتش/);
 });
 
 test('the existing صرف مالية payments count against the HR cashbox', async () => {
