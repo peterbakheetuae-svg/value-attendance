@@ -331,11 +331,11 @@ class _ProjectsListState extends State<ProjectsList> {
     final name = '${p['name']}';
     final h = name.codeUnits.fold<int>(0, (a, b) => a + b);
     const shades = [
-      [Color(0xFF4F46E5), Color(0xFF1E1B4B)],
-      [Color(0xFF2563EB), Color(0xFF0B1E4D)],
-      [Color(0xFF4338CA), Color(0xFF111827)],
-      [Color(0xFF3B82F6), Color(0xFF1E293B)],
-      [Color(0xFF6A67F5), Color(0xFF172554)],
+      [Color(0xFFE2501F), Color(0xFF3A1E14)],
+      [Color(0xFFD4401A), Color(0xFF2E1A12)],
+      [Color(0xFFE04B22), Color(0xFF1C1B19)],
+      [Color(0xFFE2501F), Color(0xFF262624)],
+      [Color(0xFFFF6A3D), Color(0xFF33190F)],
     ];
     final g = shades[h % shades.length];
     final marketing = p['kind'] == 'marketing';

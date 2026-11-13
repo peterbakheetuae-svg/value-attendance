@@ -1,30 +1,30 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // =================== PRIMARY COLORS ===================
-  static const Color primary = Color(0xFF4F46E5);
-  static const Color primaryLight = Color(0xFF6A67F5);
-  static const Color primaryDark = Color(0xFF3730A3);
-  static const Color primaryContainer = Color(0xFFE0E7FF);
+  // =================== PRIMARY COLORS — the «Ardena» orange (accent #ff6a3d, fill #d4401a, light-mode #e2501f) ===================
+  static const Color primary = Color(0xFFE2501F);
+  static const Color primaryLight = Color(0xFFFF6A3D);
+  static const Color primaryDark = Color(0xFFD4401A);
+  static const Color primaryContainer = Color(0xFFFFE3D8);
   static const Color onPrimary = Color(0xFFFFFFFF);
 
   // =================== SECONDARY COLORS ===================
-  static const Color secondary = Color(0xFF14B8A6);
-  static const Color secondaryLight = Color(0xFF2DD4BF);
-  static const Color secondaryDark = Color(0xFF0D9488);
+  static const Color secondary = Color(0xFF4FCF73);
+  static const Color secondaryLight = Color(0xFF63D985);
+  static const Color secondaryDark = Color(0xFF19733A);
   static const Color onSecondary = Color(0xFFFFFFFF);
 
   // =================== ACCENT COLORS ===================
-  static const Color accent = Color(0xFFF59E0B);
-  static const Color accentLight = Color(0xFFFBBF24);
-  static const Color accentDark = Color(0xFFD97706);
+  static const Color accent = Color(0xFFF7A928);
+  static const Color accentLight = Color(0xFFF7B445);
+  static const Color accentDark = Color(0xFFEF9D14);
 
   // =================== ERROR & SUCCESS ===================
-  static const Color error = Color(0xFFEF4444);
+  static const Color error = Color(0xFFFF7D6E);
   static const Color errorLight = Color(0xFFFEE2E2);
-  static const Color success = Color(0xFF10B981);
+  static const Color success = Color(0xFF4FCF73);
   static const Color successLight = Color(0xFFD1FAE5);
-  static const Color warning = Color(0xFFF59E0B);
+  static const Color warning = Color(0xFFF7A928);
   static const Color warningLight = Color(0xFFFEF3C7);
 
   // =================== NEUTRAL COLORS (Light Mode) — the «Ardena» warm paper / ink ===================
@@ -51,17 +51,17 @@ class AppColors {
 
   // =================== GLASS EFFECT COLORS ===================
   static const Color glassLight = Color(0x20FFFFFF);
-  static const Color glassDark = Color(0x101E293B);
+  static const Color glassDark = Color(0x10262624);
 
   // =================== GRADIENT COLORS ===================
   static const List<Color> primaryGradient = [
-    Color(0xFF4F46E5),
-    Color(0xFF6A67F5),
+    Color(0xFFE2501F),
+    Color(0xFFFF6A3D),
   ];
 
   static const List<Color> secondaryGradient = [
-    Color(0xFF14B8A6),
-    Color(0xFF2DD4BF),
+    Color(0xFF4FCF73),
+    Color(0xFF63D985),
   ];
 
   // =================== FUNCTIONAL COLORS ===================

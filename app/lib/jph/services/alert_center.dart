@@ -264,7 +264,7 @@ class AlertCenter with WidgetsBindingObserver {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Icon(warn ? Icons.warning_amber_rounded : Icons.notifications_active_rounded, size: 52, color: warn ? Ar.amber : const Color(0xFF4F46E5)),
+            Icon(warn ? Icons.warning_amber_rounded : Icons.notifications_active_rounded, size: 52, color: warn ? Ar.amber : const Color(0xFFE2501F)),
             const SizedBox(height: 14),
             Text('${n['title']}', textAlign: TextAlign.center, style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: dark ? Colors.white : Colors.black)),
             if ('${n['body'] ?? ''}'.isNotEmpty) ...[
@@ -273,7 +273,7 @@ class AlertCenter with WidgetsBindingObserver {
             ],
             const SizedBox(height: 18),
             SizedBox(height: 50, child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4F46E5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE2501F), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
               onPressed: () {
                 Navigator.pop(d);
                 final s = JphBridge.session;

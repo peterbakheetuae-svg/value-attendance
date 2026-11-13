@@ -161,7 +161,7 @@ class NotificationService {
         vibrationPattern: vibrationPattern,
         enableLights: true,
         ledColor: Ar.accent,
-        color: const Color(0xFF4F46E5),
+        color: const Color(0xFFE2501F),
         largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
         styleInformation: BigTextStyleInformation(
           body,

@@ -246,7 +246,7 @@ class _MoreSheet extends StatelessWidget {
                               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                                 Icon(q.icon, color: d ? Glass.blueHi : Glass.blue, size: 24),
                                 const SizedBox(height: 8),
-                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: d ? const Color(0xFFB9B8FF) : Glass.blue)),
+                                Text(q.title, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: d ? const Color(0xFFFF8A63) : Glass.blue)),
                               ]),
                             ),
                           ),

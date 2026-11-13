@@ -169,7 +169,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final isDark = Provider.of<AppController>(context).isDark;
     final accent = isDark ? AppColors.primaryLight : AppColors.primary;
-    final textMain = isDark ? Colors.white : const Color(0xFF1E1B4B);
+    final textMain = isDark ? Colors.white : const Color(0xFF3A1E14);
     final muted = isDark ? Colors.white60 : const Color(0xFF64748B);
     final (title, subtitle) = _texts;
 
@@ -565,7 +565,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
 }
 
 const _confettiColors = [
-  Color(0xFF4FCF73), Color(0xFF63D985), Color(0xFF6EE7B7), Color(0xFF6A67F5),
+  Color(0xFF4FCF73), Color(0xFF63D985), Color(0xFF6EE7B7), Color(0xFFFF6A3D),
   Color(0xFFA78BFA), Color(0xFFFBBF24), Color(0xFFF472B6), Color(0xFF22D3EE),
 ];
 

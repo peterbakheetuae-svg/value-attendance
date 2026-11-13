@@ -9,8 +9,10 @@ import '../theme/app_colors.dart';
 class Glass {
   Glass._();
 
-  static const Color blue = AppColors.primary; // our blue (their orange)
-  static const Color blueHi = AppColors.primaryLight;
+  // the site's orange: fills (#d4401a) and the bright accent (#ff6a3d)
+  static const Color blue = Color(0xFFD4401A);
+  static const Color blueHi = Color(0xFFFF6A3D);
+  static const Color accentText = Color(0xFFFF8A63);
   static const Color good = Color(0xFF63D985);
   static const Color amber = Color(0xFFF7A928);
   static const Color bad = Color(0xFFFF7D6E);
@@ -321,7 +323,7 @@ class Ar {
   /// warning / pending (their #f7a928)
   static const MaterialColor amber = MaterialColor(0xFFF7A928, <int, Color>{50: Color(0xFFFEF5E5), 100: Color(0xFFFDEACB), 200: Color(0xFFFCDBA5), 300: Color(0xFFFACA7A), 400: Color(0xFFF8B84F), 500: Color(0xFFF7A928), 600: Color(0xFFD99523), 700: Color(0xFFBC801E), 800: Color(0xFF9E6C1A), 900: Color(0xFF805815)});
   /// our blue (their orange accent)
-  static const MaterialColor accent = MaterialColor(0xFF6A67F5, <int, Color>{50: Color(0xFFEDEDFE), 100: Color(0xFFDBDBFD), 200: Color(0xFFC0BFFB), 300: Color(0xFFA3A1F9), 400: Color(0xFF8582F7), 500: Color(0xFF6A67F5), 600: Color(0xFF5D5BD8), 700: Color(0xFF514EBA), 800: Color(0xFF44429D), 900: Color(0xFF37367F)});
+  static const MaterialColor accent = MaterialColor(0xFFFF6A3D, <int, Color>{50: Color(0xFFFFF0EB), 100: Color(0xFFFFE3D8), 200: Color(0xFFFFC8B5), 300: Color(0xFFFFA98D), 400: Color(0xFFFF8A63), 500: Color(0xFFFF6A3D), 600: Color(0xFFE04B22), 700: Color(0xFFD4401A), 800: Color(0xFFA93214), 900: Color(0xFF7A240E)});
   /// info / neutral data (their #7fb4e8)
   static const MaterialColor info = MaterialColor(0xFF7FB4E8, <int, Color>{50: Color(0xFFF0F6FC), 100: Color(0xFFE0EDF9), 200: Color(0xFFC9E0F5), 300: Color(0xFFB0D0F1), 400: Color(0xFF96C2EC), 500: Color(0xFF7FB4E8), 600: Color(0xFF709ECC), 700: Color(0xFF6189B0), 800: Color(0xFF517394), 900: Color(0xFF425E79)});
   /// the sixth data colour (their #c99a76)
