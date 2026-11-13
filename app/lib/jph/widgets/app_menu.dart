@@ -386,16 +386,8 @@ class _AppSidebarState extends State<AppSidebar> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Row(children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Glass.blueHi, Glass.blue], begin: Alignment.topRight, end: Alignment.bottomLeft),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [BoxShadow(color: Glass.blue.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4))],
-                    ),
-                    child: const Icon(Icons.home_work_rounded, color: Colors.white, size: 21),
-                  ),
+                  // the app's logo
+                  Image.asset('assets/images/logo.png', width: 40, height: 40, filterQuality: FilterQuality.medium),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
