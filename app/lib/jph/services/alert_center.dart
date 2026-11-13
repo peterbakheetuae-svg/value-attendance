@@ -1,4 +1,7 @@
 import 'dart:async';
+import '../pages/leads/lead_page.dart';
+import '../pages/leads/tasks_page.dart';
+import '../widgets/side_sheet.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +34,15 @@ class AlertCenter with WidgetsBindingObserver {
   /// Tap on a notification in the list: open the related request when there is one to act on.
   Future<void> openRelated(BuildContext ctx, String notificationId, String type) async {
     final id = entityOf[notificationId];
+    // نظام الليدز: a lead's notification opens the lead, a task's opens the tasks
+    if (type.startsWith('task_')) {
+      await pushSide(ctx, const TasksPage());
+      return;
+    }
+    if (type.startsWith('lead_') && id != null) {
+      await pushSide(ctx, LeadPage(leadId: id));
+      return;
+    }
     if (id == null || !(type == 'outing_awaiting' || type == 'outing_extension_awaiting')) return;
     final o = await ApiService.post({'action': 'outing_get', 'id': id});
     if (o['success'] == true && ctx.mounted) {

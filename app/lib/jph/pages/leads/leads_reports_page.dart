@@ -1,0 +1,214 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../services/app_controller.dart';
+import '../../widgets/glass_ui.dart';
+import '../../widgets/jph_form_ui.dart';
+import '../../widgets/side_sheet.dart';
+import 'lead_page.dart';
+import 'leads_api.dart';
+
+/// تقارير الليدز (of a period): every salesman's work, the channels, the campaigns (cost / CPL / CPA / ROI),
+/// the cancel reasons, the funnel and who is late on which lead.
+class LeadsReportsPage extends StatefulWidget {
+  const LeadsReportsPage({super.key});
+
+  @override
+  State<LeadsReportsPage> createState() => _LeadsReportsPageState();
+}
+
+class _LeadsReportsPageState extends State<LeadsReportsPage> {
+  late DateTime _from = DateTime(DateTime.now().year, DateTime.now().month, 1), _to = DateTime.now();
+  Map<String, dynamic> _d = {};
+  bool _loading = true;
+  int _tab = 0, _seq = 0;
+
+  String _day(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final seq = ++_seq;
+    setState(() => _loading = true);
+    final r = await lget('/leads/reports', {'from': _day(_from), 'to': _day(_to)});
+    if (!mounted || seq != _seq) return;
+    setState(() {
+      _loading = false;
+      _d = r;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    return LeadsShell(
+      isDark: isDark,
+      title: 'تقارير السيلز',
+      child: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 60), children: [
+          JphUi.picker(
+            isDark: isDark, icon: Icons.date_range_rounded, iconColor: Ar.accent, label: 'الفترة',
+            value: '${_from.day}/${_from.month}/${_from.year}  ←  ${_to.day}/${_to.month}/${_to.year}',
+            onTap: () async {
+              final r = await JphUi.pickRange(context, isDark, _from, _to);
+              if (r == null) return;
+              _from = r.start;
+              _to = r.end;
+              _load();
+            },
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final (i, t) in const ['السيلز', 'القنوات', 'الحملات', 'أسباب الإلغاء', 'المراحل', 'التأخير'].indexed)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 6),
+                  child: ChoiceChip(selected: _tab == i, label: Text(t, style: const TextStyle(fontWeight: FontWeight.w800)), onSelected: (_) => setState(() => _tab = i)),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 10),
+          if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
+          if (!_loading && _d['success'] == false) Text('${_d['message']}', style: TextStyle(color: JphUi.sub(isDark))),
+          if (!_loading && _d['success'] != false) ...(switch (_tab) {
+            0 => _sales(isDark),
+            1 => _channels(isDark),
+            2 => _campaigns(isDark),
+            3 => _reasons(isDark),
+            4 => _funnel(isDark),
+            _ => _delays(isDark),
+          }),
+        ]),
+      ),
+    );
+  }
+
+  Widget _table(bool isDark, List<String> head, List<List<String>> rows, {List<VoidCallback?>? taps}) => Container(
+        decoration: JphUi.box(isDark),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingTextStyle: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark)),
+            dataTextStyle: TextStyle(color: JphUi.text(isDark)),
+            columnSpacing: 18,
+            showCheckboxColumn: false,
+            columns: [for (final h in head) DataColumn(label: Text(h))],
+            rows: [
+              for (final (i, r) in rows.indexed)
+                DataRow(onSelectChanged: taps == null || taps[i] == null ? null : (_) => taps[i]!(), cells: [for (final c in r) DataCell(Text(c))]),
+            ],
+          ),
+        ),
+      );
+
+  List<Widget> _sales(bool isDark) {
+    final s = ll(_d['sales']);
+    String n(Object? v) => '${v ?? 0}';
+    return [
+      _table(isDark, ['السيلز', 'اتوزع عليه', 'أكشنات', 'ردّ', 'مردّش', 'ميتنج', 'إلغاء', 'حجوزات', 'تعاقدات', 'قيمة التعاقدات', 'مفتوح', 'متأخر', 'أول رد (دقيقة)'], [
+        for (final x in s)
+          [
+            '${x['name']}', n(x['assigned']), n(x['actions']), n(x['answered']), n(x['noAnswer']), n(x['meetings']), n(x['cancelled']),
+            n(x['reservations']), n(x['deals']), JphUi.money(x['dealsValue']), n(x['openLeads']), n(x['overdue']), x['firstResponseMin'] == null ? '—' : n(x['firstResponseMin']),
+          ],
+      ]),
+      const SizedBox(height: 8),
+      Text('«أول رد»: متوسط الوقت من توزيع الليد لحد أول أكشن عليه.', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+    ];
+  }
+
+  List<Widget> _channels(bool isDark) {
+    final ch = ll(_d['channels']);
+    const keys = ['new', 'following', 'interested', 'meeting', 'cancelled', 'reservation', 'done_deal'];
+    final total = ch.fold<num>(0, (a, b) => a + ((b['leads'] as num?) ?? 0));
+    return [
+      _table(isDark, ['القناة', 'ليدز', '%', for (final k in keys) stageNames[k]!, 'حجوزات'], [
+        for (final x in ch)
+          [
+            '${x['name']}', '${x['leads']}', total == 0 ? '0%' : '${(((x['leads'] as num?) ?? 0) * 100 / total).toStringAsFixed(1)}%',
+            for (final k in keys) '${lm(x['stages'])[k] ?? 0}', '${x['reservations'] ?? 0}',
+          ],
+      ]),
+    ];
+  }
+
+  List<Widget> _campaigns(bool isDark) {
+    final c = ll(_d['campaigns']);
+    String opt(Object? v, {bool money = false, bool pct = false}) => v == null ? '—' : money ? JphUi.money(v) : pct ? '${v}%' : '$v';
+    return [
+      if (c.isEmpty) Text('مفيش حملات في الفترة دي — ضيفها من الإعدادات', style: TextStyle(color: JphUi.sub(isDark))),
+      if (c.isNotEmpty)
+        _table(isDark, ['الحملة', 'القناة', 'التكلفة', 'ليدز', 'تكلفة الليد', 'حجوزات', 'تعاقدات', 'تكلفة التعاقد', 'المبيعات', 'عمولتنا', 'العائد'], [
+          for (final x in c)
+            [
+              '${x['name']}', '${x['channelName'] ?? '—'}', JphUi.money(x['cost']), '${x['leads']}', opt(x['cpl'], money: true), '${x['reservations']}',
+              '${x['deals']}', opt(x['cpa'], money: true), JphUi.money(x['salesValue']), JphUi.money(x['commission']), opt(x['roi'], pct: true),
+            ],
+        ]),
+      const SizedBox(height: 8),
+      Text('العائد = (عمولتنا من التعاقدات − تكلفة الحملة) ÷ التكلفة.', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+    ];
+  }
+
+  List<Widget> _reasons(bool isDark) {
+    final r = ll(_d['cancelReasons']);
+    final total = r.fold<num>(0, (a, b) => a + ((b['n'] as num?) ?? 0));
+    if (r.isEmpty) return [Text('مفيش إلغاءات في الفترة دي', style: TextStyle(color: JphUi.sub(isDark)))];
+    return [
+      for (final x in r)
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: JphUi.box(isDark),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(child: Text('${x['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+              Text('${x['n']}', style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.red)),
+            ]),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(value: total == 0 ? 0 : ((x['n'] as num?) ?? 0) / total, color: Ar.red, backgroundColor: Ar.red.withOpacity(0.12), minHeight: 8,
+                borderRadius: BorderRadius.circular(8)),
+          ]),
+        ),
+    ];
+  }
+
+  List<Widget> _funnel(bool isDark) {
+    final f = lm(_d['funnel']);
+    final total = f.values.fold<num>(0, (a, b) => a + ((b as num?) ?? 0));
+    return [
+      Text('العملاء اللي اتضافوا في الفترة: $total', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+      const SizedBox(height: 8),
+      for (final s in stageNames.entries)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(children: [
+            SizedBox(width: 150, child: Text(s.value, style: TextStyle(color: JphUi.text(isDark)))),
+            Expanded(
+              child: LinearProgressIndicator(value: total == 0 ? 0 : ((f[s.key] as num?) ?? 0) / total, color: stageColor(s.key),
+                  backgroundColor: stageColor(s.key).withOpacity(0.12), minHeight: 14, borderRadius: BorderRadius.circular(8)),
+            ),
+            SizedBox(width: 50, child: Text('  ${f[s.key] ?? 0}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+          ]),
+        ),
+    ];
+  }
+
+  List<Widget> _delays(bool isDark) {
+    final d = ll(_d['delays']);
+    if (d.isEmpty) return [Text('مفيش متابعات متأخرة 👌', style: TextStyle(color: JphUi.sub(isDark)))];
+    return [
+      _table(isDark, ['السيلز', 'العميل', 'المرحلة', 'كان المفروض', 'متأخر'], [
+        for (final x in d)
+          ['${x['salesName']}', '${x['leadName']}', '${x['stageAr']}', whenAr(x['nextAt']),
+            ((x['hours'] as num?) ?? 0) >= 24 ? '${((x['hours'] as num) / 24).floor()} يوم' : '${x['hours']} ساعة'],
+      ], taps: [for (final x in d) () => pushSide(context, LeadPage(leadId: '${x['leadId']}'))]),
+    ];
+  }
+}

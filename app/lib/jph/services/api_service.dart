@@ -391,12 +391,12 @@ class JphRouter {
           return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo', '/leads', '/tasks'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody', '/exclusive/', '/marketing-companies', '/commissions/projects', '/company/logo'].any(cp.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody', '/exclusive/', '/marketing-companies', '/commissions/projects', '/company/logo', '/leads', '/tasks'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'delete' && cp.startsWith('/forms/')
               ? await _api.delete(cp)
               : p['method'] == 'patch'

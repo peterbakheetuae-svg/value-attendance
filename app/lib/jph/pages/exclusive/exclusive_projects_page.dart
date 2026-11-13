@@ -786,10 +786,14 @@ class _InventoryListState extends State<_InventoryList> {
 /// حجز جديد / تعاقد جديد — from «المبيعات» only.
 ///  حصري: العربون بيدخل خزنة المحاسب على طول (نقدي أو بنك)؛ تعاقد جديد = حجز + تعاقد مرة واحدة.
 ///  تسويق: مفيش فلوس بتدخل عندنا — عمولة محتملة لحد التعاقد.
-Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects, {bool contract = false, VoidCallback? then}) async {
+/// [lead]: «حجز وحدة» from a lead (نظام الليدز) — the client's name / phone / project come from it and the lead follows the reservation.
+Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects,
+    {bool contract = false, VoidCallback? then, Map<String, dynamic>? lead}) async {
   final active = projects.where((p) => p['status'] == 'active').toList();
-  String? pid = active.length == 1 ? '${active.first['id']}' : null;
-  final unit = TextEditingController(), client = TextEditingController(), phone = TextEditingController(),
+  final leadProject = '${(lead?['project'] as Map?)?['id'] ?? ''}';
+  String? pid = active.any((p) => '${p['id']}' == leadProject) ? leadProject : active.length == 1 ? '${active.first['id']}' : null;
+  final unit = TextEditingController(), client = TextEditingController(text: '${lead?['fullName'] ?? ''}'),
+      phone = TextEditingController(text: '${lead?['phone'] ?? ''}'),
       price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController();
   final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
   Map<String, dynamic>? mk;
@@ -933,6 +937,7 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
       'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(),
       if (invId != null) 'inventoryId': invId,
+      if (lead != null) 'leadId': lead['id'],
       ...rf.body(),
       if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
       if (mk != null) 'marketingCompanyId': mk!['id'],

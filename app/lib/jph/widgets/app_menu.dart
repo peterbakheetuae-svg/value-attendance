@@ -25,6 +25,8 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../services/jph_bridge.dart';
 import 'app_nav.dart';
+import '../pages/leads/leads_api.dart' show seesLeads;
+import '../pages/leads/leads_dashboard_page.dart';
 import 'glass_ui.dart';
 
 /// One entry of the app's menu: a page, a bottom-bar tab ([nav]) or a group with sub-items.
@@ -98,13 +100,19 @@ class AppMenu {
         MenuEntry('form_intro', 'استمارة تعارف', Icons.person_search_rounded, page: () => const ClientIntroPage()),
       ];
 
-  static List<MenuSection> sections() {
+  /// [sidebar]: the computer's side bar — there المدير العام / المحاسب get «لوحة السيلز» in «الموظفين»'s place
+  /// (الموظفين stays in «المزيد» and the bottom bar).
+  static List<MenuSection> sections({bool sidebar = false}) {
     final projects = projectItems(), company = companyItems();
+    final r = JphBridge.session.role;
+    final gmOrAccountant = r == 'manager' || r == 'accountant';
     return [
       MenuSection('الرئيسية', [
         const MenuEntry('nav0', 'لوحة التحكم', Icons.grid_view_rounded, nav: 0),
         const MenuEntry('nav1', 'تقرير الحضور', Icons.assignment_rounded, nav: 1),
-        if (AppNav.seesEmployees) const MenuEntry('nav2', 'الموظفين', Icons.group_rounded, nav: 2),
+        // نظام الليدز: right after تقرير الحضور for everyone who works leads
+        if (seesLeads) MenuEntry('leads', 'لوحة السيلز', Icons.leaderboard_rounded, page: () => const LeadsDashboardPage()),
+        if (AppNav.seesEmployees && !(sidebar && gmOrAccountant)) const MenuEntry('nav2', 'الموظفين', Icons.group_rounded, nav: 2),
       ]),
       MenuSection('الأعمال', [
         MenuEntry('g_finance', 'المالية', Icons.account_balance_wallet_rounded, children: financeItems()),
@@ -364,7 +372,7 @@ class _AppSidebarState extends State<AppSidebar> {
   @override
   void initState() {
     super.initState();
-    for (final s in AppMenu.sections()) {
+    for (final s in AppMenu.sections(sidebar: true)) {
       for (final e in s.entries) {
         if (e.isGroup && e.has(widget.active)) _open.add(e.key);
       }
@@ -406,7 +414,7 @@ class _AppSidebarState extends State<AppSidebar> {
               const SizedBox(height: 14),
               Expanded(
                 child: ListView(padding: EdgeInsets.zero, children: [
-                  for (final s in AppMenu.sections()) ...[
+                  for (final s in AppMenu.sections(sidebar: true)) ...[
                     Padding(
                       padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
                       child: Text(s.title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5, color: Glass.muted(d))),

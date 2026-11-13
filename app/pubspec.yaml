@@ -38,6 +38,8 @@ dependencies:
   device_info_plus: ^11.5.0
   ota_update: ^7.0.2
   open_filex: ^4.6.0
+  # reading .xlsx for the leads import (already pulled in by pdf)
+  archive: ^4.0.10
 
 dev_dependencies:
   flutter_test:
