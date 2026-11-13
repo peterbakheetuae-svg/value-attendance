@@ -194,6 +194,13 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
           tag: x.remaining <= 0 ? 'اتصرف' : x.paid > 0 ? 'جزء' : 'مستحق' }));
         break;
       }
+      case 'salaries_gross': {
+        // تكلفة التشغيل: every employee's monthly salary before any deduction (his salary in «بيانات الموظف», raises included)
+        title = 'المرتبات قبل أي خصم';
+        rows = (await salaries(period)).filter((x) => x.base > 0).sort((x, y) => y.base - x.base)
+          .map((x) => ({ title: x.name, sub: `صافي الشهر ${x.net}`, amount: x.base }));
+        break;
+      }
       case 'salaries_paid': {
         title = 'مرتبات اتصرفت';
         rows = (await q(`SELECT e.full_name, p.amount_egp, p.status, p.created_at FROM payouts p JOIN employees e ON e.id = p.employee_id

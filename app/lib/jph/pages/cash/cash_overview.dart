@@ -306,7 +306,10 @@ class _CashOverviewState extends State<CashOverview> {
     return _orange(isDark, [
       _piece('إجمالي تكلفة تشغيل الشهر', op['total'], icon: Icons.summarize_rounded, size: 28, sub: 'إجمالي الالتزامات التشغيلية للشهر'),
       _two(_piece('المصروفات الثابتة', op['fixed'], icon: Icons.calendar_month_rounded, sub: 'الإيجار والخدمات والفواتير'),
-          _piece('المرتبات', op['salaries'], icon: Icons.groups_rounded, sub: 'كل مرتبات الموظفين قبل أي خصومات')),
+          GestureDetector(
+            onTap: () => widget.onDetails?.call('salaries_gross', 'المرتبات قبل أي خصم'),
+            child: _piece('المرتبات', op['salaries'], icon: Icons.groups_rounded, sub: 'كل مرتبات الموظفين قبل أي خصومات — دوس للتفاصيل'),
+          )),
       _two(_piece('تم دفعه', op['paid'], icon: Icons.check_circle_rounded), _piece('متبقي دفعه', op['remaining'], icon: Icons.hourglass_bottom_rounded)),
       _piece('المبلغ المطلوب توفيره لباقي الشهر', remaining, icon: Icons.savings_rounded, size: 24,
           sub: 'الالتزامات التشغيلية المستحقة وغير المدفوعة حتى نهاية الشهر'),
