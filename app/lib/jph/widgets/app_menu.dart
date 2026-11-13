@@ -138,7 +138,9 @@ class AppMenu {
   static String? activeKey(BuildContext context) {
     final r = ModalRoute.of(context);
     if (r == null) return null;
-    return r.settings.name ?? (r.isFirst ? 'nav0' : null);
+    final n = r.settings.name;
+    if (n == null || n == '/') return r.isFirst ? 'nav0' : null;
+    return n;
   }
 
   /// Opens an entry. [replace] (the side bar): the new page sits right on the home instead of piling up.

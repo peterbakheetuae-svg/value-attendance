@@ -296,9 +296,8 @@ class _ProjectsListState extends State<ProjectsList> {
           const SizedBox(height: 18),
           if (wide)
             Row(children: [
-              if (tabBar != null) Flexible(child: tabBar),
+              Expanded(child: tabBar == null ? const SizedBox.shrink() : Align(alignment: AlignmentDirectional.centerStart, child: tabBar)),
               const SizedBox(width: 16),
-              const Spacer(),
               SizedBox(width: 340, child: search),
             ])
           else ...[
