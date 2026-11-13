@@ -396,13 +396,17 @@ class _ProgressRingAvatar extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          CustomPaint(
-            size: Size(size, size),
-            painter: _RingPainter(
-              percent: percent.clamp(0.0, 1.0),
-              strokeWidth: strokeWidth,
-              ringBgColor: ringBgColor,
-              progressColor: progressColor,
+          // the ring fills from the start like the dashboard's bars
+          GrowTo(
+            value: percent.clamp(0.0, 1.0),
+            builder: (v) => CustomPaint(
+              size: Size(size, size),
+              painter: _RingPainter(
+                percent: v,
+                strokeWidth: strokeWidth,
+                ringBgColor: ringBgColor,
+                progressColor: progressColor,
+              ),
             ),
           ),
           Positioned(

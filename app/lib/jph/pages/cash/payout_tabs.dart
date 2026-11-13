@@ -286,7 +286,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
                 ),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   Text('الراتب المستحق', style: TextStyle(fontSize: 11, color: JphUi.sub(isDark))),
-                  Text(JphUi.money(x['due']),
+                  CountUpText(JphUi.money(x['due']),
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
                 ]),
               ]),
@@ -329,7 +329,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: received ? Ar.green : Ar.green)),
             ]),
           ),
-          Text(JphUi.money(p['amount_egp']),
+          CountUpText(JphUi.money(p['amount_egp']),
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
         ]),
         if (p['canReceive'] == true) ...[
@@ -435,7 +435,7 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: x['payment'] == 'unpaid' ? Ar.amber : pay.$2)),
             ]),
           ),
-          Text(JphUi.money(x['amount']),
+          CountUpText(JphUi.money(x['amount']),
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
         ]),
         if (canPay && !mine && x['payment'] == 'unpaid') ...[

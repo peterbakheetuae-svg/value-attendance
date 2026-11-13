@@ -217,7 +217,7 @@ class _SummaryTabState extends State<_SummaryTab> {
         ]),
         const SizedBox(height: 10),
         Text('الرصيد الدفتري', style: TextStyle(color: JphUi.sub(isDark), fontWeight: FontWeight.w600)),
-        Text(JphUi.money(bal), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: neg ? Ar.red : JphUi.text(isDark))),
+        CountUpText(JphUi.money(bal), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: neg ? Ar.red : JphUi.text(isDark))),
         if (key == 'hr' && ((b['deficit'] as num?) ?? 0) > 0)
           Container(
             margin: const EdgeInsets.only(top: 8),
@@ -289,7 +289,7 @@ class _SummaryTabState extends State<_SummaryTab> {
                               ]),
                             ),
                             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                              Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                              CountUpText(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                               if ('${x['tag'] ?? ''}'.isNotEmpty) JphUi.chip('${x['tag']}', Ar.grey),
                             ]),
                           ]),
@@ -676,7 +676,7 @@ class _LedgerTabState extends State<CashLedgerView> {
                       style: TextStyle(fontSize: 12, color: JphUi.sub(isDark)), maxLines: 2, overflow: TextOverflow.ellipsis),
                 ]),
               ),
-              Text(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900,
+              CountUpText(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900,
                   color: ((e['amount'] as num?) ?? 0) >= 0 ? Ar.green : Ar.red)),
             ]),
           ),
@@ -837,7 +837,7 @@ class _TransfersTabState extends State<_TransfersTab> {
                 const SizedBox(width: 8),
                 Expanded(child: Text('${m['byName']} · ${'${m['at'] ?? ''}'.length >= 10 ? '${m['at']}'.substring(0, 10) : ''}${'${m['note'] ?? ''}'.isEmpty ? '' : ' · ${m['note']}'}',
                     style: TextStyle(color: JphUi.sub(isDark)))),
-                Text(JphUi.money(m['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                CountUpText(JphUi.money(m['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
             ),
           const SizedBox(height: 12),
@@ -871,7 +871,7 @@ class _TransfersTabState extends State<_TransfersTab> {
               Text('${t['reason']} • ${t['requestedByName']} • ${JphUi.date(t['requestedAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
             ]),
           ),
-          Text(JphUi.money(t['amountExecuted'] ?? t['amountRequested']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+          CountUpText(JphUi.money(t['amountExecuted'] ?? t['amountRequested']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
         ]),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 6, children: [
@@ -1103,7 +1103,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                     Text('${_boxAr[x['cashbox']]} • ${x['recordedByName']} • ${JphUi.date(x['occurredAt'])}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
                 ),
-                Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                CountUpText(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 6, children: [
@@ -1421,7 +1421,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
                     Text(f['paymentMethod'] == 'bank' ? 'من البنك' : 'نقدي', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
                 ),
-                Text(JphUi.money(f['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                CountUpText(JphUi.money(f['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 6, children: [
@@ -1632,7 +1632,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
                         style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                   ]),
                 ),
-                Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900,
+                CountUpText(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900,
                     color: x['status'] == 'reversed' ? Ar.grey : Ar.green, decoration: x['status'] == 'reversed' ? TextDecoration.lineThrough : null)),
               ]),
               if (x['status'] == 'reversed')

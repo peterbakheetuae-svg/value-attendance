@@ -294,7 +294,7 @@ class GlassStat extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
-            child: Text(value, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color ?? Glass.ink(isDark))),
+            child: CountUpText(value, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: color ?? Glass.ink(isDark))),
           ),
         ]),
       );
@@ -335,4 +335,96 @@ class Ar {
   static const MaterialColor tan = MaterialColor(0xFFC99A76, <int, Color>{50: Color(0xFFF9F3EF), 100: Color(0xFFF2E7DE), 200: Color(0xFFE8D5C5), 300: Color(0xFFDEC0AA), 400: Color(0xFFD3AC8F), 500: Color(0xFFC99A76), 600: Color(0xFFB18868), 700: Color(0xFF99755A), 800: Color(0xFF81634C), 900: Color(0xFF69503D)});
   /// warm stone greys instead of the cool Material greys
   static const MaterialColor grey = MaterialColor(0xFF8F8B84, <int, Color>{50: Color(0xFFFAF9F7), 100: Color(0xFFF2F0EC), 200: Color(0xFFE6E3DE), 300: Color(0xFFD6D2CB), 400: Color(0xFFB3AEA6), 500: Color(0xFF8F8B84), 600: Color(0xFF6F6B65), 700: Color(0xFF57534E), 800: Color(0xFF3A3835), 900: Color(0xFF22211F)});
+}
+
+/// A number that counts up to its value (1.2 s, the site's ease) and tweens again when it changes — like the
+/// dashboard's figures. Works on any text with a number in it ("12,500 ج", "3.5٪", "8 / 10"): the first number moves,
+/// the rest of the text stays.
+class CountUpText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final bool? softWrap;
+  final TextDirection? textDirection;
+  const CountUpText(this.text, {super.key, this.style, this.textAlign, this.maxLines, this.overflow, this.softWrap, this.textDirection});
+
+  @override
+  State<CountUpText> createState() => _CountUpTextState();
+}
+
+class _CountUpTextState extends State<CountUpText> {
+  static final _num = RegExp(r'-?\d[\d,]*(?:\.\d+)?');
+  double _from = 0;
+
+  double? _value(String t) {
+    final m = _num.firstMatch(t);
+    return m == null ? null : double.tryParse(m.group(0)!.replaceAll(',', ''));
+  }
+
+  @override
+  void didUpdateWidget(covariant CountUpText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) _from = _value(old.text) ?? 0;
+  }
+
+  Text _text(String t) => Text(t,
+      style: widget.style,
+      textAlign: widget.textAlign,
+      maxLines: widget.maxLines,
+      overflow: widget.overflow,
+      softWrap: widget.softWrap,
+      textDirection: widget.textDirection);
+
+  @override
+  Widget build(BuildContext context) {
+    final m = _num.firstMatch(widget.text);
+    final end = m == null ? null : double.tryParse(m.group(0)!.replaceAll(',', ''));
+    if (m == null || end == null || end == _from) return _text(widget.text);
+    final raw = m.group(0)!;
+    // times, dates, phones and codes stay as they are (09:30, 13/11/2026, 0100…)
+    if (RegExp(r'[:/]').hasMatch(widget.text) || (raw.length > 1 && raw.startsWith('0') && !raw.startsWith('0.'))) {
+      return _text(widget.text);
+    }
+    final decimals = raw.contains('.') ? raw.split('.').last.length : 0;
+    final grouped = raw.contains(',');
+    String fmt(double v) {
+      var s = v.abs().toStringAsFixed(decimals);
+      if (grouped) {
+        final parts = s.split('.');
+        final i = parts.first;
+        final b = StringBuffer();
+        for (var k = 0; k < i.length; k++) {
+          if (k > 0 && (i.length - k) % 3 == 0) b.write(',');
+          b.write(i[k]);
+        }
+        s = parts.length > 1 ? '$b.${parts[1]}' : '$b';
+      }
+      return '${v < 0 ? '-' : ''}$s';
+    }
+
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(widget.text),
+      tween: Tween(begin: _from, end: end),
+      duration: const Duration(milliseconds: 1200),
+      curve: Glass.ease,
+      builder: (_, v, __) => _text(widget.text.replaceRange(m.start, m.end, fmt(v))),
+    );
+  }
+}
+
+/// Any bar / ring value that fills from the start like the dashboard's bars (1 s, the site's ease).
+class GrowTo extends StatelessWidget {
+  final double value;
+  final Widget Function(double v) builder;
+  const GrowTo({super.key, required this.value, required this.builder});
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: value.isNaN ? 0 : value),
+        duration: const Duration(milliseconds: 1000),
+        curve: Glass.ease,
+        builder: (_, v, __) => builder(v),
+      );
 }

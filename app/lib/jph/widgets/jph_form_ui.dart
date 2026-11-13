@@ -146,7 +146,7 @@ class JphUi {
               Flexible(child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: sub(isDark)))),
             ]),
             const SizedBox(height: 4),
-            Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: text(isDark))),
+            (value.endsWith('جنيه') || value.endsWith('%') ? CountUpText(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: text(isDark))) : Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: text(isDark)))),
           ]),
         ),
       ]),
@@ -354,7 +354,7 @@ class JphUi {
           const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: color)),
+            child: CountUpText(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: color)),
           ),
         ]),
       );

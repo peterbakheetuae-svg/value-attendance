@@ -79,7 +79,8 @@ Widget _kv(bool isDark, String k, String v, {Color? color}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(children: [
         Expanded(child: Text(k, style: TextStyle(fontSize: 14, color: JphUi.sub(isDark)))),
-        Text(v, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: color ?? JphUi.text(isDark))),
+        // amounts and percentages count up like the dashboard's figures
+        (v.endsWith('جنيه') || v.endsWith('%') ? CountUpText(v, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: color ?? JphUi.text(isDark))) : Text(v, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: color ?? JphUi.text(isDark)))),
       ]),
     );
 
@@ -354,7 +355,7 @@ class _Terms {
               const SizedBox(width: 8),
               Expanded(child: Text('مبلغ الحجز (العربون) — مايتغيرش، وبيتخصم من المقدم',
                   style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
-              Text(_money(deposit), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
+              CountUpText(_money(deposit), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
             ]),
           ),
         SegmentedButton<String>(
@@ -1138,7 +1139,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                 const Icon(Icons.hourglass_top_rounded, color: Ar.amber),
                 const SizedBox(width: 8),
                 Expanded(child: Text('${x['kindAr']} · ${x['methodAr']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
-                Text(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                CountUpText(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
             ),
           if (can['receive'] == true) ...[
@@ -1222,7 +1223,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(_money(i['amount']), style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                    CountUpText(_money(i['amount']), style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                     Text('${_date(i['dueDate'])}${_n(i['paid']) > 0 && i['status'] != 'paid' ? ' · اتدفع ${_money(i['paid'])}' : ''}',
                         style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                   ]),

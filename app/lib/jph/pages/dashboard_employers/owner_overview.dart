@@ -426,7 +426,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
           ]),
           const SizedBox(height: 3),
           Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(fmt(v, '${s['format']}'), style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: p.ink)),
+            CountUpText(fmt(v, '${s['format']}'), style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: p.ink)),
             if (s['of'] != null) Text(' من ${s['of']}', style: TextStyle(fontSize: 14, color: p.muted)),
             if (s['day'] != null) Text(' · ${_dayShort('${s['day']}')}', style: TextStyle(fontSize: 13, color: p.muted)),
           ]),
@@ -586,7 +586,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
                 ]),
               ),
               const SizedBox(width: 10),
-              Text(fmt(_n(rows[k]['value']), '${rows[k]['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
+              CountUpText(fmt(_n(rows[k]['value']), '${rows[k]['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
             ]),
           ),
         ],
@@ -626,7 +626,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
                 const SizedBox(width: 10),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                   if (rows[k]['amount'] != null)
-                    Text(money(_n(rows[k]['amount'])), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: p.ink))
+                    CountUpText(money(_n(rows[k]['amount'])), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: p.ink))
                   else
                     const SizedBox(height: 18),
                   const SizedBox(height: 18),
@@ -709,7 +709,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${r['label']}', style: TextStyle(fontSize: 14, color: p.muted)),
                 const SizedBox(height: 4),
-                Text(fmt(_n(r['value']), '${r['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
+                CountUpText(fmt(_n(r['value']), '${r['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
               ]),
             ),
         ]),
@@ -792,7 +792,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
                 Expanded(child: Text('${e['label']}', style: TextStyle(fontSize: 14, color: p.muted))),
-                Text(fmt(_n(e['value']), '${e['format']}'), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: p.ink)),
+                CountUpText(fmt(_n(e['value']), '${e['format']}'), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: p.ink)),
               ]),
             ),
         ],

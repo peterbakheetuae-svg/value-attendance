@@ -91,12 +91,12 @@ class _EmployeeKpiBoxState extends State<EmployeeKpiBox> {
                         const SizedBox(height: 6),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            value: ((k['achievementPercent'] as num) / 100).clamp(0.0, 1.0).toDouble(),
+                          child: GrowTo(value: ((k['achievementPercent'] as num) / 100).clamp(0.0, 1.0).toDouble(), builder: (v) => LinearProgressIndicator(
+                            value: v,
                             minHeight: 6,
                             backgroundColor: sub.withOpacity(0.15),
                             color: (k['achievementPercent'] as num) >= 100 ? Ar.green : AppColors.primary,
-                          ),
+                          )),
                         ),
                       ],
                     ],

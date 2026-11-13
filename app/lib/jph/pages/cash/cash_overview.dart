@@ -128,7 +128,7 @@ class _CashOverviewState extends State<CashOverview> {
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: AlignmentDirectional.centerStart,
-                child: Text(JphUi.money(v), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 19)),
+                child: CountUpText(JphUi.money(v), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 19)),
               ),
               ...under,
             ]),
@@ -138,7 +138,7 @@ class _CashOverviewState extends State<CashOverview> {
           padding: const EdgeInsets.only(top: 4),
           child: Row(children: [
             Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12))),
-            Text(JphUi.money(v), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5)),
+            CountUpText(JphUi.money(v), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5)),
           ]),
         );
     return Container(
@@ -154,7 +154,7 @@ class _CashOverviewState extends State<CashOverview> {
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: AlignmentDirectional.centerStart,
-          child: Text(JphUi.money(full ? av['total'] : hr['total']),
+          child: CountUpText(JphUi.money(full ? av['total'] : hr['total']),
               style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
         ),
         const SizedBox(height: 14),
@@ -177,7 +177,7 @@ class _CashOverviewState extends State<CashOverview> {
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(children: [
           Expanded(child: Text(k, style: TextStyle(fontSize: 14, color: bold ? JphUi.text(isDark) : JphUi.sub(isDark), fontWeight: bold ? FontWeight.w800 : FontWeight.w500))),
-          Text(JphUi.money(v), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: color ?? JphUi.text(isDark))),
+          CountUpText(JphUi.money(v), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: color ?? JphUi.text(isDark))),
         ]),
       );
 
@@ -192,7 +192,7 @@ class _CashOverviewState extends State<CashOverview> {
           JphUi.iconTile(isDark, Icons.receipt_long_rounded, Ar.amber),
           const SizedBox(width: 12),
           Expanded(child: Text('المصروفات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-          Text(JphUi.money(exp['total']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.amber)),
+          CountUpText(JphUi.money(exp['total']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.amber)),
         ]),
         const SizedBox(height: 8),
         _row(isDark, 'المرتبات', pay['salary']),
@@ -220,7 +220,7 @@ class _CashOverviewState extends State<CashOverview> {
           Icon(net >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded, color: c),
           const SizedBox(width: 8),
           Expanded(child: Text(net >= 0 ? 'صافي ربح المكتب' : 'عجز — محتاج ضخ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: c))),
-          Text(JphUi.money(net.abs()), style: TextStyle(fontWeight: FontWeight.w900, fontSize: 19, color: c)),
+          CountUpText(JphUi.money(net.abs()), style: TextStyle(fontWeight: FontWeight.w900, fontSize: 19, color: c)),
         ]),
       ]),
     );
@@ -608,7 +608,7 @@ class _InjectionsTabState extends State<InjectionsTab> {
                       '${x['status'] == 'posted' ? '' : ' · ملغي'}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                 ]),
               ),
-              Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+              CountUpText(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
             ]),
           ),
       ]),

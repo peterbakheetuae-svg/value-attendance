@@ -232,7 +232,7 @@ class _DueListState extends State<_DueList> {
                   ]),
                 ),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(JphUi.money(x['remaining']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                  CountUpText(JphUi.money(x['remaining']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                   const SizedBox(height: 4),
                   JphUi.chip((_lineStatus[x['status']] ?? ('${x['status']}', Ar.grey)).$1, (_lineStatus[x['status']] ?? ('', Ar.grey)).$2),
                 ]),
@@ -445,8 +445,8 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
                                     ),
                                     Expanded(flex: 4, child: Text('${l['dueDate']}', style: const TextStyle(fontSize: 12))),
-                                    Expanded(flex: 4, child: Text(JphUi.money(l['amount']), style: const TextStyle(fontSize: 12))),
-                                    Expanded(flex: 4, child: Text(JphUi.money(l['paid']), style: const TextStyle(fontSize: 12, color: Ar.green))),
+                                    Expanded(flex: 4, child: CountUpText(JphUi.money(l['amount']), style: const TextStyle(fontSize: 12))),
+                                    Expanded(flex: 4, child: CountUpText(JphUi.money(l['paid']), style: const TextStyle(fontSize: 12, color: Ar.green))),
                                     Expanded(
                                       flex: 4,
                                       child: Text((_lineStatus[l['status']] ?? ('${l['status']}', Ar.grey)).$1,
@@ -898,14 +898,14 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                             child: Text('${x['receiptNo']} • ${x['kindAr']} • ${JphUi.date(x['occurredAt'])} • استلمها ${x['actualRecipientName']}${x['status'] == 'reversed' ? ' (اتعكس)' : ''}',
                                                 style: TextStyle(color: JphUi.text(isDark))),
                                           ),
-                                          Text(JphUi.money(x['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
+                                          CountUpText(JphUi.money(x['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.green)),
                                         ]),
                                       ),
                                     if (refunds.isNotEmpty) ...[
                                       const SizedBox(height: 16),
                                       Text('الاسترداد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                                       for (final x in refunds)
-                                        ListTile(title: Text('#${x['refNo']} • ${JphUi.date(x['at'])}'), trailing: Text(JphUi.money(x['amount']), style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w900))),
+                                        ListTile(title: Text('#${x['refNo']} • ${JphUi.date(x['at'])}'), trailing: CountUpText(JphUi.money(x['amount']), style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w900))),
                                     ],
                                   ]),
                                 ),

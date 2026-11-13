@@ -176,7 +176,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(children: [
             Expanded(child: Text(k, style: TextStyle(color: JphUi.sub(isDark)))),
-            Text(JphUi.money(v), style: TextStyle(fontWeight: FontWeight.w800, color: color ?? JphUi.text(isDark))),
+            CountUpText(JphUi.money(v), style: TextStyle(fontWeight: FontWeight.w800, color: color ?? JphUi.text(isDark))),
           ]),
         );
     return GestureDetector(

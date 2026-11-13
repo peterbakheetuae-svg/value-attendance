@@ -626,7 +626,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
                     ]),
                   ),
                   Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                    CountUpText(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                     if (_canReceive)
                       TextButton(onPressed: () => _receive(isDark, x), child: const Text('تم الاستلام', style: TextStyle(fontWeight: FontWeight.w900))),
                   ]),
@@ -1002,7 +1002,7 @@ Widget _mini(bool isDark, String label, Object? v, Color color) => Container(
       decoration: BoxDecoration(color: color.withOpacity(isDark ? 0.18 : 0.09), borderRadius: BorderRadius.circular(12)),
       child: Column(children: [
         Text(label, style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
-        FittedBox(fit: BoxFit.scaleDown, child: Text(_money(v), style: TextStyle(fontWeight: FontWeight.w900, color: color))),
+        FittedBox(fit: BoxFit.scaleDown, child: CountUpText(_money(v), style: TextStyle(fontWeight: FontWeight.w900, color: color))),
       ]),
     );
 
@@ -1114,7 +1114,7 @@ class _ProjectsBoxPageState extends _OverviewPageState<ProjectsBoxPage> {
                 ]),
               ),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(_money(p['inTrust']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.accent)),
+                CountUpText(_money(p['inTrust']), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Ar.accent)),
                 Text('أمانات', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
               ]),
               Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -1204,7 +1204,7 @@ class _ProjectTrustPageState extends _OverviewPageState<ProjectTrustPage> {
                 child: Text('${s['typeAr']}${s['unitNo'] != null ? ' — وحدة ${s['unitNo']}' : ''} · ${_date(s['at'])}',
                     style: TextStyle(color: JphUi.text(isDark))),
               ),
-              Text(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Ar.green : Ar.red)),
+              CountUpText(_money(s['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: s['dir'] == 'in' ? Ar.green : Ar.red)),
             ]),
           ),
       ]),
@@ -1258,7 +1258,7 @@ class _CommissionsDuePageState extends _OverviewPageState<CommissionsDuePage> {
                   ]),
                 ),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(_money(p['remaining']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Ar.amber)),
+                  CountUpText(_money(p['remaining']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Ar.amber)),
                   Text('متبقي', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                 ]),
                 Icon(Icons.chevron_left_rounded, color: JphUi.sub(isDark)),
@@ -1320,7 +1320,7 @@ class _ExpectedCommissionsPageState extends _OverviewPageState<ExpectedCommissio
               title: Text('${u['projectName']} — وحدة ${u['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
               subtitle: Text('${u['clientName']} · ${u['salesName']}${u['expectedContractDate'] != null ? ' · تعاقد متوقع ${_date(u['expectedContractDate'])}' : ''}',
                   style: TextStyle(color: JphUi.sub(isDark))),
-              trailing: Text(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.accent)),
+              trailing: CountUpText(_money(u['amount']), style: const TextStyle(fontWeight: FontWeight.w900, color: Ar.accent)),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => load()),
             ),
         ]),

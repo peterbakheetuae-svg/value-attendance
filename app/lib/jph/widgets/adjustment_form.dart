@@ -258,7 +258,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
             ]),
           ),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(JphUi.money(x['amount_egp']), style: TextStyle(fontWeight: FontWeight.w900, color: k.$3)),
+            CountUpText(JphUi.money(x['amount_egp']), style: TextStyle(fontWeight: FontWeight.w900, color: k.$3)),
             const SizedBox(height: 4),
             JphUi.chip(st.$1, st.$2),
           ]),

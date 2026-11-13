@@ -582,7 +582,7 @@ class _MineTabState extends State<_MineTab> {
                   Text('مرتب ${JphUi.monthAr('${e['period']}')} • ${paymentStatus('${e['payment']}').$1}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                 ]),
               ),
-              Text(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+              CountUpText(JphUi.money(e['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
             ]),
           ),
       ]),

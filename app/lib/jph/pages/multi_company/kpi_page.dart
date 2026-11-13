@@ -560,12 +560,12 @@ class _EmployeeKpiViewState extends State<_EmployeeKpiView> {
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
+                  child: GrowTo(value: ach == null ? 0 : ((ach as num) / 100).clamp(0, 1).toDouble(), builder: (v) => LinearProgressIndicator(
                     minHeight: 8,
-                    value: ach == null ? 0 : ((ach as num) / 100).clamp(0, 1).toDouble(),
+                    value: v,
                     backgroundColor: Ar.grey.withOpacity(0.2),
                     color: ach != null && ach >= 100 ? Ar.green : AppColors.primary,
-                  ),
+                  )),
                 ),
               ]),
             ),

@@ -49,13 +49,16 @@ class _PerformanceAvatarState extends State<PerformanceAvatar> {
         width: outer,
         height: outer,
         child: Stack(alignment: Alignment.center, children: [
-          CustomPaint(
-            size: Size(outer, outer),
-            painter: PerformanceRingPainter(
-              percent: (score ?? 100) / 100,
-              stroke: widget.stroke,
-              color: PerformanceScore.colorFor(score ?? 100),
-              track: Ar.grey.withOpacity(0.25),
+          GrowTo(
+            value: (score ?? 100) / 100,
+            builder: (v) => CustomPaint(
+              size: Size(outer, outer),
+              painter: PerformanceRingPainter(
+                percent: v,
+                stroke: widget.stroke,
+                color: PerformanceScore.colorFor(score ?? 100),
+                track: Ar.grey.withOpacity(0.25),
+              ),
             ),
           ),
           widget.child,
