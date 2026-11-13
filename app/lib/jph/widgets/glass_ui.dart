@@ -428,3 +428,20 @@ class GrowTo extends StatelessWidget {
         builder: (_, v, __) => builder(v),
       );
 }
+
+/// Squares that keep their size on a wide screen: as many per row as fit (between [minCols] and [maxCols]),
+/// one under the other on a phone. Rows keep each square's own height.
+class ResponsiveGrid extends StatelessWidget {
+  final List<Widget> children;
+  final double minTileWidth;
+  final int minCols, maxCols;
+  final double spacing;
+  const ResponsiveGrid({super.key, required this.children, this.minTileWidth = 220, this.minCols = 1, this.maxCols = 5, this.spacing = 12});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
+        final cols = ((c.maxWidth + spacing) / (minTileWidth + spacing)).floor().clamp(minCols, maxCols);
+        final w = (c.maxWidth - spacing * (cols - 1)) / cols;
+        return Wrap(spacing: spacing, runSpacing: spacing, children: [for (final x in children) SizedBox(width: w, child: x)]);
+      });
+}

@@ -101,7 +101,10 @@ function shapeUnit(u: any, a: Actor) {
     form: { unitType: u.unit_type, floor: u.floor, areaM2: u.area_m2 == null ? null : n(u.area_m2), activity: u.activity,
       maintenanceDeposit: n(u.maintenance_deposit), clientNationalId: u.client_national_id, clientAddress: u.client_address,
       plannedDownPayment: u.planned_down_payment == null ? null : n(u.planned_down_payment), downPaymentDue: isoDay(u.down_payment_due),
-      plannedInstallments: u.planned_installments, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at) },
+      plannedInstallments: u.planned_installments, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at),
+      netAreaM2: u.net_area_m2 == null ? null : n(u.net_area_m2), meterPrice: u.meter_price == null ? null : n(u.meter_price),
+      maintenancePct: u.maintenance_pct == null ? null : n(u.maintenance_pct), plannedDownPct: u.planned_down_pct == null ? null : n(u.planned_down_pct),
+      inventoryId: u.inventory_id ?? null },
     clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
     ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
@@ -195,16 +198,24 @@ function formFields(b: Record<string, unknown>, old?: any) {
     maintenance_deposit: num0('maintenanceDeposit', 0, 10_000_000_000) ?? 0, client_national_id: s('clientNationalId', 20),
     client_address: s('clientAddress', 300), planned_down_payment: num0('plannedDownPayment', 0, 10_000_000_000),
     down_payment_due: d('downPaymentDue'), planned_installments: num0('plannedInstallments', 0, 240), deposit_paid_on: d('depositPaidOn'),
+    net_area_m2: num0('netAreaM2', 0.0001, 1_000_000), meter_price: num0('meterPrice', 0.01, 10_000_000_000),
+    maintenance_pct: num0('maintenancePct', 0, 100), planned_down_pct: num0('plannedDownPct', 0, 100),
   };
 }
 const snake = (k: string) => ({ unitType: 'unit_type', floor: 'floor', areaM2: 'area_m2', activity: 'activity', maintenanceDeposit: 'maintenance_deposit',
   clientNationalId: 'client_national_id', clientAddress: 'client_address', plannedDownPayment: 'planned_down_payment',
-  downPaymentDue: 'down_payment_due', plannedInstallments: 'planned_installments', depositPaidOn: 'deposit_paid_on' } as Record<string, string>)[k] ?? k;
-async function saveForm(q: Q, id: string, f: ReturnType<typeof formFields>) {
+  downPaymentDue: 'down_payment_due', plannedInstallments: 'planned_installments', depositPaidOn: 'deposit_paid_on', netAreaM2: 'net_area_m2',
+  meterPrice: 'meter_price', maintenancePct: 'maintenance_pct', plannedDownPct: 'planned_down_pct' } as Record<string, string>)[k] ?? k;
+/** Saves the form; a maintenance deposit / agreed down payment given as a % of the unit's price becomes its amount. */
+async function saveForm(q: Q, id: string, f: ReturnType<typeof formFields>, price?: number) {
+  const pctOf = (pct: unknown) => (pct == null || price == null ? null : Math.round(price * Number(pct)) / 100);
+  const maint = pctOf(f.maintenance_pct) ?? f.maintenance_deposit;
+  const down = pctOf(f.planned_down_pct) ?? f.planned_down_payment;
   await q.query(`UPDATE ex_units SET unit_type = $2, floor = $3, area_m2 = $4, activity = $5, maintenance_deposit = $6, client_national_id = $7,
-      client_address = $8, planned_down_payment = $9, down_payment_due = $10, planned_installments = $11, deposit_paid_on = $12 WHERE id = $1`,
-    [id, f.unit_type, f.floor, f.area_m2, f.activity, f.maintenance_deposit, f.client_national_id, f.client_address, f.planned_down_payment,
-      f.down_payment_due, f.planned_installments, f.deposit_paid_on]);
+      client_address = $8, planned_down_payment = $9, down_payment_due = $10, planned_installments = $11, deposit_paid_on = $12,
+      net_area_m2 = $13, meter_price = $14, maintenance_pct = $15, planned_down_pct = $16 WHERE id = $1`,
+    [id, f.unit_type, f.floor, f.area_m2, f.activity, maint, f.client_national_id, f.client_address, down,
+      f.down_payment_due, f.planned_installments, f.deposit_paid_on, f.net_area_m2, f.meter_price, f.maintenance_pct, f.planned_down_pct]);
 }
 const isoDay = (v: unknown) => (v ? String(v instanceof Date ? v.toISOString() : v).slice(0, 10) : null);
 
@@ -235,14 +246,14 @@ export async function resolveDeveloper(q: Q, a: Actor, b: Record<string, unknown
 function shapeProject(p: any, stats?: any, a?: Actor) {
   // the office's figures (its % / the owner) are المالك / المدير العام's; the sales team sees its own % only
   if (a && !canSeeAll(a)) {
-    return { id: p.id, name: p.name, kind: p.kind, status: p.status, salesPct: n(p.sales_pct), createdAt: p.created_at };
+    return { id: p.id, name: p.name, kind: p.kind, status: p.status, salesPct: n(p.sales_pct), createdAt: p.created_at, imageAt: p.image_at ?? null };
   }
   return {
     id: p.id, name: p.name, kind: p.kind, status: p.status, ownerName: p.owner_name, ownerPhone: p.owner_phone,
     developerId: p.developer_id ?? null, developerName: p.developer_name ?? null,
     totalPct: n(p.total_pct), contractPct: n(p.contract_pct), installmentPct: n(p.installment_pct),
     salesPct: n(p.sales_pct), managerPct: n(p.manager_pct), companyPct: n(p.company_pct), marketingPct: n(p.marketing_pct),
-    createdAt: p.created_at, stats,
+    createdAt: p.created_at, stats, imageAt: p.image_at ?? null,
   };
 }
 
@@ -270,7 +281,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     const kind = req.query.get('kind') ?? 'exclusive';
     const kindSql = kind === 'all' ? 'true' : kind === 'marketing' ? `kind = 'marketing'` : `kind = 'exclusive'`;
-    const rows = await db.query(`SELECT p.*, d.name AS developer_name FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+    const rows = await db.query(`SELECT p.*, d.name AS developer_name, pi.updated_at AS image_at FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+                                  LEFT JOIN project_images pi ON pi.project_id = p.id
                                   WHERE ${kindSql.replace(/\bkind\b/g, 'p.kind')}
                                   ${canManage(a) ? '' : `AND p.status = 'active'`} ORDER BY p.status = 'active' DESC, p.created_at DESC`);
     const st = canManage(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
@@ -344,7 +356,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
-    const p = await one(db, `SELECT p.*, d.name AS developer_name FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+    const p = await one(db, `SELECT p.*, d.name AS developer_name, pi.updated_at AS image_at FROM commission_projects p LEFT JOIN developers d ON d.id = p.developer_id
+                                  LEFT JOIN project_images pi ON pi.project_id = p.id
                               WHERE p.id = $1`, [req.params.id]);
     if (!p) throw notFound();
     const { stats, units } = await projectStats(db, [p.id]);
@@ -593,7 +606,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const b = obj(req.body);
     const projectId = str(b, 'projectId', { min: 36, max: 36 })!;
     if (!isUuid(projectId)) throw invalid('اختار المشروع', { field: 'projectId' });
-    const unitNo = str(b, 'unitNo', { min: 1, max: 60 })!.trim();
+    const inventoryId = typeof b.inventoryId === 'string' && isUuid(b.inventoryId) ? b.inventoryId : null;
+    const inv = inventoryId ? await one(db, `SELECT * FROM ex_inventory WHERE id = $1 AND project_id = $2 AND active`, [inventoryId, projectId]) : null;
+    if (inventoryId && !inv) throw invalid('اختار وحدة من وحدات المشروع', { field: 'inventoryId' });
+    const unitNo = inv ? String(inv.unit_no) : str(b, 'unitNo', { min: 1, max: 60 })!.trim();
     const clientName = str(b, 'clientName', { min: 2, max: 120 })!.trim();
     const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? '').trim();
     const price = num(b, 'unitPrice', { min: 1, max: 10_000_000_000 })!;
@@ -628,7 +644,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         [p.id, unitNo, clientName, clientPhone, price, deposit, salesId, p.total_pct, contractPct, p.sales_pct, p.manager_pct, notes, mkId, mkPct,
           exclusive && deposit > 0 && !contract ? 'reserving' : 'reserved']);
       if (expected) await q.query(`UPDATE ex_units SET expected_contract_date = $2 WHERE id = $1`, [x.id, expected]);
-      await saveForm(q, x.id, formFields(b));
+      await saveForm(q, x.id, formFields(b), price);
+      if (inv) await q.query(`UPDATE ex_units SET inventory_id = $2 WHERE id = $1`, [x.id, inv.id]);
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       // a direct contract: the deposit is part of its down payment (one pending payment for the whole of it)
       if (exclusive && deposit > 0 && !contract) await requestPayment(q, a, x, p.name, 'reservation', deposit, method);
@@ -744,7 +761,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         WHERE id = $1`,
         [u.id, unitNo, clientName, clientPhone, price, deposit, notes, expected, mkId, mkPct,
           contracted ? (str(b, 'contractNote', { optional: true, max: 1000 }) ?? null) : null]);
-      await saveForm(q, u.id, formFields(b, u));
+      await saveForm(q, u.id, formFields(b, u), price);
       await audit(q, a.id, 'exclusive.unit.edit', 'ex_unit', u.id,
         { unitNo: u.unit_no, clientName: u.client_name, clientPhone: u.client_phone, price: n(u.unit_price), deposit: n(u.deposit_amount) },
         { unitNo, clientName, clientPhone, price, deposit });
@@ -971,6 +988,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!hrDesk(a) && !canOffice(a)) throw forbidden('تأكيد الاستلام للمحاسب أو المالك / المدير العام');
     if (!isUuid(req.params.id)) throw notFound();
     const box = hrDesk(a) ? 'hr' : 'office';
+    // whoever receives the money says where it went in: نقدي أو بنك
+    const chosen = oneOf(obj(req.body), 'paymentMethod', METHODS, true) ?? null;
     const out = await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM ex_payments WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
@@ -982,7 +1001,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       const rc = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
           notes, occurred_at, recorded_by, ex_unit_id)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'',$9,$4,$10) RETURNING id, ref_no`,
-        [x.kind, x.amount_egp, box, a.id, u.client_name, u.client_phone, `${KIND_AR[x.kind]} — ${p.name} — وحدة ${u.unit_no}`, x.payment_method, now, u.id]);
+        [x.kind, x.amount_egp, box, a.id, u.client_name, u.client_phone, `${KIND_AR[x.kind]} — ${p.name} — وحدة ${u.unit_no}`, chosen ?? x.payment_method, now, u.id]);
+      if (chosen) await q.query(`UPDATE ex_payments SET payment_method = $2 WHERE id = $1`, [x.id, chosen]);
       await q.query(`UPDATE ex_payments SET status = 'received', received_by = $2, received_at = $3, receipt_id = $4 WHERE id = $1`, [x.id, a.id, now, rc.id]);
       if (x.kind === 'reservation' && u.status === 'reserving') await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
       await audit(q, a.id, 'exclusive.payment.receive', 'ex_payment', x.id, undefined, { receiptId: rc.id, box, amount: n(x.amount_egp) });
@@ -1157,6 +1177,121 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         price: n(s.total_price), paid: n(s.paid), status: 'contracted', statusAr: 'متعاقد', projectId: s.project_id, at: s.created_at });
     }
     return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total), seesAll: canSeeAll(a) });
+  });
+
+  // ------------------------------------------------------------------ عميل مسجل: بياناته بتتملا لوحدها
+  /** A client already on the system (by phone): his name, national id and address from his latest deal. */
+  r.get('/exclusive/clients/lookup', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    const digits = String(req.query.get('phone') ?? '').replace(/\D/g, '');
+    if (digits.length < 8) return ok({ client: null });
+    const last = digits.slice(-10);
+    const u = await one(db, `SELECT client_name, client_phone, client_national_id, client_address FROM ex_units
+                               WHERE right(regexp_replace(client_phone, '\\D', '', 'g'), 10) = $1 ORDER BY created_at DESC LIMIT 1`, [last]);
+    const s = u ? null : await one(db, `SELECT buyer_name, buyer_phone FROM unit_sales
+                               WHERE right(regexp_replace(buyer_phone, '\\D', '', 'g'), 10) = $1 ORDER BY created_at DESC LIMIT 1`, [last]);
+    if (!u && !s) return ok({ client: null });
+    return ok({ client: u ? { name: u.client_name, phone: u.client_phone, nationalId: u.client_national_id, address: u.client_address }
+      : { name: s.buyer_name, phone: s.buyer_phone, nationalId: '', address: '' } });
+  });
+
+  // ------------------------------------------------------------------ وحدات المشروع (المخزون)
+  const shapeInv = (x: any) => ({ id: x.id, projectId: x.project_id, unitNo: x.unit_no, unitType: x.unit_type, floor: x.floor,
+    netAreaM2: x.net_area_m2 == null ? null : n(x.net_area_m2), areaM2: x.area_m2 == null ? null : n(x.area_m2),
+    meterPrice: x.meter_price == null ? null : n(x.meter_price), unitPrice: x.unit_price == null ? null : n(x.unit_price),
+    activity: x.activity, notes: x.notes, active: x.active,
+    // فاضية / محجوزة / متعاقد عليها — from the deal on it (not cancelled)
+    state: x.deal_status == null ? 'free' : x.deal_status === 'contracted' ? 'contracted' : 'reserved',
+    stateAr: x.deal_status == null ? 'فاضية' : x.deal_status === 'contracted' ? 'متعاقد عليها' : 'محجوزة',
+    clientName: x.deal_client ?? null, dealId: x.deal_id ?? null });
+  const invSelect = `SELECT i.*, d.status AS deal_status, d.client_name AS deal_client, d.id AS deal_id FROM ex_inventory i
+      LEFT JOIN LATERAL (SELECT u.id, u.status, u.client_name FROM ex_units u WHERE u.project_id = i.project_id AND u.status <> 'cancelled'
+                           AND lower(trim(u.unit_no)) = lower(trim(i.unit_no)) ORDER BY u.created_at DESC LIMIT 1) d ON true`;
+  function invBody(b: Record<string, unknown>) {
+    const s0 = (k: string, max: number) => (str(b, k, { optional: true, max }) ?? '').trim();
+    const n0 = (k: string, min: number, max: number) => (b[k] === undefined || b[k] === null || b[k] === '' ? null : num(b, k, { min, max })!);
+    const area = n0('areaM2', 0.0001, 1_000_000), meter = n0('meterPrice', 0.01, 10_000_000_000);
+    // the price: given, or the loaded area × the meter price
+    const price = n0('unitPrice', 1, 10_000_000_000) ?? (area != null && meter != null ? Math.round(area * meter * 100) / 100 : null);
+    return { unitNo: str(b, 'unitNo', { min: 1, max: 60 })!.trim(), unitType: s0('unitType', 60), floor: s0('floor', 60),
+      net: n0('netAreaM2', 0.0001, 1_000_000), area, meter, price, activity: s0('activity', 200), notes: s0('notes', 1000) };
+  }
+
+  r.get('/exclusive/projects/:id/inventory', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const rows = await db.query(`${invSelect} WHERE i.project_id = $1 AND (i.active OR $2) ORDER BY lower(i.unit_no)`,
+      [req.params.id, canSetup(a)]);
+    return ok({ units: rows.rows.map(shapeInv), canEdit: canSetup(a) });
+  });
+
+  r.post('/exclusive/projects/:id/inventory', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canSetup(a)) throw forbidden('إضافة الوحدات للمدير العام والمحاسب');
+    if (!isUuid(req.params.id)) throw notFound();
+    const f = invBody(obj(req.body));
+    const x = await db.tx(async (q) => {
+      const p = await one(q, `SELECT id FROM commission_projects WHERE id = $1`, [req.params.id]);
+      if (!p) throw notFound();
+      const dup = await one(q, `SELECT id FROM ex_inventory WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2))`, [p.id, f.unitNo]);
+      if (dup) throw conflict('رقم الوحدة ده متسجل في المشروع بالفعل');
+      const x = await one(q, `INSERT INTO ex_inventory (project_id, unit_no, unit_type, floor, net_area_m2, area_m2, meter_price, unit_price, activity, notes, created_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [p.id, f.unitNo, f.unitType, f.floor, f.net, f.area, f.meter, f.price, f.activity, f.notes, a.id]);
+      await audit(q, a.id, 'exclusive.inventory.create', 'ex_inventory', x.id, undefined, x);
+      return x;
+    });
+    return ok({ unit: shapeInv((await one(db, `${invSelect} WHERE i.id = $1`, [x.id]))) }, 201);
+  });
+
+  r.patch('/exclusive/inventory/:id', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canSetup(a)) throw forbidden('تعديل الوحدات للمدير العام والمحاسب');
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM ex_inventory WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!o) throw notFound();
+      const f = invBody({ unitNo: o.unit_no, ...b });
+      const dup = await one(q, `SELECT id FROM ex_inventory WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND id <> $3`, [o.project_id, f.unitNo, o.id]);
+      if (dup) throw conflict('رقم الوحدة ده متسجل في المشروع بالفعل');
+      const active = typeof b.active === 'boolean' ? b.active : o.active;
+      await q.query(`UPDATE ex_inventory SET unit_no = $2, unit_type = $3, floor = $4, net_area_m2 = $5, area_m2 = $6, meter_price = $7, unit_price = $8,
+          activity = $9, notes = $10, active = $11 WHERE id = $1`,
+        [o.id, f.unitNo, f.unitType, f.floor, f.net, f.area, f.meter, f.price, f.activity, f.notes, active]);
+      await audit(q, a.id, 'exclusive.inventory.edit', 'ex_inventory', o.id, o, f);
+    });
+    return ok({ unit: shapeInv((await one(db, `${invSelect} WHERE i.id = $1`, [req.params.id]))) });
+  });
+
+  // ------------------------------------------------------------------ صورة المشروع
+  r.get('/exclusive/projects/:id/image', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await one(db, `SELECT mime, data, updated_at FROM project_images WHERE project_id = $1`, [req.params.id]);
+    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, imageAt: x?.updated_at ?? null });
+  });
+
+  r.put('/exclusive/projects/:id/image', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canSetup(a)) throw forbidden('صورة المشروع للمدير العام والمحاسب');
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
+    const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
+    await db.tx(async (q) => {
+      const p = await one(q, `SELECT id FROM commission_projects WHERE id = $1`, [req.params.id]);
+      if (!p) throw notFound();
+      await q.query(`INSERT INTO project_images (project_id, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4)
+                     ON CONFLICT (project_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [p.id, mime, data, a.id]);
+      await audit(q, a.id, 'exclusive.project.image', 'commission_project', p.id, undefined, { mime, bytes: data.length });
+    });
+    return ok({ saved: true });
   });
 
   // ------------------------------------------------------------------ شركات التسويق

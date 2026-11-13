@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -399,81 +402,324 @@ class _Terms {
   }
 }
 
-/// «استمارة حجز وحدة» — the extra details the printed form carries (all optional, editable later).
+/// «استمارة حجز وحدة» — the form's details, one form with the rest (no separate section): the unit (type / floor
+/// picked like «اختار الموظف», net + loaded area, the meter price × the loaded area = the price), the maintenance
+/// deposit and the agreed down payment (a % of the price or an amount), the dates and the client's papers.
 class _ResForm {
   String unitType = '', floor = '';
-  final area = TextEditingController(), activity = TextEditingController(), maintenance = TextEditingController(),
-      nationalId = TextEditingController(), address = TextEditingController(), plannedDown = TextEditingController(),
-      plannedInst = TextEditingController();
+  bool maintPct = false, downPct = false;
+  final netArea = TextEditingController(), area = TextEditingController(), meter = TextEditingController(),
+      activity = TextEditingController(), maintenance = TextEditingController(), nationalId = TextEditingController(),
+      address = TextEditingController(), plannedDown = TextEditingController(), plannedInst = TextEditingController();
   DateTime? downDue;
   DateTime? paidOn = DateTime.now();
+
+  static const unitTypes = ['تجاري', 'إداري', 'سكني', 'طبي'];
+  static const floors = ['بدروم', 'أرضي', 'ميزانين', 'أول علوي', 'ثاني علوي', 'ثالث علوي', 'رابع علوي', 'خامس علوي', 'روف'];
 
   _ResForm([Map<String, dynamic>? f]) {
     if (f == null) return;
     unitType = '${f['unitType'] ?? ''}';
     floor = '${f['floor'] ?? ''}';
+    netArea.text = f['netAreaM2'] == null ? '' : '${f['netAreaM2']}';
     area.text = f['areaM2'] == null ? '' : '${f['areaM2']}';
+    meter.text = f['meterPrice'] == null ? '' : '${f['meterPrice']}';
     activity.text = '${f['activity'] ?? ''}';
-    maintenance.text = _n(f['maintenanceDeposit']) > 0 ? '${f['maintenanceDeposit']}' : '';
+    maintPct = f['maintenancePct'] != null;
+    maintenance.text = maintPct ? '${f['maintenancePct']}' : (_n(f['maintenanceDeposit']) > 0 ? '${f['maintenanceDeposit']}' : '');
+    downPct = f['plannedDownPct'] != null;
+    plannedDown.text = downPct ? '${f['plannedDownPct']}' : (f['plannedDownPayment'] == null ? '' : '${f['plannedDownPayment']}');
     nationalId.text = '${f['clientNationalId'] ?? ''}';
     address.text = '${f['clientAddress'] ?? ''}';
-    plannedDown.text = f['plannedDownPayment'] == null ? '' : '${f['plannedDownPayment']}';
     plannedInst.text = f['plannedInstallments'] == null ? '' : '${f['plannedInstallments']}';
     downDue = DateTime.tryParse('${f['downPaymentDue'] ?? ''}');
     paidOn = DateTime.tryParse('${f['depositPaidOn'] ?? ''}');
   }
 
+  /// a unit of the project's inventory fills the unit's part
+  void fillFrom(Map<String, dynamic> u) {
+    unitType = '${u['unitType'] ?? ''}';
+    floor = '${u['floor'] ?? ''}';
+    netArea.text = u['netAreaM2'] == null ? '' : '${u['netAreaM2']}';
+    area.text = u['areaM2'] == null ? '' : '${u['areaM2']}';
+    meter.text = u['meterPrice'] == null ? '' : '${u['meterPrice']}';
+    if ('${u['activity'] ?? ''}'.isNotEmpty) activity.text = '${u['activity']}';
+  }
+
+  static num? _num(TextEditingController c) => num.tryParse(c.text.replaceAll(',', '').trim());
   static String _iso(DateTime? d) => d == null ? '' : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  Widget section(BuildContext context, bool isDark, StateSetter set, {bool reservation = true}) {
-    Widget chips(String label, List<String> opts, String v, ValueChanged<String> pick) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
-          const SizedBox(height: 4),
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            for (final o in opts) ChoiceChip(label: Text(o), selected: v == o, onSelected: (_) => set(() => pick(v == o ? '' : o))),
-          ]),
-        ]);
-    Widget date(String label, DateTime? v, ValueChanged<DateTime> pick) => JphUi.picker(
+  /// the loaded area × the meter price → the unit's price
+  void _price(TextEditingController price) {
+    final a = _num(area), m = _num(meter);
+    if (a != null && m != null && a > 0 && m > 0) price.text = (a * m).toStringAsFixed((a * m) % 1 == 0 ? 0 : 2);
+  }
+
+  List<Widget> fields(BuildContext context, bool isDark, StateSetter set, {required TextEditingController price, bool reservation = true}) {
+    Widget pick(String label, IconData icon, String value, List<String> opts, ValueChanged<String> onPick) => JphUi.picker(
+          isDark: isDark, icon: icon, iconColor: Ar.accent, label: label, value: value.isEmpty ? 'اختار' : value,
+          onTap: () async {
+            final v = await JphUi.sheet<String>(context, isDark, label, [
+              for (final o in opts) (o, o, icon),
+              if (value.isNotEmpty && !opts.contains(value)) (value, value, icon),
+              ('__other', 'تاني…', Icons.edit_rounded),
+            ], selected: value, icon: icon);
+            if (v == null) return;
+            if (v != '__other') return set(() => onPick(v));
+            if (!context.mounted) return;
+            final c = TextEditingController(text: value);
+            final t = await showDialog<String>(
+              context: context,
+              builder: (ctx) => GlassAlertDialog(
+                title: Text(label),
+                content: TextField(controller: c, autofocus: true),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('تمام')),
+                ],
+              ),
+            );
+            if (t != null && t.isNotEmpty) set(() => onPick(t));
+          },
+        );
+    Widget date(String label, DateTime? v, ValueChanged<DateTime> onPick) => JphUi.picker(
           isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.green, label: label, value: v == null ? 'اختار التاريخ' : _date(v.toIso8601String()),
           onTap: () async {
             final d = await showDatePicker(context: context, initialDate: v ?? DateTime.now(), firstDate: DateTime(DateTime.now().year - 2),
                 lastDate: DateTime(DateTime.now().year + 5));
-            if (d != null) set(() => pick(d));
+            if (d != null) set(() => onPick(d));
           },
         );
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        tilePadding: EdgeInsets.zero,
-        leading: const Icon(Icons.description_rounded, color: Ar.accent),
-        title: Text('بيانات استمارة الحجز (للطباعة)', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-        childrenPadding: const EdgeInsets.only(bottom: 8),
-        children: [
-          for (final w in [
-            chips('نوع الوحدة', const ['تجاري', 'إداري', 'سكني', 'طبي'], unitType, (x) => unitType = x),
-            chips('الدور', const ['أرضي', 'أول علوي', 'ثاني علوي', 'ثالث علوي', 'بدروم'], floor, (x) => floor = x),
-            JphUi.input(isDark: isDark, label: 'المساحة (متر)', controller: area, icon: Icons.square_foot_rounded, number: true),
-            JphUi.input(isDark: isDark, label: 'النشاط', controller: activity, icon: Icons.storefront_rounded),
-            JphUi.input(isDark: isDark, label: 'وديعة الصيانة', controller: maintenance, icon: Icons.build_rounded, number: true, suffix: 'جنيه'),
-            JphUi.input(isDark: isDark, label: 'إجمالي المقدم المتفق عليه', controller: plannedDown, icon: Icons.payments_rounded, number: true, suffix: 'جنيه'),
-            date('آخر موعد لاستكمال المقدم', downDue, (d) => downDue = d),
-            JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: plannedInst, icon: Icons.format_list_numbered_rounded, number: true),
-            if (reservation) date('تاريخ سداد دفعة الحجز', paidOn, (d) => paidOn = d),
-            JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
-            JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
-          ]) Padding(padding: const EdgeInsets.only(top: 10), child: w),
-        ],
-      ),
-    );
+    // a % of the unit's price, or an amount
+    Widget pctOrAmount(String label, IconData icon, TextEditingController c, bool pct, ValueChanged<bool> onMode) =>
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Expanded(child: Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
+            SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: const [ButtonSegment(value: false, label: Text('مبلغ')), ButtonSegment(value: true, label: Text('نسبة ٪'))],
+              selected: {pct},
+              onSelectionChanged: (x) => set(() => onMode(x.first)),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          JphUi.input(isDark: isDark, label: pct ? '$label (٪ من سعر الوحدة)' : label, controller: c, icon: icon, number: true,
+              suffix: pct ? '٪' : 'جنيه'),
+          if (pct)
+            AnimatedBuilder(
+              animation: Listenable.merge([c, price]),
+              builder: (_, __) {
+                final p = _num(price), v = _num(c);
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(p == null || v == null ? '' : '= ${_money((p * v / 100).round())}',
+                      style: TextStyle(fontWeight: FontWeight.w800, color: Ar.green.shade600)),
+                );
+              },
+            ),
+        ]);
+    return [
+      pick('نوع الوحدة', Icons.category_rounded, unitType, unitTypes, (x) => unitType = x),
+      pick('الدور', Icons.layers_rounded, floor, floors, (x) => floor = x),
+      JphUi.input(isDark: isDark, label: 'المساحة الصافية (متر)', controller: netArea, icon: Icons.square_foot_rounded, number: true),
+      JphUi.input(isDark: isDark, label: 'المساحة بالتحميل (متر)', controller: area, icon: Icons.aspect_ratio_rounded, number: true,
+          onChanged: (_) => _price(price)),
+      JphUi.input(isDark: isDark, label: 'سعر المتر', controller: meter, icon: Icons.price_change_rounded, number: true, suffix: 'جنيه',
+          onChanged: (_) => _price(price)),
+      Text('سعر الوحدة = المساحة بالتحميل × سعر المتر', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+      JphUi.input(isDark: isDark, label: 'النشاط', controller: activity, icon: Icons.storefront_rounded),
+      pctOrAmount('وديعة الصيانة', Icons.build_rounded, maintenance, maintPct, (x) => maintPct = x),
+      pctOrAmount('إجمالي المقدم المتفق عليه', Icons.payments_rounded, plannedDown, downPct, (x) => downPct = x),
+      date('آخر موعد لاستكمال المقدم', downDue, (d) => downDue = d),
+      JphUi.input(isDark: isDark, label: 'عدد الأقساط', controller: plannedInst, icon: Icons.format_list_numbered_rounded, number: true),
+      if (reservation) date('تاريخ سداد دفعة الحجز', paidOn, (d) => paidOn = d),
+      JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
+      JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
+    ];
   }
 
   Map<String, dynamic> body() => {
-        'unitType': unitType, 'floor': floor, 'areaM2': num.tryParse(area.text.replaceAll(',', '')), 'activity': activity.text.trim(),
-        'maintenanceDeposit': num.tryParse(maintenance.text.replaceAll(',', '')) ?? 0, 'clientNationalId': nationalId.text.trim(),
-        'clientAddress': address.text.trim(), 'plannedDownPayment': num.tryParse(plannedDown.text.replaceAll(',', '')),
+        'unitType': unitType, 'floor': floor, 'netAreaM2': _num(netArea), 'areaM2': _num(area), 'meterPrice': _num(meter),
+        'activity': activity.text.trim(), 'clientNationalId': nationalId.text.trim(), 'clientAddress': address.text.trim(),
+        'maintenancePct': maintPct ? _num(maintenance) : null, 'maintenanceDeposit': maintPct ? 0 : (_num(maintenance) ?? 0),
+        'plannedDownPct': downPct ? _num(plannedDown) : null, 'plannedDownPayment': downPct ? null : _num(plannedDown),
         'downPaymentDue': downDue == null ? null : _iso(downDue), 'plannedInstallments': int.tryParse(plannedInst.text),
         'depositPaidOn': paidOn == null ? null : _iso(paidOn),
       };
+}
+
+/// «تم استلام المبلغ»: whoever receives the money says where it went in — نقدي أو بنك.
+Future<String?> _askCashOrBank(BuildContext context, String title, String content) => showDialog<String>(
+      context: context,
+      builder: (ctx) => GlassAlertDialog(
+        title: Text(title),
+        content: Text('$content\n\nالفلوس دخلت فين؟', textAlign: TextAlign.center),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('لسه')),
+          OutlinedButton.icon(onPressed: () => Navigator.pop(ctx, 'bank_transfer'), icon: const Icon(Icons.account_balance_rounded), label: const Text('بنك')),
+          FilledButton.icon(onPressed: () => Navigator.pop(ctx, 'cash'), icon: const Icon(Icons.payments_rounded), label: const Text('نقدي')),
+        ],
+      ),
+    );
+
+// ------------------------------------------------------------------ صورة المشروع
+final Map<String, Future<Uint8List?>> _projImg = {};
+Future<Uint8List?> _projectImage(String id, Object? at) => _projImg.putIfAbsent('$id@$at', () async {
+      final r = await _get('/exclusive/projects/$id/image');
+      final s = '${r['image'] ?? ''}';
+      final i = s.indexOf(',');
+      return i < 0 ? null : base64Decode(s.substring(i + 1));
+    });
+
+/// a picture from the gallery, small enough to keep (≤ 1 MB)
+Future<(String, String)?> _pickProjectImage(BuildContext context) async {
+  XFile? f;
+  try {
+    f = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 72, maxWidth: 1600, maxHeight: 1600);
+  } catch (_) {
+    f = null;
+  }
+  if (f == null) return null;
+  final bytes = await f.readAsBytes();
+  if (bytes.length > 1000000) {
+    if (context.mounted) JphUi.toast(context, {'success': false, 'message': 'الصورة كبيرة — اختار صورة أصغر من 1 ميجا'});
+    return null;
+  }
+  final name = f.name.toLowerCase();
+  final mime = name.endsWith('.png') ? 'image/png' : name.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+  return (mime, base64Encode(bytes));
+}
+
+Future<bool> _uploadProjectImage(BuildContext context, String id, (String, String) img) async {
+  final r = await _post('/exclusive/projects/$id/image', {'mime': img.$1, 'image': img.$2}, 'اتحفظت صورة المشروع ✅', method: 'put');
+  _projImg.removeWhere((k, _) => k.startsWith('$id@'));
+  if (context.mounted) JphUi.toast(context, r);
+  return r['success'] == true;
+}
+
+/// the project's picture (or nothing while it loads / when it has none)
+class _ProjectPhoto extends StatelessWidget {
+  final String id;
+  final Object? at;
+  const _ProjectPhoto({required this.id, required this.at});
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
+        future: _projectImage(id, at),
+        builder: (_, s) => s.data == null
+            ? const SizedBox.shrink()
+            : Image.memory(s.data!, fit: BoxFit.cover, width: double.infinity, height: double.infinity, gaplessPlayback: true),
+      );
+}
+
+// ------------------------------------------------------------------ وحدات المشروع (المخزون)
+Future<bool> _editInventory(BuildContext context, bool isDark, String projectId, [Map<String, dynamic>? u]) async {
+  final no = TextEditingController(text: '${u?['unitNo'] ?? ''}'), price = TextEditingController(text: u?['unitPrice'] == null ? '' : '${u!['unitPrice']}'),
+      notes = TextEditingController(text: '${u?['notes'] ?? ''}');
+  final rf = _ResForm()..fillFrom(u ?? const {});
+  bool active = u?['active'] != false;
+  return _form(context, isDark, u == null ? 'إضافة وحدة للمشروع' : 'تعديل الوحدة ${u['unitNo']}', (set) {
+    final f = rf.fields(context, isDark, set, price: price);
+    return [
+      JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: no, icon: Icons.tag_rounded),
+      ...f.take(7), // نوع الوحدة … النشاط
+      JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
+      JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
+      if (u != null)
+        SwitchListTile(value: active, onChanged: (v) => set(() => active = v), title: Text(active ? 'متاحة للبيع' : 'موقوفة', style: TextStyle(color: JphUi.text(isDark)))),
+    ];
+  }, () async {
+    final b = rf.body();
+    final body = {
+      'unitNo': no.text.trim(), 'unitType': b['unitType'], 'floor': b['floor'], 'netAreaM2': b['netAreaM2'], 'areaM2': b['areaM2'],
+      'meterPrice': b['meterPrice'], 'unitPrice': _ResForm._num(price), 'activity': b['activity'], 'notes': notes.text.trim(),
+      if (u != null) 'active': active,
+    };
+    final r = u == null
+        ? await _post('/exclusive/projects/$projectId/inventory', body, 'اتضافت الوحدة ✅')
+        : await _post('/exclusive/inventory/${u['id']}', body, 'اتعدلت الوحدة ✅', method: 'patch');
+    if (context.mounted) JphUi.toast(context, r);
+    return r['success'] == true;
+  }, saveLabel: 'حفظ');
+}
+
+class _InventoryList extends StatefulWidget {
+  final String projectId;
+  final bool isDark;
+  const _InventoryList({required this.projectId, required this.isDark});
+
+  @override
+  State<_InventoryList> createState() => _InventoryListState();
+}
+
+class _InventoryListState extends State<_InventoryList> {
+  List<Map<String, dynamic>> _units = [];
+  bool _edit = false, _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await _get('/exclusive/projects/${widget.projectId}/inventory');
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _units = _l(r['units']);
+      _edit = r['canEdit'] == true;
+    });
+  }
+
+  Color _c(String s) => s == 'contracted' ? Ar.green : s == 'reserved' ? Ar.amber : Ar.info;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (_edit)
+        _btn(isDark, 'إضافة وحدة للمشروع', Icons.add_home_work_rounded, () async {
+          if (await _editInventory(context, isDark, widget.projectId)) _load();
+        }),
+      if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+      if (!_loading && _units.isEmpty)
+        Padding(padding: const EdgeInsets.all(24), child: Text('مفيش وحدات متسجلة للمشروع لسه', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+      ResponsiveGrid(minTileWidth: 300, maxCols: 4, children: [
+        for (final u in _units)
+          GestureDetector(
+            onTap: !_edit ? null : () async {
+              if (await _editInventory(context, isDark, widget.projectId, u)) _load();
+            },
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: JphUi.box(isDark),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Expanded(child: Text('وحدة ${u['unitNo']}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+                  _pill(u['active'] == false ? 'موقوفة' : '${u['stateAr']}', u['active'] == false ? Ar.grey : _c('${u['state']}')),
+                ]),
+                const SizedBox(height: 4),
+                Text([u['unitType'], u['floor'], if ('${u['activity'] ?? ''}'.isNotEmpty) u['activity']].where((x) => '${x ?? ''}'.isNotEmpty).join(' · '),
+                    style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(child: GlassStat(isDark: isDark, label: 'صافي', value: u['netAreaM2'] == null ? '—' : '${u['netAreaM2']} م')),
+                  const SizedBox(width: 6),
+                  Expanded(child: GlassStat(isDark: isDark, label: 'بالتحميل', value: u['areaM2'] == null ? '—' : '${u['areaM2']} م')),
+                  const SizedBox(width: 6),
+                  Expanded(child: GlassStat(isDark: isDark, label: 'السعر', value: u['unitPrice'] == null ? '—' : _money(u['unitPrice']))),
+                ]),
+                if (u['clientName'] != null) ...[
+                  const SizedBox(height: 6),
+                  Text('العميل: ${u['clientName']}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+                ],
+              ]),
+            ),
+          ),
+      ]),
+    ]);
+  }
 }
 
 /// حجز جديد / تعاقد جديد — from «المبيعات» only.
@@ -486,11 +732,42 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController();
   final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
   Map<String, dynamic>? mk;
-  String method = 'cash';
   final terms = _Terms();
   DateTime? expected; // التاريخ المتوقع للتعاقد — the expected commission falls in that month
   final rf = _ResForm();
   Map<String, dynamic> project() => active.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {});
+  // the project's units: picking one fills the unit's details
+  List<Map<String, dynamic>> inv = [];
+  String? invId;
+  bool manual = false;
+  Future<void> loadInv(StateSetter set) async {
+    final r = pid == null ? const <String, dynamic>{} : await _get('/exclusive/projects/$pid/inventory');
+    set(() {
+      inv = _l(r['units']).where((u) => u['active'] != false).toList();
+      invId = null;
+      manual = inv.isEmpty;
+    });
+  }
+  // a client already on the system: his data comes by his phone
+  String looked = '';
+  Future<void> lookup(StateSetter set) async {
+    final d = phone.text.replaceAll(RegExp(r'\D'), '');
+    if (d.length < 10 || d == looked) return;
+    looked = d;
+    final r = await _get('/exclusive/clients/lookup', {'phone': d});
+    final c = r['client'];
+    if (c is! Map) return;
+    set(() {
+      if (client.text.trim().isEmpty) client.text = '${c['name'] ?? ''}';
+      if (rf.nationalId.text.trim().isEmpty) rf.nationalId.text = '${c['nationalId'] ?? ''}';
+      if (rf.address.text.trim().isEmpty) rf.address.text = '${c['address'] ?? ''}';
+    });
+    if (context.mounted) JphUi.toast(context, {'success': true, 'message': 'عميل متسجل — اتملت بياناته'});
+  }
+  if (pid != null) {
+    inv = _l((await _get('/exclusive/projects/$pid/inventory'))['units']).where((u) => u['active'] != false).toList();
+    manual = inv.isEmpty;
+  }
   if (!context.mounted) return;
   final ok = await _form(context, isDark, contract ? 'تعاقد جديد' : 'حجز جديد', (set) {
     final p = project();
@@ -504,12 +781,46 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
             for (final x in active)
               ('${x['id']}', '${x['name']}${_seesKind() ? ' — ${x['kind'] == 'marketing' ? 'تسويق' : 'حصري'}' : ''}', Icons.apartment_rounded),
           ], selected: pid);
-          if (v != null) set(() => pid = v);
+          if (v != null && v != pid) {
+            set(() => pid = v);
+            await loadInv(set);
+          }
         },
       ),
-      JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
+      // the unit: from the project's units (fills its details) or typed by hand
+      if (inv.isNotEmpty)
+        JphUi.picker(
+          isDark: isDark, icon: Icons.home_work_rounded, iconColor: Ar.accent, label: 'الوحدة',
+          value: invId != null ? 'وحدة ${unit.text}' : manual ? 'وحدة مش في القايمة' : 'اختار الوحدة',
+          onTap: () async {
+            final free = inv.where((u) => u['state'] == 'free').toList();
+            final v = await JphUi.sheet<String>(context, isDark, 'الوحدة', [
+              for (final u in free)
+                ('${u['id']}', 'وحدة ${u['unitNo']}${'${u['unitType'] ?? ''}'.isNotEmpty ? ' · ${u['unitType']}' : ''}'
+                    '${'${u['floor'] ?? ''}'.isNotEmpty ? ' · ${u['floor']}' : ''}${u['unitPrice'] != null ? ' · ${_money(u['unitPrice'])}' : ''}',
+                    Icons.home_work_rounded),
+              ('__manual', 'وحدة مش في القايمة', Icons.edit_rounded),
+            ], selected: invId, icon: Icons.home_work_rounded);
+            if (v == null) return;
+            set(() {
+              if (v == '__manual') {
+                manual = true;
+                invId = null;
+                return;
+              }
+              final u = inv.firstWhere((x) => '${x['id']}' == v);
+              manual = false;
+              invId = v;
+              unit.text = '${u['unitNo']}';
+              if (u['unitPrice'] != null) price.text = '${u['unitPrice']}';
+              rf.fillFrom(u);
+            });
+          },
+        ),
+      if (inv.isEmpty || manual) JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
+      JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true,
+          onChanged: (_) => lookup(set)),
       JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
-      JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
       JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
       _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
       if (exclusive && !contract)
@@ -525,14 +836,10 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
           },
         ),
       if (exclusive && contract) ...terms.fields(context, isDark, set, price: num.tryParse(price.text.replaceAll(',', ''))),
-      if (exclusive) ...[
-        Text('الفلوس اتدفعت', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-        _cashBankPicker(isDark, method, (v) => set(() => method = v)),
-      ],
       if (!exclusive && p.isNotEmpty && _seesKind())
         Text(contract ? 'التعاقد بيخلّي العمولة واجبة التحصيل من المطور.' : 'الحجز في مشروع تسويق: عمولة محتملة لحد التعاقد — مفيش فلوس بتدخل عندنا.',
             style: TextStyle(color: JphUi.sub(isDark))),
-      rf.section(context, isDark, set, reservation: !contract),
+      ...rf.fields(context, isDark, set, price: price, reservation: !contract),
       JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
     ];
   }, () async {
@@ -547,7 +854,8 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
     final exclusive = project()['kind'] == 'exclusive';
     final r = await _post('/exclusive/units', {
       'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
-      'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(), 'paymentMethod': method,
+      'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(),
+      if (invId != null) 'inventoryId': invId,
       ...rf.body(),
       if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
       if (mk != null) 'marketingCompanyId': mk!['id'],
@@ -651,6 +959,36 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     final statement = _l(_d!['statement']);
     final marketing = p['kind'] == 'marketing';
     return ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+      // the project's picture (المدير العام / المحاسب change it)
+      if (p['imageAt'] != null || _seesKind())
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: AspectRatio(
+              aspectRatio: 2.4,
+              child: Stack(fit: StackFit.expand, children: [
+                Container(decoration: Glass.tile(isDark, r: 18)),
+                if (p['imageAt'] != null) _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])
+                else Center(child: Icon(Icons.add_photo_alternate_rounded, size: 40, color: JphUi.sub(isDark))),
+                if (_seesKind())
+                  PositionedDirectional(
+                    end: 10,
+                    bottom: 10,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        final img = await _pickProjectImage(context);
+                        if (img == null || !mounted) return;
+                        if (await _uploadProjectImage(context, '${p['id']}', img)) _load();
+                      },
+                      icon: const Icon(Icons.photo_camera_rounded, size: 18),
+                      label: Text(p['imageAt'] == null ? 'إضافة صورة للمشروع' : 'تغيير الصورة'),
+                    ),
+                  ),
+              ]),
+            ),
+          ),
+        ),
       if (_m(_d!['can'])['manage'] == true || p['developerName'] != null)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -710,16 +1048,21 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
               () => _payout(isDark, _n(ow['due']) - _n(ow['pendingPayout'])), color: Ar.accent),
         ],
       ],
-      if (statement.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: SegmentedButton<String>(
-            segments: const [ButtonSegment(value: 'units', label: Text('الوحدات')), ButtonSegment(value: 'statement', label: Text('كشف حساب المالك'))],
-            selected: {_tab},
-            onSelectionChanged: (s) => setState(() => _tab = s.first),
-          ),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: SegmentedButton<String>(
+          segments: [
+            const ButtonSegment(value: 'units', label: Text('الحجوزات والتعاقدات')),
+            const ButtonSegment(value: 'inventory', label: Text('وحدات المشروع')),
+            if (statement.isNotEmpty) const ButtonSegment(value: 'statement', label: Text('كشف حساب المالك')),
+          ],
+          selected: {_tab},
+          onSelectionChanged: (s) => setState(() => _tab = s.first),
         ),
-      if (_tab == 'units') ...[
+      ),
+      if (_tab == 'inventory')
+        _InventoryList(projectId: '${p['id']}', isDark: isDark)
+      else if (_tab == 'units') ...[
         if (u.isNotEmpty)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -897,7 +1240,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
           ],
           if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والاستمارة والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
-          rf.section(context, isDark, set),
+          ...rf.fields(context, isDark, set, price: price, reservation: !contracted),
           JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
         ], () async {
       final r = await _post('/exclusive/units/${widget.unitId}', {
@@ -919,19 +1262,9 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
 
   /// «تم استلام المبلغ»: the amount on the reservation / contract, nobody types it.
   Future<void> _receive(bool isDark, Map<String, dynamic> x) async {
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => GlassAlertDialog(
-        title: Text('تم استلام ${x['kindAr']}'),
-        content: Text('${_money(x['amount'])} — ${x['methodAr']}\nهيدخل ${hrBox ? 'خزنة المحاسب' : 'خزنة المكتب'}', textAlign: TextAlign.center),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لسه')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('تم الاستلام')),
-        ],
-      ),
-    );
-    if (yes != true) return;
-    final r = await _post('/exclusive/payments/${x['id']}/receive', {}, 'اتأكد الاستلام ✅');
+    final method = await _askCashOrBank(context, 'تم استلام ${x['kindAr']}', '${_money(x['amount'])}\nهيدخل ${hrBox ? 'خزنة المحاسب' : 'خزنة المكتب'}');
+    if (method == null) return;
+    final r = await _post('/exclusive/payments/${x['id']}/receive', {'paymentMethod': method}, 'اتأكد الاستلام ✅');
     if (mounted) JphUi.toast(context, r);
     _load();
   }
@@ -1138,7 +1471,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
               child: Row(children: [
                 const Icon(Icons.hourglass_top_rounded, color: Ar.amber),
                 const SizedBox(width: 8),
-                Expanded(child: Text('${x['kindAr']} · ${x['methodAr']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
+                Expanded(child: Text('${x['kindAr']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
                 CountUpText(_money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
               ]),
             ),

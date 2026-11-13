@@ -138,6 +138,32 @@ export const salesModule: Module = (r, { db, clock }) => {
       ${SALE_SELECT} WHERE s.status IN ('active','pending','cancelled') ORDER BY s.sale_date, s.created_at`)).rows;
   }
 
+  /** A deal from «المشاريع ← المبيعات» (حجز / تعاقد), as the الأقساط page shows it. */
+  async function exDeals(q: Q) {
+    return (await q.query(`
+      SELECT u.id, u.ref_no, u.project_id, p.name AS project_name, u.unit_no, u.client_name, u.client_phone, u.unit_price, u.status,
+             u.created_at, u.contracted_at, u.payment_type,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'), 0)
+               - COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.ex_unit_id = u.id AND x.ex_kind = 'refund' AND x.status = 'posted'), 0) AS collected,
+             (SELECT count(*) FROM ex_installments i WHERE i.unit_id = u.id)::int AS lines
+        FROM ex_units u JOIN commission_projects p ON p.id = u.project_id ORDER BY u.created_at`)).rows;
+  }
+  async function exLines(q: Q, unitIds: string[]) {
+    if (!unitIds.length) return [];
+    return (await q.query(`
+      SELECT i.id, i.unit_id, i.seq, i.due_date, i.amount_egp,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0) AS paid
+        FROM ex_installments i WHERE i.unit_id = ANY($1::uuid[]) ORDER BY i.due_date, i.seq`, [unitIds])).rows;
+  }
+  const dealAr = (st: string) => (st === 'contracted' ? 'متعاقد' : st === 'cancelled' ? 'ملغي' : 'حاجز');
+  const shapeDeal = (u: any) => {
+    const total = Number(u.unit_price), collected = Number(u.collected), live = u.status === 'contracted';
+    return { id: null, unitId: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, unitNo: u.unit_no,
+      buyerName: u.client_name, buyerPhone: u.client_phone, totalPrice: total, saleDate: String((u.contracted_at ?? u.created_at)?.toISOString?.() ?? u.created_at).slice(0, 10),
+      paymentMethod: Number(u.lines) > 0 ? 'installments' : 'cash', status: u.status, statusAr: dealAr(u.status),
+      collected: r2(collected), remaining: live ? r2(Math.max(0, total - collected)) : 0 };
+  };
+
   async function clientLines(q: Q, saleIds: string[]) {
     if (!saleIds.length) return [];
     return (await q.query(`
@@ -175,8 +201,37 @@ export const salesModule: Module = (r, { db, clock }) => {
       c.lastSale = sh.saleDate > c.lastSale ? sh.saleDate : c.lastSale;
       by.set(k, c);
     }
+    for (const c of by.values()) c.state = c.state ?? 'contracted';
+    // the deals from «المشاريع ← المبيعات»: حاجز / متعاقد (a cancelled-only client = فاضي)
+    const deals = await exDeals(db);
+    const dl = await exLines(db, deals.filter((u) => u.status === 'contracted').map((u) => u.id));
+    const overdueByUnit = new Map<string, number>();
+    for (const l of dl) {
+      const due = String(l.due_date instanceof Date ? l.due_date.toISOString() : l.due_date).slice(0, 10), left = Number(l.amount_egp) - Number(l.paid);
+      if (due < t && left > 0.009) overdueByUnit.set(l.unit_id, (overdueByUnit.get(l.unit_id) ?? 0) + left);
+    }
+    const rank: Record<string, number> = { none: 0, reserved: 1, contracted: 2 };
+    for (const u of deals) {
+      const sh = shapeDeal(u);
+      const k = clientKey(u.client_name, u.client_phone);
+      const c = by.get(k) ?? { key: k, name: sh.buyerName, phone: sh.buyerPhone, units: [] as string[], salesCount: 0,
+        total: 0, collected: 0, remaining: 0, overdue: 0, installments: false, lastSale: '', state: 'none' };
+      c.salesCount++;
+      c.units.push(`${sh.projectName} — ${sh.unitNo} (${sh.statusAr})`);
+      const st = u.status === 'contracted' ? 'contracted' : u.status === 'cancelled' ? 'none' : 'reserved';
+      if (rank[st] > rank[c.state ?? 'none']) c.state = st;
+      if (u.status === 'contracted') {
+        c.total += sh.totalPrice; c.collected += sh.collected; c.remaining += sh.remaining;
+        c.overdue += overdueByUnit.get(u.id) ?? 0;
+        if (Number(u.lines) > 0) c.installments = true;
+      }
+      if (!c.phone && sh.buyerPhone) c.phone = sh.buyerPhone;
+      c.lastSale = sh.saleDate > c.lastSale ? sh.saleDate : c.lastSale;
+      by.set(k, c);
+    }
     let list = [...by.values()].map((c) => ({ ...c, total: r2(c.total), collected: r2(c.collected), remaining: r2(c.remaining),
-      overdue: r2(c.overdue), paymentMethod: c.installments ? 'installments' : 'cash' }));
+      overdue: r2(c.overdue), paymentMethod: c.installments ? 'installments' : 'cash',
+      stateAr: c.state === 'contracted' ? 'متعاقد' : c.state === 'reserved' ? 'حاجز' : 'فاضي' }));
     if (q) list = list.filter((c) => c.name.toLowerCase().includes(q) || String(c.phone).includes(q) || c.units.some((u: string) => u.toLowerCase().includes(q)));
     list.sort((x, y) => (y.overdue - x.overdue) || (y.remaining - x.remaining) || x.name.localeCompare(y.name, 'ar'));
     return ok({ currency: 'EGP', clients: list });
@@ -192,7 +247,8 @@ export const salesModule: Module = (r, { db, clock }) => {
     const key = req.query.get('key') ?? '';
     const t = today();
     const sales = (await clientSales(db)).filter((x) => clientKey(x.buyer_name, x.buyer_phone) === key);
-    if (!sales.length) throw notFound('Client not found');
+    const deals = (await exDeals(db)).filter((u) => clientKey(u.client_name, u.client_phone) === key);
+    if (!sales.length && !deals.length) throw notFound('Client not found');
     const active = sales.filter((x) => x.status === 'active');
     const lines = await clientLines(db, active.map((x) => x.id));
     const saleBy = new Map(active.map((x) => [x.id, shapeSale(x)]));
@@ -202,10 +258,19 @@ export const salesModule: Module = (r, { db, clock }) => {
       return { id: l.id, saleId: l.sale_id, unit: `${sh.projectName} — ${sh.unitNo}`, seq: l.seq, dueDate: due, amount, paid: r2(paid),
         remaining: r2(Math.max(0, amount - paid)), status: lineStatus('active', amount, paid, due, t) };
     }).filter((l) => l.amount > 0);
+    const live = deals.filter((u) => u.status === 'contracted');
+    const dealBy = new Map(deals.map((u) => [u.id, shapeDeal(u)]));
+    for (const l of await exLines(db, live.map((u) => u.id))) {
+      const sh = dealBy.get(l.unit_id)!;
+      const amount = Number(l.amount_egp), paid = Number(l.paid), due = String(l.due_date instanceof Date ? l.due_date.toISOString() : l.due_date).slice(0, 10);
+      schedule.push({ id: l.id, saleId: null as unknown as string, unitId: l.unit_id, unit: `${sh.projectName} — ${sh.unitNo}`, seq: l.seq, dueDate: due,
+        amount, paid: r2(paid), remaining: r2(Math.max(0, amount - paid)), status: lineStatus('active', amount, paid, due, t) } as any);
+    }
+    schedule.sort((x, y) => x.dueDate.localeCompare(y.dueDate));
     const inst = schedule.filter((l) => l.seq > 0);
-    const shaped = sales.map(shapeSale);
-    const total = r2(active.reduce((s, x) => s + Number(x.total_price), 0));
-    const collected = r2([...saleBy.values()].reduce((s, x) => s + x.collected, 0));
+    const shaped = [...sales.map(shapeSale), ...[...dealBy.values()]] as any[];
+    const total = r2(active.reduce((s, x) => s + Number(x.total_price), 0) + live.reduce((s, u) => s + Number(u.unit_price), 0));
+    const collected = r2([...saleBy.values()].reduce((s, x) => s + x.collected, 0) + live.reduce((s, u) => s + dealBy.get(u.id)!.collected, 0));
     return ok({ currency: 'EGP', client: { key, name: shaped[0].buyerName, phone: shaped.find((x) => x.buyerPhone)?.buyerPhone ?? '' },
       counts: { installments: inst.length, paid: inst.filter((l) => l.status === 'paid').length,
         remaining: inst.filter((l) => l.status !== 'paid').length, overdue: inst.filter((l) => l.status === 'overdue').length },
@@ -421,13 +486,35 @@ export const salesModule: Module = (r, { db, clock }) => {
         FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id JOIN commission_projects p ON p.id = s.project_id
        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY i.due_date, s.buyer_name LIMIT 2000`, vals);
-    let list = rows.rows.map((x) => {
+    // the installments of the deals made from «المشاريع ← المبيعات» (حجز → تعاقد)
+    const ev: unknown[] = []; const ew: string[] = [`u.status = 'contracted'`];
+    if (req.query.get('today') === '1') { ev.push(t); ew.push(`i.due_date = $${ev.length}`); }
+    if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { ev.push(from); ew.push(`i.due_date >= $${ev.length}`); }
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { ev.push(to); ew.push(`i.due_date <= $${ev.length}`); }
+    if (pid && isUuid(pid)) { ev.push(pid); ew.push(`u.project_id = $${ev.length}`); }
+    if (unit) { ev.push(`%${unit.trim().toLowerCase()}%`); ew.push(`lower(u.unit_no) LIKE $${ev.length}`); }
+    if (buyer) { ev.push(`%${buyer.trim().toLowerCase()}%`); ew.push(`lower(u.client_name) LIKE $${ev.length}`); }
+    const exRows = await db.query(`
+      SELECT i.id, i.seq, i.due_date, i.amount_egp, u.id AS unit_id, u.unit_no, u.client_name, u.client_phone, u.unit_price, p.name AS project_name,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0) AS paid,
+             COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_unit_id = u.id AND r.status = 'posted'), 0) AS unit_collected
+        FROM ex_installments i JOIN ex_units u ON u.id = i.unit_id JOIN commission_projects p ON p.id = u.project_id
+       WHERE ${ew.join(' AND ')} ORDER BY i.due_date LIMIT 2000`, ev);
+    const exList = exRows.rows.map((x) => {
+      const amount = Number(x.amount_egp), paid = Number(x.paid), due = String(x.due_date instanceof Date ? x.due_date.toISOString() : x.due_date).slice(0, 10);
+      return { id: x.id, saleId: null, unitId: x.unit_id, seq: x.seq, kind: 'installment', projectName: x.project_name,
+        unitNo: x.unit_no, buyerName: x.client_name, buyerPhone: x.client_phone, dueDate: due, amount, paid: r2(paid),
+        remaining: r2(Math.max(0, amount - paid)), saleRemaining: r2(Number(x.unit_price) - Number(x.unit_collected)),
+        status: lineStatus('active', amount, paid, due, t) };
+    });
+    let list: any[] = rows.rows.map((x) => {
       const amount = Number(x.amount_egp), paid = Number(x.paid), due = String(x.due_date).slice(0, 10);
       return { id: x.id, saleId: x.sale_id, seq: x.seq, kind: x.seq === 0 ? 'down_payment' : 'installment', projectName: x.project_name,
         unitNo: x.unit_no, buyerName: x.buyer_name, buyerPhone: x.buyer_phone, dueDate: due, amount, paid: r2(paid),
         remaining: r2(Math.max(0, amount - paid)), saleRemaining: x.sale_status === 'cancelled' ? 0 : r2(Number(x.total_price) - Number(x.sale_collected)),
         status: lineStatus(x.sale_status, amount, paid, due, t) };
     });
+    list = [...list, ...exList].sort((x, y) => x.dueDate.localeCompare(y.dueDate) || String(x.buyerName).localeCompare(String(y.buyerName), 'ar'));
     const st = req.query.get('status');
     if (req.query.get('overdue') === '1') list = list.filter((x) => x.status === 'overdue');
     else if (st) list = list.filter((x) => x.status === st);

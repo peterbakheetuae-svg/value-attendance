@@ -229,3 +229,61 @@ test('a direct contract for a client / unit that has a reservation is refused; t
   assert.equal(after.body.unit.clientPhone, '01099998888');
   assert.equal(after.body.unit.unitPrice, 950_000, 'the price is fixed after the contract');
 });
+
+test('project units, auto-filled reservation, client lookup, % deposits, picture; the receiver picks cash / bank; the الأقساط page shows the deal', async () => {
+  const pr = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مول الوادي', ownerName: 'أ. وليد', ownerPhone: '0111' });
+  assert.equal(pr.status, 201, JSON.stringify(pr.body));
+  const pid = pr.body.project.id;
+  // the office enters the units: the price is the loaded area × the meter price
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/projects/${pid}/inventory`, { unitNo: 'S-1' })).status, 403);
+  const iv = await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/inventory`,
+    { unitNo: 'S-1', unitType: 'تجاري', floor: 'أرضي', netAreaM2: 40, areaM2: 50, meterPrice: 60_000 });
+  assert.equal(iv.status, 201, JSON.stringify(iv.body));
+  assert.equal(iv.body.unit.unitPrice, 3_000_000);
+  assert.equal(iv.body.unit.state, 'free');
+  assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/inventory`, { unitNo: 's-1 ' })).status, 409, 'one number per project');
+  // a picture for the project
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  assert.equal((await h.call(c.t.owner, 'PUT', `/exclusive/projects/${pid}/image`, { mime: 'image/png', image: png })).status, 200);
+  const img = await h.call(c.t.e1, 'GET', `/exclusive/projects/${pid}/image`);
+  assert.ok(String(img.body.image).startsWith('data:image/png;base64,'));
+  assert.ok((await h.call(c.t.owner, 'GET', '/exclusive/projects?kind=all')).body.projects.find((p: any) => p.id === pid).imageAt);
+
+  // the salesperson picks the unit: its number comes from it; maintenance 8% and a 10% agreed down payment become amounts
+  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, inventoryId: iv.body.unit.id, clientName: 'سارة علي',
+    clientPhone: '01055501234', clientNationalId: '29505051234567', clientAddress: 'الدقي', unitPrice: 3_000_000, depositAmount: 100_000,
+    netAreaM2: 40, areaM2: 50, meterPrice: 60_000, maintenancePct: 8, plannedDownPct: 10, expectedContractDate: '2026-12-20' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const f = r.body.unit.form;
+  assert.deepEqual([r.body.unit.unitNo, f.maintenanceDeposit, f.plannedDownPayment, f.netAreaM2, f.areaM2, f.meterPrice, f.inventoryId],
+    ['S-1', 240_000, 300_000, 40, 50, 60_000, iv.body.unit.id]);
+  const inv = (await h.call(c.t.e1, 'GET', `/exclusive/projects/${pid}/inventory`)).body.units;
+  assert.equal(inv[0].state, 'reserved');
+  assert.equal(inv[0].clientName, 'سارة علي');
+  // a known client by phone: his data comes back
+  const lk = await h.call(c.t.e2, 'GET', '/exclusive/clients/lookup?phone=%2B20%201055501234');
+  assert.deepEqual([lk.body.client.name, lk.body.client.nationalId, lk.body.client.address], ['سارة علي', '29505051234567', 'الدقي']);
+  assert.equal((await h.call(c.t.e2, 'GET', '/exclusive/clients/lookup?phone=0100000000')).body.client, null);
+
+  // the accountant receives the deposit and says it went into the bank
+  const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === r.body.unit.id);
+  const rc = await h.call(c.t.hr, 'POST', `/exclusive/payments/${pay.id}/receive`, { paymentMethod: 'bank_transfer' });
+  assert.equal(rc.status, 200, JSON.stringify(rc.body));
+  assert.equal(rc.body.unit.depositMethod, 'bank_transfer');
+
+  // contract in installments → the الأقساط page (sales.view) shows its installments and the client as متعاقد
+  const k = await h.call(c.t.e1, 'POST', `/exclusive/units/${r.body.unit.id}/contract`,
+    { paymentType: 'installments', downPayment: 300_000, installmentsCount: 4, everyMonths: 3, firstDueDate: '2027-02-01' });
+  assert.equal(k.status, 200, JSON.stringify(k.body));
+  const due = await h.call(c.t.owner, 'GET', '/sales/installments/due?all=1');
+  assert.equal(due.status, 200, JSON.stringify(due.body));
+  const mine = due.body.installments.filter((x: any) => x.unitId === r.body.unit.id);
+  assert.equal(mine.length, 4);
+  assert.equal(mine[0].buyerName, 'سارة علي');
+  const cl = (await h.call(c.t.owner, 'GET', '/sales/clients')).body.clients.find((x: any) => x.name === 'سارة علي');
+  assert.equal(cl.stateAr, 'متعاقد');
+  const det = await h.call(c.t.owner, 'GET', `/sales/clients/detail?key=${encodeURIComponent(cl.key)}`);
+  assert.equal(det.status, 200, JSON.stringify(det.body));
+  assert.equal(det.body.counts.installments, 4);
+  assert.equal(det.body.sales[0].unitId, r.body.unit.id);
+});

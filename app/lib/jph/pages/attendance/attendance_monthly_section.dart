@@ -152,7 +152,8 @@ class MonthlySection extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(14, 16, 14, 18),
           decoration: Glass.panel(isDark, r: 26),
-          child: Column(
+          // on a computer the squares sit 4–5 per row (by the width) instead of two stretched ones
+          child: _MonthlyGrid(
             children: [
               MonthlyRow(
                 left: MonthlyMini(
@@ -298,6 +299,24 @@ class MonthlySection extends StatelessWidget {
   }
 }
 
+
+class _MonthlyGrid extends StatelessWidget {
+  final List<Widget> children;
+  const _MonthlyGrid({required this.children});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
+        if (c.maxWidth < 640) return Column(children: children);
+        final minis = <Widget>[
+          for (final w in children)
+            if (w is MonthlyRow) ...[
+              w.left,
+              if (!(w.right is MonthlyMini && (w.right as MonthlyMini).top == '—')) w.right,
+            ],
+        ];
+        return ResponsiveGrid(minTileWidth: 200, minCols: 3, maxCols: 5, children: minis);
+      });
+}
 
 class MonthlyRow extends StatelessWidget {
   final Widget left;

@@ -76,6 +76,7 @@ class _ProjectsListState extends State<ProjectsList> {
     Map<String, dynamic>? dev;
     bool newDev = false;
     if (!mounted) return;
+    (String, String)? img; // صورة المشروع (اختياري)
     final total = TextEditingController(text: '5'), contract = TextEditingController(text: '3'), sales = TextEditingController(text: '0.2'),
         manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5'), mkPct = TextEditingController(text: '0');
     num office() => (num.tryParse(total.text) ?? 0) - (num.tryParse(sales.text) ?? 0) - (num.tryParse(manager.text) ?? 0);
@@ -97,6 +98,17 @@ class _ProjectsListState extends State<ProjectsList> {
                   : 'المكتب بيسوّق لمطور، وعمولته كلها عند التعاقد.',
               style: TextStyle(color: JphUi.sub(isDark), fontSize: 13)),
           JphUi.input(isDark: isDark, label: 'اسم المشروع', controller: name, icon: Icons.apartment_rounded),
+          JphUi.picker(
+            isDark: isDark,
+            icon: Icons.add_photo_alternate_rounded,
+            iconColor: Ar.accent,
+            label: 'صورة المشروع (اختياري)',
+            value: img == null ? 'اختار صورة' : 'اتختارت صورة ✓',
+            onTap: () async {
+              final x = await _pickProjectImage(context);
+              if (x != null) set(() => img = x);
+            },
+          ),
           // the same picker as «اختار الموظف» in تقرير الحضور
           JphUi.picker(
             isDark: isDark,
@@ -155,6 +167,8 @@ class _ProjectsListState extends State<ProjectsList> {
         }, 'اتضاف المشروع ✅');
       }
       if (mounted) JphUi.toast(context, r);
+      final id = _m(r['project'])['id'];
+      if (r['success'] == true && img != null && id != null && mounted) await _uploadProjectImage(context, '$id', img!);
       return r['success'] == true;
     });
     if (ok) _load();
@@ -358,10 +372,13 @@ class _ProjectsListState extends State<ProjectsList> {
               ),
             ),
           ),
-          Center(
-            child: Text(name.characters.isEmpty ? '' : name.characters.first,
-                style: TextStyle(fontSize: small ? 26 : 44, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.92))),
-          ),
+          if (p['imageAt'] == null)
+            Center(
+              child: Text(name.characters.isEmpty ? '' : name.characters.first,
+                  style: TextStyle(fontSize: small ? 26 : 44, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.92))),
+            )
+          else
+            Positioned.fill(child: _ProjectPhoto(id: '${p['id']}', at: p['imageAt'])),
           if (!small)
             PositionedDirectional(
               start: 12,
@@ -622,7 +639,7 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('${x['kindAr']} — ${x['projectName']} · وحدة ${x['unitNo']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-                      Text('${x['clientName']} · ${x['salesName']} · ${x['methodAr']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                      Text('${x['clientName']} · ${x['salesName']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                     ]),
                   ),
                   Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -672,20 +689,10 @@ class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
   }
 
   Future<void> _receive(bool isDark, Map<String, dynamic> x) async {
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => GlassAlertDialog(
-        title: Text('تم استلام ${x['kindAr']}'),
-        content: Text('${_money(x['amount'])} — ${x['methodAr']}\n${x['projectName']} · وحدة ${x['unitNo']} · ${x['clientName']}\nهيدخل $_into',
-            textAlign: TextAlign.center),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لسه')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('تم الاستلام')),
-        ],
-      ),
-    );
-    if (yes != true) return;
-    final r = await _post('/exclusive/payments/${x['id']}/receive', {}, 'اتأكد الاستلام ✅');
+    final method = await _askCashOrBank(context, 'تم استلام ${x['kindAr']}',
+        '${_money(x['amount'])}\n${x['projectName']} · وحدة ${x['unitNo']} · ${x['clientName']}\nهيدخل $_into');
+    if (method == null) return;
+    final r = await _post('/exclusive/payments/${x['id']}/receive', {'paymentMethod': method}, 'اتأكد الاستلام ✅');
     if (mounted) JphUi.toast(context, r);
     _load();
   }
@@ -924,28 +931,49 @@ class _ClientsPageState extends State<ClientsPage> {
                     const SizedBox(height: 8),
                     if (rows.isEmpty)
                       Padding(padding: const EdgeInsets.all(30), child: Text('مفيش عملاء', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+                    // every client on his own card: his name, phone and where he stands; tap → all his details
                     for (final u in rows)
-                      InkWell(
-                        borderRadius: BorderRadius.circular(20),
-                        onTap: u['source'] == 'unit'
-                            ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load())
-                            : null,
-                        child: _section(isDark, '${u['clientName']}', [
-                          if ('${u['clientPhone'] ?? ''}'.isNotEmpty) _kv(isDark, 'التليفون', '${u['clientPhone']}'),
-                          _kv(isDark, 'الوحدة', '${u['projectName']} — وحدة ${u['unitNo']}'),
-                          _kv(isDark, 'الحالة', '${u['statusAr']}', color: _statusColor('${u['status']}')),
-                          if (seesAll && '${u['salesName'] ?? ''}'.isNotEmpty) _kv(isDark, 'السيلز', '${u['salesName']}'),
-                          _kv(isDark, 'السعر', _money(u['price'])),
-                          _kv(isDark, 'دفع', _money(u['paid']), color: Ar.green),
-                          _kv(isDark, 'الباقي', _money((_n(u['price']) - _n(u['paid'])).clamp(0, double.infinity)), color: Ar.amber),
-                          if (u['at'] != null) _kv(isDark, 'التاريخ', _date('${u['at']}')),
-                        ]),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GlassBox(
+                          isDark: isDark,
+                          radius: 18,
+                          padding: const EdgeInsets.all(14),
+                          onTap: u['source'] == 'unit'
+                              ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => ExclusiveUnitPage(unitId: '${u['id']}'))).then((_) => _load())
+                              : null,
+                          child: Row(children: [
+                            JphUi.iconTile(isDark, Icons.person_rounded, _clientColor('${u['status']}')),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('${u['clientName']}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+                                const SizedBox(height: 2),
+                                Text('${u['clientPhone'] ?? ''}'.isEmpty ? 'بدون تليفون' : '${u['clientPhone']}',
+                                    textDirection: ui.TextDirection.ltr, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                              ]),
+                            ),
+                            _pill(_clientState('${u['status']}'), _clientColor('${u['status']}')),
+                          ]),
+                        ),
                       ),
                   ]),
                 ),
     );
   }
 }
+
+/// حاجز / متعاقد / فاضي (a cancelled reservation leaves the client with nothing)
+String _clientState(String st) => switch (st) {
+      'contracted' || 'completed' => 'متعاقد',
+      'cancelled' => 'فاضي',
+      _ => 'حاجز',
+    };
+Color _clientColor(String st) => switch (st) {
+      'contracted' || 'completed' => Ar.green,
+      'cancelled' => Ar.grey,
+      _ => Ar.amber,
+    };
 
 // ==================================================================== الخزنة: خزنة المشاريع / العمولات / عمولات متوقعة
 // Each tile on the cashbox opens a full page (not a sheet) with all the details.
@@ -1396,7 +1424,9 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
   }
 
   Future<void> _receive(BuildContext ctx, Map<String, dynamic> x, {bool popup = false}) async {
-    final r = await _post('/exclusive/payments/${x['id']}/receive', {}, 'اتأكد الاستلام ✅');
+    final method = await _askCashOrBank(ctx, 'تم استلام ${x['kindAr']}', '${_money(x['amount'])}\n${x['projectName']} · وحدة ${x['unitNo']} · ${x['clientName']}');
+    if (method == null) return;
+    final r = await _post('/exclusive/payments/${x['id']}/receive', {'paymentMethod': method}, 'اتأكد الاستلام ✅');
     if (ctx.mounted) JphUi.toast(ctx, r);
     if (popup && ctx.mounted && r['success'] == true) Navigator.pop(ctx);
     await _load();
@@ -1412,7 +1442,7 @@ class _PendingSalesMoneyCardState extends State<PendingSalesMoneyCard> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${x['kind'] == 'reservation' ? 'حجز جديد' : 'تعاقد جديد'} — ${x['projectName']} · وحدة ${x['unitNo']}',
                   style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-              Text('${x['clientName']} · ${x['salesName']} · ${x['methodAr']} · ${_money(x['amount'])}',
+              Text('${x['clientName']} · ${x['salesName']} · ${_money(x['amount'])}',
                   style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
             ]),
           ),

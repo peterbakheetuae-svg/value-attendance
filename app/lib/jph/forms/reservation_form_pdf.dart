@@ -34,7 +34,8 @@ class ReservationForm {
     final price = n(unit['unitPrice']);
     final deposit = n(unit['depositAmount']);
     final area = n(f['areaM2']);
-    final perM = area > 0 ? (price / area).round() : 0;
+    // سعر المتر: as entered (× the loaded area = the price), else the price ÷ the loaded area
+    final perM = n(f['meterPrice']) > 0 ? n(f['meterPrice']) : (area > 0 ? (price / area).round() : 0);
     final down = n(f['plannedDownPayment'] ?? contract['downPayment']);
     final downPct = price > 0 && down > 0 ? (down * 100 / price) : 0;
     final downRest = down > deposit ? down - deposit : 0;

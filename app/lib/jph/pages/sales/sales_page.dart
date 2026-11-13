@@ -11,6 +11,7 @@ import '../../widgets/swipe_tabs.dart';
 import '../attendance/attendance_widgets.dart';
 import '../cash/cash_page.dart';
 import '../../widgets/glass_ui.dart';
+import '../exclusive/exclusive_projects_page.dart' show ExclusiveUnitPage;
 
 /// المبيعات والأقساط — the operational page for HR and the manager (the Projects page stays as it is):
 ///  • الأقساط المستحقة: كل المفتوح | المتأخر | النهارده (swipe), period filter icon top-left, search by buyer.
@@ -213,7 +214,9 @@ class _DueListState extends State<_DueList> {
         for (final x in list)
           GestureDetector(
             onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${x['saleId']}')));
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => x['unitId'] != null
+                  ? ExclusiveUnitPage(unitId: '${x['unitId']}')
+                  : SaleDetailsPage(saleId: '${x['saleId']}')));
               _load();
             },
             child: Container(
@@ -320,7 +323,8 @@ class _ClientsTabState extends State<_ClientsTab> {
                           style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                     ]),
                   ),
-                  JphUi.chip(c['paymentMethod'] == 'installments' ? 'تقسيط' : 'كاش', c['paymentMethod'] == 'installments' ? Ar.accent : Ar.green),
+                  // حاجز / متعاقد / فاضي
+                  JphUi.chip('${c['stateAr'] ?? 'متعاقد'}', c['state'] == 'reserved' ? Ar.amber : c['state'] == 'none' ? Ar.grey : Ar.green),
                 ]),
                 const SizedBox(height: 8),
                 Wrap(spacing: 14, runSpacing: 4, children: [
@@ -432,7 +436,9 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                             for (final l in lines)
                               InkWell(
                                 onTap: () async {
-                                  await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${l['saleId']}')));
+                                  await Navigator.push(context, MaterialPageRoute(builder: (_) => l['unitId'] != null
+                                      ? ExclusiveUnitPage(unitId: '${l['unitId']}')
+                                      : SaleDetailsPage(saleId: '${l['saleId']}')));
                                   _load();
                                 },
                                 child: Container(
@@ -463,7 +469,9 @@ class _ClientDetailsPageState extends State<ClientDetailsPage> {
                         for (final s in sales)
                           GestureDetector(
                             onTap: () async {
-                              await Navigator.push(context, MaterialPageRoute(builder: (_) => SaleDetailsPage(saleId: '${s['id']}')));
+                              await Navigator.push(context, MaterialPageRoute(builder: (_) => s['unitId'] != null
+                                  ? ExclusiveUnitPage(unitId: '${s['unitId']}')
+                                  : SaleDetailsPage(saleId: '${s['id']}')));
                               _load();
                             },
                             child: Container(

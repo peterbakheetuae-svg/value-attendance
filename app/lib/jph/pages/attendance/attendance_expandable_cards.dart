@@ -57,7 +57,11 @@ class _AttendanceExpandableCardsState extends State<AttendanceExpandableCards> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    // a phone: one under the other; a computer: 2–4 per row by the width
+    return ResponsiveGrid(
+      minTileWidth: 340,
+      maxCols: 4,
+      spacing: 12,
       children: [
         for (final day in widget.days)
           AttendanceExpandableCard(
