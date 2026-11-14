@@ -34,7 +34,7 @@ jobs:
         run: |
           if [ -z "$API_BASE_URL" ]; then
             # Public API URL (not a secret). Override with the repository variable API_BASE_URL if it moves.
-            echo "API_BASE_URL=https://value-attendance.vercel.app" >> "$GITHUB_ENV"
+            echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
           fi
       - name: Build Web
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL

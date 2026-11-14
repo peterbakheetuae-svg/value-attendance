@@ -13,4 +13,4 @@ jobs:
     timeout-minutes: 2
     steps:
       - run: |
-          curl -s -m 25 -o /dev/null -w "API %{http_code} in %{time_total}s\n" https://value-attendance.vercel.app/healthz/latency || true
+          curl -s -m 25 -o /dev/null -w "API %{http_code} in %{time_total}s\n" https://valunivo.vercel.app/healthz/latency || true
