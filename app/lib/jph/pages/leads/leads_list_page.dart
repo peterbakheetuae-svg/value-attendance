@@ -297,7 +297,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
   /// the computer: one table row
   Widget _row(bool isDark, Map<String, dynamic> l, bool manager) {
     final picked = _picked.contains('${l['id']}');
-    final (when, late) = _when(l);
+    final (whenText, late) = _when(l);
     return InkWell(
       onTap: () => _open(l),
       onLongPress: manager ? () => _toggle(l) : null,
@@ -341,7 +341,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                     style: TextStyle(color: JphUi.text(isDark)))),
               ]),
             ),
-          Expanded(flex: 3, child: Text(when, maxLines: 2, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: late ? Ar.red.shade700 : JphUi.text(isDark)))),
+          Expanded(flex: 3, child: Text(whenText, maxLines: 2, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: late ? Ar.red.shade700 : JphUi.text(isDark)))),
           Expanded(flex: 4, child: Text('${l['lastComment'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark)))),
         ]),
       ),
@@ -351,7 +351,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
   /// the phone: one row with its chips under the name
   Widget _card(bool isDark, Map<String, dynamic> l, bool manager) {
     final picked = _picked.contains('${l['id']}');
-    final (when, late) = _when(l);
+    final (whenText, late) = _when(l);
     return InkWell(
       onTap: () => _open(l),
       onLongPress: manager ? () => _toggle(l) : null,
@@ -391,7 +391,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
           ),
           Padding(
             padding: const EdgeInsetsDirectional.only(start: 52, top: 6),
-            child: Text(when, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: late ? Ar.red.shade700 : JphUi.sub(isDark))),
+            child: Text(whenText, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: late ? Ar.red.shade700 : JphUi.sub(isDark))),
           ),
         ]),
       ),
