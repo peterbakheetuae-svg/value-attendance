@@ -70,7 +70,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
     final denied = _d['success'] == false;
     return LeadsShell(
       isDark: isDark,
-      title: 'لوحة السيلز',
+      title: tr('لوحة السيلز'),
       fab: can.isEmpty
           ? null
           : FloatingActionButton.extended(
@@ -80,7 +80,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
               backgroundColor: JphUi.primary(isDark),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('ليد جديد', style: TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(tr('ليد جديد'), style: TextStyle(fontWeight: FontWeight.w800)),
             ),
       child: denied
           ? Center(child: Text('${_d['message'] ?? ''}', style: TextStyle(color: JphUi.sub(isDark))))
@@ -89,13 +89,13 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
               child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 100), children: [
                 // the way to everything
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  _go(isDark, 'الليدز', Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage())),
+                  _go(isDark, tr('الليدز'), Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage())),
                   _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
                       (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage())),
-                  _go(isDark, 'التقويم', Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage())),
-                  if (manager) _go(isDark, 'التارجت', Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage())),
-                  if (can['reports'] == true) _go(isDark, 'التقارير', Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage())),
-                  if (can['config'] == true) _go(isDark, 'الإعدادات', Icons.tune_rounded, Ar.tan, () async {
+                  _go(isDark, tr('التقويم'), Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage())),
+                  if (manager) _go(isDark, tr('التارجت'), Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage())),
+                  if (can['reports'] == true) _go(isDark, tr('التقارير'), Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage())),
+                  if (can['config'] == true) _go(isDark, tr('الإعدادات'), Icons.tune_rounded, Ar.tan, () async {
                         await _open(const LeadsSettingsPage());
                         LeadsMeta.clear();
                       }),
@@ -105,25 +105,25 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                 if (_loading && c.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
                 if (c.isNotEmpty) ...[
                   JphUi.statGrid([
-                    _stat(isDark, 'كل العملاء', c['total'], Icons.groups_rounded, Ar.info, 'all'),
-                    _stat(isDark, 'النهارده', c['today'], Icons.today_rounded, Ar.accent, 'today'),
-                    _stat(isDark, 'متأخر', c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
-                    _stat(isDark, 'مستني أكشن', c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
-                    _stat(isDark, 'فريش', c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
+                    _stat(isDark, tr('كل العملاء'), c['total'], Icons.groups_rounded, Ar.info, 'all'),
+                    _stat(isDark, tr('النهارده'), c['today'], Icons.today_rounded, Ar.accent, 'today'),
+                    _stat(isDark, tr('متأخر'), c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
+                    _stat(isDark, tr('مستني أكشن'), c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
+                    _stat(isDark, tr('فريش'), c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
                     GestureDetector(
                       onTap: () => _open(const LeadsListPage(rating: 'hot')),
-                      child: JphUi.stat(isDark, 'عملاء ساخنين 🔥', '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
+                      child: JphUi.stat(isDark, tr('عملاء ساخنين 🔥'), '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
                     ),
-                    _stat(isDark, 'كولد كول', c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
-                    if (manager) _stat(isDark, 'مكرر', c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
-                    if (can['distribute'] == true) _stat(isDark, 'مش متوزع', c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
+                    _stat(isDark, tr('كولد كول'), c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
+                    if (manager) _stat(isDark, tr('مكرر'), c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
+                    if (can['distribute'] == true) _stat(isDark, tr('مش متوزع'), c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
                   ], phone: 2),
                   if (_target['target'] != null) ...[
                     const SizedBox(height: 14),
                     targetCard(isDark, _target, mine: true),
                   ],
                   const SizedBox(height: 14),
-                  _title(isDark, 'المراحل'),
+                  _title(isDark, tr('المراحل')),
                   JphUi.statGrid([
                     for (final s in stageNames.entries)
                       GestureDetector(
@@ -133,7 +133,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                   ], phone: 2),
                   if (delay.isNotEmpty) ...[
                     const SizedBox(height: 14),
-                    _title(isDark, 'المتأخر حسب المرحلة'),
+                    _title(isDark, tr('المتأخر حسب المرحلة')),
                     Wrap(spacing: 6, runSpacing: 6, children: [
                       for (final e in delay.entries)
                         ActionChip(
@@ -193,12 +193,12 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        ChoiceChip(selected: view == 'all' && _person == null, label: const Text('الكل'), onSelected: (_) {
+        ChoiceChip(selected: view == 'all' && _person == null, label: Text(tr('الكل')), onSelected: (_) {
           _view = 'all';
           _person = null;
           _load();
         }),
-        ChoiceChip(selected: view == 'me', label: const Text('بتوعي'), onSelected: (_) {
+        ChoiceChip(selected: view == 'me', label: Text(tr('بتوعي')), onSelected: (_) {
           _view = 'me';
           _person = null;
           _load();
@@ -206,9 +206,9 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
         if (people.isNotEmpty)
           ActionChip(
             avatar: const Icon(Icons.person_search_rounded, size: 18),
-            label: Text(_person == null ? 'سيلز معيّن' : '${people.firstWhere((p) => p['id'] == _person, orElse: () => const {'name': ''})['name']}'),
+            label: Text(_person == null ? tr('سيلز معيّن') : '${people.firstWhere((p) => p['id'] == _person, orElse: () => const {'name': ''})['name']}'),
             onPressed: () async {
-              final v = await pickPeople(context, isDark, 'لوحة مين', people, multi: false);
+              final v = await pickPeople(context, isDark, tr('لوحة مين'), people, multi: false);
               if (v == null || v.isEmpty) return;
               _view = 'all';
               _person = v.first;
@@ -225,8 +225,8 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
       padding: const EdgeInsets.all(14),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _title(isDark, 'المتابعات (المتأخر والنهارده)'),
-        if (due.isEmpty) Text('مفيش متابعات دلوقتي 👌', style: TextStyle(color: JphUi.sub(isDark))),
+        _title(isDark, tr('المتابعات (المتأخر والنهارده)')),
+        if (due.isEmpty) Text(tr('مفيش متابعات دلوقتي 👌'), style: TextStyle(color: JphUi.sub(isDark))),
         for (final l in due)
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -247,16 +247,16 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
       padding: const EdgeInsets.all(14),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _title(isDark, 'الأحسن (عدد الأكشنات)'),
+        _title(isDark, tr('الأحسن (عدد الأكشنات)')),
         Wrap(spacing: 6, children: [
-          for (final p in const [('today', 'النهارده'), ('week', 'الأسبوع'), ('month', 'الشهر'), ('all', 'الكل')])
+          for (final p in [('today', tr('النهارده')), ('week', tr('الأسبوع')), ('month', tr('الشهر')), ('all', tr('الكل'))])
             ChoiceChip(selected: _period == p.$1, label: Text(p.$2), onSelected: (_) {
               _period = p.$1;
               _load();
             }),
         ]),
         const SizedBox(height: 8),
-        if (best.isEmpty) Text('لسه مفيش أكشنات', style: TextStyle(color: JphUi.sub(isDark))),
+        if (best.isEmpty) Text(tr('لسه مفيش أكشنات'), style: TextStyle(color: JphUi.sub(isDark))),
         for (final b in best)
           Container(
             margin: const EdgeInsets.only(bottom: 6),

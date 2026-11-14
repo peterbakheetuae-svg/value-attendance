@@ -34,7 +34,7 @@ class _LeadPageState extends State<LeadPage> {
     final r = await Future.wait([lget('/leads/${widget.leadId}'), LeadsMeta.load()]);
     if (!mounted) return;
     setState(() {
-      _d = r[0]['success'] == true ? r[0] : {'error': r[0]['message'] ?? 'الليد مش موجود'};
+      _d = r[0]['success'] == true ? r[0] : {'error': r[0]['message'] ?? tr('الليد مش موجود')};
       _meta = r[1];
     });
   }
@@ -50,7 +50,7 @@ class _LeadPageState extends State<LeadPage> {
     final d = _d;
     return LeadsShell(
         isDark: isDark,
-        title: d?['lead'] == null ? 'العميل' : '${lm(d!['lead'])['fullName']}',
+        title: d?['lead'] == null ? tr('العميل') : '${lm(d!['lead'])['fullName']}',
         child: d == null
             ? const Center(child: CircularProgressIndicator())
             : d['error'] != null
@@ -84,16 +84,16 @@ class _LeadPageState extends State<LeadPage> {
           ]),
           const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: leadBtn(isDark, 'اتصال', Icons.call_rounded, () => callPhone(phone), color: Ar.green)),
+            Expanded(child: leadBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone), color: Ar.green)),
             const SizedBox(width: 8),
-            Expanded(child: leadBtn(isDark, 'واتساب', Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF25D366))),
+            Expanded(child: leadBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF25D366))),
           ]),
           if (l['pending'] == true || l['overdue'] == true) ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: Ar.red.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
-              child: Text(l['pending'] == true ? 'الليد اتوزع ولسه محدش عمل عليه أكشن' : 'معاد المتابعة عدّى: ${whenAr(next)}',
+              child: Text(l['pending'] == true ? tr('الليد اتوزع ولسه محدش عمل عليه أكشن') : 'معاد المتابعة عدّى: ${whenAr(next)}',
                   style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w800)),
             ),
           ] else if (next != null && open) ...[
@@ -105,24 +105,24 @@ class _LeadPageState extends State<LeadPage> {
       const SizedBox(height: 10),
       Wrap(spacing: 8, runSpacing: 8, children: [
         if (can['act'] == true && l['stage'] != 'done_deal')
-          SizedBox(width: 170, child: leadBtn(isDark, 'إضافة أكشن', Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)))),
+          SizedBox(width: 170, child: leadBtn(isDark, tr('إضافة أكشن'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)))),
         if (can['reserve'] == true)
-          SizedBox(width: 150, child: leadBtn(isDark, 'حجز وحدة', Icons.bookmark_add_rounded, () => _reserve(isDark, l), color: const Color(0xFF3FC1C9))),
+          SizedBox(width: 150, child: leadBtn(isDark, tr('حجز وحدة'), Icons.bookmark_add_rounded, () => _reserve(isDark, l), color: const Color(0xFF3FC1C9))),
         if (can['edit'] == true)
-          SizedBox(width: 120, child: leadBtn(isDark, 'تعديل', Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can)), outline: true)),
+          SizedBox(width: 120, child: leadBtn(isDark, tr('تعديل'), Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can)), outline: true)),
         if (can['assign'] == true)
-          SizedBox(width: 130, child: leadBtn(isDark, 'توزيع', Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']])), outline: true)),
+          SizedBox(width: 130, child: leadBtn(isDark, tr('توزيع'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']])), outline: true)),
         if (can['refer'] == true)
-          SizedBox(width: 130, child: leadBtn(isDark, 'مشاركة', Icons.group_add_rounded, () async => _after(await _refer(isDark, l)), outline: true)),
-        SizedBox(width: 120, child: leadBtn(isDark, 'مهمة', Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l)), outline: true)),
+          SizedBox(width: 130, child: leadBtn(isDark, tr('مشاركة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l)), outline: true)),
+        SizedBox(width: 120, child: leadBtn(isDark, tr('مهمة'), Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l)), outline: true)),
         if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
-          SizedBox(width: 170, child: leadBtn(isDark, 'وصلت الميتنج', Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green)),
+          SizedBox(width: 170, child: leadBtn(isDark, tr('وصلت الميتنج'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green)),
       ]),
       if (can['act'] == true || can['edit'] == true) ...[
         const SizedBox(height: 10),
         Wrap(crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 6, children: [
-          Text('تقييم العميل: ', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
-          for (final r in const [('hot', 'ساخن 🔥', Ar.red), ('warm', 'دافي', Ar.amber), ('cold', 'بارد', Ar.info)])
+          Text(tr('تقييم العميل: '), style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+          for (final r in [('hot', tr('ساخن 🔥'), Ar.red), ('warm', tr('دافي'), Ar.amber), ('cold', tr('بارد'), Ar.info)])
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 6),
               child: ChoiceChip(
@@ -130,7 +130,7 @@ class _LeadPageState extends State<LeadPage> {
                 selectedColor: r.$3.withOpacity(0.3),
                 label: Text(r.$2, style: const TextStyle(fontWeight: FontWeight.w800)),
                 onSelected: (v) async {
-                  final res = await lpost('/leads/${l['id']}', {'rating': v ? r.$1 : null}, method: 'patch', ok: 'اتحفظ ✅');
+                  final res = await lpost('/leads/${l['id']}', {'rating': v ? r.$1 : null}, method: 'patch', ok: tr('اتحفظ ✅'));
                   if (mounted) JphUi.toast(context, res);
                   _after(res['success'] == true);
                 },
@@ -145,12 +145,12 @@ class _LeadPageState extends State<LeadPage> {
         scrollDirection: Axis.horizontal,
         child: Row(children: [
           for (final t in [
-            ('comments', 'التعليقات', Icons.forum_rounded),
-            ('request', 'الطلب والوحدات', Icons.manage_search_rounded),
-            ('units', 'الحجوزات', Icons.home_work_rounded),
-            ('files', 'الملفات', Icons.attach_file_rounded),
-            ('checkins', 'الميتنجات', Icons.where_to_vote_rounded),
-            if (can['log'] == true) ('log', 'السجل', Icons.history_rounded),
+            ('comments', tr('التعليقات'), Icons.forum_rounded),
+            ('request', tr('الطلب والوحدات'), Icons.manage_search_rounded),
+            ('units', tr('الحجوزات'), Icons.home_work_rounded),
+            ('files', tr('الملفات'), Icons.attach_file_rounded),
+            ('checkins', tr('الميتنجات'), Icons.where_to_vote_rounded),
+            if (can['log'] == true) ('log', tr('السجل'), Icons.history_rounded),
           ])
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 6),
@@ -186,28 +186,28 @@ class _LeadPageState extends State<LeadPage> {
       padding: const EdgeInsets.all(14),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        kv('رقم الليد', '#${l['refNo']}'),
-        kv('المشروع', '${lm(l['project'])['name'] ?? '—'}'),
-        kv('السيلز', '${lm(l['assignedTo'])['name'] ?? 'لسه مش متوزع'}'),
-        if (l['channel'] != null) kv('القناة', '${lm(l['channel'])['name']}'),
-        if (l['campaign'] != null) kv('الحملة', '${lm(l['campaign'])['name']}'),
-        kv('النوع', l['kind'] == 'cold' ? 'كولد كول' : 'فريش'),
-        if (extra.isNotEmpty) kv('أرقام تانية', extra),
-        if ('${l['email'] ?? ''}'.isNotEmpty) kv('الإيميل', '${l['email']}'),
-        if (l['budget'] != null) kv('الميزانية', JphUi.money(l['budget'])),
-        if (l['cancelReason'] != null) kv('سبب الإلغاء', '${lm(l['cancelReason'])['name']}'),
-        if (l['duplicateOf'] != null) kv('مكرر', 'نفس رقم ${lm(l['duplicateOf'])['name']}'),
-        if ((l['noAnswerCount'] ?? 0) > 0) kv('مردّش', '${l['noAnswerCount']} مرة'),
-        if (refs.isNotEmpty) kv('متشارك مع', refs.map((r) => '${r['name']}').join('، ')),
-        if ('${l['notes'] ?? ''}'.isNotEmpty) kv('ملاحظات', '${l['notes']}'),
-        kv('اتضاف', '${whenAr(l['createdAt'])}${l['createdByName'] == null ? '' : ' — ${l['createdByName']}'}'),
+        kv(tr('رقم الليد'), '#${l['refNo']}'),
+        kv(tr('المشروع'), '${lm(l['project'])['name'] ?? '—'}'),
+        kv(tr('السيلز'), '${lm(l['assignedTo'])['name'] ?? 'لسه مش متوزع'}'),
+        if (l['channel'] != null) kv(tr('القناة'), '${lm(l['channel'])['name']}'),
+        if (l['campaign'] != null) kv(tr('الحملة'), '${lm(l['campaign'])['name']}'),
+        kv(tr('النوع'), l['kind'] == 'cold' ? tr('كولد كول') : tr('فريش')),
+        if (extra.isNotEmpty) kv(tr('أرقام تانية'), extra),
+        if ('${l['email'] ?? ''}'.isNotEmpty) kv(tr('الإيميل'), '${l['email']}'),
+        if (l['budget'] != null) kv(tr('الميزانية'), JphUi.money(l['budget'])),
+        if (l['cancelReason'] != null) kv(tr('سبب الإلغاء'), '${lm(l['cancelReason'])['name']}'),
+        if (l['duplicateOf'] != null) kv(tr('مكرر'), 'نفس رقم ${lm(l['duplicateOf'])['name']}'),
+        if ((l['noAnswerCount'] ?? 0) > 0) kv(tr('مردّش'), '${l['noAnswerCount']} مرة'),
+        if (refs.isNotEmpty) kv(tr('متشارك مع'), refs.map((r) => '${r['name']}').join(tr('، '))),
+        if ('${l['notes'] ?? ''}'.isNotEmpty) kv(tr('ملاحظات'), '${l['notes']}'),
+        kv(tr('اتضاف'), '${whenAr(l['createdAt'])}${l['createdByName'] == null ? '' : ' — ${l['createdByName']}'}'),
       ]),
     );
   }
 
   List<Widget> _comments(bool isDark, List<Map<String, dynamic>> actions) {
     if (actions.isEmpty) {
-      return [Padding(padding: const EdgeInsets.all(24), child: Text('لسه مفيش أكشن على العميل ده', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))];
+      return [Padding(padding: const EdgeInsets.all(24), child: Text(tr('لسه مفيش أكشن على العميل ده'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))];
     }
     return [
       for (final x in actions)
@@ -226,7 +226,7 @@ class _LeadPageState extends State<LeadPage> {
             Wrap(spacing: 6, runSpacing: 6, children: [
               if (x['stage'] != null) stageChip('${x['stage']}'),
               if (x['answered'] != null)
-                JphUi.chip(x['answered'] == true ? 'ردّ${(x['callSeconds'] ?? 0) > 0 ? ' — ${(x['callSeconds'] as num) ~/ 60}:${two((x['callSeconds'] as num).toInt() % 60)}' : ''}' : 'مردّش',
+                JphUi.chip(x['answered'] == true ? 'ردّ${(x['callSeconds'] ?? 0) > 0 ? ' — ${(x['callSeconds'] as num) ~/ 60}:${two((x['callSeconds'] as num).toInt() % 60)}' : ''}' : tr('مردّش'),
                     x['answered'] == true ? Ar.green : Ar.grey),
               if ('${x['meetingKind'] ?? ''}'.isNotEmpty) JphUi.chip('${x['meetingKind']}', Ar.accent),
               if ('${x['meetingPlace'] ?? ''}'.isNotEmpty) JphUi.chip('📍 ${x['meetingPlace']}', Ar.info),
@@ -252,7 +252,7 @@ class _LeadPageState extends State<LeadPage> {
               ),
             Align(
               alignment: AlignmentDirectional.centerEnd,
-              child: TextButton.icon(onPressed: () => _reply(isDark, x), icon: const Icon(Icons.reply_rounded, size: 18), label: const Text('رد')),
+              child: TextButton.icon(onPressed: () => _reply(isDark, x), icon: const Icon(Icons.reply_rounded, size: 18), label: Text(tr('رد'))),
             ),
           ]),
         ),
@@ -261,7 +261,7 @@ class _LeadPageState extends State<LeadPage> {
 
   List<Widget> _units(bool isDark, List<Map<String, dynamic>> units) {
     if (units.isEmpty) {
-      return [Padding(padding: const EdgeInsets.all(24), child: Text('مفيش حجوزات من العميل ده', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))];
+      return [Padding(padding: const EdgeInsets.all(24), child: Text(tr('مفيش حجوزات من العميل ده'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))];
     }
     return [
       for (final u in units)
@@ -288,13 +288,13 @@ class _LeadPageState extends State<LeadPage> {
     String text(Map<String, dynamic> g) {
       final x = lm(g['data']);
       return switch ('${g['kind']}') {
-        'create' => 'ضاف الليد',
-        'import' => 'ضاف الليد من ملف إكسيل',
+        'create' => tr('ضاف الليد'),
+        'import' => tr('ضاف الليد من ملف إكسيل'),
         'assign' => x['from'] == null
             ? 'وزّعه على ${x['toName'] ?? ''}${x['mode'] == 'duplicate' ? ' (عميله القديم)' : x['turn'] == true ? ' (بالدور)' : ''}'
             : 'نقله من ${x['fromName'] ?? ''} لـ ${x['toName'] ?? ''}${x['mode'] == 'cold' ? ' — كولد كول' : x['mode'] == 'fresh' ? ' — فريش' : ''}',
-        'edit' => 'عدّل البيانات',
-        'view' => 'فتح صفحة العميل',
+        'edit' => tr('عدّل البيانات'),
+        'view' => tr('فتح صفحة العميل'),
         'duplicate' => 'الرقم ده موجود قبل كده (ليد #${x['ofRef'] ?? ''})',
         'referral' => 'شاركه مع ${x['toName'] ?? ''}',
         _ => '${g['kind']}',
@@ -318,24 +318,24 @@ class _LeadPageState extends State<LeadPage> {
 
   Future<void> _reply(bool isDark, Map<String, dynamic> x) async {
     final c = TextEditingController();
-    final ok = await leadForm(context, isDark, 'رد على التعليق', (set) => [
+    final ok = await leadForm(context, isDark, tr('رد على التعليق'), (set) => [
           Text('${x['comment']}', style: TextStyle(color: JphUi.sub(isDark))),
-          JphUi.input(isDark: isDark, label: 'الرد', controller: c, icon: Icons.reply_rounded, big: false),
+          JphUi.input(isDark: isDark, label: tr('الرد'), controller: c, icon: Icons.reply_rounded, big: false),
         ], () async {
       if (c.text.trim().isEmpty) return false;
-      final r = await lpost('/leads/actions/${x['id']}/reply', {'comment': c.text.trim()}, ok: 'اتبعت ✅');
+      final r = await lpost('/leads/actions/${x['id']}/reply', {'comment': c.text.trim()}, ok: tr('اتبعت ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
-    }, saveLabel: 'ابعت', saveIcon: Icons.send_rounded);
+    }, saveLabel: tr('ابعت'), saveIcon: Icons.send_rounded);
     await _after(ok);
   }
 
   Future<bool> _refer(bool isDark, Map<String, dynamic> l) async {
     final people = ll(_meta['assignees']).isNotEmpty ? ll(_meta['assignees']) : ll((await lget('/tasks'))['people']);
     if (!mounted) return false;
-    final to = await pickPeople(context, isDark, 'شارك العميل مع', people.where((p) => p['id'] != lm(l['assignedTo'])['id']).toList());
+    final to = await pickPeople(context, isDark, tr('شارك العميل مع'), people.where((p) => p['id'] != lm(l['assignedTo'])['id']).toList());
     if (to == null || to.isEmpty) return false;
-    final r = await lpost('/leads/${l['id']}/referral', {'to': to}, ok: 'اتشارك ✅');
+    final r = await lpost('/leads/${l['id']}/referral', {'to': to}, ok: tr('اتشارك ✅'));
     if (mounted) JphUi.toast(context, r);
     return r['success'] == true;
   }
@@ -362,7 +362,7 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
   DateTime? next;
   String? reason;
   final comment = TextEditingController(), place = TextEditingController(), mins = TextEditingController();
-  String meetingKind = 'معاينة';
+  String meetingKind = tr('معاينة');
   return leadForm(context, isDark, 'أكشن — ${lead['fullName']}', (set) {
     final noDate = stage == 'cancelled';
     final meeting = stage == 'meeting' || stage == 'reschedule';
@@ -383,27 +383,27 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
       SwitchListTile(
         value: answered,
         onChanged: (v) => set(() => answered = v),
-        title: Text(answered ? 'ردّ' : 'مردّش', style: const TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(answered ? tr('ردّ') : tr('مردّش'), style: const TextStyle(fontWeight: FontWeight.w800)),
         secondary: Icon(answered ? Icons.call_rounded : Icons.phone_missed_rounded, color: answered ? Ar.green : Ar.grey),
       ),
-      if (answered) JphUi.input(isDark: isDark, label: 'مدة المكالمة بالدقايق (اختياري)', controller: mins, number: true, icon: Icons.timer_rounded, big: false),
+      if (answered) JphUi.input(isDark: isDark, label: tr('مدة المكالمة بالدقايق (اختياري)'), controller: mins, number: true, icon: Icons.timer_rounded, big: false),
       if (meeting) ...[
         Wrap(spacing: 6, children: [
-          for (final k in const ['معاينة', 'في المكتب', 'أونلاين', 'عند العميل'])
+          for (final k in [tr('معاينة'), tr('في المكتب'), tr('أونلاين'), tr('عند العميل')])
             ChoiceChip(selected: meetingKind == k, label: Text(k), onSelected: (_) => set(() => meetingKind = k)),
         ]),
-        JphUi.input(isDark: isDark, label: 'مكان الميتنج', controller: place, icon: Icons.place_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('مكان الميتنج'), controller: place, icon: Icons.place_rounded, big: false),
       ],
-      if (stage == 'cancelled') refPicker(context, isDark, 'سبب الإلغاء', Icons.cancel_rounded, reasons, reason, (v) => set(() => reason = v), allowNone: false),
-      if (!noDate) WhenField(isDark: isDark, value: next, onPick: (v) => set(() => next = v), label: meeting ? 'معاد الميتنج' : 'معاد المتابعة الجاية'),
-      JphUi.input(isDark: isDark, label: 'التعليق', controller: comment, icon: Icons.notes_rounded, big: false),
+      if (stage == 'cancelled') refPicker(context, isDark, tr('سبب الإلغاء'), Icons.cancel_rounded, reasons, reason, (v) => set(() => reason = v), allowNone: false),
+      if (!noDate) WhenField(isDark: isDark, value: next, onPick: (v) => set(() => next = v), label: meeting ? tr('معاد الميتنج') : tr('معاد المتابعة الجاية')),
+      JphUi.input(isDark: isDark, label: tr('التعليق'), controller: comment, icon: Icons.notes_rounded, big: false),
     ];
   }, () async {
     String? err;
-    if (stage == null) err = 'اختار المرحلة';
-    else if (comment.text.trim().isEmpty) err = 'اكتب التعليق';
-    else if (stage == 'cancelled' && reason == null) err = 'اختار سبب الإلغاء';
-    else if (stage != 'cancelled' && next == null) err = 'حدد المعاد الجاي';
+    if (stage == null) err = tr('اختار المرحلة');
+    else if (comment.text.trim().isEmpty) err = tr('اكتب التعليق');
+    else if (stage == 'cancelled' && reason == null) err = tr('اختار سبب الإلغاء');
+    else if (stage != 'cancelled' && next == null) err = tr('حدد المعاد الجاي');
     if (err != null) {
       JphUi.toast(context, {'success': false, 'message': err});
       return false;
@@ -415,10 +415,10 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
       if (answered && m != null && m > 0) 'callSeconds': (m * 60).round(),
       if (stage == 'meeting' || stage == 'reschedule') ...{'meetingKind': meetingKind, 'meetingPlace': place.text.trim()},
       if (stage == 'cancelled') 'cancelReasonId': reason,
-    }, ok: 'اتسجل الأكشن ✅');
+    }, ok: tr('اتسجل الأكشن ✅'));
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
-  }, saveLabel: 'سجّل الأكشن');
+  }, saveLabel: tr('سجّل الأكشن'));
 }
 
 /// إضافة ليد / تعديل ليد. [can] (from the lead): who may change the number / the source.
@@ -426,7 +426,7 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
   final isNew = lead == null;
   final mcan = lm(meta['can']);
   final name = TextEditingController(text: '${lead?['fullName'] ?? ''}'), phone = TextEditingController(text: '${lead?['phone'] ?? ''}'),
-      phone2 = TextEditingController(text: ((lead?['extraPhones'] as List?) ?? const []).join('، ')),
+      phone2 = TextEditingController(text: ((lead?['extraPhones'] as List?) ?? const []).join(tr('، '))),
       email = TextEditingController(text: '${lead?['email'] ?? ''}'),
       budget = TextEditingController(text: lead?['budget'] == null ? '' : '${lead!['budget']}'),
       notes = TextEditingController(text: '${lead?['notes'] ?? ''}');
@@ -439,45 +439,45 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
   final people = ll(meta['assignees']);
   final source = isNew || can?['editSource'] == true;
   final phoneOk = isNew || can?['editPhone'] == true;
-  return leadForm(context, isDark, isNew ? 'ليد جديد' : 'تعديل ${lead['fullName']}', (set) {
+  return leadForm(context, isDark, isNew ? tr('ليد جديد') : 'تعديل ${lead['fullName']}', (set) {
     final camps = ll(meta['campaigns']).where((c) => channel == null || c['channelId'] == null || c['channelId'] == channel).toList();
     return [
-      JphUi.input(isDark: isDark, label: 'اسم العميل', controller: name, icon: Icons.person_rounded),
-      if (phoneOk) JphUi.input(isDark: isDark, label: 'الموبايل', controller: phone, icon: Icons.phone_rounded, number: true),
-      JphUi.input(isDark: isDark, label: 'أرقام تانية (افصل بينهم بـ ،)', controller: phone2, icon: Icons.phone_forwarded_rounded, big: false),
-      refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, projects, project, (v) => set(() => project = v), allowNone: false),
+      JphUi.input(isDark: isDark, label: tr('اسم العميل'), controller: name, icon: Icons.person_rounded),
+      if (phoneOk) JphUi.input(isDark: isDark, label: tr('الموبايل'), controller: phone, icon: Icons.phone_rounded, number: true),
+      JphUi.input(isDark: isDark, label: tr('أرقام تانية (افصل بينهم بـ ،)'), controller: phone2, icon: Icons.phone_forwarded_rounded, big: false),
+      refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, projects, project, (v) => set(() => project = v), allowNone: false),
       if (source) ...[
-        refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() {
+        refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() {
               channel = v;
               campaign = null;
             })),
-        if (camps.isNotEmpty) refPicker(context, isDark, 'الحملة', Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
+        if (camps.isNotEmpty) refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
       ],
       SegmentedButton<String>(
-        segments: const [ButtonSegment(value: 'fresh', label: Text('فريش')), ButtonSegment(value: 'cold', label: Text('كولد كول'))],
+        segments: [ButtonSegment(value: 'fresh', label: Text(tr('فريش'))), ButtonSegment(value: 'cold', label: Text(tr('كولد كول')))],
         selected: {kind},
         onSelectionChanged: (s) => set(() => kind = s.first),
       ),
-      JphUi.input(isDark: isDark, label: 'الميزانية (اختياري)', controller: budget, number: true, suffix: 'جنيه', icon: Icons.payments_rounded, big: false),
-      JphUi.input(isDark: isDark, label: 'الإيميل (اختياري)', controller: email, icon: Icons.email_rounded, big: false),
-      JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded, big: false),
+      JphUi.input(isDark: isDark, label: tr('الميزانية (اختياري)'), controller: budget, number: true, suffix: tr('جنيه'), icon: Icons.payments_rounded, big: false),
+      JphUi.input(isDark: isDark, label: tr('الإيميل (اختياري)'), controller: email, icon: Icons.email_rounded, big: false),
+      JphUi.input(isDark: isDark, label: tr('ملاحظات'), controller: notes, icon: Icons.notes_rounded, big: false),
       if (isNew && people.isNotEmpty)
         JphUi.picker(
-          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: 'السيلز',
+          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('السيلز'),
           value: assignees.isEmpty
-              ? (mcan['distribute'] == true ? 'من غير (يفضل مش متوزع)' : 'ليا أنا')
+              ? (mcan['distribute'] == true ? tr('من غير (يفضل مش متوزع)') : tr('ليا أنا'))
               : assignees.length == 1
                   ? '${people.firstWhere((p) => p['id'] == assignees.first, orElse: () => const {'name': ''})['name']}'
                   : '${assignees.length} سيلز بالدور',
           onTap: () async {
-            final v = await pickPeople(context, isDark, 'السيلز', people, selected: assignees);
+            final v = await pickPeople(context, isDark, tr('السيلز'), people, selected: assignees);
             if (v != null) set(() => assignees = v);
           },
         ),
     ];
   }, () async {
     if (name.text.trim().length < 2 || (phoneOk && phone.text.trim().length < 7) || project == null) {
-      JphUi.toast(context, {'success': false, 'message': project == null ? 'اختار المشروع' : 'اكتب الاسم والموبايل'});
+      JphUi.toast(context, {'success': false, 'message': project == null ? tr('اختار المشروع') : tr('اكتب الاسم والموبايل')});
       return false;
     }
     final extra = phone2.text.split(RegExp(r'[،,\n]')).map((x) => x.trim()).where((x) => x.length >= 7).toList();
@@ -488,12 +488,12 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
       if (source) ...{'channelId': channel, 'campaignId': campaign},
       if (isNew) 'assignees': assignees,
     };
-    final r = isNew ? await lpost('/leads', b, ok: 'اتضاف الليد ✅') : await lpost('/leads/${lead['id']}', b, ok: 'اتحفظ ✅', method: 'patch');
+    final r = isNew ? await lpost('/leads', b, ok: tr('اتضاف الليد ✅')) : await lpost('/leads/${lead['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
     if (context.mounted) {
-      JphUi.toast(context, r['duplicate'] == true ? {...r, 'message': 'اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز'} : r);
+      JphUi.toast(context, r['duplicate'] == true ? {...r, 'message': tr('اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز')} : r);
     }
     return r['success'] == true;
-  }, saveLabel: isNew ? 'إضافة' : 'حفظ');
+  }, saveLabel: isNew ? tr('إضافة') : tr('حفظ'));
 }
 
 /// توزيع / إعادة توزيع: to one or more salesmen (in turn), as fresh / cold / the same stage
@@ -501,35 +501,35 @@ Future<bool> assignLeads(BuildContext context, bool isDark, Map<String, dynamic>
   final people = ll(meta['assignees']);
   List<String> to = [];
   String mode = 'fresh';
-  return leadForm(context, isDark, ids.length == 1 ? 'توزيع العميل' : 'توزيع ${ids.length} ليد', (set) => [
+  return leadForm(context, isDark, ids.length == 1 ? tr('توزيع العميل') : 'توزيع ${ids.length} ليد', (set) => [
         JphUi.picker(
-          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: 'على مين',
-          value: to.isEmpty ? 'اختار السيلز' : to.length == 1 ? '${people.firstWhere((p) => p['id'] == to.first, orElse: () => const {'name': ''})['name']}' : '${to.length} سيلز بالدور',
+          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('على مين'),
+          value: to.isEmpty ? tr('اختار السيلز') : to.length == 1 ? '${people.firstWhere((p) => p['id'] == to.first, orElse: () => const {'name': ''})['name']}' : '${to.length} سيلز بالدور',
           onTap: () async {
-            final v = await pickPeople(context, isDark, 'وزّع على', people, selected: to);
+            final v = await pickPeople(context, isDark, tr('وزّع على'), people, selected: to);
             if (v != null) set(() => to = v);
           },
         ),
         SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'fresh', label: Text('فريش')),
-            ButtonSegment(value: 'cold', label: Text('كولد كول')),
-            ButtonSegment(value: 'same', label: Text('نفس المرحلة')),
+          segments: [
+            ButtonSegment(value: 'fresh', label: Text(tr('فريش'))),
+            ButtonSegment(value: 'cold', label: Text(tr('كولد كول'))),
+            ButtonSegment(value: 'same', label: Text(tr('نفس المرحلة'))),
           ],
           selected: {mode},
           onSelectionChanged: (s) => set(() => mode = s.first),
         ),
-        Text(mode == 'same' ? 'العميل بيروح بنفس مرحلته ومعاد متابعته' : 'العميل بيبدأ من الأول عند السيلز الجديد (التعليقات القديمة بتفضل ظاهرة)',
+        Text(mode == 'same' ? tr('العميل بيروح بنفس مرحلته ومعاد متابعته') : tr('العميل بيبدأ من الأول عند السيلز الجديد (التعليقات القديمة بتفضل ظاهرة)'),
             style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
       ], () async {
     if (to.isEmpty) {
-      JphUi.toast(context, {'success': false, 'message': 'اختار السيلز'});
+      JphUi.toast(context, {'success': false, 'message': tr('اختار السيلز')});
       return false;
     }
-    final r = await lpost('/leads/assign', {'ids': ids, 'to': to, 'mode': mode}, ok: 'اتوزع ✅');
+    final r = await lpost('/leads/assign', {'ids': ids, 'to': to, 'mode': mode}, ok: tr('اتوزع ✅'));
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
-  }, saveLabel: 'وزّع', saveIcon: Icons.switch_account_rounded);
+  }, saveLabel: tr('وزّع'), saveIcon: Icons.switch_account_rounded);
 }
 
 /// تعديل جماعي: the project / fresh-cold / the rating (and, for the distributor, the channel / campaign) of several leads
@@ -537,15 +537,15 @@ Future<bool> bulkEditLeads(BuildContext context, bool isDark, Map<String, dynami
   String? project, kind, rating, channel, campaign;
   final dist = lm(meta['can'])['distribute'] == true;
   return leadForm(context, isDark, 'تعديل ${ids.length} ليد', (set) => [
-        Text('اللي هتسيبه فاضي مش هيتغيّر', style: TextStyle(color: JphUi.sub(isDark))),
-        refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
-        refPicker(context, isDark, 'النوع', Icons.ac_unit_rounded, const [{'id': 'fresh', 'name': 'فريش'}, {'id': 'cold', 'name': 'كولد كول'}], kind,
+        Text(tr('اللي هتسيبه فاضي مش هيتغيّر'), style: TextStyle(color: JphUi.sub(isDark))),
+        refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
+        refPicker(context, isDark, tr('النوع'), Icons.ac_unit_rounded, [{'id': 'fresh', 'name': tr('فريش')}, {'id': 'cold', 'name': tr('كولد كول')}], kind,
             (v) => set(() => kind = v)),
-        refPicker(context, isDark, 'التقييم', Icons.local_fire_department_rounded,
-            const [{'id': 'hot', 'name': 'ساخن 🔥'}, {'id': 'warm', 'name': 'دافي'}, {'id': 'cold', 'name': 'بارد'}], rating, (v) => set(() => rating = v)),
+        refPicker(context, isDark, tr('التقييم'), Icons.local_fire_department_rounded,
+            [{'id': 'hot', 'name': tr('ساخن 🔥')}, {'id': 'warm', 'name': tr('دافي')}, {'id': 'cold', 'name': tr('بارد')}], rating, (v) => set(() => rating = v)),
         if (dist) ...[
-          refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() => channel = v)),
-          refPicker(context, isDark, 'الحملة', Icons.ads_click_rounded, ll(meta['campaigns']), campaign, (v) => set(() => campaign = v)),
+          refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() => channel = v)),
+          refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, ll(meta['campaigns']), campaign, (v) => set(() => campaign = v)),
         ],
       ], () async {
     final b = <String, dynamic>{
@@ -553,11 +553,11 @@ Future<bool> bulkEditLeads(BuildContext context, bool isDark, Map<String, dynami
       if (channel != null) 'channelId': channel, if (campaign != null) 'campaignId': campaign,
     };
     if (b.length == 1) {
-      JphUi.toast(context, {'success': false, 'message': 'اختار اللي عايز تغيّره'});
+      JphUi.toast(context, {'success': false, 'message': tr('اختار اللي عايز تغيّره')});
       return false;
     }
-    final r = await lpost('/leads/bulk', b, ok: 'اتعدّل ✅');
+    final r = await lpost('/leads/bulk', b, ok: tr('اتعدّل ✅'));
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
-  }, saveLabel: 'عدّل');
+  }, saveLabel: tr('عدّل'));
 }

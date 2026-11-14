@@ -59,7 +59,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
     final can = lm(_meta['can']);
-    const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    final months = [tr('يناير'), tr('فبراير'), tr('مارس'), tr('أبريل'), tr('مايو'), tr('يونيو'), tr('يوليو'), tr('أغسطس'), tr('سبتمبر'), tr('أكتوبر'), tr('نوفمبر'), tr('ديسمبر')];
     final first = DateTime(_month.year, _month.month, 1);
     final days = DateTime(_month.year, _month.month + 1, 0).day;
     final lead = (first.weekday + 1) % 7; // the week starts on Saturday
@@ -67,27 +67,27 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
     final list = _of(_day);
     return LeadsShell(
       isDark: isDark,
-      title: 'التقويم',
+      title: tr('التقويم'),
       child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 60), children: [
           if (can['assign'] == true)
             Wrap(spacing: 6, runSpacing: 6, children: [
-              ChoiceChip(selected: _view == 'me', label: const Text('بتاعي'), onSelected: (_) {
+              ChoiceChip(selected: _view == 'me', label: Text(tr('بتاعي')), onSelected: (_) {
                 _view = 'me';
                 _person = null;
                 _load();
               }),
-              ChoiceChip(selected: _view == 'team' && _person == null, label: const Text('الفريق كله'), onSelected: (_) {
+              ChoiceChip(selected: _view == 'team' && _person == null, label: Text(tr('الفريق كله')), onSelected: (_) {
                 _view = 'team';
                 _person = null;
                 _load();
               }),
               ActionChip(
                 avatar: const Icon(Icons.person_search_rounded, size: 18),
-                label: Text(_person == null ? 'سيلز معيّن' : '${ll(_meta['assignees']).firstWhere((p) => p['id'] == _person, orElse: () => const {'name': ''})['name']}'),
+                label: Text(_person == null ? tr('سيلز معيّن') : '${ll(_meta['assignees']).firstWhere((p) => p['id'] == _person, orElse: () => const {'name': ''})['name']}'),
                 onPressed: () async {
-                  final v = await pickPeople(context, isDark, 'تقويم مين', ll(_meta['assignees']), multi: false);
+                  final v = await pickPeople(context, isDark, tr('تقويم مين'), ll(_meta['assignees']), multi: false);
                   if (v == null || v.isEmpty) return;
                   _view = 'team';
                   _person = v.first;
@@ -113,7 +113,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
                 }, icon: const Icon(Icons.chevron_left_rounded)),
               ]),
               Row(children: [
-                for (final w in const ['سبت', 'حد', 'اتنين', 'تلات', 'أربع', 'خميس', 'جمعة'])
+                for (final w in [tr('سبت'), tr('حد'), tr('اتنين'), tr('تلات'), tr('أربع'), tr('خميس'), tr('جمعة')])
                   Expanded(child: Text(w, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: JphUi.sub(isDark)))),
               ]),
               const SizedBox(height: 4),
@@ -158,7 +158,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
           Text('${_day.day} ${months[_day.month - 1]} — ${list.length} معاد', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
           const SizedBox(height: 6),
           if (_loading) const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
-          if (!_loading && list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text('مفيش مواعيد', style: TextStyle(color: JphUi.sub(isDark)))),
+          if (!_loading && list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(tr('مفيش مواعيد'), style: TextStyle(color: JphUi.sub(isDark)))),
           for (final x in list)
             Container(
               margin: const EdgeInsets.only(bottom: 8),
@@ -169,7 +169,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
                 title: Text('${x['title']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
                 subtitle: Text([
                   whenAr(x['at']).split('— ').last,
-                  x['kind'] == 'task' ? 'مهمة' : '${x['stageAr']}',
+                  x['kind'] == 'task' ? tr('مهمة') : '${x['stageAr']}',
                   if (x['project'] != null) '${x['project']}',
                   if (_view != 'me' && x['who'] != null) '${x['who']}',
                 ].join(' • '), style: TextStyle(color: x['overdue'] == true ? Ar.red : JphUi.sub(isDark))),

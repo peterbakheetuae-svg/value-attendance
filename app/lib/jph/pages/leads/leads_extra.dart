@@ -75,7 +75,7 @@ Uint8List writeXlsx(String sheet, List<String> head, List<List<Object?>> rows) {
     final bytes = utf8.encode(text);
     zip.addFile(ArchiveFile(path, bytes.length, bytes));
   });
-  return Uint8List.fromList(ZipEncoder().encode(zip)!);
+  return Uint8List.fromList(ZipEncoder().encode(zip));
 }
 
 /// save a table as Excel and write it in the export log (who exported what)
@@ -87,7 +87,7 @@ Future<void> exportTable(BuildContext context, String kind, String fileName, Lis
     return;
   }
   await saveXlsx(fileName, writeXlsx(kind, head, rows));
-  if (context.mounted) JphUi.toast(context, {'success': true, 'message': 'اتحفظ ملف الإكسيل ✅'});
+  if (context.mounted) JphUi.toast(context, {'success': true, 'message': tr('اتحفظ ملف الإكسيل ✅')});
 }
 
 // ==================================================================== location (وصلت الميتنج)
@@ -105,21 +105,21 @@ Future<Position?> gpsNow() async {
 
 Future<bool> leadCheckIn(BuildContext context, bool isDark, Map<String, dynamic> lead) async {
   final note = TextEditingController();
-  return leadForm(context, isDark, 'وصلت الميتنج 📍', (set) => [
+  return leadForm(context, isDark, tr('وصلت الميتنج 📍'), (set) => [
         Text('هيتسجل مكانك ووقتك دلوقتي مع العميل ${lead['fullName']}، والعميل يتنقل لـ «متابعة بعد الميتنج».',
             style: TextStyle(color: JphUi.sub(isDark))),
-        JphUi.input(isDark: isDark, label: 'ملاحظة (اختياري)', controller: note, icon: Icons.notes_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('ملاحظة (اختياري)'), controller: note, icon: Icons.notes_rounded, big: false),
       ], () async {
     final p = await gpsNow();
     if (p == null) {
-      if (context.mounted) JphUi.toast(context, {'success': false, 'message': 'شغّل الموقع (GPS) واسمح للتطبيق بيه'});
+      if (context.mounted) JphUi.toast(context, {'success': false, 'message': tr('شغّل الموقع (GPS) واسمح للتطبيق بيه')});
       return false;
     }
     final r = await lpost('/leads/${lead['id']}/checkins', {'lat': p.latitude, 'lng': p.longitude, 'accuracy': p.accuracy, 'note': note.text.trim()},
-        ok: 'اتسجل وصولك ✅');
+        ok: tr('اتسجل وصولك ✅'));
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
-  }, saveLabel: 'سجّل وصولي', saveIcon: Icons.where_to_vote_rounded);
+  }, saveLabel: tr('سجّل وصولي'), saveIcon: Icons.where_to_vote_rounded);
 }
 
 // ==================================================================== WhatsApp templates
@@ -128,8 +128,8 @@ Future<void> whatsAppWithTemplate(BuildContext context, bool isDark, Map<String,
   final r = await lget('/leads/templates');
   if (!context.mounted) return;
   final list = ll(r['templates']);
-  final pick = await JphUi.sheet<String>(context, isDark, 'رسالة واتساب', [
-    ('', 'رسالة فاضية', Icons.chat_bubble_outline_rounded),
+  final pick = await JphUi.sheet<String>(context, isDark, tr('رسالة واتساب'), [
+    ('', tr('رسالة فاضية'), Icons.chat_bubble_outline_rounded),
     for (final t in list) ('${t['id']}', '${t['name']}', Icons.chat_rounded),
   ]);
   if (pick == null) return;
@@ -189,9 +189,9 @@ class _LeadExtraState extends State<LeadExtra> {
   // ---------------------------------------------------------------- files
   List<Widget> _files(List<Map<String, dynamic>> files) => [
         if (widget.canWork)
-          leadBtn(isDark, 'ارفع ملف (صورة / PDF — لحد 3 ميجا)', Icons.upload_file_rounded, _upload, outline: true),
+          leadBtn(isDark, tr('ارفع ملف (صورة / PDF — لحد 3 ميجا)'), Icons.upload_file_rounded, _upload, outline: true),
         const SizedBox(height: 8),
-        if (files.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text('مفيش ملفات', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        if (files.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(tr('مفيش ملفات'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
         for (final f in files)
           Container(
             margin: const EdgeInsets.only(bottom: 8),
@@ -202,8 +202,8 @@ class _LeadExtraState extends State<LeadExtra> {
               title: Text('${f['fileName']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
               subtitle: Text('${((f['size'] as num? ?? 0) / 1024).toStringAsFixed(0)} KB — ${f['byName'] ?? ''} — ${whenAr(f['at'])}'),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                IconButton(tooltip: 'تحميل', icon: const Icon(Icons.download_rounded), onPressed: () => _download(f)),
-                IconButton(tooltip: 'مسح', icon: const Icon(Icons.delete_outline_rounded, color: Ar.red), onPressed: () => _delete(f)),
+                IconButton(tooltip: tr('تحميل'), icon: const Icon(Icons.download_rounded), onPressed: () => _download(f)),
+                IconButton(tooltip: tr('مسح'), icon: const Icon(Icons.delete_outline_rounded, color: Ar.red), onPressed: () => _delete(f)),
               ]),
             ),
           ),
@@ -214,7 +214,7 @@ class _LeadExtraState extends State<LeadExtra> {
     final x = f?.files.firstOrNull;
     if (x?.bytes == null) return;
     if (x!.bytes!.length > 3000000) {
-      if (mounted) JphUi.toast(context, {'success': false, 'message': 'الملف أكبر من 3 ميجا — صغّره وجرّب تاني'});
+      if (mounted) JphUi.toast(context, {'success': false, 'message': tr('الملف أكبر من 3 ميجا — صغّره وجرّب تاني')});
       return;
     }
     final ext = (x.extension ?? '').toLowerCase();
@@ -223,7 +223,7 @@ class _LeadExtraState extends State<LeadExtra> {
       'doc' => 'application/msword', 'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', _ => 'application/octet-stream',
     };
-    final r = await lpost('/leads/${widget.lead['id']}/attachments', {'fileName': x.name, 'mime': mime, 'data': base64Encode(x.bytes!)}, ok: 'اترفع الملف ✅');
+    final r = await lpost('/leads/${widget.lead['id']}/attachments', {'fileName': x.name, 'mime': mime, 'data': base64Encode(x.bytes!)}, ok: tr('اترفع الملف ✅'));
     if (mounted) JphUi.toast(context, r);
     _load();
   }
@@ -237,23 +237,23 @@ class _LeadExtraState extends State<LeadExtra> {
     final name = '${r['fileName']}';
     final dot = name.lastIndexOf('.');
     await saveBytes(dot > 0 ? name.substring(0, dot) : name, dot > 0 ? name.substring(dot + 1) : 'bin', base64Decode('${r['data']}'));
-    if (mounted) JphUi.toast(context, {'success': true, 'message': 'اتحفظ الملف ✅'});
+    if (mounted) JphUi.toast(context, {'success': true, 'message': tr('اتحفظ الملف ✅')});
   }
 
   Future<void> _delete(Map<String, dynamic> f) async {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('تمسح الملف؟'),
+        title: Text(tr('تمسح الملف؟')),
         content: Text('${f['fileName']}'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لأ')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('امسح', style: TextStyle(color: Ar.red))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('لأ'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('امسح'), style: TextStyle(color: Ar.red))),
         ],
       ),
     );
     if (yes != true) return;
-    final r = await lpost('/leads/attachments/${f['id']}/delete', {}, ok: 'اتمسح');
+    final r = await lpost('/leads/attachments/${f['id']}/delete', {}, ok: tr('اتمسح'));
     if (mounted) JphUi.toast(context, r);
     _load();
   }
@@ -261,15 +261,15 @@ class _LeadExtraState extends State<LeadExtra> {
   // ---------------------------------------------------------------- request + matching units
   List<Widget> _request(Map<String, dynamic>? rq, List<Map<String, dynamic>> units) {
     String fmt(Object? v) => v == null ? '' : JphUi.money(v);
-    final pay = {'any': 'أي طريقة', 'cash': 'كاش', 'installments': 'تقسيط'}[rq?['payment']] ?? '';
+    final pay = {'any': tr('أي طريقة'), 'cash': tr('كاش'), 'installments': tr('تقسيط')}[rq?['payment']] ?? '';
     return [
       Container(
         padding: const EdgeInsets.all(14),
         decoration: JphUi.box(isDark),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('العميل عايز إيه', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: JphUi.text(isDark))),
+          Text(tr('العميل عايز إيه'), style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: JphUi.text(isDark))),
           const SizedBox(height: 6),
-          if (rq == null) Text('لسه ماتسجلش طلب العميل', style: TextStyle(color: JphUi.sub(isDark))),
+          if (rq == null) Text(tr('لسه ماتسجلش طلب العميل'), style: TextStyle(color: JphUi.sub(isDark))),
           if (rq != null)
             Wrap(spacing: 6, runSpacing: 6, children: [
               if (rq['projectName'] != null) JphUi.chip('${rq['projectName']}', Ar.accent),
@@ -282,7 +282,7 @@ class _LeadExtraState extends State<LeadExtra> {
           if ('${rq?['notes'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('${rq!['notes']}', style: TextStyle(color: JphUi.sub(isDark)))),
           if (widget.canWork) ...[
             const SizedBox(height: 10),
-            leadBtn(isDark, rq == null ? 'سجّل طلب العميل' : 'عدّل الطلب', Icons.manage_search_rounded, () => _editRequest(rq), outline: true),
+            leadBtn(isDark, rq == null ? tr('سجّل طلب العميل') : tr('عدّل الطلب'), Icons.manage_search_rounded, () => _editRequest(rq), outline: true),
           ],
         ]),
       ),
@@ -290,7 +290,7 @@ class _LeadExtraState extends State<LeadExtra> {
       if (rq != null) ...[
         Text('وحدات متاحة مناسبة (${units.length})', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: JphUi.text(isDark))),
         const SizedBox(height: 6),
-        if (units.isEmpty) Text('مفيش وحدة متاحة بالمواصفات دي دلوقتي', style: TextStyle(color: JphUi.sub(isDark))),
+        if (units.isEmpty) Text(tr('مفيش وحدة متاحة بالمواصفات دي دلوقتي'), style: TextStyle(color: JphUi.sub(isDark))),
         for (final u in units) unitCard(context, isDark, u, widget.lead),
       ],
     ];
@@ -304,29 +304,29 @@ class _LeadExtraState extends State<LeadExtra> {
         maxA = TextEditingController(text: rq?['maxArea'] == null ? '' : '${rq!['maxArea']}'),
         price = TextEditingController(text: rq?['maxPrice'] == null ? '' : '${rq!['maxPrice']}'),
         notes = TextEditingController(text: '${rq?['notes'] ?? ''}');
-    final ok = await leadForm(context, isDark, 'طلب العميل', (set) => [
-          refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(widget.meta['projects']), project, (v) => set(() => project = v)),
-          JphUi.input(isDark: isDark, label: 'نوع الوحدة (محل / عيادة / شقة …)', controller: type, icon: Icons.category_rounded, big: false),
-          JphUi.input(isDark: isDark, label: 'الدور (اختياري)', controller: floor, icon: Icons.layers_rounded, big: false),
+    final ok = await leadForm(context, isDark, tr('طلب العميل'), (set) => [
+          refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(widget.meta['projects']), project, (v) => set(() => project = v)),
+          JphUi.input(isDark: isDark, label: tr('نوع الوحدة (محل / عيادة / شقة …)'), controller: type, icon: Icons.category_rounded, big: false),
+          JphUi.input(isDark: isDark, label: tr('الدور (اختياري)'), controller: floor, icon: Icons.layers_rounded, big: false),
           Row(children: [
-            Expanded(child: JphUi.input(isDark: isDark, label: 'أقل مساحة', controller: minA, number: true, suffix: 'م²', big: false)),
+            Expanded(child: JphUi.input(isDark: isDark, label: tr('أقل مساحة'), controller: minA, number: true, suffix: tr('م²'), big: false)),
             const SizedBox(width: 8),
-            Expanded(child: JphUi.input(isDark: isDark, label: 'أقصى مساحة', controller: maxA, number: true, suffix: 'م²', big: false)),
+            Expanded(child: JphUi.input(isDark: isDark, label: tr('أقصى مساحة'), controller: maxA, number: true, suffix: tr('م²'), big: false)),
           ]),
-          JphUi.input(isDark: isDark, label: 'أقصى سعر', controller: price, number: true, suffix: 'جنيه', icon: Icons.payments_rounded, big: false),
+          JphUi.input(isDark: isDark, label: tr('أقصى سعر'), controller: price, number: true, suffix: tr('جنيه'), icon: Icons.payments_rounded, big: false),
           SegmentedButton<String>(
-            segments: const [ButtonSegment(value: 'any', label: Text('أي طريقة')), ButtonSegment(value: 'cash', label: Text('كاش')),
-              ButtonSegment(value: 'installments', label: Text('تقسيط'))],
+            segments: [ButtonSegment(value: 'any', label: Text(tr('أي طريقة'))), ButtonSegment(value: 'cash', label: Text(tr('كاش'))),
+              ButtonSegment(value: 'installments', label: Text(tr('تقسيط')))],
             selected: {payment},
             onSelectionChanged: (s) => set(() => payment = s.first),
           ),
-          JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded, big: false),
+          JphUi.input(isDark: isDark, label: tr('ملاحظات'), controller: notes, icon: Icons.notes_rounded, big: false),
         ], () async {
       num? n(TextEditingController c) => num.tryParse(c.text.replaceAll(',', '').trim());
       final r = await lpost('/leads/${widget.lead['id']}/request', {
         'projectId': project, 'unitType': type.text.trim(), 'floor': floor.text.trim(), 'minArea': n(minA), 'maxArea': n(maxA),
         'maxPrice': n(price), 'payment': payment, 'notes': notes.text.trim(),
-      }, ok: 'اتحفظ الطلب ✅');
+      }, ok: tr('اتحفظ الطلب ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
@@ -335,7 +335,7 @@ class _LeadExtraState extends State<LeadExtra> {
 
   // ---------------------------------------------------------------- check-ins
   List<Widget> _checkins(List<Map<String, dynamic>> list) => [
-        if (list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text('لسه محدش سجّل وصوله لميتنج مع العميل ده', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+        if (list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(tr('لسه محدش سجّل وصوله لميتنج مع العميل ده'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
         for (final c in list)
           Container(
             margin: const EdgeInsets.only(bottom: 8),
@@ -345,7 +345,7 @@ class _LeadExtraState extends State<LeadExtra> {
               title: Text('${c['name']} — ${whenAr(c['at'])}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
               subtitle: Text('${'${c['note'] ?? ''}'.isEmpty ? '' : '${c['note']} • '}دقة الموقع ${(c['accuracy'] as num?)?.round() ?? '?'} متر'),
               trailing: IconButton(
-                tooltip: 'افتح على الخريطة',
+                tooltip: tr('افتح على الخريطة'),
                 icon: const Icon(Icons.map_rounded),
                 onPressed: () => openUrl('https://maps.google.com/?q=${c['lat']},${c['lng']}'),
               ),
@@ -376,7 +376,7 @@ Widget unitCard(BuildContext context, bool isDark, Map<String, dynamic> u, Map<S
         TextButton.icon(
           onPressed: u['price'] == null ? null : () => showQuote(context, isDark, lead, u),
           icon: const Icon(Icons.request_quote_rounded, size: 18),
-          label: const Text('عرض سعر'),
+          label: Text(tr('عرض سعر')),
         ),
       ]),
     );

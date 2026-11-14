@@ -23,14 +23,14 @@ Future<void> showQuote(BuildContext context, bool isDark, Map<String, dynamic> l
   int every = 3;
   final ok = await leadForm(context, isDark, 'عرض سعر — وحدة ${unit['unitNo']}', (set) => [
         Text('سعر الوحدة: ${JphUi.money(price)}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        JphUi.input(isDark: isDark, label: 'خصم %', controller: discount, number: true, suffix: '%', icon: Icons.discount_rounded, big: false),
-        JphUi.input(isDark: isDark, label: 'المقدم %', controller: down, number: true, suffix: '%', icon: Icons.payments_rounded, big: false),
-        JphUi.input(isDark: isDark, label: 'عدد السنين', controller: years, number: true, suffix: 'سنة', icon: Icons.date_range_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('خصم %'), controller: discount, number: true, suffix: '%', icon: Icons.discount_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('المقدم %'), controller: down, number: true, suffix: '%', icon: Icons.payments_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('عدد السنين'), controller: years, number: true, suffix: tr('سنة'), icon: Icons.date_range_rounded, big: false),
         Wrap(spacing: 6, children: [
-          for (final e in const [(1, 'شهري'), (3, 'كل 3 شهور'), (6, 'كل 6 شهور'), (12, 'سنوي')])
+          for (final e in [(1, tr('شهري')), (3, tr('كل 3 شهور')), (6, tr('كل 6 شهور')), (12, tr('سنوي'))])
             ChoiceChip(selected: every == e.$1, label: Text(e.$2), onSelected: (_) => set(() => every = e.$1)),
         ]),
-      ], () async => true, saveLabel: 'اعمل العرض', saveIcon: Icons.picture_as_pdf_rounded);
+      ], () async => true, saveLabel: tr('اعمل العرض'), saveIcon: Icons.picture_as_pdf_rounded);
   if (!ok || !context.mounted) return;
   final q = Quote(
     lead: lead, unit: unit, price: price.toDouble(),
@@ -129,8 +129,8 @@ Future<Uint8List> buildQuotePdf(Quote q) async {
       );
   final u = q.unit;
   final sched = q.schedule();
-  final everyAr = {1: 'شهري', 3: 'كل 3 شهور', 6: 'كل 6 شهور', 12: 'سنوي'}[q.every] ?? '';
-  final doc = pw.Document(title: 'عرض سعر', author: company);
+  final everyAr = {1: tr('شهري'), 3: tr('كل 3 شهور'), 6: tr('كل 6 شهور'), 12: tr('سنوي')}[q.every] ?? '';
+  final doc = pw.Document(title: tr('عرض سعر'), author: company);
   doc.addPage(pw.MultiPage(
     pageFormat: PdfPageFormat.a4,
     margin: const pw.EdgeInsets.fromLTRB(32, 28, 32, 28),
@@ -138,7 +138,7 @@ Future<Uint8List> buildQuotePdf(Quote q) async {
     header: (_) => pw.Column(children: [
       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
         pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Text('عرض سعر', textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: bold, fontSize: 20, color: orange)),
+          pw.Text(tr('عرض سعر'), textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: bold, fontSize: 20, color: orange)),
           pw.Text('${now.day}/${now.month}/${now.year}', style: r),
         ]),
         if (logo != null) pw.Image(logo, width: 110, height: 52, fit: pw.BoxFit.contain),
@@ -148,18 +148,18 @@ Future<Uint8List> buildQuotePdf(Quote q) async {
     footer: (c) => pw.Text('$company — العرض ده استرشادي وبيتأكد عند الحجز — صفحة ${c.pageNumber}',
         textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: regular, fontSize: 8.5, color: PdfColors.grey600)),
     build: (_) => [
-      row('السيد / ة', '${q.lead['fullName']}'),
-      row('المشروع', '${u['projectName']}'),
-      row('الوحدة', [
+      row(tr('السيد / ة'), '${q.lead['fullName']}'),
+      row(tr('المشروع'), '${u['projectName']}'),
+      row(tr('الوحدة'), [
         '${u['unitNo']}',
         if ('${u['unitType'] ?? ''}'.isNotEmpty) '${u['unitType']}',
         if ('${u['floor'] ?? ''}'.isNotEmpty) 'دور ${u['floor']}',
         if (u['area'] != null) '${u['area']} م²',
       ].join(' — ')),
-      row('سعر الوحدة', '${_group(q.price)} جنيه'),
-      if (q.discountPct > 0) row('الخصم', '${q.discountPct}% — السعر بعد الخصم ${_group(q.net)} جنيه'),
-      row('المقدم', '${q.downPct}% = ${_group(q.downAmount)} جنيه'),
-      if (q.count > 0) row('الأقساط', '${q.count} قسط $everyAr — القسط ${_group(q.installment)} جنيه على ${q.years} سنين'),
+      row(tr('سعر الوحدة'), '${_group(q.price)} جنيه'),
+      if (q.discountPct > 0) row(tr('الخصم'), '${q.discountPct}% — السعر بعد الخصم ${_group(q.net)} جنيه'),
+      row(tr('المقدم'), '${q.downPct}% = ${_group(q.downAmount)} جنيه'),
+      if (q.count > 0) row(tr('الأقساط'), '${q.count} قسط $everyAr — القسط ${_group(q.installment)} جنيه على ${q.years} سنين'),
       pw.SizedBox(height: 14),
       if (sched.isNotEmpty)
         pw.TableHelper.fromTextArray(
@@ -167,9 +167,9 @@ Future<Uint8List> buildQuotePdf(Quote q) async {
           headerStyle: pw.TextStyle(font: bold, fontSize: 10, color: PdfColors.white),
           headerDecoration: pw.BoxDecoration(color: orange),
           cellStyle: pw.TextStyle(font: regular, fontSize: 10),
-          headers: ['المبلغ', 'التاريخ', 'القسط'],
+          headers: [tr('المبلغ'), tr('التاريخ'), tr('القسط')],
           data: [
-            ['${_group(q.downAmount)}', 'عند الحجز', 'المقدم'],
+            ['${_group(q.downAmount)}', tr('عند الحجز'), tr('المقدم')],
             for (var i = 0; i < sched.length; i++) ['${_group(sched[i].$2)}', '${sched[i].$1.month}/${sched[i].$1.year}', '${i + 1}'],
           ],
         ),

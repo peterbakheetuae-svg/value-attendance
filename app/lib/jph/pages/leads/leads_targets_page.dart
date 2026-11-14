@@ -44,15 +44,15 @@ class _LeadsTargetsPageState extends State<LeadsTargetsPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    final months = [tr('يناير'), tr('فبراير'), tr('مارس'), tr('أبريل'), tr('مايو'), tr('يونيو'), tr('يوليو'), tr('أغسطس'), tr('سبتمبر'), tr('أكتوبر'), tr('نوفمبر'), tr('ديسمبر')];
     return LeadsShell(
       isDark: isDark,
-      title: 'التارجت الشهري',
+      title: tr('التارجت الشهري'),
       action: IconButton(
-        tooltip: 'تصدير إكسيل',
+        tooltip: tr('تصدير إكسيل'),
         icon: Icon(Icons.file_download_rounded, color: JphUi.text(isDark)),
         onPressed: () => exportTable(context, 'targets', 'تارجت $_m', [
-          'السيلز', 'مكالمات', 'تارجت', 'ميتنجات', 'تارجت', 'حجوزات', 'تارجت', 'تعاقدات', 'تارجت', 'قيمة التعاقدات', 'تارجت',
+          tr('السيلز'), tr('مكالمات'), tr('تارجت'), tr('ميتنجات'), tr('تارجت'), tr('حجوزات'), tr('تارجت'), tr('تعاقدات'), tr('تارجت'), tr('قيمة التعاقدات'), tr('تارجت'),
         ], [
           for (final p in _people)
             [
@@ -89,17 +89,17 @@ class _LeadsTargetsPageState extends State<LeadsTargetsPage> {
     final c = {
       for (final k in const ['calls', 'meetings', 'reservations', 'deals', 'dealsValue']) k: TextEditingController(text: t[k] == null ? '' : '${t[k]}'),
     };
-    const labels = {'calls': 'مكالمات (أكشنات)', 'meetings': 'ميتنجات', 'reservations': 'حجوزات', 'deals': 'تعاقدات', 'dealsValue': 'قيمة التعاقدات'};
+    final labels = {'calls': tr('مكالمات (أكشنات)'), 'meetings': tr('ميتنجات'), 'reservations': tr('حجوزات'), 'deals': tr('تعاقدات'), 'dealsValue': tr('قيمة التعاقدات')};
     final ok = await leadForm(context, isDark, 'تارجت ${p['name']} — $_m', (set) => [
           for (final e in c.entries)
-            JphUi.input(isDark: isDark, label: labels[e.key]!, controller: e.value, number: true, suffix: e.key == 'dealsValue' ? 'جنيه' : null, big: false),
+            JphUi.input(isDark: isDark, label: labels[e.key]!, controller: e.value, number: true, suffix: e.key == 'dealsValue' ? tr('جنيه') : null, big: false),
         ], () async {
       final r = await lpost('/leads/targets', {
         'month': _m,
         'items': [
           {'employeeId': p['id'], for (final e in c.entries) e.key: num.tryParse(e.value.text.replaceAll(',', '').trim()) ?? 0},
         ],
-      }, ok: 'اتحفظ التارجت ✅');
+      }, ok: tr('اتحفظ التارجت ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
@@ -110,17 +110,17 @@ class _LeadsTargetsPageState extends State<LeadsTargetsPage> {
 /// one salesman's month: each target with its bar
 Widget targetCard(bool isDark, Map<String, dynamic> p, {VoidCallback? onEdit, bool mine = false}) {
   final a = lm(p['actual']), t = lm(p['target']);
-  const rows = [('calls', 'مكالمات'), ('meetings', 'ميتنجات'), ('reservations', 'حجوزات'), ('deals', 'تعاقدات'), ('dealsValue', 'قيمة التعاقدات')];
+  final rows = [('calls', tr('مكالمات')), ('meetings', tr('ميتنجات')), ('reservations', tr('حجوزات')), ('deals', tr('تعاقدات')), ('dealsValue', tr('قيمة التعاقدات'))];
   return Container(
     margin: const EdgeInsets.only(bottom: 10),
     padding: const EdgeInsets.all(14),
     decoration: JphUi.box(isDark),
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
-        Expanded(child: Text(mine ? 'التارجت بتاعك الشهر ده' : '${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+        Expanded(child: Text(mine ? tr('التارجت بتاعك الشهر ده') : '${p['name']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
         if (onEdit != null) IconButton(onPressed: onEdit, icon: Icon(Icons.edit_rounded, color: JphUi.sub(isDark))),
       ]),
-      if (p['target'] == null) Text('مفيش تارجت للشهر ده', style: TextStyle(color: JphUi.sub(isDark))),
+      if (p['target'] == null) Text(tr('مفيش تارجت للشهر ده'), style: TextStyle(color: JphUi.sub(isDark))),
       for (final r in rows)
         if (p['target'] != null && ((t[r.$1] as num?) ?? 0) > 0)
           Padding(

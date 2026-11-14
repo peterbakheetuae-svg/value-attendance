@@ -77,23 +77,23 @@ class _LeadsListPageState extends State<LeadsListPage> {
     final can = lm(_meta['can']);
     final manager = can['assign'] == true;
     final tabs = <(String, String)>[
-      ('all', 'الكل'), if (manager) ('mine', 'ليدز بتاعتي'), ('today', 'النهارده'), ('fresh', 'فريش'), ('cold', 'كولد'),
-      ('delay', 'متأخر'), ('pending', 'مستني أكشن'), if (manager) ('duplicated', 'مكرر'), if (can['distribute'] == true) ('unassigned', 'مش متوزع'),
-      ('shared', 'متشارك'),
+      ('all', tr('الكل')), if (manager) ('mine', tr('ليدز بتاعتي')), ('today', tr('النهارده')), ('fresh', tr('فريش')), ('cold', tr('كولد')),
+      ('delay', tr('متأخر')), ('pending', tr('مستني أكشن')), if (manager) ('duplicated', tr('مكرر')), if (can['distribute'] == true) ('unassigned', tr('مش متوزع')),
+      ('shared', tr('متشارك')),
     ];
     return LeadsShell(
       isDark: isDark,
-      title: 'الليدز',
+      title: tr('الليدز'),
       action: Row(mainAxisSize: MainAxisSize.min, children: [
         if (manager)
           IconButton(
-            tooltip: 'تصدير إكسيل',
+            tooltip: tr('تصدير إكسيل'),
             onPressed: () => _export(),
             icon: Icon(Icons.file_download_rounded, color: JphUi.text(isDark)),
           ),
         if (can['import'] == true)
           IconButton(
-            tooltip: 'استيراد من إكسيل',
+            tooltip: tr('استيراد من إكسيل'),
             onPressed: () async {
               if (await importLeads(context, isDark, _meta)) _load();
             },
@@ -104,8 +104,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
           ? FloatingActionButton.extended(
               onPressed: () async {
                 final what = await JphUi.sheet<String>(context, isDark, '${_picked.length} ليد', [
-                  ('assign', 'توزيع / نقل لسيلز', Icons.switch_account_rounded),
-                  ('bulk', 'تعديل جماعي (المشروع / النوع / التقييم / القناة)', Icons.edit_note_rounded),
+                  ('assign', tr('توزيع / نقل لسيلز'), Icons.switch_account_rounded),
+                  ('bulk', tr('تعديل جماعي (المشروع / النوع / التقييم / القناة)'), Icons.edit_note_rounded),
                 ]);
                 if (!mounted || what == null) return;
                 final done = what == 'assign'
@@ -127,7 +127,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
               backgroundColor: JphUi.primary(isDark),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('ليد جديد', style: TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(tr('ليد جديد'), style: TextStyle(fontWeight: FontWeight.w800)),
             ),
       child: RefreshIndicator(
         onRefresh: _load,
@@ -147,9 +147,9 @@ class _LeadsListPageState extends State<LeadsListPage> {
                 _debounce = Timer(const Duration(milliseconds: 400), _load);
               },
               decoration: InputDecoration(
-                hintText: 'دوّر بالاسم أو الرقم أو التعليق',
+                hintText: tr('دوّر بالاسم أو الرقم أو التعليق'),
                 prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: IconButton(icon: const Icon(Icons.tune_rounded), tooltip: 'فلتر', onPressed: () => _filters(isDark)),
+                suffixIcon: IconButton(icon: const Icon(Icons.tune_rounded), tooltip: tr('فلتر'), onPressed: () => _filters(isDark)),
                 filled: true,
                 fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.white.withOpacity(0.8),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
@@ -204,7 +204,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                   }),
                   if (_channel != null) InputChip(label: Text(_name('channels', _channel)), onDeleted: () { _channel = null; _load(); }),
                   if (_rating != null)
-                    InputChip(label: Text({'hot': 'ساخن 🔥', 'warm': 'دافي', 'cold': 'بارد'}[_rating] ?? ''), onDeleted: () {
+                    InputChip(label: Text({'hot': tr('ساخن 🔥'), 'warm': tr('دافي'), 'cold': tr('بارد')}[_rating] ?? ''), onDeleted: () {
                       _rating = null;
                       _load();
                     }),
@@ -225,13 +225,13 @@ class _LeadsListPageState extends State<LeadsListPage> {
                         _picked.addAll(_leads.map((l) => '${l['id']}'));
                       }
                     }),
-                    child: Text(_picked.length == _leads.length ? 'شيل التحديد' : 'حدد الكل'),
+                    child: Text(_picked.length == _leads.length ? tr('شيل التحديد') : tr('حدد الكل')),
                   ),
               ]),
             ),
             if (_loading && _leads.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
             if (!_loading && _leads.isEmpty)
-              Padding(padding: const EdgeInsets.all(30), child: Text('مفيش عملاء هنا', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+              Padding(padding: const EdgeInsets.all(30), child: Text(tr('مفيش عملاء هنا'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
             LayoutBuilder(builder: (context, c) {
               final cols = c.maxWidth > 900 ? 3 : c.maxWidth > 600 ? 2 : 1;
               final w = (c.maxWidth - (cols - 1) * 10) / cols;
@@ -292,7 +292,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                     ? 'مستني أول أكشن — اتوزع ${agoAr(l['assignedAt'])}'
                     : l['nextAt'] != null
                         ? '${l['overdue'] == true ? 'متأخر: ' : 'المتابعة: '}${whenAr(l['nextAt'])}'
-                        : l['lastActionAt'] == null ? 'لسه محدش كلّمه' : 'آخر أكشن ${agoAr(l['lastActionAt'])}',
+                        : l['lastActionAt'] == null ? tr('لسه محدش كلّمه') : 'آخر أكشن ${agoAr(l['lastActionAt'])}',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: late ? Ar.red : JphUi.sub(isDark)),
               ),
             ),
@@ -300,12 +300,12 @@ class _LeadsListPageState extends State<LeadsListPage> {
               Text('${lm(l['assignedTo'])['name']}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Ar.accent.shade700)),
           ]),
           Row(children: [
-            IconButton(visualDensity: VisualDensity.compact, tooltip: 'اتصال', onPressed: () => callPhone('${l['phone']}'),
+            IconButton(visualDensity: VisualDensity.compact, tooltip: tr('اتصال'), onPressed: () => callPhone('${l['phone']}'),
                 icon: const Icon(Icons.call_rounded, color: Ar.green)),
-            IconButton(visualDensity: VisualDensity.compact, tooltip: 'واتساب', onPressed: () => whatsApp('${l['phone']}'),
+            IconButton(visualDensity: VisualDensity.compact, tooltip: tr('واتساب'), onPressed: () => whatsApp('${l['phone']}'),
                 icon: const Icon(Icons.chat_rounded, color: Color(0xFF25D366))),
-            if (l['kind'] == 'cold') JphUi.chip('كولد', Ar.info),
-            if (l['duplicateOf'] != null) Padding(padding: const EdgeInsets.only(right: 4), child: JphUi.chip('مكرر', Ar.amber)),
+            if (l['kind'] == 'cold') JphUi.chip(tr('كولد'), Ar.info),
+            if (l['duplicateOf'] != null) Padding(padding: const EdgeInsets.only(right: 4), child: JphUi.chip(tr('مكرر'), Ar.amber)),
             const Spacer(),
             if (!const ['done_deal'].contains(l['stage']))
               TextButton.icon(
@@ -313,7 +313,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                   if (await addLeadAction(context, isDark, l, _meta)) _load();
                 },
                 icon: const Icon(Icons.add_task_rounded, size: 18),
-                label: const Text('أكشن', style: TextStyle(fontWeight: FontWeight.w800)),
+                label: Text(tr('أكشن'), style: TextStyle(fontWeight: FontWeight.w800)),
               ),
           ]),
         ]),
@@ -323,14 +323,14 @@ class _LeadsListPageState extends State<LeadsListPage> {
 
   Future<void> _filters(bool isDark) async {
     String? p = _project, ch = _channel, who = _person, rt = _rating;
-    final ok = await leadForm(context, isDark, 'فلتر', (set) => [
-          refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(_meta['projects']), p, (v) => set(() => p = v)),
-          refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(_meta['channels']), ch, (v) => set(() => ch = v)),
+    final ok = await leadForm(context, isDark, tr('فلتر'), (set) => [
+          refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(_meta['projects']), p, (v) => set(() => p = v)),
+          refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(_meta['channels']), ch, (v) => set(() => ch = v)),
           if (ll(_meta['assignees']).isNotEmpty)
-            refPicker(context, isDark, 'السيلز', Icons.person_rounded, ll(_meta['assignees']), who, (v) => set(() => who = v)),
-          refPicker(context, isDark, 'تقييم العميل', Icons.local_fire_department_rounded,
-              const [{'id': 'hot', 'name': 'ساخن 🔥'}, {'id': 'warm', 'name': 'دافي'}, {'id': 'cold', 'name': 'بارد'}], rt, (v) => set(() => rt = v)),
-        ], () async => true, saveLabel: 'طبّق', saveIcon: Icons.filter_alt_rounded);
+            refPicker(context, isDark, tr('السيلز'), Icons.person_rounded, ll(_meta['assignees']), who, (v) => set(() => who = v)),
+          refPicker(context, isDark, tr('تقييم العميل'), Icons.local_fire_department_rounded,
+              [{'id': 'hot', 'name': tr('ساخن 🔥')}, {'id': 'warm', 'name': tr('دافي')}, {'id': 'cold', 'name': tr('بارد')}], rt, (v) => set(() => rt = v)),
+        ], () async => true, saveLabel: tr('طبّق'), saveIcon: Icons.filter_alt_rounded);
     if (!ok) return;
     _project = p;
     _channel = ch;
@@ -341,7 +341,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
 
   /// all the leads of the current tab / filters (up to 5000) → Excel; the export is written in the log
   Future<void> _export() async {
-    JphUi.toast(context, {'success': true, 'message': 'بجهّز الملف…'});
+    JphUi.toast(context, {'success': true, 'message': tr('بجهّز الملف…')});
     final rows = <List<Object?>>[];
     for (var page = 1; page <= 25; page++) {
       final r = await lget('/leads', {
@@ -352,7 +352,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
       for (final l in got) {
         rows.add([
           l['refNo'], l['fullName'], l['phone'], ((l['extraPhones'] as List?) ?? const []).join(' / '), lm(l['project'])['name'], lm(l['channel'])['name'],
-          lm(l['campaign'])['name'], l['kind'] == 'cold' ? 'كولد' : 'فريش', l['stageAr'], {'hot': 'ساخن', 'warm': 'دافي', 'cold': 'بارد'}[l['rating']],
+          lm(l['campaign'])['name'], l['kind'] == 'cold' ? tr('كولد') : tr('فريش'), l['stageAr'], {'hot': tr('ساخن'), 'warm': tr('دافي'), 'cold': tr('بارد')}[l['rating']],
           lm(l['assignedTo'])['name'], whenAr(l['nextAt']), l['lastComment'], lm(l['cancelReason'])['name'], l['budget'], whenAr(l['createdAt']),
         ]);
       }
@@ -360,8 +360,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
     }
     if (!mounted) return;
     await exportTable(context, 'leads', 'ليدز ${DateTime.now().day}-${DateTime.now().month}', [
-      'رقم', 'الاسم', 'الموبايل', 'أرقام تانية', 'المشروع', 'القناة', 'الحملة', 'النوع', 'المرحلة', 'التقييم', 'السيلز', 'المتابعة الجاية',
-      'آخر تعليق', 'سبب الإلغاء', 'الميزانية', 'اتضاف',
+      tr('رقم'), tr('الاسم'), tr('الموبايل'), tr('أرقام تانية'), tr('المشروع'), tr('القناة'), tr('الحملة'), tr('النوع'), tr('المرحلة'), tr('التقييم'), tr('السيلز'), tr('المتابعة الجاية'),
+      tr('آخر تعليق'), tr('سبب الإلغاء'), tr('الميزانية'), tr('اتضاف'),
     ], rows, filters: {'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person, 'rating': _rating});
   }
 }

@@ -8,6 +8,22 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
+import 'leads_tr.dart';
+
+/// The language of the leads pages (set with the app's language in main.dart): ar / en / hi / ur.
+class LeadsTr {
+  static String lang = 'ar';
+  static bool get rtl => lang == 'ar' || lang == 'ur';
+}
+
+/// a leads page's Arabic text in the app's language (Arabic when there is no translation)
+String tr(String ar) {
+  final i = const {'en': 0, 'hi': 1, 'ur': 2}[LeadsTr.lang];
+  if (i == null) return ar;
+  return leadsTranslations[ar]?[i] ?? ar;
+}
+
+ui.TextDirection get leadsDir => LeadsTr.rtl ? ui.TextDirection.rtl : ui.TextDirection.ltr;
 
 /// نظام الليدز — the shared pieces of its pages (the API, the stages' colours, the forms' sheet).
 Map<String, dynamic> lm(Object? v) => (v as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -15,7 +31,7 @@ List<Map<String, dynamic>> ll(Object? v) => ((v as List?) ?? const []).whereType
 
 Future<Map<String, dynamic>> lget(String path, [Map<String, String?>? q]) =>
     ApiService.post({'action': 'cash_get', 'path': path, if (q != null) 'query': q});
-Future<Map<String, dynamic>> lpost(String path, Map<String, dynamic> body, {String ok = 'تم ✅', String? method}) =>
+Future<Map<String, dynamic>> lpost(String path, Map<String, dynamic> body, {String ok = tr('تم ✅'), String? method}) =>
     ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok, if (method != null) 'method': method});
 
 /// who sees the sales dashboard in the menu
@@ -62,9 +78,9 @@ IconData stageIcon(String? s) => switch (s) {
       _ => Icons.circle_outlined,
     };
 
-const stageNames = <String, String>{
-  'new': 'جديد', 'no_answer': 'أول مكالمة — مردّش', 'following': 'متابعة', 'interested': 'مهتم', 'meeting': 'ميتنج',
-  'after_meeting': 'متابعة بعد الميتنج', 'reschedule': 'تأجيل ميتنج', 'cancelled': 'إلغاء', 'reservation': 'حجز', 'done_deal': 'تم البيع',
+Map<String, String> get stageNames => <String, String>{
+  'new': tr('جديد'), 'no_answer': tr('أول مكالمة — مردّش'), 'following': tr('متابعة'), 'interested': tr('مهتم'), 'meeting': tr('ميتنج'),
+  'after_meeting': tr('متابعة بعد الميتنج'), 'reschedule': tr('تأجيل ميتنج'), 'cancelled': tr('إلغاء'), 'reservation': tr('حجز'), 'done_deal': tr('تم البيع'),
 };
 
 String two(int v) => v.toString().padLeft(2, '0');
@@ -73,12 +89,12 @@ String two(int v) => v.toString().padLeft(2, '0');
 String whenAr(Object? iso, {bool withDay = true}) {
   final d = DateTime.tryParse('${iso ?? ''}')?.toLocal();
   if (d == null) return '--';
-  const days = ['الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت', 'الحد'];
+  final days = [tr('الاتنين'), tr('التلات'), tr('الأربع'), tr('الخميس'), tr('الجمعة'), tr('السبت'), tr('الحد')];
   final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final day = DateTime(d.year, d.month, d.day);
-  final rel = day == today ? 'النهارده' : day == today.add(const Duration(days: 1)) ? 'بكرة' : day == today.subtract(const Duration(days: 1)) ? 'امبارح' : null;
+  final rel = day == today ? tr('النهارده') : day == today.add(const Duration(days: 1)) ? tr('بكرة') : day == today.subtract(const Duration(days: 1)) ? tr('امبارح') : null;
   final date = rel ?? '${withDay ? '${days[d.weekday - 1]} ' : ''}${d.day}/${d.month}${d.year != now.year ? '/${d.year}' : ''}';
   return '$date — $h:${two(d.minute)} ${d.hour < 12 ? 'ص' : 'م'}';
 }
@@ -87,7 +103,7 @@ String agoAr(Object? iso) {
   final d = DateTime.tryParse('${iso ?? ''}')?.toLocal();
   if (d == null) return '';
   final m = DateTime.now().difference(d).inMinutes;
-  if (m < 1) return 'دلوقتي';
+  if (m < 1) return tr('دلوقتي');
   if (m < 60) return 'من $m دقيقة';
   if (m < 60 * 24) return 'من ${m ~/ 60} ساعة';
   return 'من ${m ~/ (60 * 24)} يوم';
@@ -131,14 +147,14 @@ Widget leadBtn(bool isDark, String label, IconData icon, VoidCallback? onTap, {C
 
 /// A form in a sheet (a side panel on the computer): its fields, and a save button that closes it when [save] is true.
 Future<bool> leadForm(BuildContext context, bool isDark, String title, List<Widget> Function(StateSetter set) fields,
-    Future<bool> Function() save, {String saveLabel = 'حفظ', IconData saveIcon = Icons.check_rounded}) async {
+    Future<bool> Function() save, {String saveLabel = tr('حفظ'), IconData saveIcon = Icons.check_rounded}) async {
   var busy = false;
   final r = await showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => Directionality(
-      textDirection: ui.TextDirection.rtl,
+      textDirection: leadsDir,
       child: StatefulBuilder(
         builder: (ctx, set) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
@@ -156,7 +172,7 @@ Future<bool> leadForm(BuildContext context, bool isDark, String title, List<Widg
                 const SizedBox(height: 8),
                 ...fields(set).expand((w) => [w, const SizedBox(height: 10)]),
                 const SizedBox(height: 6),
-                leadBtn(isDark, busy ? 'لحظة…' : saveLabel, saveIcon, busy
+                leadBtn(isDark, busy ? tr('لحظة…') : saveLabel, saveIcon, busy
                     ? null
                     : () async {
                         set(() => busy = true);
@@ -184,7 +200,7 @@ Future<List<String>?> pickPeople(BuildContext context, bool isDark, String title
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (ctx) => Directionality(
-      textDirection: ui.TextDirection.rtl,
+      textDirection: leadsDir,
       child: StatefulBuilder(builder: (ctx, set) {
         final q = search.text.trim();
         final shown = people.where((p) => q.isEmpty || '${p['name']}'.contains(q) || '${p['code'] ?? ''}'.contains(q)).toList();
@@ -200,19 +216,19 @@ Future<List<String>?> pickPeople(BuildContext context, bool isDark, String title
               IconButton(onPressed: () => Navigator.pop(ctx), icon: Icon(Icons.close_rounded, color: JphUi.sub(isDark))),
             ]),
             if (multi)
-              Text('لو اخترت أكتر من واحد الليدز بتتوزع عليهم بالدور', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+              Text(tr('لو اخترت أكتر من واحد الليدز بتتوزع عليهم بالدور'), style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
             const SizedBox(height: 8),
             TextField(
               controller: search,
               onChanged: (_) => set(() {}),
-              decoration: InputDecoration(hintText: 'دوّر بالاسم', prefixIcon: const Icon(Icons.search_rounded),
+              decoration: InputDecoration(hintText: tr('دوّر بالاسم'), prefixIcon: const Icon(Icons.search_rounded),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), isDense: true),
             ),
             const SizedBox(height: 8),
             if (multi)
               Row(children: [
-                TextButton(onPressed: () => set(() => chosen.addAll(shown.map((p) => '${p['id']}'))), child: const Text('اختار الكل')),
-                TextButton(onPressed: () => set(chosen.clear), child: const Text('شيل الكل')),
+                TextButton(onPressed: () => set(() => chosen.addAll(shown.map((p) => '${p['id']}'))), child: Text(tr('اختار الكل'))),
+                TextButton(onPressed: () => set(chosen.clear), child: Text(tr('شيل الكل'))),
               ]),
             Flexible(
               child: ListView(shrinkWrap: true, children: [
@@ -232,7 +248,7 @@ Future<List<String>?> pickPeople(BuildContext context, bool isDark, String title
             ),
             if (multi) ...[
               const SizedBox(height: 8),
-              leadBtn(isDark, 'تمام', Icons.check_rounded, () => Navigator.pop(ctx, chosen.toList())),
+              leadBtn(isDark, tr('تمام'), Icons.check_rounded, () => Navigator.pop(ctx, chosen.toList())),
             ],
           ]),
         );
@@ -246,10 +262,10 @@ Widget refPicker(BuildContext context, bool isDark, String label, IconData icon,
     ValueChanged<String?> onPick, {bool allowNone = true}) {
   final cur = items.firstWhere((x) => '${x['id']}' == value, orElse: () => const {});
   return JphUi.picker(
-    isDark: isDark, icon: icon, iconColor: Ar.accent, label: label, value: cur.isEmpty ? 'اختار' : '${cur['name']}',
+    isDark: isDark, icon: icon, iconColor: Ar.accent, label: label, value: cur.isEmpty ? tr('اختار') : '${cur['name']}',
     onTap: () async {
       final v = await JphUi.sheet<String>(context, isDark, label, [
-        if (allowNone) ('', 'من غير', Icons.remove_circle_outline_rounded),
+        if (allowNone) ('', tr('من غير'), Icons.remove_circle_outline_rounded),
         for (final x in items) ('${x['id']}', '${x['name']}', icon),
       ], selected: value ?? '');
       if (v != null) onPick(v.isEmpty ? null : v);
@@ -263,7 +279,7 @@ class WhenField extends StatelessWidget {
   final DateTime? value;
   final ValueChanged<DateTime> onPick;
   final String label;
-  const WhenField({super.key, required this.isDark, required this.value, required this.onPick, this.label = 'معاد المتابعة الجاية'});
+  WhenField({super.key, required this.isDark, required this.value, required this.onPick, this.label = tr('معاد المتابعة الجاية')});
 
   @override
   Widget build(BuildContext context) {
@@ -273,15 +289,15 @@ class WhenField extends StatelessWidget {
     }
 
     final quick = <(String, DateTime Function())>[
-      ('بعد ساعة', () => DateTime.now().add(const Duration(hours: 1))),
-      ('بعد ساعتين', () => DateTime.now().add(const Duration(hours: 2))),
-      ('بكرة', () => at(1, 11)),
-      ('الأسبوع الجاي', () => at(7, 11)),
+      (tr('بعد ساعة'), () => DateTime.now().add(const Duration(hours: 1))),
+      (tr('بعد ساعتين'), () => DateTime.now().add(const Duration(hours: 2))),
+      (tr('بكرة'), () => at(1, 11)),
+      (tr('الأسبوع الجاي'), () => at(7, 11)),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       JphUi.picker(
         isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: label,
-        value: value == null ? 'اختار المعاد' : whenAr(value!.toIso8601String()),
+        value: value == null ? tr('اختار المعاد') : whenAr(value!.toIso8601String()),
         onTap: () async {
           final now = DateTime.now();
           final d = await showDatePicker(context: context, initialDate: value ?? now, firstDate: DateTime(now.year, now.month, now.day),
@@ -316,7 +332,7 @@ class LeadsShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AppBackground(
         child: Directionality(
-        textDirection: ui.TextDirection.rtl,
+        textDirection: leadsDir,
         child: Scaffold(
           backgroundColor: Colors.transparent,
           floatingActionButton: fab,

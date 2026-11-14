@@ -20,13 +20,13 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
   List<String> assignees = [];
   final people = ll(meta['assignees']);
   String result = '';
-  return leadForm(context, isDark, 'استيراد ليدز من إكسيل', (set) {
+  return leadForm(context, isDark, tr('استيراد ليدز من إكسيل'), (set) {
     final camps = ll(meta['campaigns']).where((c) => channel == null || c['channelId'] == null || c['channelId'] == channel).toList();
     return [
-      Text('أول صف في الملف هو العناوين: الاسم، الموبايل، موبايل 2، الإيميل، الميزانية، المشروع، القناة، ملاحظات.\n'
-          'أقصى 1000 عميل في المرة. الرقم المكرر بيروح لنفس السيلز بتاعه.',
+      Text(tr('أول صف في الملف هو العناوين: الاسم، الموبايل، موبايل 2، الإيميل، الميزانية، المشروع، القناة، ملاحظات.\n') +
+          tr('أقصى 1000 عميل في المرة. الرقم المكرر بيروح لنفس السيلز بتاعه.'),
           style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
-      leadBtn(isDark, file.isEmpty ? 'اختار الملف (xlsx / csv)' : '$file — ${rows.length} عميل', Icons.upload_file_rounded, () async {
+      leadBtn(isDark, file.isEmpty ? tr('اختار الملف (xlsx / csv)') : '$file — ${rows.length} عميل', Icons.upload_file_rounded, () async {
         final f = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'csv', 'txt'], withData: true);
         final x = f?.files.firstOrNull;
         if (x?.bytes == null) return;
@@ -39,27 +39,27 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
             result = parsed.isEmpty ? 'مش لاقي عمود الاسم والموبايل في أول صف' : '';
           });
         } catch (_) {
-          set(() => result = 'الملف ده مش مقروء — احفظه xlsx أو CSV وجرّب تاني');
+          set(() => result = tr('الملف ده مش مقروء — احفظه xlsx أو CSV وجرّب تاني'));
         }
       }, outline: true),
       if (rows.isNotEmpty)
         Text('أول عميل: ${rows.first['fullName']} — ${rows.first['phone']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
-      refPicker(context, isDark, 'المشروع (للصفوف اللي من غير مشروع)', Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
-      refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() {
+      refPicker(context, isDark, tr('المشروع (للصفوف اللي من غير مشروع)'), Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
+      refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() {
             channel = v;
             campaign = null;
           })),
-      if (camps.isNotEmpty) refPicker(context, isDark, 'الحملة', Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
+      if (camps.isNotEmpty) refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
       SegmentedButton<String>(
-        segments: const [ButtonSegment(value: 'fresh', label: Text('فريش')), ButtonSegment(value: 'cold', label: Text('كولد كول'))],
+        segments: [ButtonSegment(value: 'fresh', label: Text(tr('فريش'))), ButtonSegment(value: 'cold', label: Text(tr('كولد كول')))],
         selected: {kind},
         onSelectionChanged: (s) => set(() => kind = s.first),
       ),
       JphUi.picker(
-        isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: 'وزّع على',
-        value: assignees.isEmpty ? 'من غير (تفضل مش متوزعة)' : '${assignees.length} سيلز بالدور',
+        isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('وزّع على'),
+        value: assignees.isEmpty ? tr('من غير (تفضل مش متوزعة)') : '${assignees.length} سيلز بالدور',
         onTap: () async {
-          final v = await pickPeople(context, isDark, 'وزّع على', people, selected: assignees);
+          final v = await pickPeople(context, isDark, tr('وزّع على'), people, selected: assignees);
           if (v != null) set(() => assignees = v);
         },
       ),
@@ -67,7 +67,7 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
     ];
   }, () async {
     if (rows.isEmpty) {
-      JphUi.toast(context, {'success': false, 'message': 'اختار الملف الأول'});
+      JphUi.toast(context, {'success': false, 'message': tr('اختار الملف الأول')});
       return false;
     }
     if (rows.length > 1000) {
@@ -76,7 +76,7 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
     }
     final r = await lpost('/leads/import', {
       'rows': rows, 'kind': kind, 'projectId': project, 'channelId': channel, 'campaignId': campaign, 'assignees': assignees,
-    }, ok: 'اتستورد ✅');
+    }, ok: tr('اتستورد ✅'));
     if (r['success'] != true) {
       if (context.mounted) JphUi.toast(context, r);
       return false;
@@ -86,21 +86,21 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('نتيجة الاستيراد'),
+          title: Text(tr('نتيجة الاستيراد')),
           content: SingleChildScrollView(
             child: Text('اتضاف ${r['created']} عميل${(r['duplicates'] ?? 0) > 0 ? ' (منهم ${r['duplicates']} مكرر راح لسيلزه)' : ''}.'
                 '${failed.isEmpty ? '' : '\n\nماتضافش ${failed.length}:\n${failed.take(50).map((f) => 'صف ${(f['row'] as num) + 1}: ${f['error']}').join('\n')}'}'),
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('تمام')))],
         ),
       );
     }
     return true;
-  }, saveLabel: 'استورد', saveIcon: Icons.cloud_upload_rounded);
+  }, saveLabel: tr('استورد'), saveIcon: Icons.cloud_upload_rounded);
 }
 
 /// the headers we understand → the field
-const _headers = <String, String>{
+final _headers = <String, String>{
   'الاسم': 'fullName', 'اسم العميل': 'fullName', 'name': 'fullName', 'full name': 'fullName', 'client': 'fullName',
   'الموبايل': 'phone', 'الرقم': 'phone', 'رقم الموبايل': 'phone', 'التليفون': 'phone', 'mobile': 'phone', 'phone': 'phone',
   'موبايل 2': 'phone2', 'رقم تاني': 'phone2', 'mobile 2': 'phone2', 'phone 2': 'phone2',

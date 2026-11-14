@@ -43,7 +43,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     final isDark = context.watch<AppController>().isDark;
     return LeadsShell(
       isDark: isDark,
-      title: 'إعدادات الليدز',
+      title: tr('إعدادات الليدز'),
       fab: _tab >= 4
           ? null
           : FloatingActionButton.extended(
@@ -55,7 +55,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
               backgroundColor: JphUi.primary(isDark),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
-              label: Text(['قناة جديدة', 'حملة جديدة', 'سبب جديد', 'رسالة جديدة'][_tab], style: const TextStyle(fontWeight: FontWeight.w800)),
+              label: Text([tr('قناة جديدة'), tr('حملة جديدة'), tr('سبب جديد'), tr('رسالة جديدة')][_tab], style: const TextStyle(fontWeight: FontWeight.w800)),
             ),
       child: RefreshIndicator(
         onRefresh: _load,
@@ -63,9 +63,9 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              for (final (i, t) in const [
-                ('القنوات', Icons.campaign_rounded), ('الحملات', Icons.ads_click_rounded), ('أسباب الإلغاء', Icons.cancel_rounded),
-                ('رسايل واتساب', Icons.chat_rounded), ('التنبيه والسحب', Icons.alarm_rounded), ('سجل التصدير', Icons.file_download_rounded),
+              for (final (i, t) in [
+                (tr('القنوات'), Icons.campaign_rounded), (tr('الحملات'), Icons.ads_click_rounded), (tr('أسباب الإلغاء'), Icons.cancel_rounded),
+                (tr('رسايل واتساب'), Icons.chat_rounded), (tr('التنبيه والسحب'), Icons.alarm_rounded), (tr('سجل التصدير'), Icons.file_download_rounded),
               ].indexed)
                 Padding(
                   padding: const EdgeInsetsDirectional.only(end: 6),
@@ -89,7 +89,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             1 => [for (final c in ll(_d['campaigns'])) _campaignRow(isDark, c)],
             2 => [for (final c in ll(_d['cancelReasons'])) _row(isDark, c, 'cancel-reasons', Icons.cancel_rounded)],
             3 => [
-                Text('في الرسالة تقدر تكتب {الاسم} {المشروع} {السيلز} {الشركة} وبيتملوا لوحدهم.', style: TextStyle(color: JphUi.sub(isDark))),
+                Text(tr('في الرسالة تقدر تكتب {الاسم} {المشروع} {السيلز} {الشركة} وبيتملوا لوحدهم.'), style: TextStyle(color: JphUi.sub(isDark))),
                 const SizedBox(height: 8),
                 for (final c in ll(_d['templates'])) _templateRow(isDark, c),
               ],
@@ -109,7 +109,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
           child: ListTile(
             leading: Icon(icon, color: Ar.accent),
             title: Text('${c['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
-            subtitle: c['active'] == false ? const Text('موقوفة') : null,
+            subtitle: c['active'] == false ? Text(tr('موقوفة')) : null,
             trailing: Switch(
               value: c['active'] != false,
               onChanged: (v) async {
@@ -125,12 +125,12 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
 
   Future<void> _simple(bool isDark, String kind, [Map<String, dynamic>? c]) async {
     final name = TextEditingController(text: '${c?['name'] ?? ''}'), sort = TextEditingController(text: '${c?['sort'] ?? 100}');
-    final ok = await leadForm(context, isDark, c == null ? (kind == 'channels' ? 'قناة جديدة' : 'سبب إلغاء جديد') : 'تعديل', (set) => [
-          JphUi.input(isDark: isDark, label: 'الاسم', controller: name, icon: Icons.label_rounded),
-          JphUi.input(isDark: isDark, label: 'الترتيب (الأصغر الأول)', controller: sort, number: true, icon: Icons.sort_rounded, big: false),
+    final ok = await leadForm(context, isDark, c == null ? (kind == 'channels' ? tr('قناة جديدة') : tr('سبب إلغاء جديد')) : tr('تعديل'), (set) => [
+          JphUi.input(isDark: isDark, label: tr('الاسم'), controller: name, icon: Icons.label_rounded),
+          JphUi.input(isDark: isDark, label: tr('الترتيب (الأصغر الأول)'), controller: sort, number: true, icon: Icons.sort_rounded, big: false),
         ], () async {
       final b = {'name': name.text.trim(), 'sort': int.tryParse(sort.text.trim()) ?? 100};
-      final r = c == null ? await lpost('/leads/$kind', b, ok: 'اتضاف ✅') : await lpost('/leads/$kind/${c['id']}', b, method: 'patch', ok: 'اتحفظ ✅');
+      final r = c == null ? await lpost('/leads/$kind', b, ok: tr('اتضاف ✅')) : await lpost('/leads/$kind/${c['id']}', b, method: 'patch', ok: tr('اتحفظ ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
@@ -144,7 +144,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
   }
 
   List<Widget> _exportsList(bool isDark) => [
-        if (_exports.isEmpty) Text('محدش صدّر حاجة لسه', style: TextStyle(color: JphUi.sub(isDark))),
+        if (_exports.isEmpty) Text(tr('محدش صدّر حاجة لسه'), style: TextStyle(color: JphUi.sub(isDark))),
         for (final e in _exports)
           ListTile(
             leading: const Icon(Icons.file_download_rounded),
@@ -178,21 +178,21 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
 
   Future<void> _template(bool isDark, [Map<String, dynamic>? c]) async {
     final name = TextEditingController(text: '${c?['name'] ?? ''}'), body = TextEditingController(text: '${c?['body'] ?? ''}');
-    final ok = await leadForm(context, isDark, c == null ? 'رسالة واتساب جديدة' : 'تعديل الرسالة', (set) => [
-          JphUi.input(isDark: isDark, label: 'اسمها', controller: name, icon: Icons.label_rounded),
+    final ok = await leadForm(context, isDark, c == null ? tr('رسالة واتساب جديدة') : tr('تعديل الرسالة'), (set) => [
+          JphUi.input(isDark: isDark, label: tr('اسمها'), controller: name, icon: Icons.label_rounded),
           TextField(
             controller: body,
             minLines: 4,
             maxLines: 8,
-            decoration: InputDecoration(labelText: 'الرسالة', hintText: 'أهلاً أستاذ {الاسم}…', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))),
+            decoration: InputDecoration(labelText: tr('الرسالة'), hintText: tr('أهلاً أستاذ {الاسم}…'), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))),
           ),
           Wrap(spacing: 6, children: [
-            for (final k in const ['{الاسم}', '{المشروع}', '{السيلز}', '{الشركة}'])
+            for (final k in ['{الاسم}', '{المشروع}', '{السيلز}', '{الشركة}'])
               ActionChip(label: Text(k), onPressed: () => set(() => body.text = '${body.text}$k')),
           ]),
         ], () async {
       final b = {'name': name.text.trim(), 'body': body.text.trim()};
-      final r = c == null ? await lpost('/leads/templates', b, ok: 'اتضافت ✅') : await lpost('/leads/templates/${c['id']}', b, method: 'patch', ok: 'اتحفظ ✅');
+      final r = c == null ? await lpost('/leads/templates', b, ok: tr('اتضافت ✅')) : await lpost('/leads/templates/${c['id']}', b, method: 'patch', ok: tr('اتحفظ ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
@@ -209,32 +209,32 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     var enabled = true;
     final link = c['formToken'] == null ? null : '$kApiBaseUrl/f/${c['formToken']}';
     final ok = await leadForm(context, isDark, 'فورم الحملة — ${c['name']}', (set) => [
-          Text('لينك تحطه في الإعلان أو صفحة الهبوط: العميل يكتب اسمه ورقمه، والليد يدخل لوحده بالحملة والقناة ويتوزع بالدور على السيلز اللي تختارهم.',
+          Text(tr('لينك تحطه في الإعلان أو صفحة الهبوط: العميل يكتب اسمه ورقمه، والليد يدخل لوحده بالحملة والقناة ويتوزع بالدور على السيلز اللي تختارهم.'),
               style: TextStyle(color: JphUi.sub(isDark))),
-          SwitchListTile(value: enabled, onChanged: (v) => set(() => enabled = v), title: const Text('الفورم شغال')),
-          JphUi.input(isDark: isDark, label: 'العنوان اللي يظهر للعميل (اختياري)', controller: title, icon: Icons.title_rounded, big: false),
+          SwitchListTile(value: enabled, onChanged: (v) => set(() => enabled = v), title: Text(tr('الفورم شغال'))),
+          JphUi.input(isDark: isDark, label: tr('العنوان اللي يظهر للعميل (اختياري)'), controller: title, icon: Icons.title_rounded, big: false),
           JphUi.picker(
-            isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: 'الليدز تروح لمين',
-            value: to.isEmpty ? 'من غير (تفضل مش متوزعة)' : '${to.length} سيلز بالدور',
+            isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('الليدز تروح لمين'),
+            value: to.isEmpty ? tr('من غير (تفضل مش متوزعة)') : '${to.length} سيلز بالدور',
             onTap: () async {
-              final v = await pickPeople(context, isDark, 'الليدز تروح لمين', people, selected: to);
+              final v = await pickPeople(context, isDark, tr('الليدز تروح لمين'), people, selected: to);
               if (v != null) set(() => to = v);
             },
           ),
           if (link != null) ...[
             SelectableText(link, textDirection: TextDirection.ltr, style: TextStyle(fontWeight: FontWeight.w700, color: Ar.accent.shade700)),
             Row(children: [
-              TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: link)), icon: const Icon(Icons.copy_rounded), label: const Text('انسخ اللينك')),
-              TextButton.icon(onPressed: () => openUrl(link), icon: const Icon(Icons.open_in_new_rounded), label: const Text('افتحه')),
+              TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: link)), icon: const Icon(Icons.copy_rounded), label: Text(tr('انسخ اللينك'))),
+              TextButton.icon(onPressed: () => openUrl(link), icon: const Icon(Icons.open_in_new_rounded), label: Text(tr('افتحه'))),
             ]),
           ],
         ], () async {
-      final r = await lpost('/leads/campaigns/${c['id']}/form', {'enabled': enabled, 'assignees': to, 'title': title.text.trim()}, ok: 'اتحفظ ✅');
+      final r = await lpost('/leads/campaigns/${c['id']}/form', {'enabled': enabled, 'assignees': to, 'title': title.text.trim()}, ok: tr('اتحفظ ✅'));
       if (mounted) JphUi.toast(context, r);
       if (r['success'] == true && r['token'] != null && c['formToken'] == null && mounted) {
         final url = '$kApiBaseUrl/f/${r['token']}';
         await Clipboard.setData(ClipboardData(text: url));
-        if (mounted) JphUi.toast(context, {'success': true, 'message': 'اتعمل اللينك واتنسخ ✅'});
+        if (mounted) JphUi.toast(context, {'success': true, 'message': tr('اتعمل اللينك واتنسخ ✅')});
       }
       return r['success'] == true;
     });
@@ -267,7 +267,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 Text('${c['leads']} ليد', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
               IconButton(
-                tooltip: 'فورم الحملة (لينك للإعلان)',
+                tooltip: tr('فورم الحملة (لينك للإعلان)'),
                 onPressed: () => _form(isDark, c),
                 icon: Icon(Icons.link_rounded, color: c['formToken'] != null ? Ar.green : JphUi.sub(isDark)),
               ),
@@ -285,26 +285,26 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     bool active = c?['active'] != false;
     String day(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
     Future<DateTime?> pick(DateTime? v) => showDatePicker(context: context, initialDate: v ?? DateTime.now(), firstDate: DateTime(2024), lastDate: DateTime(2035));
-    final ok = await leadForm(context, isDark, c == null ? 'حملة جديدة' : 'تعديل الحملة', (set) => [
-          JphUi.input(isDark: isDark, label: 'اسم الحملة', controller: name, icon: Icons.ads_click_rounded),
-          refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() => channel = v)),
-          refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
-          JphUi.input(isDark: isDark, label: 'التكلفة', controller: cost, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-          JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: 'من', value: from == null ? 'اختار' : day(from!), onTap: () async {
+    final ok = await leadForm(context, isDark, c == null ? tr('حملة جديدة') : tr('تعديل الحملة'), (set) => [
+          JphUi.input(isDark: isDark, label: tr('اسم الحملة'), controller: name, icon: Icons.ads_click_rounded),
+          refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() => channel = v)),
+          refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
+          JphUi.input(isDark: isDark, label: tr('التكلفة'), controller: cost, number: true, suffix: tr('جنيه'), icon: Icons.payments_rounded),
+          JphUi.picker(isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: tr('من'), value: from == null ? tr('اختار') : day(from!), onTap: () async {
             final d = await pick(from);
             if (d != null) set(() => from = d);
           }),
-          JphUi.picker(isDark: isDark, icon: Icons.event_busy_rounded, iconColor: Ar.accent, label: 'لـ (اختياري)', value: to == null ? 'مفتوحة' : day(to!), onTap: () async {
+          JphUi.picker(isDark: isDark, icon: Icons.event_busy_rounded, iconColor: Ar.accent, label: tr('لـ (اختياري)'), value: to == null ? tr('مفتوحة') : day(to!), onTap: () async {
             final d = await pick(to);
             if (d != null) set(() => to = d);
           }),
-          if (c != null) SwitchListTile(value: active, onChanged: (v) => set(() => active = v), title: const Text('شغالة')),
+          if (c != null) SwitchListTile(value: active, onChanged: (v) => set(() => active = v), title: Text(tr('شغالة'))),
         ], () async {
       final b = {
         'name': name.text.trim(), 'channelId': channel, 'projectId': project, 'cost': num.tryParse(cost.text.replaceAll(',', '')) ?? 0,
         'startsOn': from == null ? null : day(from!), 'endsOn': to == null ? null : day(to!), if (c != null) 'active': active,
       };
-      final r = c == null ? await lpost('/leads/campaigns', b, ok: 'اتضافت ✅') : await lpost('/leads/campaigns/${c['id']}', b, method: 'patch', ok: 'اتحفظ ✅');
+      final r = c == null ? await lpost('/leads/campaigns', b, ok: tr('اتضافت ✅')) : await lpost('/leads/campaigns/${c['id']}', b, method: 'patch', ok: tr('اتحفظ ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
@@ -318,19 +318,19 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
       padding: const EdgeInsets.all(16),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('لو الليد اتوزع على سيلز وماعملش عليه أكشن خلال المدة دي، مديره واللي وزّعه بيجيلهم تنبيه.',
+        Text(tr('لو الليد اتوزع على سيلز وماعملش عليه أكشن خلال المدة دي، مديره واللي وزّعه بيجيلهم تنبيه.'),
             style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 10),
-        JphUi.input(isDark: isDark, label: 'بعد كام دقيقة', controller: m, number: true, suffix: 'دقيقة', icon: Icons.alarm_rounded),
+        JphUi.input(isDark: isDark, label: tr('بعد كام دقيقة'), controller: m, number: true, suffix: tr('دقيقة'), icon: Icons.alarm_rounded),
         const SizedBox(height: 16),
-        Text('السحب الأوتوماتيك: لو الليد اتوزع على كذا سيلز بالدور وفضل من غير أكشن المدة دي، يتنقل لوحده للي عليه الدور بعده. سيبه فاضي عشان يتقفل.',
+        Text(tr('السحب الأوتوماتيك: لو الليد اتوزع على كذا سيلز بالدور وفضل من غير أكشن المدة دي، يتنقل لوحده للي عليه الدور بعده. سيبه فاضي عشان يتقفل.'),
             style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 10),
-        JphUi.input(isDark: isDark, label: 'يتسحب بعد كام دقيقة (فاضي = مقفول)', controller: auto, number: true, suffix: 'دقيقة', icon: Icons.move_down_rounded),
+        JphUi.input(isDark: isDark, label: tr('يتسحب بعد كام دقيقة (فاضي = مقفول)'), controller: auto, number: true, suffix: tr('دقيقة'), icon: Icons.move_down_rounded),
         const SizedBox(height: 10),
-        leadBtn(isDark, 'حفظ', Icons.check_rounded, () async {
+        leadBtn(isDark, tr('حفظ'), Icons.check_rounded, () async {
           final r = await lpost('/leads/settings', {'pendingMinutes': int.tryParse(m.text.trim()) ?? 25, 'autoReassignMinutes': int.tryParse(auto.text.trim())},
-              method: 'patch', ok: 'اتحفظ ✅');
+              method: 'patch', ok: tr('اتحفظ ✅'));
           if (mounted) JphUi.toast(context, r);
           _load();
         }),

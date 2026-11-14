@@ -19,6 +19,7 @@ import 'jph/services/session_service.dart';
 import 'jph/theme/dark_theme.dart';
 import 'jph/theme/light_theme.dart';
 import 'jph/widgets/logo_orbit.dart';
+import 'jph/pages/leads/leads_api.dart' show LeadsTr;
 import 'pages/change_password_page.dart';
 
 /// Value Attendance — the original JPH Attendance app (screens, design, assets unchanged),
@@ -121,6 +122,7 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     return Consumer<AppController>(
       builder: (context, appController, _) {
         I18n.lang = appController.languageCode == 'ar' ? 'ar' : 'en';
+        LeadsTr.lang = appController.languageCode;
         return MaterialApp(
           title: appController.languageCode == 'ar' ? 'فاليو نيفو' : 'VALUNIVO',
           debugShowCheckedModeBanner: false,

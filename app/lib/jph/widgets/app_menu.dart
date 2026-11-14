@@ -25,7 +25,7 @@ import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../services/jph_bridge.dart';
 import 'app_nav.dart';
-import '../pages/leads/leads_api.dart' show seesLeads;
+import '../pages/leads/leads_api.dart' show seesLeads, tr;
 import '../pages/leads/leads_dashboard_page.dart';
 import 'glass_ui.dart';
 
@@ -111,7 +111,7 @@ class AppMenu {
         const MenuEntry('nav0', 'لوحة التحكم', Icons.grid_view_rounded, nav: 0),
         const MenuEntry('nav1', 'تقرير الحضور', Icons.assignment_rounded, nav: 1),
         // نظام الليدز: right after تقرير الحضور for everyone who works leads
-        if (seesLeads) MenuEntry('leads', 'لوحة السيلز', Icons.leaderboard_rounded, page: () => const LeadsDashboardPage()),
+        if (seesLeads) MenuEntry('leads', tr('لوحة السيلز'), Icons.leaderboard_rounded, page: () => const LeadsDashboardPage()),
         if (AppNav.seesEmployees && !(sidebar && gmOrAccountant)) const MenuEntry('nav2', 'الموظفين', Icons.group_rounded, nav: 2),
       ]),
       MenuSection('الأعمال', [

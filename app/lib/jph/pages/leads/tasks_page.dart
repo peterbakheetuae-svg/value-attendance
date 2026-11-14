@@ -41,10 +41,10 @@ class _TasksPageState extends State<TasksPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    final views = [('mine', 'مهامي', Icons.person_rounded), ('created', 'اللي إديتها', Icons.outbox_rounded), if (_others) ('team', 'الفريق', Icons.groups_rounded)];
+    final views = [('mine', tr('مهامي'), Icons.person_rounded), ('created', tr('اللي إديتها'), Icons.outbox_rounded), if (_others) ('team', tr('الفريق'), Icons.groups_rounded)];
     return LeadsShell(
       isDark: isDark,
-      title: 'المهام',
+      title: tr('المهام'),
       fab: FloatingActionButton.extended(
         onPressed: () async {
           if (await editTask(context, isDark)) _load();
@@ -52,7 +52,7 @@ class _TasksPageState extends State<TasksPage> {
         backgroundColor: JphUi.primary(isDark),
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_task_rounded),
-        label: const Text('مهمة جديدة', style: TextStyle(fontWeight: FontWeight.w800)),
+        label: Text(tr('مهمة جديدة'), style: TextStyle(fontWeight: FontWeight.w800)),
       ),
       child: RefreshIndicator(
         onRefresh: _load,
@@ -63,7 +63,7 @@ class _TasksPageState extends State<TasksPage> {
           }),
           const SizedBox(height: 8),
           Wrap(spacing: 6, children: [
-            for (final s in const [('open', 'المفتوحة'), ('done', 'اللي خلصت'), ('all', 'الكل')])
+            for (final s in [('open', tr('المفتوحة')), ('done', tr('اللي خلصت')), ('all', tr('الكل'))])
               ChoiceChip(selected: _status == s.$1, label: Text(s.$2), onSelected: (_) {
                 _status = s.$1;
                 _load();
@@ -72,7 +72,7 @@ class _TasksPageState extends State<TasksPage> {
           const SizedBox(height: 10),
           if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
           if (!_loading && _tasks.isEmpty)
-            Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مهام', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
+            Padding(padding: const EdgeInsets.all(30), child: Text(tr('مفيش مهام'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
           for (final t in _tasks) _card(isDark, t),
         ]),
       ),
@@ -93,7 +93,7 @@ class _TasksPageState extends State<TasksPage> {
             value: done,
             onChanged: can['status'] == true && !cancelled
                 ? (v) async {
-                    final r = await lpost('/tasks/${t['id']}', {'status': v == true ? 'done' : 'open'}, method: 'patch', ok: v == true ? 'خلصت ✅' : 'رجعت مفتوحة');
+                    final r = await lpost('/tasks/${t['id']}', {'status': v == true ? 'done' : 'open'}, method: 'patch', ok: v == true ? tr('خلصت ✅') : tr('رجعت مفتوحة'));
                     if (mounted) JphUi.toast(context, r);
                     _load();
                   }
@@ -103,7 +103,7 @@ class _TasksPageState extends State<TasksPage> {
             child: Text('${t['title']}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark),
                 decoration: done ? TextDecoration.lineThrough : null)),
           ),
-          JphUi.chip(done ? 'خلصت' : cancelled ? 'اتلغت' : t['late'] == true ? 'متأخرة' : t['status'] == 'doing' ? 'شغال فيها' : 'مفتوحة', color),
+          JphUi.chip(done ? tr('خلصت') : cancelled ? tr('اتلغت') : t['late'] == true ? tr('متأخرة') : t['status'] == 'doing' ? tr('شغال فيها') : tr('مفتوحة'), color),
         ]),
         if ('${t['description'] ?? ''}'.isNotEmpty)
           Padding(padding: const EdgeInsets.only(right: 48, top: 4), child: Text('${t['description']}', style: TextStyle(color: JphUi.sub(isDark)))),
@@ -130,7 +130,7 @@ class _TasksPageState extends State<TasksPage> {
                 await lpost('/tasks/${t['id']}', {'status': 'doing'}, method: 'patch');
                 _load();
               },
-              child: const Text('بدأت فيها'),
+              child: Text(tr('بدأت فيها')),
             ),
           if (can['edit'] == true)
             IconButton(
@@ -154,22 +154,22 @@ Future<bool> editTask(BuildContext context, bool isDark, {Map<String, dynamic>? 
       desc = TextEditingController(text: '${task?['description'] ?? ''}');
   String? to = task == null ? null : '${lm(task['assignedTo'])['id']}';
   DateTime? due = DateTime.tryParse('${task?['dueAt'] ?? ''}')?.toLocal();
-  return leadForm(context, isDark, task == null ? 'مهمة جديدة' : 'تعديل المهمة', (set) => [
-        JphUi.input(isDark: isDark, label: 'المهمة', controller: title, icon: Icons.task_alt_rounded, big: false),
-        JphUi.input(isDark: isDark, label: 'التفاصيل', controller: desc, icon: Icons.notes_rounded, big: false),
+  return leadForm(context, isDark, task == null ? tr('مهمة جديدة') : tr('تعديل المهمة'), (set) => [
+        JphUi.input(isDark: isDark, label: tr('المهمة'), controller: title, icon: Icons.task_alt_rounded, big: false),
+        JphUi.input(isDark: isDark, label: tr('التفاصيل'), controller: desc, icon: Icons.notes_rounded, big: false),
         if (r['canAssignOthers'] == true)
-          refPicker(context, isDark, 'لمين', Icons.person_rounded, people, to, (v) => set(() => to = v), allowNone: false),
-        WhenField(isDark: isDark, value: due, onPick: (v) => set(() => due = v), label: 'المعاد'),
+          refPicker(context, isDark, tr('لمين'), Icons.person_rounded, people, to, (v) => set(() => to = v), allowNone: false),
+        WhenField(isDark: isDark, value: due, onPick: (v) => set(() => due = v), label: tr('المعاد')),
       ], () async {
     if (title.text.trim().length < 2) {
-      JphUi.toast(context, {'success': false, 'message': 'اكتب المهمة'});
+      JphUi.toast(context, {'success': false, 'message': tr('اكتب المهمة')});
       return false;
     }
     final b = {
       'title': title.text.trim(), 'description': desc.text.trim(), if (to != null) 'assignedTo': to,
       if (due != null) 'dueAt': isoUtc(due!), if (lead != null) 'leadId': lead['id'],
     };
-    final res = task == null ? await lpost('/tasks', b, ok: 'اتضافت المهمة ✅') : await lpost('/tasks/${task['id']}', b, ok: 'اتحفظ ✅', method: 'patch');
+    final res = task == null ? await lpost('/tasks', b, ok: tr('اتضافت المهمة ✅')) : await lpost('/tasks/${task['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
     if (context.mounted) JphUi.toast(context, res);
     return res['success'] == true;
   });
