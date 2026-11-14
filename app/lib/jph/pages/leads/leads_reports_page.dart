@@ -7,6 +7,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
+import 'leads_extra.dart';
 
 /// تقارير الليدز (of a period): every salesman's work, the channels, the campaigns (cost / CPL / CPA / ROI),
 /// the cancel reasons, the funnel and who is late on which lead.
@@ -19,7 +20,9 @@ class LeadsReportsPage extends StatefulWidget {
 
 class _LeadsReportsPageState extends State<LeadsReportsPage> {
   late DateTime _from = DateTime(DateTime.now().year, DateTime.now().month, 1), _to = DateTime.now();
-  Map<String, dynamic> _d = {};
+  Map<String, dynamic> _d = {}, _hourly = {}, _dist = {}, _yearly = {};
+  String? _yearPerson;
+  Map<String, dynamic> _meta = {};
   bool _loading = true;
   int _tab = 0, _seq = 0;
 
@@ -34,12 +37,22 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
   Future<void> _load() async {
     final seq = ++_seq;
     setState(() => _loading = true);
-    final r = await lget('/leads/reports', {'from': _day(_from), 'to': _day(_to)});
+    final q = {'from': _day(_from), 'to': _day(_to)};
+    final r = await Future.wait([lget('/leads/reports', q), lget('/leads/reports/hourly', q), lget('/leads/reports/distribution', q), LeadsMeta.load()]);
     if (!mounted || seq != _seq) return;
     setState(() {
       _loading = false;
-      _d = r;
+      _d = r[0];
+      _hourly = r[1];
+      _dist = r[2];
+      _meta = r[3];
     });
+    _loadYearly();
+  }
+
+  Future<void> _loadYearly() async {
+    final r = await lget('/leads/reports/yearly', {'year': '${_to.year}', 'employeeId': _yearPerson});
+    if (mounted) setState(() => _yearly = r);
   }
 
   @override
@@ -66,7 +79,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              for (final (i, t) in const ['السيلز', 'القنوات', 'الحملات', 'أسباب الإلغاء', 'المراحل', 'التأخير'].indexed)
+              for (final (i, t) in const ['السيلز', 'القنوات', 'الحملات', 'أسباب الإلغاء', 'المراحل', 'التأخير', 'الشغل ساعة بساعة', 'التوزيع', 'السنوي'].indexed)
                 Padding(
                   padding: const EdgeInsetsDirectional.only(end: 6),
                   child: ChoiceChip(selected: _tab == i, label: Text(t, style: const TextStyle(fontWeight: FontWeight.w800)), onSelected: (_) => setState(() => _tab = i)),
@@ -82,11 +95,79 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
             2 => _campaigns(isDark),
             3 => _reasons(isDark),
             4 => _funnel(isDark),
-            _ => _delays(isDark),
+            5 => _delays(isDark),
+            6 => _hourlyTab(isDark),
+            7 => _distTab(isDark),
+            _ => _yearlyTab(isDark),
           }),
         ]),
       ),
     );
+  }
+
+  /// the tab's table → Excel (and the export log)
+  List<Widget> _withExport(String kind, String name, List<String> head, List<List<String>> rows, Widget table) => [
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: TextButton.icon(
+            onPressed: rows.isEmpty ? null : () => exportTable(context, kind, '$name ${_day(_from)} - ${_day(_to)}', head, rows,
+                filters: {'from': _day(_from), 'to': _day(_to)}),
+            icon: const Icon(Icons.file_download_rounded),
+            label: const Text('تصدير إكسيل'),
+          ),
+        ),
+        table,
+      ];
+
+  List<Widget> _t(bool isDark, String kind, String name, List<String> head, List<List<String>> rows, {List<VoidCallback?>? taps}) =>
+      _withExport(kind, name, head, rows, _table(isDark, head, rows, taps: taps));
+
+  List<Widget> _hourlyTab(bool isDark) {
+    final ppl = ll(_hourly['people']);
+    if (ppl.isEmpty) return [Text('مفيش أكشنات في الفترة دي', style: TextStyle(color: JphUi.sub(isDark)))];
+    final hours = [for (var h = 8; h <= 23; h++) h];
+    final head = ['السيلز', for (final h in hours) '${h > 12 ? h - 12 : h}${h < 12 ? 'ص' : 'م'}', 'المجموع'];
+    final rows = [
+      for (final p in ppl) ['${p['name']}', for (final h in hours) '${(p['hours'] as List)[h]}', '${p['total']}'],
+    ];
+    return _withExport('hourly', 'الشغل ساعة بساعة', head, rows, _table(isDark, head, rows));
+  }
+
+  List<Widget> _distTab(bool isDark) {
+    final ppl = ll(_dist['people']);
+    if (ppl.isEmpty) return [Text('مفيش توزيع في الفترة دي', style: TextStyle(color: JphUi.sub(isDark)))];
+    final head = ['السيلز', 'اتوزع عليه', 'بالدور', 'سحب أوتوماتيك', 'اتنقل من زميل', 'من مين'];
+    final rows = [
+      for (final p in ppl)
+        ['${p['name']}', '${p['total']}', '${p['turn']}', '${p['auto']}', '${p['moved']}', ll(p['from']).map((f) => '${f['name']}: ${f['n']}').join('، ')],
+    ];
+    return _withExport('distribution', 'تقرير التوزيع', head, rows, _table(isDark, head, rows));
+  }
+
+  List<Widget> _yearlyTab(bool isDark) {
+    final months = ll(_yearly['months']);
+    final people = ll(_meta['assignees']);
+    final head = ['الشهر', 'اتوزع عليه', 'أكشنات', 'ميتنجات', 'وصل الميتنج', 'حجوزات', 'تعاقدات'];
+    const names = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    final rows = [
+      for (final (i, m) in months.indexed)
+        [names[i % 12], '${m['leads']}', '${m['calls']}', '${m['meetings']}', '${m['meetings_done']}', '${m['reservations']}', '${m['deals']}'],
+    ];
+    return [
+      if (people.isNotEmpty)
+        JphUi.picker(
+          isDark: isDark, icon: Icons.person_rounded, iconColor: Ar.accent, label: 'السيلز',
+          value: '${lm(_yearly['employee'])['name'] ?? ''} — ${_yearly['year'] ?? ''}',
+          onTap: () async {
+            final v = await pickPeople(context, isDark, 'الأداء السنوي لمين', people, multi: false);
+            if (v == null || v.isEmpty) return;
+            _yearPerson = v.first;
+            _loadYearly();
+          },
+        ),
+      const SizedBox(height: 8),
+      ..._withExport('yearly', 'الأداء السنوي ${lm(_yearly['employee'])['name'] ?? ''}', head, rows, _table(isDark, head, rows)),
+    ];
   }
 
   Widget _table(bool isDark, List<String> head, List<List<String>> rows, {List<VoidCallback?>? taps}) => Container(
@@ -111,7 +192,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
     final s = ll(_d['sales']);
     String n(Object? v) => '${v ?? 0}';
     return [
-      _table(isDark, ['السيلز', 'اتوزع عليه', 'أكشنات', 'ردّ', 'مردّش', 'ميتنج', 'إلغاء', 'حجوزات', 'تعاقدات', 'قيمة التعاقدات', 'مفتوح', 'متأخر', 'أول رد (دقيقة)'], [
+      ..._t(isDark, 'sales', 'تقرير السيلز', ['السيلز', 'اتوزع عليه', 'أكشنات', 'ردّ', 'مردّش', 'ميتنج', 'إلغاء', 'حجوزات', 'تعاقدات', 'قيمة التعاقدات', 'مفتوح', 'متأخر', 'أول رد (دقيقة)'], [
         for (final x in s)
           [
             '${x['name']}', n(x['assigned']), n(x['actions']), n(x['answered']), n(x['noAnswer']), n(x['meetings']), n(x['cancelled']),
@@ -128,7 +209,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
     const keys = ['new', 'following', 'interested', 'meeting', 'cancelled', 'reservation', 'done_deal'];
     final total = ch.fold<num>(0, (a, b) => a + ((b['leads'] as num?) ?? 0));
     return [
-      _table(isDark, ['القناة', 'ليدز', '%', for (final k in keys) stageNames[k]!, 'حجوزات'], [
+      ..._t(isDark, 'channels', 'تقرير القنوات', ['القناة', 'ليدز', '%', for (final k in keys) stageNames[k]!, 'حجوزات'], [
         for (final x in ch)
           [
             '${x['name']}', '${x['leads']}', total == 0 ? '0%' : '${(((x['leads'] as num?) ?? 0) * 100 / total).toStringAsFixed(1)}%',
@@ -144,7 +225,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
     return [
       if (c.isEmpty) Text('مفيش حملات في الفترة دي — ضيفها من الإعدادات', style: TextStyle(color: JphUi.sub(isDark))),
       if (c.isNotEmpty)
-        _table(isDark, ['الحملة', 'القناة', 'التكلفة', 'ليدز', 'تكلفة الليد', 'حجوزات', 'تعاقدات', 'تكلفة التعاقد', 'المبيعات', 'عمولتنا', 'العائد'], [
+        ..._t(isDark, 'campaigns', 'تقرير الحملات', ['الحملة', 'القناة', 'التكلفة', 'ليدز', 'تكلفة الليد', 'حجوزات', 'تعاقدات', 'تكلفة التعاقد', 'المبيعات', 'عمولتنا', 'العائد'], [
           for (final x in c)
             [
               '${x['name']}', '${x['channelName'] ?? '—'}', JphUi.money(x['cost']), '${x['leads']}', opt(x['cpl'], money: true), '${x['reservations']}',
@@ -204,7 +285,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
     final d = ll(_d['delays']);
     if (d.isEmpty) return [Text('مفيش متابعات متأخرة 👌', style: TextStyle(color: JphUi.sub(isDark)))];
     return [
-      _table(isDark, ['السيلز', 'العميل', 'المرحلة', 'كان المفروض', 'متأخر'], [
+      ..._t(isDark, 'delays', 'تقرير التأخير', ['السيلز', 'العميل', 'المرحلة', 'كان المفروض', 'متأخر'], [
         for (final x in d)
           ['${x['salesName']}', '${x['leadName']}', '${x['stageAr']}', whenAr(x['nextAt']),
             ((x['hours'] as num?) ?? 0) >= 24 ? '${((x['hours'] as num) / 24).floor()} يوم' : '${x['hours']} ساعة'],

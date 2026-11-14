@@ -103,6 +103,8 @@ String waNumber(String phone) {
   return d;
 }
 
+Future<void> openUrl(String url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+
 Future<void> callPhone(String phone) => launchUrl(Uri.parse('tel:${phone.replaceAll(RegExp(r'[^\d+]'), '')}'));
 Future<void> whatsApp(String phone, {String text = ''}) =>
     launchUrl(Uri.parse('https://wa.me/${waNumber(phone)}${text.isEmpty ? '' : '?text=${Uri.encodeComponent(text)}'}'), mode: LaunchMode.externalApplication);

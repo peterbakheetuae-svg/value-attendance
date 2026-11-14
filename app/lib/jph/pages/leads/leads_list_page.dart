@@ -9,14 +9,15 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
+import 'leads_extra.dart';
 import 'leads_import.dart';
 
 /// الليدز: the tabs (الكل / فريش / كولد / متأخر / مستني / مكرر / مش متوزع), the stages bar, the search and the filters;
 /// a salesman sees his leads ordered by the nearest follow-up; the distributor / manager select several to give them out.
 class LeadsListPage extends StatefulWidget {
   final String tab;
-  final String? stage;
-  const LeadsListPage({super.key, this.tab = 'all', this.stage});
+  final String? stage, rating;
+  const LeadsListPage({super.key, this.tab = 'all', this.stage, this.rating});
 
   @override
   State<LeadsListPage> createState() => _LeadsListPageState();
@@ -26,6 +27,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
   late String _tab = widget.tab;
   late String? _stage = widget.stage;
   String? _project, _channel, _person;
+  late String? _rating = widget.rating;
   final _q = TextEditingController();
   Timer? _debounce;
   bool _loading = true;
@@ -54,7 +56,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
     final seq = ++_seq;
     setState(() => _loading = true);
     final r = await lget('/leads', {
-      'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person,
+      'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person, 'rating': _rating,
       'q': _q.text.trim(), 'page': '$_page', 'size': '30',
     });
     if (!mounted || seq != _seq) return; // a late answer for an older filter
@@ -82,24 +84,39 @@ class _LeadsListPageState extends State<LeadsListPage> {
     return LeadsShell(
       isDark: isDark,
       title: 'الليدز',
-      action: can['import'] == true
-          ? IconButton(
-              tooltip: 'استيراد من إكسيل',
-              onPressed: () async {
-                if (await importLeads(context, isDark, _meta)) _load();
-              },
-              icon: Icon(Icons.upload_file_rounded, color: JphUi.text(isDark)),
-            )
-          : null,
+      action: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (manager)
+          IconButton(
+            tooltip: 'تصدير إكسيل',
+            onPressed: () => _export(),
+            icon: Icon(Icons.file_download_rounded, color: JphUi.text(isDark)),
+          ),
+        if (can['import'] == true)
+          IconButton(
+            tooltip: 'استيراد من إكسيل',
+            onPressed: () async {
+              if (await importLeads(context, isDark, _meta)) _load();
+            },
+            icon: Icon(Icons.upload_file_rounded, color: JphUi.text(isDark)),
+          ),
+      ]),
       fab: _picked.isNotEmpty && manager
           ? FloatingActionButton.extended(
               onPressed: () async {
-                if (await assignLeads(context, isDark, _meta, _picked.toList())) _load();
+                final what = await JphUi.sheet<String>(context, isDark, '${_picked.length} ليد', [
+                  ('assign', 'توزيع / نقل لسيلز', Icons.switch_account_rounded),
+                  ('bulk', 'تعديل جماعي (المشروع / النوع / التقييم / القناة)', Icons.edit_note_rounded),
+                ]);
+                if (!mounted || what == null) return;
+                final done = what == 'assign'
+                    ? await assignLeads(context, isDark, _meta, _picked.toList())
+                    : await bulkEditLeads(context, isDark, _meta, _picked.toList());
+                if (done) _load();
               },
               backgroundColor: Ar.accent.shade700,
               foregroundColor: Colors.white,
-              icon: const Icon(Icons.switch_account_rounded),
-              label: Text('وزّع ${_picked.length}', style: const TextStyle(fontWeight: FontWeight.w800)),
+              icon: const Icon(Icons.checklist_rounded),
+              label: Text('${_picked.length} مختار', style: const TextStyle(fontWeight: FontWeight.w800)),
             )
           : FloatingActionButton.extended(
               onPressed: _meta.isEmpty
@@ -177,7 +194,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                   ),
               ]),
             ),
-            if (_project != null || _channel != null || _person != null)
+            if (_project != null || _channel != null || _person != null || _rating != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Wrap(spacing: 6, children: [
@@ -186,6 +203,11 @@ class _LeadsListPageState extends State<LeadsListPage> {
                     _load();
                   }),
                   if (_channel != null) InputChip(label: Text(_name('channels', _channel)), onDeleted: () { _channel = null; _load(); }),
+                  if (_rating != null)
+                    InputChip(label: Text({'hot': 'ساخن 🔥', 'warm': 'دافي', 'cold': 'بارد'}[_rating] ?? ''), onDeleted: () {
+                      _rating = null;
+                      _load();
+                    }),
                   if (_person != null) InputChip(label: Text(_name('assignees', _person)), onDeleted: () { _person = null; _load(); }),
                 ]),
               ),
@@ -300,17 +322,46 @@ class _LeadsListPageState extends State<LeadsListPage> {
   }
 
   Future<void> _filters(bool isDark) async {
-    String? p = _project, ch = _channel, who = _person;
+    String? p = _project, ch = _channel, who = _person, rt = _rating;
     final ok = await leadForm(context, isDark, 'فلتر', (set) => [
           refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(_meta['projects']), p, (v) => set(() => p = v)),
           refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(_meta['channels']), ch, (v) => set(() => ch = v)),
           if (ll(_meta['assignees']).isNotEmpty)
             refPicker(context, isDark, 'السيلز', Icons.person_rounded, ll(_meta['assignees']), who, (v) => set(() => who = v)),
+          refPicker(context, isDark, 'تقييم العميل', Icons.local_fire_department_rounded,
+              const [{'id': 'hot', 'name': 'ساخن 🔥'}, {'id': 'warm', 'name': 'دافي'}, {'id': 'cold', 'name': 'بارد'}], rt, (v) => set(() => rt = v)),
         ], () async => true, saveLabel: 'طبّق', saveIcon: Icons.filter_alt_rounded);
     if (!ok) return;
     _project = p;
     _channel = ch;
     _person = who;
+    _rating = rt;
     _load();
+  }
+
+  /// all the leads of the current tab / filters (up to 5000) → Excel; the export is written in the log
+  Future<void> _export() async {
+    JphUi.toast(context, {'success': true, 'message': 'بجهّز الملف…'});
+    final rows = <List<Object?>>[];
+    for (var page = 1; page <= 25; page++) {
+      final r = await lget('/leads', {
+        'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person, 'rating': _rating,
+        'q': _q.text.trim(), 'page': '$page', 'size': '200',
+      });
+      final got = ll(r['leads']);
+      for (final l in got) {
+        rows.add([
+          l['refNo'], l['fullName'], l['phone'], ((l['extraPhones'] as List?) ?? const []).join(' / '), lm(l['project'])['name'], lm(l['channel'])['name'],
+          lm(l['campaign'])['name'], l['kind'] == 'cold' ? 'كولد' : 'فريش', l['stageAr'], {'hot': 'ساخن', 'warm': 'دافي', 'cold': 'بارد'}[l['rating']],
+          lm(l['assignedTo'])['name'], whenAr(l['nextAt']), l['lastComment'], lm(l['cancelReason'])['name'], l['budget'], whenAr(l['createdAt']),
+        ]);
+      }
+      if (got.length < 200) break;
+    }
+    if (!mounted) return;
+    await exportTable(context, 'leads', 'ليدز ${DateTime.now().day}-${DateTime.now().month}', [
+      'رقم', 'الاسم', 'الموبايل', 'أرقام تانية', 'المشروع', 'القناة', 'الحملة', 'النوع', 'المرحلة', 'التقييم', 'السيلز', 'المتابعة الجاية',
+      'آخر تعليق', 'سبب الإلغاء', 'الميزانية', 'اتضاف',
+    ], rows, filters: {'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person, 'rating': _rating});
   }
 }

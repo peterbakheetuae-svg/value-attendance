@@ -6,6 +6,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
+import 'leads_extra.dart';
 import 'tasks_page.dart' show editTask;
 
 /// One lead (a side panel on the computer): its data, «إضافة أكشن», the reservation from it, the comments and replies,
@@ -85,7 +86,7 @@ class _LeadPageState extends State<LeadPage> {
           Row(children: [
             Expanded(child: leadBtn(isDark, 'اتصال', Icons.call_rounded, () => callPhone(phone), color: Ar.green)),
             const SizedBox(width: 8),
-            Expanded(child: leadBtn(isDark, 'واتساب', Icons.chat_rounded, () => whatsApp(phone), color: const Color(0xFF25D366))),
+            Expanded(child: leadBtn(isDark, 'واتساب', Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF25D366))),
           ]),
           if (l['pending'] == true || l['overdue'] == true) ...[
             const SizedBox(height: 10),
@@ -114,19 +115,60 @@ class _LeadPageState extends State<LeadPage> {
         if (can['refer'] == true)
           SizedBox(width: 130, child: leadBtn(isDark, 'مشاركة', Icons.group_add_rounded, () async => _after(await _refer(isDark, l)), outline: true)),
         SizedBox(width: 120, child: leadBtn(isDark, 'مهمة', Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l)), outline: true)),
+        if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
+          SizedBox(width: 170, child: leadBtn(isDark, 'وصلت الميتنج', Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green)),
       ]),
+      if (can['act'] == true || can['edit'] == true) ...[
+        const SizedBox(height: 10),
+        Wrap(crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 6, children: [
+          Text('تقييم العميل: ', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+          for (final r in const [('hot', 'ساخن 🔥', Ar.red), ('warm', 'دافي', Ar.amber), ('cold', 'بارد', Ar.info)])
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 6),
+              child: ChoiceChip(
+                selected: l['rating'] == r.$1,
+                selectedColor: r.$3.withOpacity(0.3),
+                label: Text(r.$2, style: const TextStyle(fontWeight: FontWeight.w800)),
+                onSelected: (v) async {
+                  final res = await lpost('/leads/${l['id']}', {'rating': v ? r.$1 : null}, method: 'patch', ok: 'اتحفظ ✅');
+                  if (mounted) JphUi.toast(context, res);
+                  _after(res['success'] == true);
+                },
+              ),
+            ),
+        ]),
+      ],
       const SizedBox(height: 12),
       _info(isDark, l, d),
       const SizedBox(height: 12),
-      JphUi.tabs(isDark, [
-        ('التعليقات', Icons.forum_rounded),
-        ('الحجوزات', Icons.home_work_rounded),
-        if (can['log'] == true) ('السجل', Icons.history_rounded),
-      ], _tab == 'comments' ? 0 : _tab == 'units' ? 1 : 2, (i) => setState(() => _tab = ['comments', 'units', 'log'][i])),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final t in [
+            ('comments', 'التعليقات', Icons.forum_rounded),
+            ('request', 'الطلب والوحدات', Icons.manage_search_rounded),
+            ('units', 'الحجوزات', Icons.home_work_rounded),
+            ('files', 'الملفات', Icons.attach_file_rounded),
+            ('checkins', 'الميتنجات', Icons.where_to_vote_rounded),
+            if (can['log'] == true) ('log', 'السجل', Icons.history_rounded),
+          ])
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 6),
+              child: ChoiceChip(
+                selected: _tab == t.$1,
+                avatar: Icon(t.$3, size: 18),
+                label: Text(t.$2, style: const TextStyle(fontWeight: FontWeight.w800)),
+                onSelected: (_) => setState(() => _tab = t.$1),
+              ),
+            ),
+        ]),
+      ),
       const SizedBox(height: 10),
       if (_tab == 'comments') ..._comments(isDark, ll(d['actions'])),
       if (_tab == 'units') ..._units(isDark, ll(d['units'])),
       if (_tab == 'log') ..._log(isDark, ll(d['logs'])),
+      if (const ['request', 'files', 'checkins'].contains(_tab))
+        LeadExtra(key: ValueKey('$_tab-${l['id']}-${l['lastActionAt']}'), isDark: isDark, lead: l, meta: _meta, canWork: can['act'] == true, part: _tab),
     ]);
   }
 
@@ -488,4 +530,34 @@ Future<bool> assignLeads(BuildContext context, bool isDark, Map<String, dynamic>
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
   }, saveLabel: 'وزّع', saveIcon: Icons.switch_account_rounded);
+}
+
+/// تعديل جماعي: the project / fresh-cold / the rating (and, for the distributor, the channel / campaign) of several leads
+Future<bool> bulkEditLeads(BuildContext context, bool isDark, Map<String, dynamic> meta, List<Object?> ids) async {
+  String? project, kind, rating, channel, campaign;
+  final dist = lm(meta['can'])['distribute'] == true;
+  return leadForm(context, isDark, 'تعديل ${ids.length} ليد', (set) => [
+        Text('اللي هتسيبه فاضي مش هيتغيّر', style: TextStyle(color: JphUi.sub(isDark))),
+        refPicker(context, isDark, 'المشروع', Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
+        refPicker(context, isDark, 'النوع', Icons.ac_unit_rounded, const [{'id': 'fresh', 'name': 'فريش'}, {'id': 'cold', 'name': 'كولد كول'}], kind,
+            (v) => set(() => kind = v)),
+        refPicker(context, isDark, 'التقييم', Icons.local_fire_department_rounded,
+            const [{'id': 'hot', 'name': 'ساخن 🔥'}, {'id': 'warm', 'name': 'دافي'}, {'id': 'cold', 'name': 'بارد'}], rating, (v) => set(() => rating = v)),
+        if (dist) ...[
+          refPicker(context, isDark, 'القناة', Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() => channel = v)),
+          refPicker(context, isDark, 'الحملة', Icons.ads_click_rounded, ll(meta['campaigns']), campaign, (v) => set(() => campaign = v)),
+        ],
+      ], () async {
+    final b = <String, dynamic>{
+      'ids': ids, if (project != null) 'projectId': project, if (kind != null) 'kind': kind, if (rating != null) 'rating': rating,
+      if (channel != null) 'channelId': channel, if (campaign != null) 'campaignId': campaign,
+    };
+    if (b.length == 1) {
+      JphUi.toast(context, {'success': false, 'message': 'اختار اللي عايز تغيّره'});
+      return false;
+    }
+    final r = await lpost('/leads/bulk', b, ok: 'اتعدّل ✅');
+    if (context.mounted) JphUi.toast(context, r);
+    return r['success'] == true;
+  }, saveLabel: 'عدّل');
 }

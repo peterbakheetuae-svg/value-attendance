@@ -9,7 +9,9 @@ import 'lead_page.dart';
 import 'leads_api.dart';
 import 'leads_list_page.dart';
 import 'leads_reports_page.dart';
+import 'leads_calendar_page.dart';
 import 'leads_settings_page.dart';
+import 'leads_targets_page.dart';
 import 'tasks_page.dart';
 
 /// لوحة السيلز: the counts of every stage (tap → those leads), the follow-ups due, «مستني أكشن», the late ones,
@@ -22,7 +24,7 @@ class LeadsDashboardPage extends StatefulWidget {
 }
 
 class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
-  Map<String, dynamic> _d = {}, _meta = {};
+  Map<String, dynamic> _d = {}, _meta = {}, _target = {};
   bool _loading = true;
   String _period = 'month';
   String? _view, _person;
@@ -40,12 +42,14 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
     final r = await Future.wait([
       lget('/leads/dashboard', {'period': _period, 'view': _view, 'employeeId': _person}),
       LeadsMeta.load(fresh: _meta.isEmpty),
+      lget('/leads/targets/me'),
     ]);
     if (!mounted || seq != _seq) return;
     setState(() {
       _loading = false;
       _d = r[0];
       _meta = r[1];
+      _target = lm(r[2]['me']);
     });
   }
 
@@ -88,6 +92,8 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                   _go(isDark, 'الليدز', Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage())),
                   _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
                       (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage())),
+                  _go(isDark, 'التقويم', Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage())),
+                  if (manager) _go(isDark, 'التارجت', Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage())),
                   if (can['reports'] == true) _go(isDark, 'التقارير', Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage())),
                   if (can['config'] == true) _go(isDark, 'الإعدادات', Icons.tune_rounded, Ar.tan, () async {
                         await _open(const LeadsSettingsPage());
@@ -104,10 +110,18 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                     _stat(isDark, 'متأخر', c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
                     _stat(isDark, 'مستني أكشن', c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
                     _stat(isDark, 'فريش', c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
+                    GestureDetector(
+                      onTap: () => _open(const LeadsListPage(rating: 'hot')),
+                      child: JphUi.stat(isDark, 'عملاء ساخنين 🔥', '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
+                    ),
                     _stat(isDark, 'كولد كول', c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
                     if (manager) _stat(isDark, 'مكرر', c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
                     if (can['distribute'] == true) _stat(isDark, 'مش متوزع', c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
                   ], phone: 2),
+                  if (_target['target'] != null) ...[
+                    const SizedBox(height: 14),
+                    targetCard(isDark, _target, mine: true),
+                  ],
                   const SizedBox(height: 14),
                   _title(isDark, 'المراحل'),
                   JphUi.statGrid([

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/api.dart' show kApiBaseUrl;
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
@@ -42,20 +44,43 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     return LeadsShell(
       isDark: isDark,
       title: 'إعدادات الليدز',
-      fab: _tab == 3
+      fab: _tab >= 4
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => _tab == 1 ? _campaign(isDark) : _simple(isDark, _tab == 0 ? 'channels' : 'cancel-reasons'),
+              onPressed: () => _tab == 1
+                  ? _campaign(isDark)
+                  : _tab == 3
+                      ? _template(isDark)
+                      : _simple(isDark, _tab == 0 ? 'channels' : 'cancel-reasons'),
               backgroundColor: JphUi.primary(isDark),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
-              label: Text(['قناة جديدة', 'حملة جديدة', 'سبب جديد'][_tab], style: const TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(['قناة جديدة', 'حملة جديدة', 'سبب جديد', 'رسالة جديدة'][_tab], style: const TextStyle(fontWeight: FontWeight.w800)),
             ),
       child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 100), children: [
-          JphUi.tabs(isDark, const [('القنوات', Icons.campaign_rounded), ('الحملات', Icons.ads_click_rounded), ('أسباب الإلغاء', Icons.cancel_rounded), ('التنبيه', Icons.alarm_rounded)],
-              _tab, (i) => setState(() => _tab = i)),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final (i, t) in const [
+                ('القنوات', Icons.campaign_rounded), ('الحملات', Icons.ads_click_rounded), ('أسباب الإلغاء', Icons.cancel_rounded),
+                ('رسايل واتساب', Icons.chat_rounded), ('التنبيه والسحب', Icons.alarm_rounded), ('سجل التصدير', Icons.file_download_rounded),
+              ].indexed)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 6),
+                  child: ChoiceChip(
+                    selected: _tab == i,
+                    avatar: Icon(t.$2, size: 18),
+                    label: Text(t.$1, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    onSelected: (_) {
+                      setState(() => _tab = i);
+                      if (i == 5) _loadExports();
+                    },
+                  ),
+                ),
+            ]),
+          ),
           const SizedBox(height: 12),
           if (_loading) const Center(child: CircularProgressIndicator()),
           if (!_loading && _d['success'] == false) Text('${_d['message']}', style: TextStyle(color: JphUi.sub(isDark))),
@@ -63,7 +88,13 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             0 => [for (final c in ll(_d['channels'])) _row(isDark, c, 'channels', Icons.campaign_rounded)],
             1 => [for (final c in ll(_d['campaigns'])) _campaignRow(isDark, c)],
             2 => [for (final c in ll(_d['cancelReasons'])) _row(isDark, c, 'cancel-reasons', Icons.cancel_rounded)],
-            _ => [_pending(isDark)],
+            3 => [
+                Text('في الرسالة تقدر تكتب {الاسم} {المشروع} {السيلز} {الشركة} وبيتملوا لوحدهم.', style: TextStyle(color: JphUi.sub(isDark))),
+                const SizedBox(height: 8),
+                for (final c in ll(_d['templates'])) _templateRow(isDark, c),
+              ],
+            4 => [_pending(isDark)],
+            _ => _exportsList(isDark),
           }),
         ]),
       ),
@@ -106,6 +137,110 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     if (ok) _load();
   }
 
+  List<Map<String, dynamic>> _exports = [];
+  Future<void> _loadExports() async {
+    final r = await lget('/leads/exports');
+    if (mounted) setState(() => _exports = ll(r['exports']));
+  }
+
+  List<Widget> _exportsList(bool isDark) => [
+        if (_exports.isEmpty) Text('محدش صدّر حاجة لسه', style: TextStyle(color: JphUi.sub(isDark))),
+        for (final e in _exports)
+          ListTile(
+            leading: const Icon(Icons.file_download_rounded),
+            title: Text('${e['byName'] ?? ''} — ${{'leads': 'الليدز', 'targets': 'التارجت'}[e['kind']] ?? 'تقرير ${e['kind']}'}',
+                style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            subtitle: Text('${e['rows']} صف — ${whenAr(e['at'])}'),
+          ),
+      ];
+
+  Widget _templateRow(bool isDark, Map<String, dynamic> c) => Opacity(
+        opacity: c['active'] == false ? 0.5 : 1,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: JphUi.box(isDark),
+          child: ListTile(
+            leading: const Icon(Icons.chat_rounded, color: Color(0xFF25D366)),
+            title: Text('${c['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            subtitle: Text('${c['body']}', maxLines: 3, overflow: TextOverflow.ellipsis),
+            trailing: Switch(
+              value: c['active'] != false,
+              onChanged: (v) async {
+                final r = await lpost('/leads/templates/${c['id']}', {'active': v}, method: 'patch');
+                if (mounted) JphUi.toast(context, r);
+                _load();
+              },
+            ),
+            onTap: () => _template(isDark, c),
+          ),
+        ),
+      );
+
+  Future<void> _template(bool isDark, [Map<String, dynamic>? c]) async {
+    final name = TextEditingController(text: '${c?['name'] ?? ''}'), body = TextEditingController(text: '${c?['body'] ?? ''}');
+    final ok = await leadForm(context, isDark, c == null ? 'رسالة واتساب جديدة' : 'تعديل الرسالة', (set) => [
+          JphUi.input(isDark: isDark, label: 'اسمها', controller: name, icon: Icons.label_rounded),
+          TextField(
+            controller: body,
+            minLines: 4,
+            maxLines: 8,
+            decoration: InputDecoration(labelText: 'الرسالة', hintText: 'أهلاً أستاذ {الاسم}…', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))),
+          ),
+          Wrap(spacing: 6, children: [
+            for (final k in const ['{الاسم}', '{المشروع}', '{السيلز}', '{الشركة}'])
+              ActionChip(label: Text(k), onPressed: () => set(() => body.text = '${body.text}$k')),
+          ]),
+        ], () async {
+      final b = {'name': name.text.trim(), 'body': body.text.trim()};
+      final r = c == null ? await lpost('/leads/templates', b, ok: 'اتضافت ✅') : await lpost('/leads/templates/${c['id']}', b, method: 'patch', ok: 'اتحفظ ✅');
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    });
+    if (ok) _load();
+  }
+
+  /// فورم الحملة: a public link (for the ad / a landing page); its leads go to the chosen salesmen in turn
+  Future<void> _form(bool isDark, Map<String, dynamic> c) async {
+    final meta = await LeadsMeta.load(fresh: true);
+    if (!mounted) return;
+    final people = ll(meta['assignees']);
+    List<String> to = ((c['formAssignees'] as List?) ?? const []).map((x) => '$x').toList();
+    final title = TextEditingController(text: '${c['formTitle'] ?? ''}');
+    var enabled = true;
+    final link = c['formToken'] == null ? null : '$kApiBaseUrl/f/${c['formToken']}';
+    final ok = await leadForm(context, isDark, 'فورم الحملة — ${c['name']}', (set) => [
+          Text('لينك تحطه في الإعلان أو صفحة الهبوط: العميل يكتب اسمه ورقمه، والليد يدخل لوحده بالحملة والقناة ويتوزع بالدور على السيلز اللي تختارهم.',
+              style: TextStyle(color: JphUi.sub(isDark))),
+          SwitchListTile(value: enabled, onChanged: (v) => set(() => enabled = v), title: const Text('الفورم شغال')),
+          JphUi.input(isDark: isDark, label: 'العنوان اللي يظهر للعميل (اختياري)', controller: title, icon: Icons.title_rounded, big: false),
+          JphUi.picker(
+            isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: 'الليدز تروح لمين',
+            value: to.isEmpty ? 'من غير (تفضل مش متوزعة)' : '${to.length} سيلز بالدور',
+            onTap: () async {
+              final v = await pickPeople(context, isDark, 'الليدز تروح لمين', people, selected: to);
+              if (v != null) set(() => to = v);
+            },
+          ),
+          if (link != null) ...[
+            SelectableText(link, textDirection: TextDirection.ltr, style: TextStyle(fontWeight: FontWeight.w700, color: Ar.accent.shade700)),
+            Row(children: [
+              TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: link)), icon: const Icon(Icons.copy_rounded), label: const Text('انسخ اللينك')),
+              TextButton.icon(onPressed: () => openUrl(link), icon: const Icon(Icons.open_in_new_rounded), label: const Text('افتحه')),
+            ]),
+          ],
+        ], () async {
+      final r = await lpost('/leads/campaigns/${c['id']}/form', {'enabled': enabled, 'assignees': to, 'title': title.text.trim()}, ok: 'اتحفظ ✅');
+      if (mounted) JphUi.toast(context, r);
+      if (r['success'] == true && r['token'] != null && c['formToken'] == null && mounted) {
+        final url = '$kApiBaseUrl/f/${r['token']}';
+        await Clipboard.setData(ClipboardData(text: url));
+        if (mounted) JphUi.toast(context, {'success': true, 'message': 'اتعمل اللينك واتنسخ ✅'});
+      }
+      return r['success'] == true;
+    });
+    if (ok) _load();
+  }
+
   Widget _campaignRow(bool isDark, Map<String, dynamic> c) => Opacity(
         opacity: c['active'] == false ? 0.5 : 1,
         child: GestureDetector(
@@ -131,6 +266,11 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 Text(JphUi.money(c['cost']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                 Text('${c['leads']} ليد', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
+              IconButton(
+                tooltip: 'فورم الحملة (لينك للإعلان)',
+                onPressed: () => _form(isDark, c),
+                icon: Icon(Icons.link_rounded, color: c['formToken'] != null ? Ar.green : JphUi.sub(isDark)),
+              ),
             ]),
           ),
         ),
@@ -173,6 +313,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
 
   Widget _pending(bool isDark) {
     final m = TextEditingController(text: '${_d['pendingMinutes'] ?? 25}');
+    final auto = TextEditingController(text: _d['autoReassignMinutes'] == null ? '' : '${_d['autoReassignMinutes']}');
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: JphUi.box(isDark),
@@ -181,9 +322,15 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 10),
         JphUi.input(isDark: isDark, label: 'بعد كام دقيقة', controller: m, number: true, suffix: 'دقيقة', icon: Icons.alarm_rounded),
+        const SizedBox(height: 16),
+        Text('السحب الأوتوماتيك: لو الليد اتوزع على كذا سيلز بالدور وفضل من غير أكشن المدة دي، يتنقل لوحده للي عليه الدور بعده. سيبه فاضي عشان يتقفل.',
+            style: TextStyle(color: JphUi.sub(isDark))),
+        const SizedBox(height: 10),
+        JphUi.input(isDark: isDark, label: 'يتسحب بعد كام دقيقة (فاضي = مقفول)', controller: auto, number: true, suffix: 'دقيقة', icon: Icons.move_down_rounded),
         const SizedBox(height: 10),
         leadBtn(isDark, 'حفظ', Icons.check_rounded, () async {
-          final r = await lpost('/leads/settings', {'pendingMinutes': int.tryParse(m.text.trim()) ?? 25}, method: 'patch', ok: 'اتحفظ ✅');
+          final r = await lpost('/leads/settings', {'pendingMinutes': int.tryParse(m.text.trim()) ?? 25, 'autoReassignMinutes': int.tryParse(auto.text.trim())},
+              method: 'patch', ok: 'اتحفظ ✅');
           if (mounted) JphUi.toast(context, r);
           _load();
         }),
