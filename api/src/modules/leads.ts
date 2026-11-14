@@ -597,7 +597,76 @@ export const leadsModule: Module = (r, { db, clock }) => {
        GROUP BY e.id ORDER BY actions DESC LIMIT 10`, [now]);
     const tasks = await one(db, `SELECT count(*) FILTER (WHERE status IN ('open','doing'))::int AS open,
                                         count(*) FILTER (WHERE status IN ('open','doing') AND due_at < $2)::int AS late FROM tasks WHERE assigned_to = $1`, [a.id, now]);
+    // ---------------------------------------------------------------- the extra cards (like the Elite / Engaz boards)
+    const dayCairo = (x: string) => `(${x} AT TIME ZONE 'Africa/Cairo')::date`;
+    const today = `${dayCairo(`$${t}::timestamptz`)}`;
+    // Delay List: the overdue leads, oldest follow-up first
+    const delayList = await db.query(`${LIST_SELECT} WHERE ${scope} AND ${OPEN_SQL} AND l.next_at < $${t} ORDER BY l.next_at LIMIT 20`, params);
+    // أحدث العملاء المحتملين
+    const latest = await db.query(`${LIST_SELECT} WHERE ${scope} ORDER BY l.created_at DESC LIMIT 10`, params);
+    // Last Comments: the latest comments written on the leads in view
+    const comments = await db.query(`
+      SELECT x.id, x.comment, x.stage, x.created_at, x.answered, l.id AS lead_id, l.full_name AS lead_name, e.full_name AS by_name
+        FROM lead_actions x JOIN leads l ON l.id = x.lead_id LEFT JOIN employees e ON e.id = x.by_id
+       WHERE ${scope} AND NOT x.auto ORDER BY x.created_at DESC LIMIT 10`, params);
+    // النشاط: actions + assignments + new leads, newest first
+    const activity = await db.query(`
+      SELECT * FROM (
+        SELECT 'action' AS kind, x.created_at AS at, x.stage AS what, l.id AS lead_id, l.full_name AS lead_name, e.full_name AS by_name
+          FROM lead_actions x JOIN leads l ON l.id = x.lead_id LEFT JOIN employees e ON e.id = x.by_id
+         WHERE ${scope} AND x.parent_id IS NULL
+        UNION ALL
+        SELECT g.kind, g.created_at, COALESCE(te.full_name, ''), l.id, l.full_name, e.full_name
+          FROM lead_logs g JOIN leads l ON l.id = g.lead_id LEFT JOIN employees e ON e.id = g.by_id
+          LEFT JOIN employees te ON g.kind = 'assign' AND te.id::text = g.data->>'to'
+         WHERE ${scope} AND g.kind IN ('create','assign','import','form','call','whatsapp','checkin')
+      ) z ORDER BY at DESC LIMIT 15`, params);
+    // Phone Call / WhatsApp Contacts / Created today / Avg Response Time (this week) / Lead creation · last 7 days
+    const k = await one(db, `
+      SELECT
+        (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'call' AND ${dayCairo('g.created_at')} = ${today})::int AS calls_today,
+        (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'call' AND g.created_at >= $${t}::timestamptz - interval '7 days')::int AS calls_week,
+        (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'whatsapp' AND ${dayCairo('g.created_at')} = ${today})::int AS wa_today,
+        (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'whatsapp' AND g.created_at >= $${t}::timestamptz - interval '7 days')::int AS wa_week,
+        (SELECT count(*) FROM lead_actions x JOIN leads l ON l.id = x.lead_id WHERE ${scope} AND x.answered AND NOT x.auto AND ${dayCairo('x.created_at')} = ${today})::int AS answered_today,
+        (SELECT count(*) FROM leads l WHERE ${scope} AND ${dayCairo('l.created_at')} = ${today})::int AS created_today,
+        (SELECT round(avg(extract(epoch FROM (fx.at - l.assigned_at)) / 60)) FROM leads l
+           CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.created_at >= l.assigned_at) fx
+          WHERE ${scope} AND l.assigned_at >= $${t}::timestamptz - interval '7 days' AND fx.at IS NOT NULL)::int AS avg_response_min`, params);
+    const created7 = await db.query(`
+      SELECT d::date AS day, (SELECT count(*) FROM leads l WHERE ${scope} AND ${dayCairo('l.created_at')} = d::date)::int AS n
+        FROM generate_series(${today} - 6, ${today}, interval '1 day') d ORDER BY d`, params);
+    const response7 = await db.query(`
+      SELECT d::date AS day, (SELECT round(avg(extract(epoch FROM (fx.at - l.assigned_at)) / 60)) FROM leads l
+           CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.created_at >= l.assigned_at) fx
+          WHERE ${scope} AND ${dayCairo('l.assigned_at')} = d::date AND fx.at IS NOT NULL)::int AS min
+        FROM generate_series(${today} - 6, ${today}, interval '1 day') d ORDER BY d`, params);
+    // المستخدمون المتصلون: people who work leads, active in the last 10 minutes
+    const online = await db.query(`
+      SELECT e.id, e.full_name, max(s.last_seen_at) AS seen
+        FROM sessions s JOIN employees e ON e.id = s.employee_id
+        JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
+       WHERE s.revoked_at IS NULL AND s.last_seen_at > now() - interval '10 minutes' AND $1::timestamptz IS NOT NULL AND e.status = 'active'
+       GROUP BY e.id ORDER BY e.full_name LIMIT 30`, [now]);
+    // To Do List: my open tasks, nearest first
+    const todo = await db.query(`
+      SELECT k.id, k.title, k.status, k.due_at, l.id AS lead_id, l.full_name AS lead_name FROM tasks k LEFT JOIN leads l ON l.id = k.lead_id
+       WHERE k.assigned_to = $1 AND k.status IN ('open','doing') ORDER BY k.due_at NULLS LAST, k.created_at LIMIT 10`, [a.id]);
+    const iso = (d: any) => (d ? new Date(d).toISOString() : null);
+    const ymd = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
     return ok({
+      delayList: delayList.rows.map((l) => shape(l, now, pm)),
+      latest: latest.rows.map((l) => shape(l, now, pm)),
+      lastComments: comments.rows.map((x) => ({ id: x.id, comment: x.comment, stage: x.stage, answered: x.answered, at: iso(x.created_at),
+        lead: { id: x.lead_id, name: x.lead_name }, by: x.by_name })),
+      activity: activity.rows.map((x) => ({ kind: x.kind, what: x.what, at: iso(x.at), lead: { id: x.lead_id, name: x.lead_name }, by: x.by_name })),
+      kpis: { callsToday: k.calls_today, callsWeek: k.calls_week, whatsappToday: k.wa_today, whatsappWeek: k.wa_week,
+        answeredToday: k.answered_today, createdToday: k.created_today, avgResponseMin: k.avg_response_min },
+      created7: created7.rows.map((x) => ({ day: ymd(x.day), n: x.n })),
+      response7: response7.rows.map((x) => ({ day: ymd(x.day), min: x.min })),
+      online: online.rows.map((x) => ({ id: x.id, name: x.full_name, seen: iso(x.seen), me: x.id === a.id })),
+      todo: todo.rows.map((x) => ({ id: x.id, title: x.title, status: x.status, dueAt: iso(x.due_at), late: !!(x.due_at && new Date(x.due_at) < now),
+        lead: x.lead_id ? { id: x.lead_id, name: x.lead_name } : null })),
       view, counts: c, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),
       delayByStage: Object.fromEntries(delay.rows.map((x) => [x.stage, x.n])),
       due: due.rows.map((l) => shape(l, now, pm)),

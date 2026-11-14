@@ -133,6 +133,7 @@ Future<void> whatsAppWithTemplate(BuildContext context, bool isDark, Map<String,
     for (final t in list) ('${t['id']}', '${t['name']}', Icons.chat_rounded),
   ]);
   if (pick == null) return;
+  logContact(lead['id'], 'whatsapp');
   var text = '';
   if (pick.isNotEmpty) {
     final t = list.firstWhere((x) => '${x['id']}' == pick, orElse: () => const {});

@@ -9,6 +9,7 @@ import 'lead_page.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import 'leads_api.dart';
+import 'leads_dashboard_cards.dart';
 import 'leads_list_page.dart';
 import 'leads_reports_page.dart';
 import 'leads_calendar_page.dart';
@@ -164,14 +165,32 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                         ),
                     ]),
                   ],
-                  const SizedBox(height: 14),
-                  LayoutBuilder(builder: (context, box) {
-                    final wide = box.maxWidth > 820;
-                    final due = _due(isDark), best = _best(isDark);
-                    return wide
-                        ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(flex: 3, child: due), const SizedBox(width: 12), Expanded(flex: 2, child: best)])
-                        : Column(children: [due, const SizedBox(height: 12), best]);
-                  }),
+                  ...() {
+                    final cards = DashboardCards(context, isDark, _d,
+                        openLead: (id) async {
+                          await openLead(context, id);
+                          _load();
+                        },
+                        openTasks: () => _open(const TasksPage()));
+                    return <Widget>[
+                      const SizedBox(height: 14),
+                      cards.kpis(),
+                      const SizedBox(height: 12),
+                      dashGrid([
+                        cards.created7(),
+                        cards.response7(),
+                        cards.pipeline((s) => _open(LeadsListPage(stage: s))),
+                        cards.delayList(),
+                        _due(isDark),
+                        _best(isDark),
+                        cards.activity(),
+                        cards.todo(),
+                        cards.latest(),
+                        cards.lastComments(),
+                      ]),
+                      cards.online(),
+                    ];
+                  }(),
                 ],
               ]),
             ),
@@ -284,7 +303,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
             title: Text('${l['fullName']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
             subtitle: Text('${l['stageAr']} — ${whenAr(l['nextAt'])}${l['assignedTo'] != null && lm(_meta['can'])['assign'] == true ? ' — ${lm(l['assignedTo'])['name']}' : ''}',
                 style: TextStyle(color: l['overdue'] == true ? Ar.red : JphUi.sub(isDark))),
-            trailing: IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${l['phone']}')),
+            trailing: IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${l['phone']}', leadId: l['id'])),
             onTap: () async {
               await openLead(context, '${l['id']}');
               _load();

@@ -376,7 +376,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                 ].join(' • '), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
             ),
-            IconButton(visualDensity: VisualDensity.compact, tooltip: tr('اتصال'), onPressed: () => callPhone('${l['phone']}'),
+            IconButton(visualDensity: VisualDensity.compact, tooltip: tr('اتصال'), onPressed: () => callPhone('${l['phone']}', leadId: l['id']),
                 icon: const Icon(Icons.call_rounded, color: Ar.green, size: 20)),
           ]),
           const SizedBox(height: 8),

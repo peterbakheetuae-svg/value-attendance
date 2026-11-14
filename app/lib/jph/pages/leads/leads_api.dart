@@ -121,7 +121,16 @@ String waNumber(String phone) {
 
 Future<void> openUrl(String url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
 
-Future<void> callPhone(String phone) => launchUrl(Uri.parse('tel:${phone.replaceAll(RegExp(r'[^\d+]'), '')}'));
+/// «اتصال» / «واتساب» from a lead: counted on the sales board (Phone Call / WhatsApp Contacts)
+void logContact(Object? leadId, String via) {
+  if (leadId == null || '$leadId'.isEmpty) return;
+  lpost('/leads/$leadId/contact', {'via': via}).ignore();
+}
+
+Future<void> callPhone(String phone, {Object? leadId}) {
+  logContact(leadId, 'call');
+  return launchUrl(Uri.parse('tel:${phone.replaceAll(RegExp(r'[^\d+]'), '')}'));
+}
 Future<void> whatsApp(String phone, {String text = ''}) =>
     launchUrl(Uri.parse('https://wa.me/${waNumber(phone)}${text.isEmpty ? '' : '?text=${Uri.encodeComponent(text)}'}'), mode: LaunchMode.externalApplication);
 

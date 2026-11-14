@@ -141,7 +141,7 @@ class _LeadPageState extends State<LeadPage> {
       Wrap(children: [
         if (can['act'] == true && l['stage'] != 'done_deal')
           dirBtn(isDark, tr('إضافة أكشن'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)), primary: true),
-        dirBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone), color: Ar.green),
+        dirBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone, leadId: l['id']), color: Ar.green),
         dirBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF1FA855)),
         if (can['reserve'] == true) dirBtn(isDark, tr('حجز وحدة'), Icons.bookmark_add_rounded, () => _reserve(isDark, l)),
         if (can['edit'] == true)

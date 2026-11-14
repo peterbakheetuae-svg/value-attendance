@@ -173,7 +173,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
                   if (x['project'] != null) '${x['project']}',
                   if (_view != 'me' && x['who'] != null) '${x['who']}',
                 ].join(' • '), style: TextStyle(color: x['overdue'] == true ? Ar.red : JphUi.sub(isDark))),
-                trailing: x['kind'] == 'lead' ? IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${x['phone']}')) : null,
+                trailing: x['kind'] == 'lead' ? IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${x['phone']}', leadId: x['id'])) : null,
                 onTap: () async {
                   x['kind'] == 'task' ? await openLeadsPage(context, const TasksPage()) : await openLead(context, '${x['id']}');
                   _load();

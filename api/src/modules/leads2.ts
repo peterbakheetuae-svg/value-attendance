@@ -257,6 +257,16 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     return ok({ ok: true });
   });
 
+  // «اتصال» / «واتساب» tapped on a lead: counted on the sales board (Phone Call / WhatsApp Contacts)
+  r.post('/leads/:id/contact', async (req) => {
+    const a = await auth(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const via = oneOf(obj(req.body), 'via', ['call', 'whatsapp'] as const)!;
+    if (!await canSee(db, a, req.params.id)) throw notFound();
+    await db.query(`INSERT INTO lead_logs (lead_id, kind, by_id, created_at) VALUES ($1,$2,$3,$4)`, [req.params.id, via, a.id, clock()]);
+    return ok({ ok: true });
+  });
+
   r.post('/leads/:id/request', async (req) => {
     const a = await auth(req);
     const b = obj(req.body);

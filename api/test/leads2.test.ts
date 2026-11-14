@@ -142,3 +142,21 @@ test('the automatic pull to the next salesman of the pool', async () => {
   assert.equal((await h.call(c.t.acc, 'GET', `/leads/${one.id}`)).body.lead.assignedTo.id, c.ids.e1);
   await h.call(c.t.acc, 'PATCH', '/leads/settings', { autoReassignMinutes: null });
 });
+
+test('the sales board cards: delay list, latest, comments, activity, calls / WhatsApp, created today, 7 days, online, to-do', async () => {
+  const l = await add('عميل اللوحة', '01055500001', [c.ids.e1]);
+  assert.equal((await h.call(c.t.e1, 'POST', `/leads/${l.id}/contact`, { via: 'call' })).status, 200);
+  assert.equal((await h.call(c.t.e1, 'POST', `/leads/${l.id}/contact`, { via: 'whatsapp' })).status, 200);
+  assert.equal((await h.call(c.t.e1, 'POST', `/leads/${l.id}/contact`, { via: 'sms' })).status, 400);
+  assert.equal((await h.call(c.t.e2, 'POST', `/leads/${l.id}/contact`, { via: 'call' })).status, 404, 'not his lead');
+  const d = (await h.call(c.t.acc, 'GET', '/leads/dashboard')).body;
+  assert.ok(d.kpis.callsToday >= 1 && d.kpis.whatsappToday >= 1 && d.kpis.createdToday >= 1, JSON.stringify(d.kpis));
+  assert.equal(d.created7.length, 7);
+  assert.equal(d.response7.length, 7);
+  assert.ok(d.latest.some((x: any) => x.id === l.id));
+  assert.ok(d.activity.some((x: any) => x.kind === 'call' && x.lead.id === l.id));
+  assert.ok(Array.isArray(d.delayList) && Array.isArray(d.lastComments) && Array.isArray(d.todo));
+  assert.ok(d.online.some((x: any) => x.me), 'the accountant who just called is online');
+  const mine = (await h.call(c.t.e1, 'GET', '/leads/dashboard')).body;
+  assert.ok(mine.latest.every((x: any) => x.assignedTo?.id === c.ids.e1), 'a salesman sees only his own');
+});
