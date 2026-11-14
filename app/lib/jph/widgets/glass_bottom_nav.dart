@@ -100,6 +100,8 @@ class GlassBottomNav extends StatelessWidget {
                             activeColor: activeColor,
                             inactiveColor: inactiveColor,
                           ),
+                        // المدير العام / المحاسب: «لوحة السيلز» before تقرير الحضور (no «الموظفين» on the bar; it is in «المزيد»)
+                        if (leads && gmOrAccountant) leadsItem,
                         _Item(
                             icon: Icons.assignment_rounded,
                             label: AppLocalizations.of(context, 'attendance_report'),
@@ -109,9 +111,7 @@ class GlassBottomNav extends StatelessWidget {
                             activeColor: activeColor,
                             inactiveColor: inactiveColor,
                           ),
-                        if (leads && gmOrAccountant)
-                          leadsItem
-                        else if (ApiService.can('employee.read_all'))
+                        if (ApiService.can('employee.read_all') && !(leads && gmOrAccountant))
                         _Item(
                           icon: Icons.group_rounded,
                           label: AppLocalizations.of(context, 'Employees'),
