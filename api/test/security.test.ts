@@ -10,7 +10,9 @@ after(async () => { await h.close(); });
 // /media is public by design but needs a valid HMAC signature (checked below)
 const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', 'POST /auth/login', 'GET /media/:kind/:id',
   // forgot password: anonymous by nature, protected by emailed OTP + rate limits
-  'POST /auth/forgot', 'POST /auth/forgot/verify', 'POST /auth/forgot/reset']);
+  'POST /auth/forgot', 'POST /auth/forgot/verify', 'POST /auth/forgot/reset',
+  // a campaign's public lead form: anonymous by nature, needs its secret token (tested in leads2.test.ts)
+  'GET /f/:token', 'POST /public/leads/:token']);
 const FAKE_ID = '00000000-0000-4000-8000-000000000000';
 
 test('every non-public route rejects anonymous callers with 401', async () => {
