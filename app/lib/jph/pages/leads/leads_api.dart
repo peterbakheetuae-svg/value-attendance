@@ -31,8 +31,8 @@ List<Map<String, dynamic>> ll(Object? v) => ((v as List?) ?? const []).whereType
 
 Future<Map<String, dynamic>> lget(String path, [Map<String, String?>? q]) =>
     ApiService.post({'action': 'cash_get', 'path': path, if (q != null) 'query': q});
-Future<Map<String, dynamic>> lpost(String path, Map<String, dynamic> body, {String ok = tr('تم ✅'), String? method}) =>
-    ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok, if (method != null) 'method': method});
+Future<Map<String, dynamic>> lpost(String path, Map<String, dynamic> body, {String? ok, String? method}) =>
+    ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok ?? tr('تم ✅'), if (method != null) 'method': method});
 
 /// who sees the sales dashboard in the menu
 bool get seesLeads => ApiService.can('leads.own') || ApiService.can('leads.team') || ApiService.can('leads.read_all') || ApiService.can('leads.distribute');
@@ -147,7 +147,7 @@ Widget leadBtn(bool isDark, String label, IconData icon, VoidCallback? onTap, {C
 
 /// A form in a sheet (a side panel on the computer): its fields, and a save button that closes it when [save] is true.
 Future<bool> leadForm(BuildContext context, bool isDark, String title, List<Widget> Function(StateSetter set) fields,
-    Future<bool> Function() save, {String saveLabel = tr('حفظ'), IconData saveIcon = Icons.check_rounded}) async {
+    Future<bool> Function() save, {String? saveLabel, IconData saveIcon = Icons.check_rounded}) async {
   var busy = false;
   final r = await showAppSheet<bool>(
     context: context,
@@ -172,7 +172,7 @@ Future<bool> leadForm(BuildContext context, bool isDark, String title, List<Widg
                 const SizedBox(height: 8),
                 ...fields(set).expand((w) => [w, const SizedBox(height: 10)]),
                 const SizedBox(height: 6),
-                leadBtn(isDark, busy ? tr('لحظة…') : saveLabel, saveIcon, busy
+                leadBtn(isDark, busy ? tr('لحظة…') : saveLabel ?? tr('حفظ'), saveIcon, busy
                     ? null
                     : () async {
                         set(() => busy = true);
@@ -279,7 +279,7 @@ class WhenField extends StatelessWidget {
   final DateTime? value;
   final ValueChanged<DateTime> onPick;
   final String label;
-  WhenField({super.key, required this.isDark, required this.value, required this.onPick, this.label = tr('معاد المتابعة الجاية')});
+  WhenField({super.key, required this.isDark, required this.value, required this.onPick, String? label}) : label = label ?? 'معاد المتابعة الجاية';
 
   @override
   Widget build(BuildContext context) {
@@ -296,7 +296,7 @@ class WhenField extends StatelessWidget {
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       JphUi.picker(
-        isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: label,
+        isDark: isDark, icon: Icons.event_rounded, iconColor: Ar.accent, label: tr(label),
         value: value == null ? tr('اختار المعاد') : whenAr(value!.toIso8601String()),
         onTap: () async {
           final now = DateTime.now();
