@@ -88,7 +88,7 @@ test('client intro form: any employee files it, his own name is the sales person
 
 test('HR / المدير / the owner delete an earlier form; nobody else; numbers are never given again', async () => {
   const perms = (await h.db.query(`SELECT role_key FROM role_permissions WHERE perm_key = 'forms.delete' ORDER BY role_key`)).rows.map((x) => x.role_key);
-  assert.deepEqual(perms, ['hr_manager', 'manager', 'owner']);
+  assert.deepEqual(perms, ['admin_officer', 'hr_manager', 'manager', 'owner']); // «مسؤول إداري» carries HR's
   const r = await h.call(c.t.hr, 'POST', '/forms/custody-receipts', { employeeId: c.ids.e1, data: data() });
   const id = r.body.receipt.id; const n = r.body.receipt.number;
   assert.equal((await h.call(c.t.hr, 'GET', '/forms/custody-receipts')).body.canDelete, true);

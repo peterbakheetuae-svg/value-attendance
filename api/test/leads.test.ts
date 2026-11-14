@@ -12,6 +12,8 @@ let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let pid: string; let ch
 const at = (iso: string) => { h.now.value = new Date(iso); };
 before(async () => {
   h = await harness('2026-11-14T08:00:00Z'); c = await cast(h);
+  // the leads distributor is «مسؤول إداري» (the accountant alone has no sales board)
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   const pr = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج الليدز', ownerName: 'أ. سامي', ownerPhone: '0100' });
   assert.equal(pr.status, 201, JSON.stringify(pr.body));
   pid = pr.body.project.id;
@@ -30,6 +32,12 @@ test('phone numbers are compared in one form', () => {
 
 test('who sees what: the meta and the menu permissions', async () => {
   assert.equal((await h.call(c.t.hr, 'GET', '/leads/meta')).status, 403, 'HR has no leads');
+  // the accountant alone has no sales board either; «مسؤول إداري» (accountant + HR + sales manager) has it
+  await h.db.query(`UPDATE employees SET position_key = NULL WHERE id = $1`, [c.ids.acc]);
+  assert.equal((await h.call(c.t.acc, 'GET', '/leads/meta')).status, 403, 'the accountant alone has no leads');
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
+  const pos = (await h.db.query(`SELECT name_ar FROM roles WHERE key = 'admin_officer'`)).rows[0];
+  assert.equal(pos.name_ar, 'مسؤول إداري');
   const rep = (await h.call(c.t.e1, 'GET', '/leads/meta')).body;
   assert.equal(rep.can.distribute, false);
   assert.equal(rep.can.own, true);

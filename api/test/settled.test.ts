@@ -5,7 +5,9 @@ import { harness, cast, type Harness } from './helpers.ts';
 /** «تم التصفيه»: only after the custody is received back; then every page closes (only his own report reads) and
  *  he never shows up for new leads. */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
-before(async () => { h = await harness('2026-11-14T08:00:00Z'); c = await cast(h); });
+before(async () => { h = await harness('2026-11-14T08:00:00Z'); c = await cast(h);
+  // the leads distributor is «مسؤول إداري» (the accountant alone has no sales board)
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]); });
 after(async () => { await h.close(); });
 
 test('تم التصفيه needs the custody back, then closes the account and leaves the leads', async () => {

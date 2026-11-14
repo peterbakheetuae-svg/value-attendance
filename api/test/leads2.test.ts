@@ -10,6 +10,8 @@ const add = async (name: string, phone: string, assignees: string[]) =>
   (await h.call(c.t.acc, 'POST', '/leads', { fullName: name, phone, projectId: pid, channelId: channel, assignees })).body.lead;
 before(async () => {
   h = await harness('2026-11-14T08:00:00Z'); c = await cast(h);
+  // the leads distributor is «مسؤول إداري» (the accountant alone has no sales board)
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج المرحلة التانية', ownerName: 'أ. سامي', ownerPhone: '0100' })).body.project.id;
   channel = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
 });

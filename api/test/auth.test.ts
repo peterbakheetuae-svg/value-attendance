@@ -99,7 +99,7 @@ test('role permissions are editable by owner only and owner role is immutable', 
   assert.equal((await h.call(c.t.owner, 'PUT', '/roles/sales_employee/permissions', { permissions: ['audit.read'] })).status, 400);
   const roles = await h.call(c.t.owner, 'GET', '/roles');
   assert.equal(roles.status, 200);
-  assert.equal(roles.body.roles.length, 6);
+  assert.equal(roles.body.roles.length, 7); // + «مسؤول إداري»
 });
 
 test('login also accepts the mobile number in any common form and the email', async () => {
