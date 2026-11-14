@@ -24,11 +24,11 @@ jobs:
           keytool -genkeypair -storetype PKCS12 -keystore /tmp/check.p12 -alias valueattendance -keyalg RSA -keysize 2048 -validity 2 -storepass "$P" -keypass "$P" -dname "CN=check"
           printf 'storeFile=/tmp/check.p12\nstorePassword=%s\nkeyAlias=valueattendance\nkeyPassword=%s\n' "$P" "$P" > android/key.properties
           flutter build apk --release --build-name=1.0.999 --build-number=999
-      - name: Web build check (same base path as GitHub Pages and jaurea.com/value-attendance/)
+      - name: Web build check (same base path as GitHub Pages and jaurea.com/valunivo/)
         run: |
-          flutter build web --release --base-href /value-attendance/
+          flutter build web --release --base-href /valunivo/
           cp deploy/hostinger/.htaccess build/web/.htaccess
-          grep -q '<base href="/value-attendance/">' build/web/index.html
+          grep -q '<base href="/valunivo/">' build/web/index.html
           ls -la build/web build/web/assets/assets/bg build/web/assets/assets/sounds; du -sh build/web
       - name: Keep the web build for a visual check (1 day)
         uses: actions/upload-artifact@v4

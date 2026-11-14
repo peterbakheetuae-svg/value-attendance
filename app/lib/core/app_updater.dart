@@ -11,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../jph/widgets/glass_dialog.dart';
 
 /// App update (Android): every Android build is published on the app's own site —
-/// https://jaurea.com/value-attendance/android/latest.json names the newest version and its APK next to it.
+/// https://jaurea.com/valunivo/android/latest.json names the newest version and its APK next to it.
 ///  - On start / when the app comes back, and when "التحقق من التحديثات" is pressed, a newer build is looked up.
 ///  - The APK is downloaded ONCE and kept; pressing again never downloads it a second time — it just offers "تثبيت".
 ///  - Only one download at a time. Old APK files are removed once the app is on a newer build.
@@ -20,7 +20,7 @@ class AppUpdater with WidgetsBindingObserver {
   AppUpdater._();
   static final AppUpdater instance = AppUpdater._();
 
-  static const _base = 'https://jaurea.com/value-attendance/android/';
+  static const _base = 'https://jaurea.com/valunivo/android/';
 
   GlobalKey<NavigatorState>? _nav;
   DateTime? _lastCheck;

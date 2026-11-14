@@ -1,5 +1,5 @@
-# Value Attendance (Flutter Web) — https://jaurea.com/value-attendance/
-# This file lives ONLY in public_html/value-attendance/ and applies to this folder only.
+# Value Attendance (Flutter Web) — https://jaurea.com/valunivo/
+# This file lives ONLY in public_html/valunivo/ and applies to this folder only.
 # The WordPress site and its root .htaccess are not touched.
 
 Options -Indexes
@@ -8,7 +8,7 @@ DirectoryIndex index.html
 # --- routing: real files are served as they are; any other path inside this folder opens the app
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /value-attendance/
+  RewriteBase /valunivo/
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [L]

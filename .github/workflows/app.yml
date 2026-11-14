@@ -1,4 +1,4 @@
-name: App — test, Web + Android, deploy to Hostinger (jaurea.com/value-attendance)
+name: App — test, Web + Android, deploy to Hostinger (jaurea.com/valunivo)
 on:
   push: { branches: [main], paths: ['app/**', '.github/workflows/app.yml'] }
   workflow_dispatch:
@@ -46,7 +46,7 @@ jobs:
             echo "API_BASE_URL=https://value-attendance.vercel.app" >> "$GITHUB_ENV"
           fi
       - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
-        run: flutter build web --release --wasm --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+        run: flutter build web --release --wasm --base-href "/valunivo/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
       - name: Web Push (notifications for the web app on iPhone / browsers) — its worker + helper next to the app
         run: |
           cp web_push/push-sw.js web_push/va-push.js build/web/
@@ -86,11 +86,11 @@ jobs:
         run: |
           rm -rf build/hostinger && cp -r build/web build/hostinger
           cp deploy/hostinger/.htaccess build/hostinger/.htaccess
-          # the build must be complete and point at /value-attendance/ before anything is uploaded
+          # the build must be complete and point at /valunivo/ before anything is uploaded
           for f in index.html flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp push-sw.js va-push.js; do
             test -s "build/hostinger/$f" || { echo "::error::missing $f"; exit 1; }
           done
-          grep -q '<base href="/value-attendance/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }
+          grep -q '<base href="/valunivo/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }
           # nothing secret may ship in the public folder
           if find build/hostinger -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in build"; exit 1; fi
           du -sh build/hostinger; find build/hostinger -type f -size +300k -exec ls -la {} \;
@@ -130,7 +130,7 @@ jobs:
         run: |
           V=1.0.${{ github.run_number }}
           [ -f build/app/outputs/flutter-apk/app-release.apk ] && cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
-          # the same web build for jaurea.com/value-attendance/ (public files only: the app that already ships to every browser)
+          # the same web build for jaurea.com/valunivo/ (public files only: the app that already ships to every browser)
           (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
           EXTRA=""; [ -f value-attendance-web-wasm-test.zip ] && EXTRA=value-attendance-web-wasm-test.zip
           # Phones update themselves from the *latest* release. A new Android version is published only when the commit
@@ -164,8 +164,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with: { name: deploy-out, path: deploy-out, retention-days: 7 }
 
-  # The live app: https://jaurea.com/value-attendance/ (+ /android/ for phone updates). Sent over SSH (encrypted,
-  # server key pinned below) and placed by app/deploy/hostinger/remote-deploy.sh into public_html/value-attendance/
+  # The live app: https://jaurea.com/valunivo/ (+ /android/ for phone updates; the old /value-attendance/ redirects there and keeps its /android/ for phones on older versions). Sent over SSH (encrypted,
+  # server key pinned below) and placed by app/deploy/hostinger/remote-deploy.sh into public_html/valunivo/ (+ the old public_html/value-attendance/)
   # ONLY — WordPress is fingerprinted before / after and the deploy fails if anything there changed.
   # Needs ONE repository secret: HOSTINGER_SSH_KEY (private key whose public half is added in hPanel → SSH Access)
   # or HOSTINGER_SSH_PASSWORD. Without it the step is skipped and the build is copied over by hand.
@@ -222,10 +222,14 @@ jobs:
           code() { curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$1"; }
           for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ] || { echo "::error::$u -> $c"; exit 1; }; done
           curl -sL --max-time 30 https://jaurea.com/ | grep -q 'wp-content' || { echo "::error::WordPress home page looks different"; exit 1; }
-          curl -s --max-time 30 https://jaurea.com/value-attendance/ | grep -q '<base href="/value-attendance/">' || { echo "::error::app index not served"; exit 1; }
+          curl -s --max-time 30 https://jaurea.com/valunivo/ | grep -q '<base href="/valunivo/">' || { echo "::error::app index not served"; exit 1; }
+          # the old address sends people to the new one
+          curl -sL --max-time 30 https://jaurea.com/value-attendance/ | grep -q '<base href="/valunivo/">' || { echo "::error::old address does not redirect"; exit 1; }
           for f in flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp; do
-            c=$(code "https://jaurea.com/value-attendance/$f"); echo "$f -> $c"; [ "$c" = 200 ] || { echo "::error::$f -> $c"; exit 1; }
+            c=$(code "https://jaurea.com/valunivo/$f"); echo "$f -> $c"; [ "$c" = 200 ] || { echo "::error::$f -> $c"; exit 1; }
           done
           if [ -s out/android/latest.json ]; then
-            curl -s --max-time 30 "https://jaurea.com/value-attendance/android/latest.json" | tee /dev/stderr | grep -q "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' out/android/latest.json)" || { echo "::error::android/latest.json not updated"; exit 1; }
+            for d in valunivo value-attendance; do
+              curl -s --max-time 30 "https://jaurea.com/$d/android/latest.json" | tee /dev/stderr | grep -q "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' out/android/latest.json)" || { echo "::error::$d/android/latest.json not updated"; exit 1; }
+            done
           fi

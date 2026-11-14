@@ -1,9 +1,9 @@
-name: Performance — Lighthouse (jaurea.com/value-attendance)
+name: Performance — Lighthouse (jaurea.com/valunivo)
 # (re-run: measure after the Hostinger copy went live)
 on:
   push: { branches: [pending-build], paths: ['.github/workflows/perf.yml'] }
   workflow_dispatch:
-  workflow_run: { workflows: ['App — test, Web + Android, deploy to Hostinger (jaurea.com/value-attendance)'], types: [completed], branches: [main] }
+  workflow_run: { workflows: ['App — test, Web + Android, deploy to Hostinger (jaurea.com/valunivo)'], types: [completed], branches: [main] }
 permissions: { contents: read }
 jobs:
   lighthouse:
@@ -15,7 +15,7 @@ jobs:
         run: |
           npm i -g lighthouse@12.2.1 >/dev/null 2>&1
           for name in hostinger; do   # GitHub Pages was retired: the app lives on Hostinger only
-            [ $name = pages ] && url=https://peterbakheetuae-svg.github.io/value-attendance/ || url=https://jaurea.com/value-attendance/
+            [ $name = pages ] && url=https://peterbakheetuae-svg.github.io/value-attendance/ || url=https://jaurea.com/valunivo/
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")
             if [ "$code" != 200 ]; then echo "$name: $url -> HTTP $code (skipped)"; continue; fi
             for i in 1 2 3; do

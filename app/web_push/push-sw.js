@@ -22,7 +22,7 @@ self.addEventListener('push', (e) => {
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const app = new URL('../', self.registration.scope).href; // /value-attendance/
+  const app = new URL('../', self.registration.scope).href; // /valunivo/
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => {
     for (const w of ws) if (w.url.startsWith(app) && 'focus' in w) return w.focus();
     return self.clients.openWindow(app);

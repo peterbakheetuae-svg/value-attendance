@@ -44,7 +44,7 @@ function resilientDb(pooled: string, plain: string): Db {
     end: () => db.end(),
   };
 }
-// browser origins allowed to call the API: GitHub Pages (fallback) and the Hostinger copy at jaurea.com/value-attendance/,
+// browser origins allowed to call the API: GitHub Pages (fallback) and the Hostinger copy at jaurea.com/valunivo/,
 // plus anything listed in CORS_ORIGINS
 const corsOrigins = [...new Set([
   'https://peterbakheetuae-svg.github.io', 'https://jaurea.com', 'https://www.jaurea.com',
