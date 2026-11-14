@@ -246,7 +246,10 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
             subtitle: Text('${l['stageAr']} — ${whenAr(l['nextAt'])}${l['assignedTo'] != null && lm(_meta['can'])['assign'] == true ? ' — ${lm(l['assignedTo'])['name']}' : ''}',
                 style: TextStyle(color: l['overdue'] == true ? Ar.red : JphUi.sub(isDark))),
             trailing: IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${l['phone']}')),
-            onTap: () => _open(LeadPage(leadId: '${l['id']}')),
+            onTap: () async {
+              await openLead(context, '${l['id']}');
+              _load();
+            },
           ),
       ]),
     );

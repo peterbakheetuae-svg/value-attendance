@@ -289,7 +289,7 @@ class _LeadsReportsPageState extends State<LeadsReportsPage> {
         for (final x in d)
           ['${x['salesName']}', '${x['leadName']}', '${x['stageAr']}', whenAr(x['nextAt']),
             ((x['hours'] as num?) ?? 0) >= 24 ? '${((x['hours'] as num) / 24).floor()} يوم' : '${x['hours']} ساعة'],
-      ], taps: [for (final x in d) () => pushSide(context, LeadPage(leadId: '${x['leadId']}'))]),
+      ], taps: [for (final x in d) () => openLead(context, '${x['leadId']}')]),
     ];
   }
 }

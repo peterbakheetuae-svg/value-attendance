@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/side_sheet.dart';
 import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
 import 'leads_extra.dart';
@@ -13,7 +14,9 @@ import 'tasks_page.dart' show editTask;
 /// the reservations made from it and — for the managers — its log (who gave it, who opened it).
 class LeadPage extends StatefulWidget {
   final String leadId;
-  const LeadPage({super.key, required this.leadId});
+  /// opened like a person of the directory: a floating panel (computer) / a tall bottom sheet (phone)
+  final bool sheet;
+  const LeadPage({super.key, required this.leadId, this.sheet = false});
 
   @override
   State<LeadPage> createState() => _LeadPageState();
@@ -48,6 +51,7 @@ class _LeadPageState extends State<LeadPage> {
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
     final d = _d;
+    if (widget.sheet) return _panel(isDark, d);
     return LeadsShell(
         isDark: isDark,
         title: d?['lead'] == null ? tr('العميل') : '${lm(d!['lead'])['fullName']}',
@@ -59,69 +63,119 @@ class _LeadPageState extends State<LeadPage> {
     );
   }
 
+  /// the floating panel: the grabber (phone), the name with its line and the X, then the body
+  Widget _panel(bool isDark, Map<String, dynamic>? d) {
+    final l = lm(d?['lead']);
+    final wide = SideSheets.wide(context);
+    return Directionality(
+      textDirection: leadsDir,
+      child: Material(
+        color: isDark ? const Color(0xFF1E1D1B) : const Color(0xFFFBFAF8),
+        borderRadius: wide ? BorderRadius.circular(18) : const BorderRadius.vertical(top: Radius.circular(26)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: [
+          if (!wide)
+            Container(margin: const EdgeInsets.only(top: 10), width: 42, height: 5,
+                decoration: BoxDecoration(color: isDark ? Colors.white24 : Colors.black12, borderRadius: BorderRadius.circular(3))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 10, 10),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(l['fullName'] == null ? tr('العميل') : '${l['fullName']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                  if (l['fullName'] != null)
+                    Text(['#${l['refNo']}', if (lm(l['project'])['name'] != null) '${lm(l['project'])['name']}'].join(' · '),
+                        style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
+                ]),
+              ),
+              IconButton(tooltip: tr('قفل'), onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.close_rounded)),
+            ]),
+          ),
+          Divider(height: 1, color: isDark ? Colors.white10 : const Color(0xFFEDEBE8)),
+          Expanded(
+            child: d == null
+                ? const Center(child: CircularProgressIndicator())
+                : d['error'] != null
+                    ? Center(child: Text('${d['error']}', style: TextStyle(color: JphUi.sub(isDark))))
+                    : RefreshIndicator(onRefresh: _load, child: Padding(padding: const EdgeInsets.only(top: 16), child: _body(isDark, d))),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Widget _body(bool isDark, Map<String, dynamic> d) {
     final l = lm(d['lead']);
     final can = lm(d['can']);
     final phone = '${l['phone'] ?? ''}';
     final next = l['nextAt'];
     final open = !const ['cancelled', 'done_deal', 'reservation'].contains(l['stage']);
-    return ListView(padding: const EdgeInsets.fromLTRB(14, 6, 14, 40), children: [
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: JphUi.box(isDark),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            JphUi.iconTile(isDark, stageIcon('${l['stage']}'), stageColor('${l['stage']}')),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${l['fullName']}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                const SizedBox(height: 2),
-                SelectableText(phone, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: JphUi.sub(isDark))),
-              ]),
-            ),
-            stageChip('${l['stage']}'),
+    final kind = l['kind'] == 'cold' ? tr('كولد كول') : tr('فريش');
+    final rating = {'hot': (tr('ساخن 🔥'), Ar.red), 'warm': (tr('دافي'), Ar.amber), 'cold': (tr('بارد'), Ar.info)}[l['rating']];
+    return ListView(padding: EdgeInsets.fromLTRB(widget.sheet ? 20 : 14, 6, widget.sheet ? 20 : 14, 40), children: [
+      // ------------------------------------------------ the big avatar, its pills and the meta line
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        leadAvatar('${l['fullName']}', size: 72),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              pill('${stageNames[l['stage']] ?? l['stage']}', stageColor('${l['stage']}'), icon: stageIcon('${l['stage']}')),
+              if (rating != null) pill(rating.$1, rating.$2),
+              pill(kind, Ar.grey, dot: false),
+            ]),
+            const SizedBox(height: 8),
+            SelectableText(phone, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            const SizedBox(height: 2),
+            Text([
+              if (l['channel'] != null) '${lm(l['channel'])['name']}',
+              '${lm(l['assignedTo'])['name'] ?? tr('مش متوزع')}',
+              if (l['createdAt'] != null) 'اتضاف ${agoAr(l['createdAt'])}',
+            ].join(' · '), style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
           ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: leadBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone), color: Ar.green)),
-            const SizedBox(width: 8),
-            Expanded(child: leadBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF25D366))),
-          ]),
-          if (l['pending'] == true || l['overdue'] == true) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Ar.red.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
-              child: Text(l['pending'] == true ? tr('الليد اتوزع ولسه محدش عمل عليه أكشن') : 'معاد المتابعة عدّى: ${whenAr(next)}',
-                  style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w800)),
-            ),
-          ] else if (next != null && open) ...[
-            const SizedBox(height: 10),
-            Text('المتابعة الجاية: ${whenAr(next)}', style: TextStyle(fontWeight: FontWeight.w800, color: Ar.accent.shade700)),
-          ],
-        ]),
-      ),
-      const SizedBox(height: 10),
-      Wrap(spacing: 8, runSpacing: 8, children: [
-        if (can['act'] == true && l['stage'] != 'done_deal')
-          SizedBox(width: 170, child: leadBtn(isDark, tr('إضافة أكشن'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)))),
-        if (can['reserve'] == true)
-          SizedBox(width: 150, child: leadBtn(isDark, tr('حجز وحدة'), Icons.bookmark_add_rounded, () => _reserve(isDark, l), color: const Color(0xFF3FC1C9))),
-        if (can['edit'] == true)
-          SizedBox(width: 120, child: leadBtn(isDark, tr('تعديل'), Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can)), outline: true)),
-        if (can['assign'] == true)
-          SizedBox(width: 130, child: leadBtn(isDark, tr('توزيع'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']])), outline: true)),
-        if (can['refer'] == true)
-          SizedBox(width: 130, child: leadBtn(isDark, tr('مشاركة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l)), outline: true)),
-        SizedBox(width: 120, child: leadBtn(isDark, tr('مهمة'), Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l)), outline: true)),
-        if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
-          SizedBox(width: 170, child: leadBtn(isDark, tr('وصلت الميتنج'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green)),
+        ),
       ]),
+      const SizedBox(height: 16),
+      // ------------------------------------------------ the actions row: one filled, the rest outlined
+      Wrap(children: [
+        if (can['act'] == true && l['stage'] != 'done_deal')
+          dirBtn(isDark, tr('إضافة أكشن'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)), primary: true),
+        dirBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone), color: Ar.green),
+        dirBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF1FA855)),
+        if (can['reserve'] == true) dirBtn(isDark, tr('حجز وحدة'), Icons.bookmark_add_rounded, () => _reserve(isDark, l)),
+        if (can['edit'] == true)
+          dirBtn(isDark, tr('تعديل'), Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can))),
+        if (can['assign'] == true)
+          dirBtn(isDark, tr('توزيع'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']]))),
+        if (can['refer'] == true) dirBtn(isDark, tr('مشاركة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l))),
+        dirBtn(isDark, tr('مهمة'), Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l))),
+        if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
+          dirBtn(isDark, tr('وصلت الميتنج'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green),
+      ]),
+      if (l['pending'] == true || l['overdue'] == true) ...[
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: Ar.red.withOpacity(0.10), borderRadius: BorderRadius.circular(14)),
+          child: Text(l['pending'] == true ? tr('الليد اتوزع ولسه محدش عمل عليه أكشن') : 'معاد المتابعة عدّى: ${whenAr(next)}',
+              style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w800)),
+        ),
+      ] else if (next != null && open) ...[
+        sectionLabel(tr('المتابعة الجاية'), isDark),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: Ar.accent.withOpacity(0.10), borderRadius: BorderRadius.circular(14)),
+          child: Row(children: [
+            Icon(Icons.event_rounded, color: Ar.accent.shade700, size: 20),
+            const SizedBox(width: 8),
+            Text(whenAr(next), style: TextStyle(fontWeight: FontWeight.w800, color: Ar.accent.shade700)),
+          ]),
+        ),
+      ],
       if (can['act'] == true || can['edit'] == true) ...[
-        const SizedBox(height: 10),
+        sectionLabel(tr('تقييم العميل'), isDark),
         Wrap(crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 6, children: [
-          Text(tr('تقييم العميل: '), style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
           for (final r in [('hot', tr('ساخن 🔥'), Ar.red), ('warm', tr('دافي'), Ar.amber), ('cold', tr('بارد'), Ar.info)])
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 6),
@@ -138,9 +192,9 @@ class _LeadPageState extends State<LeadPage> {
             ),
         ]),
       ],
-      const SizedBox(height: 12),
+      sectionLabel(tr('البيانات'), isDark),
       _info(isDark, l, d),
-      const SizedBox(height: 12),
+      sectionLabel(tr('المتابعة'), isDark),
       SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: [
@@ -176,8 +230,9 @@ class _LeadPageState extends State<LeadPage> {
     Widget kv(String k, String v) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 130, child: Text(k, style: TextStyle(color: JphUi.sub(isDark)))),
-            Expanded(child: Text(v, style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
+            Text(k, style: TextStyle(color: JphUi.sub(isDark))),
+            const SizedBox(width: 12),
+            Expanded(child: Text(v, textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark)))),
           ]),
         );
     final refs = ll(d['referrals']);
@@ -560,4 +615,20 @@ Future<bool> bulkEditLeads(BuildContext context, bool isDark, Map<String, dynami
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
   }, saveLabel: tr('عدّل'));
+}
+
+
+/// open a lead the way the directory opens a person: a floating panel beside the list on the computer,
+/// a tall bottom sheet with a grabber on the phone.
+Future<void> openLead(BuildContext context, String id) {
+  if (SideSheets.wide(context)) {
+    return SideSheets.show<void>(context, width: 540, page: true, builder: (_) => LeadPage(leadId: id, sheet: true));
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => FractionallySizedBox(heightFactor: 0.94, child: LeadPage(leadId: id, sheet: true)),
+  );
 }

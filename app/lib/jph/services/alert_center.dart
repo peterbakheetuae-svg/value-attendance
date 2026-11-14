@@ -40,7 +40,7 @@ class AlertCenter with WidgetsBindingObserver {
       return;
     }
     if (type.startsWith('lead_') && id != null) {
-      await pushSide(ctx, LeadPage(leadId: id));
+      await openLead(ctx, id);
       return;
     }
     if (id == null || !(type == 'outing_awaiting' || type == 'outing_extension_awaiting')) return;

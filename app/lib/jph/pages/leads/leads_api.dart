@@ -350,3 +350,100 @@ class LeadsShell extends StatelessWidget {
       ),
       );
 }
+
+// ==================================================================== the «directory» look (the leads list and a lead's panel)
+String initials(String name) {
+  final w = name.trim().split(RegExp(r'\s+')).where((x) => x.isNotEmpty).toList();
+  if (w.isEmpty) return '?';
+  return w.length == 1 ? w.first.characters.take(2).toString() : '${w[0].characters.first}${w[1].characters.first}';
+}
+
+/// a soft pastel per person (the same name always gets the same colour)
+Color avatarColor(String seed) {
+  const c = [Color(0xFFDCE7F7), Color(0xFFF8DED3), Color(0xFFE9E1D6), Color(0xFFDDEFE3), Color(0xFFEDE0F5), Color(0xFFF7E8C9), Color(0xFFD9EEF0)];
+  return c[seed.codeUnits.fold<int>(0, (a, b) => a + b) % c.length];
+}
+
+Widget leadAvatar(String name, {double size = 38}) => Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: avatarColor(name), shape: BoxShape.circle),
+      child: Text(initials(name),
+          style: TextStyle(fontSize: size * 0.36, fontWeight: FontWeight.w800, color: const Color(0xFF2B2A28))),
+    );
+
+/// a rounded pill: a dot (or an icon) and its text
+Widget pill(String text, Color color, {IconData? icon, bool dot = true}) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.14), borderRadius: BorderRadius.circular(20)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null)
+          Icon(icon, size: 14, color: color)
+        else if (dot)
+          Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        if (icon != null || dot) const SizedBox(width: 6),
+        Text(text, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color.lerp(color, Colors.black, 0.35))),
+      ]),
+    );
+
+Widget sectionLabel(String text, bool isDark) => Padding(
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Text(text, style: TextStyle(fontSize: 12, letterSpacing: 0.6, fontWeight: FontWeight.w800, color: JphUi.sub(isDark))),
+    );
+
+/// a filter chip of the directory: black when chosen, with its count
+Widget dirChip(bool isDark, String label, bool on, VoidCallback onTap, {int? count, Color? dot}) => Padding(
+      padding: const EdgeInsetsDirectional.only(end: 6, bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: on ? (isDark ? Colors.white : const Color(0xFF1C1B19)) : (isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFF1F0EE)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: on ? Colors.transparent : (isDark ? Colors.white12 : const Color(0xFFE4E2DE))),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (dot != null) ...[Container(width: 8, height: 8, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)), const SizedBox(width: 7)],
+            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                color: on ? (isDark ? Colors.black : Colors.white) : JphUi.text(isDark))),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(color: on ? Colors.white24 : (isDark ? Colors.white12 : Colors.white), borderRadius: BorderRadius.circular(8)),
+                child: Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                    color: on ? (isDark ? Colors.black : Colors.white) : JphUi.sub(isDark))),
+              ),
+            ],
+          ]),
+        ),
+      ),
+    );
+
+/// a filled (primary) or outlined button of the panel
+Widget dirBtn(bool isDark, String label, IconData icon, VoidCallback? onTap, {bool primary = false, Color? color}) => Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8, bottom: 8),
+      child: SizedBox(
+        height: 42,
+        child: primary
+            ? ElevatedButton.icon(
+                onPressed: onTap,
+                icon: Icon(icon, size: 18),
+                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+                style: ElevatedButton.styleFrom(backgroundColor: color ?? Ar.accent.shade700, foregroundColor: Colors.white, elevation: 3,
+                    shadowColor: (color ?? Ar.accent).withOpacity(0.4), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              )
+            : OutlinedButton.icon(
+                onPressed: onTap,
+                icon: Icon(icon, size: 18, color: color ?? JphUi.text(isDark)),
+                label: Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: color ?? JphUi.text(isDark))),
+                style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: isDark ? Colors.white24 : const Color(0xFFDAD8D4)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              ),
+      ),
+    );

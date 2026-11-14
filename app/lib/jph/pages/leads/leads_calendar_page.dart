@@ -175,7 +175,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
                 ].join(' • '), style: TextStyle(color: x['overdue'] == true ? Ar.red : JphUi.sub(isDark))),
                 trailing: x['kind'] == 'lead' ? IconButton(icon: const Icon(Icons.call_rounded, color: Ar.green), onPressed: () => callPhone('${x['phone']}')) : null,
                 onTap: () async {
-                  await pushSide(context, x['kind'] == 'task' ? const TasksPage() : LeadPage(leadId: '${x['id']}'));
+                  x['kind'] == 'task' ? await pushSide(context, const TasksPage()) : await openLead(context, '${x['id']}');
                   _load();
                 },
               ),

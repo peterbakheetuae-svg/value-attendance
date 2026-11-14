@@ -119,7 +119,7 @@ class _TasksPageState extends State<TasksPage> {
         Row(children: [
           if (t['lead'] != null)
             TextButton.icon(
-              onPressed: () => pushSide(context, LeadPage(leadId: '${lm(t['lead'])['id']}')),
+              onPressed: () => openLead(context, '${lm(t['lead'])['id']}'),
               icon: const Icon(Icons.person_search_rounded, size: 18),
               label: Text('${lm(t['lead'])['name']}'),
             ),
