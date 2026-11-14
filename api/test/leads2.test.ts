@@ -105,7 +105,7 @@ test('the public form of a campaign: leads come in and take turns', async () => 
   assert.equal(f.status, 200, JSON.stringify(f.body));
   const page = await h.call(null as any, 'GET', f.body.path);
   assert.equal(page.status, 200);
-  assert.match(String(page.raw ?? page.text ?? JSON.stringify(page.body)), /احجز وحدتك/);
+  assert.match(page.raw.toString('utf8'), /احجز وحدتك/);
   const token = f.body.token;
   at('2026-11-14T14:00:00Z');
   assert.equal((await h.call(null as any, 'POST', `/public/leads/${token}`, { fullName: 'من الإعلان', phone: '01040000001' })).status, 201);
