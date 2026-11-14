@@ -457,7 +457,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
             decoration: BoxDecoration(borderRadius: BorderRadius.circular(0)),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(0),
-              child: Image.asset('assets/images/logo.png', width: 0, height: 0, fit: BoxFit.cover),
+              child: Image.asset('assets/images/login_logo.png', fit: BoxFit.contain, filterQuality: FilterQuality.medium),
             ),
           ),
         ),
