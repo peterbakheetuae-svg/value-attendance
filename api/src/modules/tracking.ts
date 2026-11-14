@@ -7,6 +7,7 @@ import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { holdersOf, notify } from './notify.ts';
 import { leadsSweep } from './leads.ts';
+import { leadsAutoReassign } from './leads2.ts';
 import { activeOuting, markReturned } from './outings.ts';
 
 /** Who hears about an employee: HR/owner (attendance.read_all) + the employee's sales manager(s). */
@@ -42,6 +43,7 @@ export async function sweep(q: Q, now: Date) {
   await q.query(`DELETE FROM employee_documents WHERE employee_id IS NULL AND created_at < $1::timestamptz - interval '1 day'`, [now]);
   // the leads' follow-ups, leads nobody acted on, tasks — every day (holidays too)
   await leadsSweep(q, now);
+  await leadsAutoReassign(q, now);
   const l = local(now);
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`

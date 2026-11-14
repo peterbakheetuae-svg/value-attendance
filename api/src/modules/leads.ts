@@ -23,7 +23,7 @@ export const STAGE_AR: Record<Stage, string> = {
 const ACTION_STAGES = ['no_answer', 'following', 'interested', 'meeting', 'after_meeting', 'reschedule', 'cancelled'] as const;
 const CLOSED: Stage[] = ['cancelled', 'done_deal'];
 const NO_DATE: Stage[] = ['cancelled', 'reservation', 'done_deal'];
-const OPEN_SQL = `l.stage NOT IN ('cancelled','done_deal','reservation')`;
+export const OPEN_SQL = `l.stage NOT IN ('cancelled','done_deal','reservation')`;
 const SM_OF = `NULLIF(COALESCE(e.sales_manager_id, t.manager_id), e.id)`;
 const MAX_IMPORT = 1000;
 
@@ -32,10 +32,10 @@ const n = (v: unknown) => Number(v ?? 0);
 const iso = (v: unknown) => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
 
 export const canAll = (a: Actor) => has(a, 'leads.read_all') || has(a, 'leads.distribute');
-const canDistribute = (a: Actor) => has(a, 'leads.distribute');
-const canTeam = (a: Actor) => has(a, 'leads.team');
+export const canDistribute = (a: Actor) => has(a, 'leads.distribute');
+export const canTeam = (a: Actor) => has(a, 'leads.team');
 const canOwn = (a: Actor) => has(a, 'leads.own');
-const canConfig = (a: Actor) => has(a, 'leads.config');
+export const canConfig = (a: Actor) => has(a, 'leads.config');
 export const anyLeads = (a: Actor) => canAll(a) || canTeam(a) || canOwn(a);
 
 /** digits only; an Egyptian mobile in any form (+20 / 0020 / 20 / 1xxxxxxxxx) becomes 01xxxxxxxxx */
@@ -48,7 +48,7 @@ export function phoneNorm(v: unknown): string {
 }
 
 /** the people whose leads the actor sees: everyone (null) or a list of employee ids */
-async function seenPeople(q: Q, a: Actor): Promise<string[] | null> {
+export async function seenPeople(q: Q, a: Actor): Promise<string[] | null> {
   if (canAll(a)) return null;
   const ids = [a.id];
   if (canTeam(a)) ids.push(...await teamMemberIds(q, a.id));
@@ -56,7 +56,7 @@ async function seenPeople(q: Q, a: Actor): Promise<string[] | null> {
 }
 
 /** SQL condition (alias l) for the leads the actor sees; pushes its parameters */
-async function scopeSql(q: Q, a: Actor, params: unknown[]): Promise<string> {
+export async function scopeSql(q: Q, a: Actor, params: unknown[]): Promise<string> {
   const people = await seenPeople(q, a);
   if (!people) return 'TRUE';
   params.push(people); const p = params.length;
@@ -65,14 +65,14 @@ async function scopeSql(q: Q, a: Actor, params: unknown[]): Promise<string> {
            OR EXISTS (SELECT 1 FROM lead_referrals rf WHERE rf.lead_id = l.id AND rf.employee_id = $${me}))`;
 }
 
-async function canSee(q: Q, a: Actor, leadId: string): Promise<boolean> {
+export async function canSee(q: Q, a: Actor, leadId: string): Promise<boolean> {
   const params: unknown[] = [leadId];
   const s = await scopeSql(q, a, params);
   return !!(await one(q, `SELECT 1 FROM leads l WHERE l.id = $1 AND ${s}`, params));
 }
 
 /** who may work a lead (أكشن / حجز): its salesman, a salesman it was shared with, his team manager, the distributor */
-async function canWork(q: Q, a: Actor, l: any): Promise<boolean> {
+export async function canWork(q: Q, a: Actor, l: any): Promise<boolean> {
   if (l.assigned_to === a.id || canDistribute(a)) return true;
   if (await one(q, `SELECT 1 FROM lead_referrals WHERE lead_id = $1 AND employee_id = $2`, [l.id, a.id])) return true;
   if (canTeam(a) && l.assigned_to && (await teamMemberIds(q, a.id)).includes(l.assigned_to)) return true;
@@ -80,7 +80,7 @@ async function canWork(q: Q, a: Actor, l: any): Promise<boolean> {
 }
 
 /** the salesmen the actor may give leads to */
-async function assignable(q: Q, a: Actor): Promise<any[]> {
+export async function assignable(q: Q, a: Actor): Promise<any[]> {
   const rows = (await q.query(`
     SELECT DISTINCT e.id, e.full_name, e.code, e.role_key, e.team_id
       FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
@@ -94,14 +94,14 @@ async function assignable(q: Q, a: Actor): Promise<any[]> {
 }
 
 /** the order the given salesmen take their next leads in: the one who got a lead longest ago first */
-async function rotation(q: Q, ids: string[]): Promise<string[]> {
+export async function rotation(q: Q, ids: string[]): Promise<string[]> {
   const r = await q.query(`
     SELECT x.id FROM unnest($1::uuid[]) WITH ORDINALITY AS x(id, ord)
      ORDER BY (SELECT max(l.assigned_at) FROM leads l WHERE l.assigned_to = x.id) ASC NULLS FIRST, x.ord`, [ids]);
   return r.rows.map((x) => x.id);
 }
 
-async function pickAssignees(q: Q, a: Actor, b: Record<string, unknown>, field = 'assignees'): Promise<string[]> {
+export async function pickAssignees(q: Q, a: Actor, b: Record<string, unknown>, field = 'assignees'): Promise<string[]> {
   const raw = b[field];
   const ids = Array.isArray(raw) ? [...new Set(raw.filter((x): x is string => typeof x === 'string' && isUuid(x)))] : [];
   if (!ids.length) return [];
@@ -110,11 +110,11 @@ async function pickAssignees(q: Q, a: Actor, b: Record<string, unknown>, field =
   return ids;
 }
 
-async function log(q: Q, leadId: string, kind: string, by: string | null, data: Record<string, unknown> = {}) {
+export async function log(q: Q, leadId: string, kind: string, by: string | null, data: Record<string, unknown> = {}) {
   await q.query(`INSERT INTO lead_logs (lead_id, kind, by_id, data) VALUES ($1,$2,$3,$4)`, [leadId, kind, by, JSON.stringify(data)]);
 }
 
-const LIST_SELECT = `
+export const LIST_SELECT = `
   SELECT l.*, s.full_name AS assigned_name, cr.full_name AS created_name, lb.full_name AS last_by_name,
          p.name AS project_name, ch.name AS channel_name, cp.name AS campaign_name, rs.name AS cancel_reason_name,
          d.full_name AS duplicate_of_name
@@ -128,14 +128,14 @@ const LIST_SELECT = `
     LEFT JOIN lead_cancel_reasons rs ON rs.id = l.cancel_reason_id
     LEFT JOIN leads d ON d.id = l.duplicate_of`;
 
-function shape(l: any, now: Date, pendingMin: number) {
+export function shape(l: any, now: Date, pendingMin: number) {
   const next = l.next_at ? new Date(l.next_at) : null;
   const open = !['cancelled', 'done_deal', 'reservation'].includes(l.stage);
   const assignedAt = l.assigned_at ? new Date(l.assigned_at) : null;
   const acted = l.last_action_at && assignedAt && new Date(l.last_action_at) >= assignedAt;
   return {
     id: l.id, refNo: Number(l.ref_no), fullName: l.full_name, phone: l.phone, extraPhones: l.extra_phones ?? [], email: l.email,
-    budget: l.budget == null ? null : n(l.budget), kind: l.kind, stage: l.stage, stageAr: STAGE_AR[l.stage as Stage] ?? l.stage,
+    budget: l.budget == null ? null : n(l.budget), kind: l.kind, rating: l.rating ?? null, stage: l.stage, stageAr: STAGE_AR[l.stage as Stage] ?? l.stage,
     stageChangedAt: iso(l.stage_changed_at), stageDays: Math.max(0, Math.floor((now.getTime() - new Date(l.stage_changed_at).getTime()) / 86_400_000)),
     nextAt: iso(l.next_at), overdue: !!(open && next && next < now),
     pending: !!(open && l.assigned_to && assignedAt && !acted && now.getTime() - assignedAt.getTime() >= pendingMin * 60_000),
@@ -150,13 +150,13 @@ function shape(l: any, now: Date, pendingMin: number) {
   };
 }
 
-async function pendingMinutes(q: Q): Promise<number> {
+export async function pendingMinutes(q: Q): Promise<number> {
   const s = await one(q, `SELECT lead_pending_minutes FROM company_settings LIMIT 1`);
   return n(s?.lead_pending_minutes) || 25;
 }
 
 /** a reference (channel / campaign / project / reason) that must exist and be active */
-async function ref(q: Q, table: string, id: unknown, field: string, msg: string): Promise<string | null> {
+export async function ref(q: Q, table: string, id: unknown, field: string, msg: string): Promise<string | null> {
   if (id === undefined || id === null || id === '') return null;
   if (typeof id !== 'string' || !isUuid(id)) throw invalid(msg, { field });
   const active = table === 'commission_projects' ? `status = 'active'` : 'active';
@@ -164,10 +164,10 @@ async function ref(q: Q, table: string, id: unknown, field: string, msg: string)
   return id;
 }
 
-interface NewLead { fullName: string; phone: string; extraPhones: string[]; email: string; budget: number | null; kind: 'fresh' | 'cold';
+export interface NewLead { fullName: string; phone: string; extraPhones: string[]; email: string; budget: number | null; kind: 'fresh' | 'cold';
   channelId: string | null; campaignId: string | null; projectId: string | null; notes: string }
 
-function readLead(b: Record<string, unknown>): NewLead {
+export function readLead(b: Record<string, unknown>): NewLead {
   const fullName = str(b, 'fullName', { min: 2, max: 120 })!;
   const phone = str(b, 'phone', { min: 5, max: 30 })!;
   if (phoneNorm(phone).length < 7) throw invalid('رقم الموبايل مش صحيح', { field: 'phone' });
@@ -195,22 +195,25 @@ async function findDuplicate(q: Q, phones: string[]) {
  * Insert one lead. Its salesman: the one asked for, else the original lead's salesman for a repeated number,
  * else nobody (it waits in «مش متوزع»).
  */
-async function insertLead(q: Q, a: Actor, x: NewLead, assignTo: string | null, now: Date, source: 'create' | 'import') {
+export async function insertLead(q: Q, a: Actor | null, x: NewLead, assignTo: string | null, now: Date, source: 'create' | 'import' | 'form',
+    pool: string[] = []) {
   const dup = await findDuplicate(q, [x.phone, ...x.extraPhones]);
-  if (dup && !canDistribute(a) && !canTeam(a)) {
+  const by = a?.id ?? null;
+  if (a && dup && !canDistribute(a) && !canTeam(a)) {
     throw conflict(dup.assigned_to === a.id ? 'العميل ده موجود عندك بالفعل' : `الرقم ده موجود قبل كده${dup.assigned_name ? ` عند ${dup.assigned_name}` : ''}`);
   }
   let to = assignTo;
   if (dup && dup.assigned_to && dup.assigned_status === 'active') to = dup.assigned_to;
   const l = await one(q, `INSERT INTO leads (full_name, phone, phone_norm, extra_phones, email, budget, kind, channel_id, campaign_id, project_id,
-        notes, created_by, created_at, updated_at, stage_changed_at, assigned_to, assigned_at, assigned_by, duplicate_of)
+        notes, created_by, created_at, updated_at, stage_changed_at, assigned_to, assigned_at, assigned_by, duplicate_of, assign_pool)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,CASE WHEN $14::uuid IS NULL THEN NULL ELSE $13::timestamptz END,
-              CASE WHEN $14::uuid IS NULL THEN NULL ELSE $12::uuid END,$15) RETURNING *`,
-    [x.fullName, x.phone, phoneNorm(x.phone), x.extraPhones, x.email, x.budget, x.kind, x.channelId, x.campaignId, x.projectId, x.notes, a.id, now, to, dup?.id ?? null]);
-  await log(q, l.id, source, a.id, {});
-  if (dup) await log(q, l.id, 'duplicate', a.id, { of: dup.id, ofRef: Number(dup.ref_no) });
-  if (to) await log(q, l.id, 'assign', a.id, { to, mode: dup && to === dup.assigned_to ? 'duplicate' : 'manual' });
-  if (dup && dup.assigned_to && dup.assigned_to !== a.id) {
+              CASE WHEN $14::uuid IS NULL THEN NULL ELSE $12::uuid END,$15,$16) RETURNING *`,
+    [x.fullName, x.phone, phoneNorm(x.phone), x.extraPhones, x.email, x.budget, x.kind, x.channelId, x.campaignId, x.projectId, x.notes, by, now, to,
+      dup?.id ?? null, pool.length > 1 ? pool : []]);
+  await log(q, l.id, source, by, {});
+  if (dup) await log(q, l.id, 'duplicate', by, { of: dup.id, ofRef: Number(dup.ref_no) });
+  if (to) await log(q, l.id, 'assign', by, { to, mode: dup && to === dup.assigned_to ? 'duplicate' : pool.length > 1 ? 'turn' : 'manual', turn: pool.length > 1 });
+  if (dup && dup.assigned_to && dup.assigned_to !== by) {
     await notify(q, { to: dup.assigned_to, type: 'lead_duplicate', title: `العميل ${dup.full_name} رجع تاني`, body: `دخل كليد جديد برقم ${x.phone}`,
       entity: 'lead', entityId: l.id, dedupeKey: `lead:${l.id}:dup` });
   }
@@ -263,6 +266,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const from = qs.get('from'), to = qs.get('to');
     if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) add((i) => `l.created_at >= ($${i}::date::timestamp AT TIME ZONE 'Africa/Cairo')`, from);
     if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) add((i) => `l.created_at < (($${i}::date + 1)::timestamp AT TIME ZONE 'Africa/Cairo')`, to);
+    const rating = qs.get('rating');
+    if (rating && ['hot', 'warm', 'cold'].includes(rating)) add((i) => `l.rating = $${i}`, rating);
     if (qs.get('noAnswer') === '1') base.push(`l.no_answer_count > 0`);
     if (qs.get('noAction') === '1') base.push(`l.last_action_at IS NULL`);
     const search = (qs.get('q') ?? '').trim();
@@ -333,12 +338,13 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (!x.projectId) throw invalid('اختار المشروع', { field: 'projectId' });
       // a salesman's own lead is his; the distributor / manager pick the salesmen (several → their turn)
       let to: string | null = null;
+      let pool: string[] = [];
       if (canDistribute(a) || canTeam(a)) {
-        const ids = await pickAssignees(q, a, b);
-        if (ids.length) to = (await rotation(q, ids))[0];
+        pool = await pickAssignees(q, a, b);
+        if (pool.length) to = (await rotation(q, pool))[0];
         else if (!canDistribute(a)) to = a.id;
       } else to = a.id;
-      const res = await insertLead(q, a, x, to, now, 'create');
+      const res = await insertLead(q, a, x, to, now, 'create', pool);
       if (res.to && res.to !== a.id) {
         await notify(q, { to: res.to, type: 'lead_assigned', title: `ليد جديد: ${x.fullName}`, body: res.duplicate ? 'عميل قديم رجع تاني' : 'ابدأ كلّمه',
           entity: 'lead', entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:assign:${now.getTime()}` });
@@ -393,7 +399,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
           x.campaignId = defCampaign;
           if (!x.projectId) { await q.query('RELEASE SAVEPOINT imp'); failed.push({ row: i + 1, error: 'المشروع مش معروف' }); continue; }
           const to = turn.length ? turn[k % turn.length] : null;
-          const res = await insertLead(q, a, x, to, now, 'import');
+          const res = await insertLead(q, a, x, to, now, 'import', ids);
           await q.query('RELEASE SAVEPOINT imp');
           if (res.to === to) k++;
           created++;
@@ -501,12 +507,13 @@ export const leadsModule: Module = (r, { db, clock }) => {
       for (const l of leads) {
         const who = order[k++ % order.length];
         await q.query(`UPDATE leads SET assigned_to = $2, assigned_at = $3, assigned_by = $4, pending_alerted_at = NULL, reminded_at = NULL,
+            assign_pool = $7::uuid[],
             kind = CASE WHEN $5 = 'same' THEN kind ELSE $5 END,
             stage = CASE WHEN $6 OR stage IN ('reservation','done_deal') THEN stage ELSE 'new' END,
             next_at = CASE WHEN $6 OR stage IN ('reservation','done_deal') THEN next_at ELSE NULL END,
             stage_changed_at = CASE WHEN $6 OR stage IN ('reservation','done_deal') THEN stage_changed_at ELSE $3 END,
             cancel_reason_id = CASE WHEN $6 THEN cancel_reason_id ELSE NULL END, updated_at = $3 WHERE id = $1`,
-          [l.id, who, now, a.id, mode, keepStage]);
+          [l.id, who, now, a.id, mode, keepStage, to.length > 1 ? to : []]);
         await log(q, l.id, 'assign', a.id, { from: l.assigned_to, to: who, mode, keepStage, turn: order.length > 1 });
         if (who !== a.id) { per.set(who, (per.get(who) ?? 0) + 1); lastOf.set(who, l); }
       }
@@ -567,6 +574,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
              count(*) FILTER (WHERE l.kind = 'cold' AND ${OPEN_SQL})::int AS cold,
              count(*) FILTER (WHERE l.duplicate_of IS NOT NULL)::int AS duplicated,
              count(*) FILTER (WHERE l.assigned_to IS NULL)::int AS unassigned,
+             count(*) FILTER (WHERE l.rating = 'hot' AND ${OPEN_SQL})::int AS hot,
+             count(*) FILTER (WHERE l.rating = 'warm' AND ${OPEN_SQL})::int AS warm,
              count(*) FILTER (WHERE ${OPEN_SQL} AND l.next_at < $${t})::int AS delay,
              count(*) FILTER (WHERE ${OPEN_SQL} AND (l.next_at AT TIME ZONE 'Africa/Cairo')::date = ($${t}::timestamptz AT TIME ZONE 'Africa/Cairo')::date)::int AS today,
              count(*) FILTER (WHERE ${OPEN_SQL} AND l.assigned_to IS NOT NULL AND (l.last_action_at IS NULL OR l.last_action_at < l.assigned_at)
@@ -682,19 +691,23 @@ export const leadsModule: Module = (r, { db, clock }) => {
   r.get('/leads/config', async (req) => {
     const a = await auth(req);
     if (!canConfig(a)) throw forbidden();
-    const [channels, campaigns, reasons] = await Promise.all([
+    const [channels, campaigns, reasons, templates, st] = await Promise.all([
       db.query(`SELECT id, name, sort, active FROM lead_channels ORDER BY sort, name`),
       db.query(`SELECT c.*, ch.name AS channel_name, p.name AS project_name,
                        (SELECT count(*) FROM leads l WHERE l.campaign_id = c.id)::int AS leads
                   FROM lead_campaigns c LEFT JOIN lead_channels ch ON ch.id = c.channel_id LEFT JOIN commission_projects p ON p.id = c.project_id
                  ORDER BY c.active DESC, c.created_at DESC`),
       db.query(`SELECT id, name, sort, active FROM lead_cancel_reasons ORDER BY sort, name`),
+      db.query(`SELECT id, name, body, sort, active FROM lead_templates ORDER BY sort, name`),
+      one(db, `SELECT lead_auto_reassign_minutes FROM company_settings LIMIT 1`),
     ]);
     return ok({
-      channels: channels.rows, cancelReasons: reasons.rows, pendingMinutes: await pendingMinutes(db),
+      channels: channels.rows, cancelReasons: reasons.rows, pendingMinutes: await pendingMinutes(db), templates: templates.rows,
+      autoReassignMinutes: st?.lead_auto_reassign_minutes ?? null,
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, channelName: c.channel_name, projectId: c.project_id,
         projectName: c.project_name, startsOn: iso(c.starts_on)?.slice(0, 10) ?? null, endsOn: iso(c.ends_on)?.slice(0, 10) ?? null,
-        cost: n(c.cost), active: c.active, leads: c.leads })),
+        cost: n(c.cost), active: c.active, leads: c.leads, formToken: c.form_token ?? null, formAssignees: c.form_assignees ?? [],
+        formTitle: c.form_title ?? '' })),
     });
   });
 
@@ -773,10 +786,16 @@ export const leadsModule: Module = (r, { db, clock }) => {
   r.patch('/leads/settings', async (req) => {
     const a = await auth(req);
     if (!canConfig(a)) throw forbidden();
-    const m = num(obj(req.body), 'pendingMinutes', { min: 5, max: 1440, int: true })!;
-    await db.query(`UPDATE company_settings SET lead_pending_minutes = $1`, [m]);
-    await audit(db, a.id, 'lead.settings', 'company', null, undefined, { pendingMinutes: m });
-    return ok({ pendingMinutes: m });
+    const b = obj(req.body);
+    const m = b.pendingMinutes === undefined ? await pendingMinutes(db) : num(b, 'pendingMinutes', { min: 5, max: 1440, int: true })!;
+    const cur = await one(db, `SELECT lead_auto_reassign_minutes FROM company_settings LIMIT 1`);
+    // السحب الأوتوماتيك: null = off
+    const auto = b.autoReassignMinutes === undefined ? cur?.lead_auto_reassign_minutes ?? null
+      : b.autoReassignMinutes === null || b.autoReassignMinutes === 0 ? null : num(b, 'autoReassignMinutes', { min: 10, max: 10080, int: true })!;
+    if (auto != null && auto <= m) throw invalid('السحب لازم يكون بعد معاد التنبيه', { field: 'autoReassignMinutes' });
+    await db.query(`UPDATE company_settings SET lead_pending_minutes = $1, lead_auto_reassign_minutes = $2`, [m, auto]);
+    await audit(db, a.id, 'lead.settings', 'company', null, undefined, { pendingMinutes: m, autoReassignMinutes: auto });
+    return ok({ pendingMinutes: m, autoReassignMinutes: auto });
   });
 
   // (after the fixed paths /leads/dashboard, /leads/reports, /leads/config, /leads/settings: the router takes the first match)
@@ -846,6 +865,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (b.email !== undefined) put('email', (str(b, 'email', { optional: true, max: 160 }) ?? '').trim(), 'email');
       if (b.budget !== undefined) put('budget', num(b, 'budget', { optional: true, min: 0, max: 100_000_000_000 }) ?? null, 'budget');
       if (b.kind !== undefined) put('kind', oneOf(b, 'kind', ['fresh', 'cold'] as const), 'kind');
+      if (b.rating !== undefined) put('rating', b.rating === null || b.rating === '' ? null : oneOf(b, 'rating', ['hot', 'warm', 'cold'] as const), 'rating');
       if (b.notes !== undefined) put('notes', (str(b, 'notes', { optional: true, max: 2000 }) ?? '').trim(), 'notes');
       if (b.projectId !== undefined) put('project_id', await ref(q, 'commission_projects', b.projectId, 'projectId', 'اختار المشروع'), 'projectId');
       if (b.extraPhones !== undefined) {
