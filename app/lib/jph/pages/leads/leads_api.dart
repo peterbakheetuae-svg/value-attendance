@@ -327,7 +327,9 @@ class LeadsShell extends StatelessWidget {
   final Widget child;
   final Widget? action;
   final Widget? fab;
-  const LeadsShell({super.key, required this.isDark, required this.title, required this.child, this.action, this.fab});
+  /// the phone's bottom bar, when the page is one of its tabs
+  final Widget? bottomBar;
+  const LeadsShell({super.key, required this.isDark, required this.title, required this.child, this.action, this.fab, this.bottomBar});
 
   @override
   Widget build(BuildContext context) => AppBackground(
@@ -336,6 +338,8 @@ class LeadsShell extends StatelessWidget {
         child: Scaffold(
           backgroundColor: Colors.transparent,
           floatingActionButton: fab,
+          extendBody: bottomBar != null,
+          bottomNavigationBar: bottomBar,
           body: SafeArea(
             child: Column(children: [
               JphUi.header(context, isDark: isDark, isRTL: true, title: title, action: action),

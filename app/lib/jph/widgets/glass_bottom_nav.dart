@@ -12,7 +12,6 @@ import 'app_nav.dart';
 import 'app_menu.dart';
 import 'glass_ui.dart';
 import '../pages/leads/leads_api.dart' show seesLeads, tr;
-import '../pages/leads/leads_dashboard_page.dart';
 import '../services/jph_bridge.dart';
 
 class GlassBottomNav extends StatelessWidget {
@@ -43,8 +42,8 @@ class GlassBottomNav extends StatelessWidget {
     final leadsItem = _Item(
       icon: Icons.leaderboard_rounded,
       label: tr('لوحة السيلز'),
-      active: false,
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeadsDashboardPage())),
+      active: currentIndex == 6,
+      onTap: () => onTap(6),
       isDark: isDark,
       activeColor: Glass.blue,
       inactiveColor: Glass.ink(isDark).withOpacity(0.85),

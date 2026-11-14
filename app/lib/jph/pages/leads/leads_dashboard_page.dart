@@ -6,6 +6,8 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
+import '../../widgets/app_nav.dart';
+import '../../widgets/glass_bottom_nav.dart';
 import 'leads_api.dart';
 import 'leads_list_page.dart';
 import 'leads_reports_page.dart';
@@ -17,7 +19,9 @@ import 'tasks_page.dart';
 /// لوحة السيلز: the counts of every stage (tap → those leads), the follow-ups due, «مستني أكشن», the late ones,
 /// the ranking, and the way to the leads, the tasks, the reports and the settings.
 class LeadsDashboardPage extends StatefulWidget {
-  const LeadsDashboardPage({super.key});
+  /// opened as a tab of the phone's bottom bar (the bar stays under it)
+  final bool tab;
+  const LeadsDashboardPage({super.key, this.tab = false});
 
   @override
   State<LeadsDashboardPage> createState() => _LeadsDashboardPageState();
@@ -70,6 +74,13 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
     final denied = _d['success'] == false;
     return LeadsShell(
       isDark: isDark,
+      bottomBar: widget.tab
+          ? GlassBottomNav(
+              currentIndex: 6,
+              onTap: (i) => AppNav.go(context, i, current: 6, uid: AppNav.uid ?? '', name: AppNav.name ?? '', role: AppNav.role ?? '',
+                  photo: AppNav.photo ?? ''),
+            )
+          : null,
       title: tr('لوحة السيلز'),
       fab: can.isEmpty
           ? null
