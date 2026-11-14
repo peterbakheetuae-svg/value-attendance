@@ -8,7 +8,7 @@ import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 import {
   anyLeads, assignable, canAll, canConfig, canDistribute, canSee, canTeam, canWork, insertLead, log, OPEN_SQL, phoneNorm, readLead, ref,
-  rotation, scopeSql, STAGE_AR, type Stage,
+  rotation, scopeSql, STAGE_AR, stagesOf, stageShape, LATE, type Stage,
 } from './leads.ts';
 
 /**
@@ -121,10 +121,11 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
       SELECT k.id, k.title, k.due_at, k.status, e.full_name AS assigned_name, k.lead_id FROM tasks k JOIN employees e ON e.id = k.assigned_to
        WHERE k.status IN ('open','doing') AND k.due_at >= ${F(1)} AND k.due_at < ${T(2)} AND ($3::uuid[] IS NULL OR k.assigned_to = ANY($3::uuid[]))
        ORDER BY k.due_at LIMIT 500`, [from, to, ppl]);
+    const names = new Map((await stagesOf(db)).map((x) => [x.key as string, x.name_ar as string]));
     return ok({
       from, to,
       items: [
-        ...leads.rows.map((l) => ({ kind: 'lead', id: l.id, title: l.full_name, phone: l.phone, stage: l.stage, stageAr: STAGE_AR[l.stage as Stage],
+        ...leads.rows.map((l) => ({ kind: 'lead', id: l.id, title: l.full_name, phone: l.phone, stage: l.stage, stageAr: names.get(l.stage) ?? STAGE_AR[l.stage as Stage] ?? l.stage,
           at: iso(l.next_at), who: l.assigned_name, project: l.project_name, overdue: new Date(l.next_at) < now })),
         ...tasks.rows.map((k) => ({ kind: 'task', id: k.id, title: k.title, at: iso(k.due_at), who: k.assigned_name, status: k.status, leadId: k.lead_id,
           overdue: new Date(k.due_at) < now })),
@@ -271,6 +272,11 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     { key: 'leads.reports', ar: 'عرض التقارير', group: 'البيانات' },
     { key: 'leads.tasks', ar: 'إضافة مهام لغيره', group: 'المهام' },
     { key: 'leads.config', ar: 'إعدادات الليدز (القنوات، الحملات، أسباب الإلغاء، القوالب)', group: 'الإعدادات' },
+    { key: 'leads.stages', ar: 'إدارة مراحل الليدز', group: 'الإعدادات' },
+    { key: 'deals.view', ar: 'عرض صفحة الصفقات', group: 'الصفقات' },
+    { key: 'deals.create', ar: 'إضافة الصفقات (تحويل عميل)', group: 'الصفقات' },
+    { key: 'deals.edit', ar: 'تعديل ونقل الصفقات', group: 'الصفقات' },
+    { key: 'deals.delete', ar: 'حذف الصفقات', group: 'الصفقات' },
   ];
   const leadPerm = (k: unknown) => {
     const p = LEAD_PERMS.find((x) => x.key === k);
@@ -281,13 +287,13 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     const a = await auth(req);
     if (!has(a, 'roles.manage')) throw forbidden('صلاحيات الأدوار للمالك بس');
     const roles = await db.query(`SELECT key, name_ar, name_en, rank, builtin, base_key FROM roles WHERE key <> 'owner' ORDER BY rank DESC, name_ar`);
-    const grants = await db.query(`SELECT role_key, perm_key FROM role_permissions WHERE perm_key LIKE 'leads.%'`);
+    const grants = await db.query(`SELECT role_key, perm_key FROM role_permissions WHERE perm_key LIKE 'leads.%' OR perm_key LIKE 'deals.%'`);
     const people = await db.query(`
       SELECT e.id, e.full_name, e.code, COALESCE(p.name_ar, r.name_ar) AS role_name, COALESCE(e.position_key, e.role_key) AS role_key
         FROM employees e JOIN roles r ON r.key = e.role_key LEFT JOIN roles p ON p.key = e.position_key
        WHERE e.status = 'active' AND e.role_key <> 'owner' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
        ORDER BY e.full_name`);
-    const ov = await db.query(`SELECT employee_id, perm_key, allow FROM employee_permissions WHERE perm_key LIKE 'leads.%'`);
+    const ov = await db.query(`SELECT employee_id, perm_key, allow FROM employee_permissions WHERE perm_key LIKE 'leads.%' OR perm_key LIKE 'deals.%'`);
     const byRole: Record<string, string[]> = {};
     for (const g of grants.rows) (byRole[g.role_key] ??= []).push(g.perm_key);
     const byEmp: Record<string, Record<string, boolean>> = {};

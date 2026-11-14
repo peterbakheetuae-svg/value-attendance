@@ -24,6 +24,15 @@ const ACTION_STAGES = ['no_answer', 'following', 'interested', 'meeting', 'after
 const CLOSED: Stage[] = ['cancelled', 'done_deal'];
 const NO_DATE: Stage[] = ['cancelled', 'reservation', 'done_deal'];
 export const OPEN_SQL = `l.stage NOT IN ('cancelled','done_deal','reservation')`;
+/** a lead is late once its follow-up time + the stage's «مدة التأخير» passed */
+export const LATE = (t: string) => `(l.next_at + make_interval(mins => COALESCE((SELECT st.delay_minutes FROM lead_stages st WHERE st.key = l.stage), 0)) < ${t})`;
+/** the stages as the leads settings keep them (built-in + added) */
+export async function stagesOf(q: Q, onlyActive = false): Promise<any[]> {
+  return (await q.query(`SELECT * FROM lead_stages ${onlyActive ? 'WHERE active' : ''} ORDER BY sort, created_at`)).rows;
+}
+export const stageShape = (x: any) => ({ key: x.key, name: x.name_ar, kind: x.kind, needsDate: x.needs_date, color: x.color,
+  alertMinutes: x.alert_minutes, delayMinutes: x.delay_minutes, sort: x.sort, active: x.active, builtin: x.builtin,
+  action: x.active && (x.kind === 'action' || x.kind === 'lost') });
 const SM_OF = `NULLIF(COALESCE(e.sales_manager_id, t.manager_id), e.id)`;
 const MAX_IMPORT = 1000;
 
@@ -122,8 +131,9 @@ export async function log(q: Q, leadId: string, kind: string, by: string | null,
 export const LIST_SELECT = `
   SELECT l.*, s.full_name AS assigned_name, cr.full_name AS created_name, lb.full_name AS last_by_name,
          p.name AS project_name, ch.name AS channel_name, cp.name AS campaign_name, rs.name AS cancel_reason_name,
-         d.full_name AS duplicate_of_name
+         d.full_name AS duplicate_of_name, stg.name_ar AS stage_name, stg.delay_minutes AS stage_delay
     FROM leads l
+    LEFT JOIN lead_stages stg ON stg.key = l.stage
     LEFT JOIN employees s ON s.id = l.assigned_to
     LEFT JOIN employees cr ON cr.id = l.created_by
     LEFT JOIN employees lb ON lb.id = l.last_action_by
@@ -140,9 +150,9 @@ export function shape(l: any, now: Date, pendingMin: number) {
   const acted = l.last_action_at && assignedAt && new Date(l.last_action_at) >= assignedAt;
   return {
     id: l.id, refNo: Number(l.ref_no), fullName: l.full_name, phone: l.phone, extraPhones: l.extra_phones ?? [], email: l.email,
-    budget: l.budget == null ? null : n(l.budget), kind: l.kind, rating: l.rating ?? null, stage: l.stage, stageAr: STAGE_AR[l.stage as Stage] ?? l.stage,
+    budget: l.budget == null ? null : n(l.budget), kind: l.kind, rating: l.rating ?? null, stage: l.stage, stageAr: l.stage_name ?? STAGE_AR[l.stage as Stage] ?? l.stage, stars: l.stars ?? null,
     stageChangedAt: iso(l.stage_changed_at), stageDays: Math.max(0, Math.floor((now.getTime() - new Date(l.stage_changed_at).getTime()) / 86_400_000)),
-    nextAt: iso(l.next_at), overdue: !!(open && next && next < now),
+    nextAt: iso(l.next_at), overdue: !!(open && next && next.getTime() + (Number(l.stage_delay) || 0) * 60_000 < now.getTime()),
     pending: !!(open && l.assigned_to && assignedAt && !acted && now.getTime() - assignedAt.getTime() >= pendingMin * 60_000),
     lastActionAt: iso(l.last_action_at), lastActionByName: l.last_by_name ?? null, lastComment: l.last_comment, noAnswerCount: l.no_answer_count,
     assignedTo: l.assigned_to ? { id: l.assigned_to, name: l.assigned_name } : null, assignedAt: iso(l.assigned_at),
@@ -243,7 +253,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       assignable(db, a),
     ]);
     return ok({
-      stages: STAGES.map((k) => ({ key: k, name: STAGE_AR[k], action: (ACTION_STAGES as readonly string[]).includes(k) })),
+      stages: (await stagesOf(db)).map(stageShape),
       channels: channels.rows, cancelReasons: reasons.rows, projects: projects.rows,
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id })),
       assignees: (canDistribute(a) || canTeam(a)) ? people.map((e) => ({ id: e.id, name: e.full_name, code: e.code })) : [],
@@ -297,7 +307,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       fresh: `l.stage = 'new' AND l.kind = 'fresh'`,
       cold: `l.kind = 'cold' AND ${OPEN_SQL}`,
       duplicated: `l.duplicate_of IS NOT NULL`,
-      delay: `${OPEN_SQL} AND l.next_at < $${nowI}`,
+      delay: `${OPEN_SQL} AND ${LATE(`$${nowI}`)}`,
       pending: `${OPEN_SQL} AND l.assigned_to IS NOT NULL AND (l.last_action_at IS NULL OR l.last_action_at < l.assigned_at)
                 AND l.assigned_at <= $${nowI}::timestamptz - make_interval(mins => $${pmI})`,
       unassigned: `l.assigned_to IS NULL`,
@@ -433,13 +443,15 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const a = await auth(req);
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
-    const stage = oneOf(b, 'stage', ACTION_STAGES)!;
+    const st = await one(db, `SELECT * FROM lead_stages WHERE key = $1 AND active AND kind IN ('action','lost')`, [typeof b.stage === 'string' ? b.stage : '']);
+    if (!st) throw invalid('اختار المرحلة', { field: 'stage' });
+    const stage: string = st.key;
     const comment = str(b, 'comment', { min: 1, max: 2000 })!;
     const answered = bool(b, 'answered') ?? stage !== 'no_answer';
     const callSeconds = num(b, 'callSeconds', { optional: true, min: 0, max: 36000, int: true }) ?? null;
     const now = clock();
     let nextAt: Date | null = null;
-    if (!NO_DATE.includes(stage)) {
+    if (st.needs_date && st.kind === 'action') {
       const raw = str(b, 'nextAt', { optional: true, max: 40 });
       if (!raw) throw invalid('حدد معاد المتابعة الجاية', { field: 'nextAt' });
       nextAt = new Date(raw);
@@ -453,8 +465,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (!l || !await canSee(q, a, l.id)) throw notFound();
       if (!await canWork(q, a, l)) throw forbidden('الأكشن لسيلز العميل أو مديره');
       if (l.stage === 'done_deal') throw conflict('العميل ده اتباعله خلاص');
-      const reasonId = stage === 'cancelled' ? await ref(q, 'lead_cancel_reasons', b.cancelReasonId, 'cancelReasonId', 'اختار سبب الإلغاء') : null;
-      if (stage === 'cancelled' && !reasonId) throw invalid('اختار سبب الإلغاء', { field: 'cancelReasonId' });
+      const reasonId = st.kind === 'lost' ? await ref(q, 'lead_cancel_reasons', b.cancelReasonId, 'cancelReasonId', 'اختار سبب الإلغاء') : null;
+      if (st.kind === 'lost' && !reasonId) throw invalid('اختار سبب الإلغاء', { field: 'cancelReasonId' });
       const x = await one(q, `INSERT INTO lead_actions (lead_id, stage, answered, call_seconds, comment, next_at, meeting_kind, meeting_place, cancel_reason_id, by_id, created_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
         [l.id, stage, answered, callSeconds, comment, nextAt, meetingKind, meetingPlace, reasonId, a.id, now]);
@@ -584,13 +596,13 @@ export const leadsModule: Module = (r, { db, clock }) => {
              count(*) FILTER (WHERE l.assigned_to IS NULL)::int AS unassigned,
              count(*) FILTER (WHERE l.rating = 'hot' AND ${OPEN_SQL})::int AS hot,
              count(*) FILTER (WHERE l.rating = 'warm' AND ${OPEN_SQL})::int AS warm,
-             count(*) FILTER (WHERE ${OPEN_SQL} AND l.next_at < $${t})::int AS delay,
+             count(*) FILTER (WHERE ${OPEN_SQL} AND ${LATE(`$${t}`)})::int AS delay,
              count(*) FILTER (WHERE ${OPEN_SQL} AND (l.next_at AT TIME ZONE 'Africa/Cairo')::date = ($${t}::timestamptz AT TIME ZONE 'Africa/Cairo')::date)::int AS today,
              count(*) FILTER (WHERE ${OPEN_SQL} AND l.assigned_to IS NOT NULL AND (l.last_action_at IS NULL OR l.last_action_at < l.assigned_at)
                                 AND l.assigned_at <= $${t}::timestamptz - make_interval(mins => $${p}))::int AS pending
         FROM leads l WHERE ${scope}`, params);
     const stages = await db.query(`SELECT l.stage, count(*)::int AS n FROM leads l WHERE ${scope} GROUP BY 1`, params);
-    const delay = await db.query(`SELECT l.stage, count(*)::int AS n FROM leads l WHERE ${scope} AND ${OPEN_SQL} AND l.next_at < $${t} GROUP BY 1`, params);
+    const delay = await db.query(`SELECT l.stage, count(*)::int AS n FROM leads l WHERE ${scope} AND ${OPEN_SQL} AND ${LATE(`$${t}`)} GROUP BY 1`, params);
     const due = await db.query(`${LIST_SELECT} WHERE ${scope} AND ${OPEN_SQL} AND l.next_at < $${t}::timestamptz + interval '1 day'
                                   ORDER BY l.next_at LIMIT 15`, params);
     // «الأحسن»: actions per salesman (all of them, like Engaz — everyone sees the ranking)
@@ -609,7 +621,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const dayCairo = (x: string) => `(${x} AT TIME ZONE 'Africa/Cairo')::date`;
     const today = `${dayCairo(`$${t}::timestamptz`)}`;
     // Delay List: the overdue leads, oldest follow-up first
-    const delayList = await db.query(`${LIST_SELECT} WHERE ${scope} AND ${OPEN_SQL} AND l.next_at < $${t} ORDER BY l.next_at LIMIT 20`, params);
+    const delayList = await db.query(`${LIST_SELECT} WHERE ${scope} AND ${OPEN_SQL} AND ${LATE(`$${t}`)} ORDER BY l.next_at LIMIT 20`, params);
     // أحدث العملاء المحتملين
     const latest = await db.query(`${LIST_SELECT} WHERE ${scope} ORDER BY l.created_at DESC LIMIT 10`, params);
     // Last Comments: the latest comments written on the leads in view
@@ -721,7 +733,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         (SELECT count(*) FROM ex_units u WHERE u.sales_id = e.id AND u.lead_id IS NOT NULL AND u.created_at >= ${F} AND u.created_at < ${T})::int AS reservations,
         (SELECT count(*) FROM ex_units u WHERE u.sales_id = e.id AND u.lead_id IS NOT NULL AND u.contracted_at >= ${F} AND u.contracted_at < ${T})::int AS deals,
         (SELECT COALESCE(sum(u.unit_price), 0) FROM ex_units u WHERE u.sales_id = e.id AND u.lead_id IS NOT NULL AND u.contracted_at >= ${F} AND u.contracted_at < ${T}) AS deals_value,
-        (SELECT count(*) FROM leads l WHERE l.assigned_to = e.id AND ${OPEN_SQL} AND l.next_at < $4)::int AS overdue,
+        (SELECT count(*) FROM leads l WHERE l.assigned_to = e.id AND ${OPEN_SQL} AND ${LATE('$4')})::int AS overdue,
         (SELECT count(*) FROM leads l WHERE l.assigned_to = e.id AND ${OPEN_SQL})::int AS open_leads,
         (SELECT round(avg(extract(epoch FROM (fx.at - l.assigned_at)) / 60)) FROM leads l
            CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND x.by_id = e.id AND x.created_at >= l.assigned_at) fx
@@ -730,9 +742,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
        WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND ${inPeople('e.id')}
        ORDER BY e.full_name`, P);
     const scope = `${inPeople('l.assigned_to')}`;
+    const stageKeys = (await stagesOf(db)).map((x) => x.key as string);   // keys are [a-z0-9_] only (checked by the table)
     const channels = await db.query(`
       SELECT COALESCE(ch.name, 'بدون قناة') AS name, ch.id, count(*)::int AS leads,
-             ${STAGES.map((s) => `count(*) FILTER (WHERE l.stage = '${s}')::int AS "${s}"`).join(', ')},
+             ${stageKeys.map((s) => `count(*) FILTER (WHERE l.stage = '${s}')::int AS "${s}"`).join(', ')},
              (SELECT count(*) FROM ex_units u JOIN leads l2 ON l2.id = u.lead_id WHERE l2.channel_id IS NOT DISTINCT FROM ch.id AND u.status NOT IN ('cancelled')
                 AND l2.created_at >= ${F} AND l2.created_at < ${T})::int AS reservations
         FROM leads l LEFT JOIN lead_channels ch ON ch.id = l.channel_id
@@ -758,15 +771,16 @@ export const leadsModule: Module = (r, { db, clock }) => {
       SELECT e.full_name, l.id, l.full_name AS lead_name, l.stage, l.next_at,
              round(extract(epoch FROM ($4::timestamptz - l.next_at)) / 3600) AS hours
         FROM leads l JOIN employees e ON e.id = l.assigned_to
-       WHERE ${OPEN_SQL} AND l.next_at < $4 AND ${scope} AND $1::date IS NOT NULL AND $2::date IS NOT NULL
+       WHERE ${OPEN_SQL} AND ${LATE('$4')} AND ${scope} AND $1::date IS NOT NULL AND $2::date IS NOT NULL
        ORDER BY l.next_at LIMIT 300`, P);
+    const names = new Map((await stagesOf(db)).map((x) => [x.key as string, x.name_ar as string]));
     return ok({
       from, to,
       sales: sales.rows.map((x) => ({ id: x.id, name: x.full_name, assigned: x.assigned, actions: x.actions, answered: x.answered, noAnswer: x.no_answer,
         meetings: x.meetings, cancelled: x.cancelled, reservations: x.reservations, deals: x.deals, dealsValue: n(x.deals_value),
         overdue: x.overdue, openLeads: x.open_leads, firstResponseMin: x.first_response_min == null ? null : n(x.first_response_min) })),
       channels: channels.rows.map((x) => ({ id: x.id, name: x.name, leads: x.leads, reservations: x.reservations,
-        stages: Object.fromEntries(STAGES.map((s) => [s, x[s]])) })),
+        stages: Object.fromEntries(stageKeys.map((s) => [s, x[s]])) })),
       campaigns: campaigns.rows.map((x) => {
         const cost = n(x.cost), leads = x.leads, deals = x.deals, commission = r2(n(x.commission));
         return { id: x.id, name: x.name, channelName: x.channel_name, projectName: x.project_name, startsOn: iso(x.starts_on)?.slice(0, 10) ?? null,
@@ -774,7 +788,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
           cpl: leads ? r2(cost / leads) : null, cpa: deals ? r2(cost / deals) : null, roi: cost ? r2((commission - cost) / cost * 100) : null };
       }),
       cancelReasons: reasons.rows, funnel: Object.fromEntries(funnel.rows.map((x) => [x.stage, x.n])),
-      delays: delays.rows.map((x) => ({ salesName: x.full_name, leadId: x.id, leadName: x.lead_name, stage: x.stage, stageAr: STAGE_AR[x.stage as Stage],
+      delays: delays.rows.map((x) => ({ salesName: x.full_name, leadId: x.id, leadName: x.lead_name, stage: x.stage, stageAr: names.get(x.stage) ?? STAGE_AR[x.stage as Stage] ?? x.stage,
         nextAt: iso(x.next_at), hours: n(x.hours) })),
     });
   });
@@ -915,13 +929,14 @@ export const leadsModule: Module = (r, { db, clock }) => {
       db.query(`SELECT u.id, u.unit_no, u.status, u.unit_price, u.deposit_amount, u.created_at, p.name AS project_name
                   FROM ex_units u JOIN commission_projects p ON p.id = u.project_id WHERE u.lead_id = $1 ORDER BY u.created_at DESC`, [l.id]),
     ]);
+    const stNames = new Map((await stagesOf(db)).map((x) => [x.key as string, x.name_ar as string]));
     const names = new Map<string, string>();
     const ids = [...new Set(logs.rows.flatMap((g) => [g.data?.to, g.data?.from].filter(Boolean)))];
     if (ids.length) for (const e of (await db.query(`SELECT id, full_name FROM employees WHERE id = ANY($1::uuid[])`, [ids])).rows) names.set(e.id, e.full_name);
     const top = actions.rows.filter((x) => !x.parent_id);
     const replies = actions.rows.filter((x) => x.parent_id);
     const act = (x: any) => ({
-      id: x.id, stage: x.stage, stageAr: x.stage ? STAGE_AR[x.stage as Stage] : null, answered: x.answered, callSeconds: x.call_seconds,
+      id: x.id, stage: x.stage, stageAr: x.stage ? (stNames.get(x.stage) ?? STAGE_AR[x.stage as Stage] ?? x.stage) : null, answered: x.answered, callSeconds: x.call_seconds,
       comment: x.comment, nextAt: iso(x.next_at), meetingKind: x.meeting_kind, meetingPlace: x.meeting_place,
       cancelReason: x.reason_name ?? null, unitNo: x.unit_no ?? null, auto: x.auto, byName: x.by_name ?? 'النظام', byId: x.by_id, at: iso(x.created_at),
     });
@@ -1105,13 +1120,15 @@ export const leadsModule: Module = (r, { db, clock }) => {
  */
 export async function leadsSweep(q: Q, now: Date) {
   const due = await q.query(`
-    SELECT l.id, l.full_name, l.stage, l.assigned_to, l.next_at FROM leads l
-     WHERE ${OPEN_SQL} AND l.assigned_to IS NOT NULL AND l.next_at IS NOT NULL AND l.next_at <= $1
-       AND (l.reminded_at IS NULL OR l.reminded_at < l.next_at)
+    SELECT l.id, l.full_name, l.stage, l.assigned_to, l.next_at, st.name_ar AS stage_name, COALESCE(st.alert_minutes, 0) AS alert FROM leads l
+      LEFT JOIN lead_stages st ON st.key = l.stage
+     WHERE ${OPEN_SQL} AND l.assigned_to IS NOT NULL AND l.next_at IS NOT NULL
+       AND l.next_at - make_interval(mins => COALESCE(st.alert_minutes, 0)) <= $1
+       AND (l.reminded_at IS NULL OR l.reminded_at < l.next_at - make_interval(mins => COALESCE(st.alert_minutes, 0)))
      ORDER BY l.next_at LIMIT 300 FOR UPDATE OF l SKIP LOCKED`, [now]);
   for (const l of due.rows) {
     await q.query(`UPDATE leads SET reminded_at = $2 WHERE id = $1`, [l.id, now]);
-    await notify(q, { to: l.assigned_to, type: 'lead_due', title: `عندك ${STAGE_AR[l.stage as Stage] ?? 'متابعة'} مع ${l.full_name} ⏰`,
+    await notify(q, { to: l.assigned_to, type: 'lead_due', title: `عندك ${l.stage_name ?? STAGE_AR[l.stage as Stage] ?? 'متابعة'} مع ${l.full_name}${new Date(l.next_at) > now ? ` الساعة ${new Date(l.next_at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Cairo' })}` : ''} ⏰`,
       body: 'افتح العميل وسجّل الأكشن', entity: 'lead', entityId: l.id, dedupeKey: `lead:${l.id}:due:${new Date(l.next_at).getTime()}` });
   }
   const pending = await q.query(`

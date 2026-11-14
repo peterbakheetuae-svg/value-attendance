@@ -28,7 +28,7 @@ test('login accepts code (any case), wrong password is generic, lockout after 5 
 test('/me exposes permissions per role; sales employee only reserves exclusive units', async () => {
   const me = await h.call(c.t.e1, 'GET', '/me');
   assert.equal(me.status, 200);
-  assert.deepEqual(me.body.permissions.sort(), ['exclusive.reserve', 'leads.create', 'leads.edit', 'leads.own']);
+  assert.deepEqual(me.body.permissions.sort(), ['deals.create', 'deals.edit', 'deals.view', 'exclusive.reserve', 'leads.create', 'leads.edit', 'leads.own']);
   const owner = await h.call(c.t.owner, 'GET', '/me');
   assert.ok(owner.body.permissions.includes('roles.manage'));
   const sm = await h.call(c.t.sm1, 'GET', '/me');
