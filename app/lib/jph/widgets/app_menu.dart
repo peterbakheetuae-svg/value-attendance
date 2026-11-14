@@ -104,7 +104,7 @@ class AppMenu {
   static List<MenuSection> sections({bool sidebar = false}) {
     final projects = projectItems(), company = companyItems();
     final r = JphBridge.session.role;
-    final gmOrAccountant = r == 'manager' || r == 'accountant';
+    final gmOrAccountant = r == 'owner' || r == 'manager' || r == 'accountant'; // المالك / المدير العام / المحاسب
     if (AppNav.settled) {
       return [
         MenuSection('الرئيسية', [const MenuEntry('nav1', 'تقرير الحضور', Icons.assignment_rounded, nav: 1)]),

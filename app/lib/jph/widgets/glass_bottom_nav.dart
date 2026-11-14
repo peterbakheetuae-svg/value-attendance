@@ -37,7 +37,7 @@ class GlassBottomNav extends StatelessWidget {
     // نظام الليدز: المدير العام / المحاسب get «لوحة السيلز» in «الموظفين»'s place; a salesman gets it before «المزيد»
     // instead of «الملف الشخصي» (which stays in «المزيد»)
     final role = JphBridge.session.role;
-    final gmOrAccountant = role == 'manager' || role == 'accountant';
+    final gmOrAccountant = role == 'owner' || role == 'manager' || role == 'accountant'; // المالك / المدير العام / المحاسب
     final leads = seesLeads;
     final leadsItem = _Item(
       icon: Icons.leaderboard_rounded,
