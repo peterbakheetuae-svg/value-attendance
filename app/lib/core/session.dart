@@ -25,6 +25,8 @@ class Session extends ChangeNotifier {
   String get id => me?['id']?.toString() ?? '';
   String get name => me?['full_name']?.toString() ?? '';
   String get role => me?['role_key']?.toString() ?? '';
+  /// «تم التصفيه»: every page is closed except his attendance report (the server refuses the rest anyway)
+  bool get settled => me?['settled'] == true;
   bool has(String p) => permissions.contains(p);
   bool get managesTeam => me?['manages_team'] == true || role == 'sales_manager';
   bool get gpsRequired => company?['gps_required'] == true;

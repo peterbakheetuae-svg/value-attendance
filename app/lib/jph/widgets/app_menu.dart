@@ -105,6 +105,12 @@ class AppMenu {
     final projects = projectItems(), company = companyItems();
     final r = JphBridge.session.role;
     final gmOrAccountant = r == 'manager' || r == 'accountant';
+    if (AppNav.settled) {
+      return [
+        MenuSection('الرئيسية', [const MenuEntry('nav1', 'تقرير الحضور', Icons.assignment_rounded, nav: 1)]),
+        MenuSection('الحساب', [const MenuEntry('nav3', 'الإعدادات', Icons.settings_rounded, nav: 3)]),
+      ];
+    }
     return [
       MenuSection('الرئيسية', [
         const MenuEntry('nav0', 'لوحة التحكم', Icons.grid_view_rounded, nav: 0),
@@ -135,6 +141,7 @@ class AppMenu {
   /// the 3 quick squares on top of «المزيد»
   static List<MenuEntry> quick() {
     final sales = ApiService.can('cash.office') || ApiService.can('exclusive.reserve') || ApiService.can('cash.hr_operate');
+    if (AppNav.settled) return [const MenuEntry('nav1', 'تقرير الحضور', Icons.assignment_rounded, nav: 1)];
     return [
       MenuEntry('leave', 'طلب إجازة', Icons.beach_access_rounded, page: () => LeaveSummaryPage(uid: uid, name: name, role: role)),
       MenuEntry('requests', 'طلب مالي', Icons.request_page_rounded, page: () => AdvanceRequestPage(uid: uid, name: name, role: role)),

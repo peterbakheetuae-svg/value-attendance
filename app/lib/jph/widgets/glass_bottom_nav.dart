@@ -78,7 +78,28 @@ class GlassBottomNav extends StatelessWidget {
                     textDirection: isRTL ? TextDirection.rtl : TextDirection.ltr,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
+                      children: AppNav.settled
+                          ? [
+                              _Item(
+                                icon: Icons.assignment_rounded,
+                                label: AppLocalizations.of(context, 'attendance_report'),
+                                active: currentIndex == 1 || currentIndex == 0,
+                                onTap: () => onTap(1),
+                                isDark: isDark,
+                                activeColor: activeColor,
+                                inactiveColor: inactiveColor,
+                              ),
+                              _Item(
+                                icon: Icons.more_horiz_rounded,
+                                label: 'المزيد',
+                                active: currentIndex == 3,
+                                onTap: () => AppMenu.showMore(context),
+                                isDark: isDark,
+                                activeColor: activeColor,
+                                inactiveColor: inactiveColor,
+                              ),
+                            ]
+                          : [
                         _Item(
                           icon: Icons.home_rounded,
                           label: AppLocalizations.of(context, 'dashboard'),

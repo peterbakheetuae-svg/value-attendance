@@ -75,7 +75,7 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
   final List<String> _leaveDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
   final List<String> _workHoursList = ['10 ساعات', '9 ساعات', '8 ساعات', '7 ساعات', '6 ساعات'];
   final List<String> _multipliers = ['1', '1.25', '1.5', '2'];
-  final List<String> _statuses = ['على رأس العمل', 'تم التصفيه', 'مغادر', 'إجازة'];
+  final List<String> _statuses = ['على رأس العمل', 'تم التصفيه', 'إجازة'];
 
   // يتبع لـ: مدير مبيعات / المدير / المالك — المدير العام: المدير / المالك
   List<Map<String, dynamic>> _ownersList = [];

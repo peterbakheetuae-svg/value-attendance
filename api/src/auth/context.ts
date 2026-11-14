@@ -12,7 +12,12 @@ export interface Actor {
   perms: Set<string>;
   sessionId: string;
   mustChangePassword: boolean;
+  /** «تم التصفيه»: the account is closed except reading his own attendance report */
+  settled?: boolean;
 }
+
+/** an employee whose work status is «تم التصفيه» (settled / finished) */
+export const SETTLED = 'تم التصفيه';
 
 // stays signed in until the person signs out: 180 days, renewed on every use (sign-out / password change revoke it)
 export const SESSION_TTL_HOURS = 24 * 180;
@@ -24,7 +29,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   if (!token || token.length > 200) throw new AppError('unauthenticated', 'Sign in required');
   const row = await one(q, `
     SELECT s.id AS session_id, (s.last_seen_at IS NULL OR s.last_seen_at < now() - interval '5 minutes') AS stale,
-           e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password,
+           e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password, e.legacy_fields->>'status' AS work_status,
            COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms
       FROM sessions s
       JOIN employees e ON e.id = s.employee_id
@@ -42,6 +47,13 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
     perms: new Set(row.perms), sessionId: row.session_id, mustChangePassword: row.must_change_password,
   };
+  // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own
+  // records (the attendance report) and signing out / changing the password
+  if (row.work_status === SETTLED) {
+    actor.settled = true;
+    actor.perms = new Set();
+    if (req.method !== 'GET' && !req.path.startsWith('/auth/')) throw forbidden('This account is settled');
+  }
   if (actor.mustChangePassword && !opts.allowPasswordChange) {
     throw new AppError('forbidden', 'You must change your password first', { reason: 'must_change_password' });
   }

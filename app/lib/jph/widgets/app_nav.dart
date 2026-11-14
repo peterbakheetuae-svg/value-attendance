@@ -25,7 +25,12 @@ class AppNav {
   /// صفحة الموظفين: HR / the management only (a sales manager sees his team in the reports, not this page)
   static bool get seesEmployees => ApiService.can('employee.read_all');
 
-  static Widget home({required String uid, required String name, required String role, String photo = ''}) => adminHome
+  /// «تم التصفيه»: only the attendance report (and the settings, to sign out)
+  static bool get settled => JphBridge.session.settled;
+
+  static Widget home({required String uid, required String name, required String role, String photo = ''}) => settled
+      ? AttendanceReportPage(uid: uid, name: name, role: role)
+      : adminHome
       ? DashboardPage(uid: uid, name: name, role: role, photo: photo)
       : DashboardPageTeam(uid: uid, name: name, role: role, photo: photo);
 
@@ -35,7 +40,8 @@ class AppNav {
   /// who is signed in, as the pages pass it around (the side bar / «المزيد» open pages with it)
   static String? uid, name, role, photo;
 
-  static Widget? page(int index, {required String uid, required String name, required String role, String photo = ''}) => switch (index) {
+  static Widget? page(int index, {required String uid, required String name, required String role, String photo = ''}) =>
+      settled && index != 1 && index != 3 ? null : switch (index) {
         1 => AttendanceReportPage(uid: uid, name: name, role: role),
         2 => seesEmployees ? EmployeesPage(currentUserId: uid, currentUserName: name, currentUserRole: role) : null,
         3 => SettingsPage(uid: uid, name: name, role: role),

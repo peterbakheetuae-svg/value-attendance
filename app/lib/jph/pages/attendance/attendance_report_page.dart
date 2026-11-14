@@ -97,13 +97,17 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
     });
 
     try {
-      final res = await EmployeeListApi.fetch();
+      // every employee (also those whose account was stopped / settled — their old months stay readable)
+      final res = await EmployeeListApi.fetch(all: ApiService.can('employee.read_all'));
 
       if (!mounted) return;
 
       if (res["success"] == true) {
         setState(() {
           employees = List<Map<String, dynamic>>.from(res["employees"] ?? []);
+          // «ليس لديه حضور وانصراف»: nothing to report, so not in the list (he still sees his own)
+          final self = JphBridge.myId;
+          employees = employees.where((e) => e["attendanceExempt"] != true || '${e["uid"]}' == self || '${e["id"]}' == self).toList();
           // a team manager (e.g. مدير المبيعات) sees only his team members who are on duty — not those who left / were settled
           if (!ApiService.can('employee.read_all')) {
             final me = JphBridge.myId;

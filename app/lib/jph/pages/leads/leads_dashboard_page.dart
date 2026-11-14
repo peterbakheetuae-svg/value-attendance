@@ -30,6 +30,7 @@ class LeadsDashboardPage extends StatefulWidget {
 class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
   Map<String, dynamic> _d = {}, _meta = {}, _target = {};
   bool _loading = true;
+  bool _moreGo = false, _moreStats = false;
   String _period = 'month';
   String? _view, _person;
   int _seq = 0;
@@ -98,50 +99,59 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 100), children: [
-                // the way to everything
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  _go(isDark, tr('الليدز'), Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage())),
-                  _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
-                      (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage())),
-                  _go(isDark, tr('التقويم'), Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage())),
-                  if (manager) _go(isDark, tr('التارجت'), Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage())),
-                  if (can['reports'] == true) _go(isDark, tr('التقارير'), Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage())),
-                  if (can['config'] == true) _go(isDark, tr('الإعدادات'), Icons.tune_rounded, Ar.tan, () async {
+                // the way to everything: one row on the computer; 3 on the phone and the rest under «المزيد»
+                LayoutBuilder(builder: (context, box) {
+                  final wide = box.maxWidth > 700;
+                  final go = [
+                    _go(isDark, tr('الليدز'), Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage()), wide),
+                    _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
+                        (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage()), wide),
+                    _go(isDark, tr('التقويم'), Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage()), wide),
+                    if (manager) _go(isDark, tr('التارجت'), Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage()), wide),
+                    if (can['reports'] == true) _go(isDark, tr('التقارير'), Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage()), wide),
+                    if (can['config'] == true)
+                      _go(isDark, tr('الإعدادات'), Icons.tune_rounded, Ar.tan, () async {
                         await _open(const LeadsSettingsPage());
                         LeadsMeta.clear();
-                      }),
-                ]),
+                      }, wide),
+                  ];
+                  return _grid(isDark, box.maxWidth, go, cols: wide ? go.length : 3, show: wide ? go.length : 3,
+                      open: _moreGo, toggle: () => setState(() => _moreGo = !_moreGo));
+                }),
                 const SizedBox(height: 12),
                 if (manager) _viewBar(isDark),
                 if (_loading && c.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
                 if (c.isNotEmpty) ...[
-                  JphUi.statGrid([
-                    _stat(isDark, tr('كل العملاء'), c['total'], Icons.groups_rounded, Ar.info, 'all'),
-                    _stat(isDark, tr('النهارده'), c['today'], Icons.today_rounded, Ar.accent, 'today'),
-                    _stat(isDark, tr('متأخر'), c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
-                    _stat(isDark, tr('مستني أكشن'), c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
-                    _stat(isDark, tr('فريش'), c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
-                    GestureDetector(
-                      onTap: () => _open(const LeadsListPage(rating: 'hot')),
-                      child: JphUi.stat(isDark, tr('عملاء ساخنين 🔥'), '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
-                    ),
-                    _stat(isDark, tr('كولد كول'), c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
-                    if (manager) _stat(isDark, tr('مكرر'), c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
-                    if (can['distribute'] == true) _stat(isDark, tr('مش متوزع'), c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
-                  ], phone: 2),
+                  // every square together (the counts, then the stages — no title between them): 2 rows on the phone (6),
+                  // 2 rows of 6 on the computer, the rest under «المزيد»
+                  LayoutBuilder(builder: (context, box) {
+                    final wide = box.maxWidth > 700;
+                    final all = [
+                      _stat(isDark, tr('كل العملاء'), c['total'], Icons.groups_rounded, Ar.info, 'all'),
+                      _stat(isDark, tr('النهارده'), c['today'], Icons.today_rounded, Ar.accent, 'today'),
+                      _stat(isDark, tr('متأخر'), c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
+                      _stat(isDark, tr('مستني أكشن'), c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
+                      _stat(isDark, tr('فريش'), c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
+                      GestureDetector(
+                        onTap: () => _open(const LeadsListPage(rating: 'hot')),
+                        child: JphUi.stat(isDark, tr('عملاء ساخنين 🔥'), '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
+                      ),
+                      _stat(isDark, tr('كولد كول'), c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
+                      if (manager) _stat(isDark, tr('مكرر'), c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
+                      if (can['distribute'] == true) _stat(isDark, tr('مش متوزع'), c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
+                      for (final s in stageNames.entries)
+                        GestureDetector(
+                          onTap: () => _open(LeadsListPage(stage: s.key)),
+                          child: JphUi.stat(isDark, s.value, '${stages[s.key] ?? 0}  •  ${_pct(stages[s.key], c['total'])}', stageIcon(s.key), stageColor(s.key)),
+                        ),
+                    ];
+                    return _grid(isDark, box.maxWidth, all, cols: wide ? 6 : 3, show: wide ? 12 : 6,
+                        open: _moreStats, toggle: () => setState(() => _moreStats = !_moreStats));
+                  }),
                   if (_target['target'] != null) ...[
                     const SizedBox(height: 14),
                     targetCard(isDark, _target, mine: true),
                   ],
-                  const SizedBox(height: 14),
-                  _title(isDark, tr('المراحل')),
-                  JphUi.statGrid([
-                    for (final s in stageNames.entries)
-                      GestureDetector(
-                        onTap: () => _open(LeadsListPage(stage: s.key)),
-                        child: JphUi.stat(isDark, s.value, '${stages[s.key] ?? 0}  •  ${_pct(stages[s.key], c['total'])}', stageIcon(s.key), stageColor(s.key)),
-                      ),
-                  ], phone: 2),
                   if (delay.isNotEmpty) ...[
                     const SizedBox(height: 14),
                     _title(isDark, tr('المتأخر حسب المرحلة')),
@@ -179,19 +189,48 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
         child: Text(t, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
       );
 
-  Widget _go(bool isDark, String label, IconData icon, Color color, VoidCallback onTap) => GestureDetector(
+  /// the computer: the icon beside the name; the phone (3 in a row): the icon over the name
+  Widget _go(bool isDark, String label, IconData icon, Color color, VoidCallback onTap, bool wide) => GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 170,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          height: wide ? 70 : 92,
+          padding: EdgeInsets.symmetric(horizontal: wide ? 12 : 6, vertical: wide ? 12 : 10),
           decoration: JphUi.box(isDark),
-          child: Row(children: [
-            JphUi.iconTile(isDark, icon, color),
-            const SizedBox(width: 10),
-            Expanded(child: Text(label, style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
-          ]),
+          child: wide
+              ? Row(children: [
+                  JphUi.iconTile(isDark, icon, color),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+                ])
+              : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  JphUi.iconTile(isDark, icon, color),
+                  const SizedBox(height: 6),
+                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                ]),
         ),
       );
+
+  /// [cols] squares a row, the first [show] of them; the rest open with «المزيد»
+  Widget _grid(bool isDark, double width, List<Widget> items, {required int cols, required int show, required bool open, required VoidCallback toggle}) {
+    final c = cols < 1 ? 1 : cols;
+    final w = (width - (c - 1) * 8) / c;
+    final more = items.length > show;
+    final shown = open || !more ? items : items.take(show).toList();
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Wrap(spacing: 8, runSpacing: 8, children: [for (final b in shown) SizedBox(width: w, child: b)]),
+      if (more)
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: TextButton.icon(
+            onPressed: toggle,
+            icon: Icon(open ? Icons.expand_less_rounded : Icons.expand_more_rounded),
+            label: Text(open ? tr('أقل') : '${tr('المزيد')} (${items.length - show})', style: const TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ),
+    ]);
+  }
 
   Widget _stat(bool isDark, String label, Object? v, IconData icon, Color color, String tab) => GestureDetector(
         onTap: () => _open(LeadsListPage(tab: tab)),

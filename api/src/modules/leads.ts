@@ -84,7 +84,7 @@ export async function assignable(q: Q, a: Actor): Promise<any[]> {
   const rows = (await q.query(`
     SELECT DISTINCT e.id, e.full_name, e.code, e.role_key, e.team_id
       FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = 'leads.own' AND e.status = 'active' ORDER BY e.full_name`)).rows;
+     WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه' ORDER BY e.full_name`)).rows;
   if (canDistribute(a)) return rows;
   if (canTeam(a)) {
     const team = new Set([a.id, ...await teamMemberIds(q, a.id)]);
@@ -541,7 +541,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       const raw = Array.isArray(b.to) ? b.to.filter((x): x is string => typeof x === 'string' && isUuid(x)) : [];
       if (!raw.length) throw invalid('اختار السيلز', { field: 'to' });
       const people = new Set((await q.query(`SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-                                               WHERE rp.perm_key = 'leads.own' AND e.status = 'active'`)).rows.map((e) => e.id));
+                                               WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'`)).rows.map((e) => e.id));
       for (const id of raw) {
         if (!people.has(id) || id === l.assigned_to) continue;
         const ins = await q.query(`INSERT INTO lead_referrals (lead_id, employee_id, by_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [l.id, id, a.id, now]);
@@ -903,9 +903,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
   });
   const canGiveTasks = (a: Actor) => canAll(a) || canTeam(a) || has(a, 'employee.read_all');
   async function taskPeople(q: Q, a: Actor): Promise<any[]> {
-    if (canAll(a) || has(a, 'employee.read_all')) return (await q.query(`SELECT id, full_name FROM employees WHERE status = 'active' ORDER BY full_name`)).rows;
+    if (canAll(a) || has(a, 'employee.read_all')) return (await q.query(`SELECT id, full_name FROM employees WHERE status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه' ORDER BY full_name`)).rows;
     const ids = [a.id, ...(canTeam(a) ? await teamMemberIds(q, a.id) : [])];
-    return (await q.query(`SELECT id, full_name FROM employees WHERE status = 'active' AND id = ANY($1::uuid[]) ORDER BY full_name`, [ids])).rows;
+    return (await q.query(`SELECT id, full_name FROM employees WHERE status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه' AND id = ANY($1::uuid[]) ORDER BY full_name`, [ids])).rows;
   }
 
   r.get('/tasks', async (req) => {

@@ -165,7 +165,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
     final List<String> statuses = [
       'على رأس العمل',
       'تم التصفيه',
-      'مغادر',
       'إجازة'
     ];
 
@@ -476,7 +475,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           : RefreshIndicator(
                         onRefresh: _loadEmployees,
                         color: AppColors.primary,
-                        // a phone: one under the other; a computer: 4–5 squares per row (by the width)
+                        // a phone: one under the other; a computer: 3 employees per row
                         child: LayoutBuilder(builder: (context, c) {
                           if (c.maxWidth < 700) {
                             return ListView.builder(
@@ -491,7 +490,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             child: ResponsiveGrid(
                               minTileWidth: 230,
                               minCols: 3,
-                              maxCols: 5,
+                              maxCols: 3,
                               children: [for (final e in _filteredEmployees) _buildEmployeeCard(e, isDark)],
                             ),
                           );
@@ -524,7 +523,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
     final dailyRate = employee['dailyRate']?.toString() ?? '0';
     final salary = employee['salary']?.toString() ?? '0';
     final phone = employee['phone']?.toString() ?? '';
-    final email = employee['email']?.toString() ?? '';
     final status = employee['status']?.toString() ?? '';
     final level = employee['level']?.toString() ?? '';
 
@@ -662,14 +660,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
                             icon: Icons.phone,
                             text: phone,
                             color: isDark ? Ar.info[300]! : Ar.info,
-                            isDark: isDark,
-                          ),
-
-                        if (email.isNotEmpty)
-                          _buildInfoChip(
-                            icon: Icons.email,
-                            text: email.length > 20 ? '${email.substring(0, 20)}...' : email,
-                            color: isDark ? Ar.green[300]! : Ar.green,
                             isDark: isDark,
                           ),
 

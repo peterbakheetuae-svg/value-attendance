@@ -219,7 +219,8 @@ export const authModule: Module = (r, { db }) => {
              e.sales_manager_id, m.full_name AS sales_manager_name, e.joining_date,
              e.must_change_password, (e.photo IS NOT NULL) AS has_photo, e.role_key AS role,
              r.name_ar AS role_name_ar, r.name_en AS role_name_en,
-             EXISTS (SELECT 1 FROM teams WHERE manager_id = e.id AND active) AS manages_team
+             EXISTS (SELECT 1 FROM teams WHERE manager_id = e.id AND active) AS manages_team,
+             (e.legacy_fields->>'status' IS NOT DISTINCT FROM 'تم التصفيه') AS settled
         FROM employees e
         JOIN roles r ON r.key = e.role_key
         LEFT JOIN departments d ON d.id = e.department_id

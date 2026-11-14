@@ -17,6 +17,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/primary_button.dart';
 import 'forgot_password_page.dart';
 import '../../widgets/glass_ui.dart';
+import '../attendance/attendance_report_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -160,7 +161,11 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       final validity = response["validity"]?.toString().toLowerCase() ?? '';
       final isAdmin = validity == 'super admin' || validity == 'admin';
 
-      if (isAdmin) {
+      if (JphBridge.session.settled) {
+        // «تم التصفيه»: only his attendance report
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AttendanceReportPage(
+              uid: response["uid"]?.toString() ?? '', name: response["name"]?.toString() ?? '', role: response["role"]?.toString() ?? '')));
+      } else if (isAdmin) {
         // انتقل إلى لوحة أصحاب العمل
         Navigator.pushReplacement(
           context,

@@ -524,7 +524,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
       const today = await one(q, `SELECT count(*)::int AS n FROM leads WHERE campaign_id = $1 AND created_at > $2::timestamptz - interval '1 day'`, [c.id, now]);
       if (today.n >= 1000) throw conflict('الفورم مقفول النهارده');
       const pool: string[] = c.form_assignees ?? [];
-      const live = pool.length ? (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active'`, [pool])).rows.map((e) => e.id) : [];
+      const live = pool.length ? (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه'`, [pool])).rows.map((e) => e.id) : [];
       const to = live.length ? (await rotation(q, live))[0] : null;
       const res = await insertLead(q, null, x, to, now, 'form', live);
       if (res.to) {
@@ -549,7 +549,7 @@ export async function leadsAutoReassign(q: Q, now: Date) {
        AND l.assigned_at <= $1::timestamptz - make_interval(mins => $2)
      LIMIT 200 FOR UPDATE OF l SKIP LOCKED`, [now, s.m]);
   for (const l of rows.rows) {
-    const live = (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active' AND id <> $2`, [l.assign_pool, l.assigned_to])).rows.map((e) => e.id);
+    const live = (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه' AND id <> $2`, [l.assign_pool, l.assigned_to])).rows.map((e) => e.id);
     if (!live.length) continue;
     const to = (await rotation(q, live))[0];
     await q.query(`UPDATE leads SET assigned_to = $2, assigned_at = $3, pending_alerted_at = NULL, reminded_at = NULL, updated_at = $3 WHERE id = $1`, [l.id, to, now]);

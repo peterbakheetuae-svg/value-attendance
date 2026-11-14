@@ -3,7 +3,7 @@ import { mailEnabled, passwordResetMail, sendMail } from '../lib/mail.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, type Actor } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
@@ -304,6 +304,12 @@ export const employeesModule: Module = (r, { db, clock }) => {
         for (const k of LEGACY_SALARY_KEYS) delete lf[k];
         const prev = (before.legacy_fields ?? {}) as Record<string, any>;
         for (const k of LEGACY_SALARY_KEYS) if (k in prev) lf[k] = prev[k];
+      }
+      // «تم التصفيه» only once every custody item he holds has been received back
+      const prevStatus = (before.legacy_fields ?? {})?.status;
+      if (lf.status === SETTLED && prevStatus !== SETTLED) {
+        const open = await one(db, `SELECT count(*)::int AS n FROM custody_items WHERE employee_id = $1 AND status = 'assigned'`, [req.params.id]);
+        if (open.n > 0) throw invalid(`لازم تستلم العهدة اللي مع الموظف الأول (${open.n}) قبل «تم التصفيه»`, { field: 'status', reason: 'open_custody', count: open.n });
       }
       put('legacy_fields', JSON.stringify(lf));
     }
