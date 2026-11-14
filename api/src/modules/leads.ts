@@ -629,6 +629,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'whatsapp' AND ${dayCairo('g.created_at')} = ${today})::int AS wa_today,
         (SELECT count(*) FROM lead_logs g JOIN leads l ON l.id = g.lead_id WHERE ${scope} AND g.kind = 'whatsapp' AND g.created_at >= $${t}::timestamptz - interval '7 days')::int AS wa_week,
         (SELECT count(*) FROM lead_actions x JOIN leads l ON l.id = x.lead_id WHERE ${scope} AND x.answered AND NOT x.auto AND ${dayCairo('x.created_at')} = ${today})::int AS answered_today,
+        (SELECT count(*) FROM lead_actions x JOIN leads l ON l.id = x.lead_id WHERE ${scope} AND x.answered = false AND NOT x.auto AND ${dayCairo('x.created_at')} = ${today})::int AS no_answer_today,
         (SELECT count(*) FROM leads l WHERE ${scope} AND ${dayCairo('l.created_at')} = ${today})::int AS created_today,
         (SELECT round(avg(extract(epoch FROM (fx.at - l.assigned_at)) / 60)) FROM leads l
            CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.created_at >= l.assigned_at) fx
@@ -648,6 +649,18 @@ export const leadsModule: Module = (r, { db, clock }) => {
         JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
        WHERE s.revoked_at IS NULL AND s.last_seen_at > now() - interval '10 minutes' AND $1::timestamptz IS NOT NULL AND e.status = 'active'
        GROUP BY e.id ORDER BY e.full_name LIMIT 30`, [now]);
+    // To Do List (like Elite): per stage, the follow-ups due today and how many of them got an action today
+    const todoStages = await db.query(`
+      SELECT l.stage, count(*)::int AS due,
+             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.parent_id IS NULL
+                                              AND ${dayCairo('x.created_at')} = ${today}))::int AS done
+        FROM leads l
+       WHERE ${scope} AND ${OPEN_SQL} AND l.next_at IS NOT NULL AND ${dayCairo('l.next_at')} <= ${today}
+             AND (l.last_action_at IS NULL OR ${dayCairo('l.last_action_at')} >= ${today} - 30)
+       GROUP BY l.stage`, params);
+    const leadsPeople = await one(db, `SELECT count(DISTINCT e.id)::int AS n FROM employees e
+        JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
+       WHERE e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'`);
     // To Do List: my open tasks, nearest first
     const todo = await db.query(`
       SELECT k.id, k.title, k.status, k.due_at, l.id AS lead_id, l.full_name AS lead_name FROM tasks k LEFT JOIN leads l ON l.id = k.lead_id
@@ -661,10 +674,12 @@ export const leadsModule: Module = (r, { db, clock }) => {
         lead: { id: x.lead_id, name: x.lead_name }, by: x.by_name })),
       activity: activity.rows.map((x) => ({ kind: x.kind, what: x.what, at: iso(x.at), lead: { id: x.lead_id, name: x.lead_name }, by: x.by_name })),
       kpis: { callsToday: k.calls_today, callsWeek: k.calls_week, whatsappToday: k.wa_today, whatsappWeek: k.wa_week,
-        answeredToday: k.answered_today, createdToday: k.created_today, avgResponseMin: k.avg_response_min },
+        answeredToday: k.answered_today, noAnswerToday: k.no_answer_today, createdToday: k.created_today, avgResponseMin: k.avg_response_min },
       created7: created7.rows.map((x) => ({ day: ymd(x.day), n: x.n })),
       response7: response7.rows.map((x) => ({ day: ymd(x.day), min: x.min })),
       online: online.rows.map((x) => ({ id: x.id, name: x.full_name, seen: iso(x.seen), me: x.id === a.id })),
+      onlineOf: leadsPeople.n,
+      todoStages: Object.fromEntries(todoStages.rows.map((x) => [x.stage, { due: x.due, done: x.done }])),
       todo: todo.rows.map((x) => ({ id: x.id, title: x.title, status: x.status, dueAt: iso(x.due_at), late: !!(x.due_at && new Date(x.due_at) < now),
         lead: x.lead_id ? { id: x.lead_id, name: x.lead_name } : null })),
       view, counts: c, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),

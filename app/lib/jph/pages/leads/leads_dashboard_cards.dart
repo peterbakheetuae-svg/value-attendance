@@ -25,7 +25,7 @@ class DashboardCards {
       (tr('مكالمات (Phone Call)'), '${k['callsToday'] ?? 0}', '${tr('الأسبوع')}: ${k['callsWeek'] ?? 0}', Icons.call_rounded, Ar.green),
       (tr('WhatsApp Contacts'), '${k['whatsappToday'] ?? 0}', '${tr('الأسبوع')}: ${k['whatsappWeek'] ?? 0}', Icons.chat_rounded, const Color(0xFF1FA855)),
       (tr('اتضاف النهارده'), '${k['createdToday'] ?? 0}', tr('Created today'), Icons.person_add_alt_1_rounded, Ar.info),
-      (tr('ردّوا النهارده'), '${k['answeredToday'] ?? 0}', tr('مكالمات اتردّ عليها'), Icons.phone_callback_rounded, Ar.accent),
+      (tr('ردّوا النهارده'), '${k['answeredToday'] ?? 0}', '${tr('مردّش')}: ${k['noAnswerToday'] ?? 0}', Icons.phone_callback_rounded, Ar.accent),
       (tr('متوسط وقت الرد'), avg == null ? '—' : _mins(avg), tr('آخر 7 أيام'), Icons.timer_rounded, Ar.amber),
     ];
     return LayoutBuilder(builder: (context, box) {
@@ -262,7 +262,32 @@ class DashboardCards {
 
   Widget todo() {
     final rows = ll(d['todo']);
+    final st = lm(d['todoStages']);
+    var due = 0, done = 0;
+    for (final v in st.values) {
+      due += ((lm(v)['due'] as num?) ?? 0).toInt();
+      done += ((lm(v)['done'] as num?) ?? 0).toInt();
+    }
+    Widget bar(String label, int dn, int du, Color c) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(children: [
+            SizedBox(width: 110, child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: JphUi.text(isDark)))),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(minHeight: 8, value: du == 0 ? 0 : dn / du,
+                    backgroundColor: isDark ? Colors.white10 : const Color(0xFFF0EEEB), color: c),
+              ),
+            ),
+            SizedBox(width: 92, child: Text('$dn ${tr('من')} $du · ${du == 0 ? 0 : (dn * 100 / du).round()}%', textAlign: TextAlign.end,
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: JphUi.sub(isDark)))),
+          ]),
+        );
     return panel(tr('المهام (To Do List)'), Icons.checklist_rounded, Ar.info, [
+      Text(tr('متابعات النهارده: اتعمل منها كام'), style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+      for (final e in st.entries) bar('${stageNames[e.key] ?? e.key}', ((lm(e.value)['done'] as num?) ?? 0).toInt(), ((lm(e.value)['due'] as num?) ?? 0).toInt(), stageColor(e.key)),
+      bar(tr('الإجمالي'), done, due, Ar.accent),
+      const Divider(),
       if (rows.isEmpty) _empty(tr('مفيش مهام مفتوحة 👌')),
       for (final x in rows)
         _row('${x['title']}', [
@@ -277,7 +302,7 @@ class DashboardCards {
 
   Widget online() {
     final rows = ll(d['online']);
-    return panel('${tr('المستخدمون المتصلون')} (${rows.length})', Icons.wifi_tethering_rounded, Ar.green, [
+    return panel('${tr('المستخدمون المتصلون')} ${rows.length}/${d['onlineOf'] ?? rows.length}', Icons.wifi_tethering_rounded, Ar.green, [
       if (rows.isEmpty) _empty(tr('محدش متصل دلوقتي')),
       Wrap(spacing: 8, runSpacing: 8, children: [
         for (final x in rows)
