@@ -16,6 +16,7 @@ import 'leads_calendar_page.dart';
 import 'leads_settings_page.dart';
 import 'leads_targets_page.dart';
 import 'tasks_page.dart';
+import 'deals_page.dart';
 
 /// لوحة السيلز: the counts of every stage (tap → those leads), the follow-ups due, «مستني أكشن», the late ones,
 /// the ranking, and the way to the leads, the tasks, the reports and the settings.
@@ -108,6 +109,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                     _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
                         (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage()), wide),
                     _go(isDark, tr('التقويم'), Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage()), wide),
+                    if (can['deals'] == true) _go(isDark, tr('الصفقات'), Icons.handshake_rounded, Ar.green, () => _open(const DealsPage()), wide),
                     if (manager) _go(isDark, tr('التارجت'), Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage()), wide),
                     if (can['reports'] == true) _go(isDark, tr('التقارير'), Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage()), wide),
                     if (can['config'] == true)

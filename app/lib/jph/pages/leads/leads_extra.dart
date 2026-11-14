@@ -133,7 +133,6 @@ Future<void> whatsAppWithTemplate(BuildContext context, bool isDark, Map<String,
     for (final t in list) ('${t['id']}', '${t['name']}', Icons.chat_rounded),
   ]);
   if (pick == null) return;
-  logContact(lead['id'], 'whatsapp');
   var text = '';
   if (pick.isNotEmpty) {
     final t = list.firstWhere((x) => '${x['id']}' == pick, orElse: () => const {});
@@ -143,7 +142,97 @@ Future<void> whatsAppWithTemplate(BuildContext context, bool isDark, Map<String,
         .replaceAll('{السيلز}', '${lm(lead['assignedTo'])['name'] ?? ''}')
         .replaceAll('{الشركة}', '${r['companyName'] ?? ''}');
   }
+  // kept in the lead's WhatsApp tab (and counted on the sales board)
+  lpost('/leads/${lead['id']}/whatsapp', {'body': text, if (pick.isNotEmpty) 'templateId': pick}).ignore();
   await whatsApp('${lead['phone']}', text: text);
+}
+
+/// the lead's WhatsApp tab: the messages sent from the app, and the client's replies the salesman pastes in
+class LeadWhatsApp extends StatefulWidget {
+  final bool isDark;
+  final Map<String, dynamic> lead;
+  final VoidCallback onSent;
+  const LeadWhatsApp({super.key, required this.isDark, required this.lead, required this.onSent});
+
+  @override
+  State<LeadWhatsApp> createState() => _LeadWhatsAppState();
+}
+
+class _LeadWhatsAppState extends State<LeadWhatsApp> {
+  List<Map<String, dynamic>> _m = [];
+  bool _loading = true;
+  final _reply = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final r = await lget('/leads/${widget.lead['id']}/whatsapp');
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _m = ll(r['messages']);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Expanded(
+          child: leadBtn(isDark, tr('رسالة واتساب'), Icons.chat_rounded, () async {
+            await whatsAppWithTemplate(context, isDark, widget.lead);
+            await Future<void>.delayed(const Duration(milliseconds: 600));
+            _load();
+          }, color: const Color(0xFF1FA855)),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
+      if (!_loading && _m.isEmpty)
+        Padding(padding: const EdgeInsets.all(16), child: Text(tr('لسه مفيش رسايل واتساب مع العميل ده'), style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final x in _m)
+        Align(
+          alignment: x['direction'] == 'in' ? AlignmentDirectional.centerEnd : AlignmentDirectional.centerStart,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 420),
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: x['direction'] == 'in' ? (isDark ? Colors.white10 : const Color(0xFFF1F0EE)) : const Color(0xFF1FA855).withOpacity(0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${x['body']}'.isEmpty ? tr('(فتح محادثة من غير رسالة)') : '${x['body']}', style: TextStyle(color: JphUi.text(isDark))),
+              const SizedBox(height: 4),
+              Text('${x['direction'] == 'in' ? tr('رد العميل') : (x['by'] ?? '')} · ${whenAr(x['at'])}',
+                  style: TextStyle(fontSize: 11, color: JphUi.sub(isDark))),
+            ]),
+          ),
+        ),
+      const SizedBox(height: 6),
+      Row(children: [
+        Expanded(child: JphUi.input(isDark: isDark, label: tr('الصق رد العميل هنا'), controller: _reply, icon: Icons.reply_rounded, big: false)),
+        IconButton(
+          tooltip: tr('حفظ'),
+          icon: const Icon(Icons.send_rounded),
+          onPressed: () async {
+            final t = _reply.text.trim();
+            if (t.isEmpty) return;
+            final r = await lpost('/leads/${widget.lead['id']}/whatsapp', {'direction': 'in', 'body': t}, ok: tr('اتحفظ ✅'));
+            if (!mounted) return;
+            if (r['success'] == true) _reply.clear();
+            JphUi.toast(context, r);
+            _load();
+          },
+        ),
+      ]),
+    ]);
+  }
 }
 
 // ==================================================================== the lead's files / request / check-ins

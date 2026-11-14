@@ -9,6 +9,7 @@ import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
 import 'leads_extra.dart';
 import 'tasks_page.dart' show editTask;
+import 'deals_page.dart' show editDeal;
 
 /// One lead (a side panel on the computer): its data, «إضافة أكشن», the reservation from it, the comments and replies,
 /// the reservations made from it and — for the managers — its log (who gave it, who opened it).
@@ -40,6 +41,15 @@ class _LeadPageState extends State<LeadPage> {
       _d = r[0]['success'] == true ? r[0] : {'error': r[0]['message'] ?? tr('الليد مش موجود')};
       _meta = r[1];
     });
+  }
+
+  int _waTick = 0;
+
+  Future<void> _stars(Map<String, dynamic> l, int v) async {
+    final r = await lpost('/leads/${l['id']}/stars', {'stars': v}, ok: tr('اتحفظ ✅'));
+    if (!mounted) return;
+    if (r['success'] != true) JphUi.toast(context, r);
+    _after(r['success'] == true);
   }
 
   Future<void> _after(bool ok) async {
@@ -127,6 +137,17 @@ class _LeadPageState extends State<LeadPage> {
             ]),
             const SizedBox(height: 8),
             SelectableText(phone, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            // the client's stars (tap to give 1–5, tap the same again to clear)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              for (var i = 1; i <= 5; i++)
+                InkWell(
+                  onTap: can['act'] == true ? () => _stars(l, (l['stars'] ?? 0) == i ? 0 : i) : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: Icon(i <= ((l['stars'] as num?) ?? 0) ? Icons.star_rounded : Icons.star_outline_rounded, size: 22, color: Ar.amber),
+                  ),
+                ),
+            ]),
             const SizedBox(height: 2),
             Text([
               if (l['channel'] != null) '${lm(l['channel'])['name']}',
@@ -150,6 +171,8 @@ class _LeadPageState extends State<LeadPage> {
           dirBtn(isDark, tr('توزيع'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']]))),
         if (can['refer'] == true) dirBtn(isDark, tr('مشاركة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l))),
         dirBtn(isDark, tr('مهمة'), Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l))),
+        if (lm(_meta['can'])['dealCreate'] == true && can['act'] == true)
+          dirBtn(isDark, tr('تحويل لصفقة'), Icons.handshake_rounded, () async => _after(await editDeal(context, isDark, _meta, lead: l))),
         if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
           dirBtn(isDark, tr('وصلت الميتنج'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green),
       ]),
@@ -200,6 +223,7 @@ class _LeadPageState extends State<LeadPage> {
         child: Row(children: [
           for (final t in [
             ('comments', tr('التعليقات'), Icons.forum_rounded),
+            ('whatsapp', tr('واتساب'), Icons.chat_rounded),
             ('request', tr('الطلب والوحدات'), Icons.manage_search_rounded),
             ('units', tr('الحجوزات'), Icons.home_work_rounded),
             ('files', tr('الملفات'), Icons.attach_file_rounded),
@@ -219,6 +243,7 @@ class _LeadPageState extends State<LeadPage> {
       ),
       const SizedBox(height: 10),
       if (_tab == 'comments') ..._comments(isDark, ll(d['actions'])),
+      if (_tab == 'whatsapp') LeadWhatsApp(key: ValueKey('wa-${l['id']}-$_waTick'), isDark: isDark, lead: l, onSent: () => setState(() => _waTick++)),
       if (_tab == 'units') ..._units(isDark, ll(d['units'])),
       if (_tab == 'log') ..._log(isDark, ll(d['logs'])),
       if (const ['request', 'files', 'checkins'].contains(_tab))
@@ -419,7 +444,9 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
   final comment = TextEditingController(), place = TextEditingController(), mins = TextEditingController();
   String meetingKind = tr('معاينة');
   return leadForm(context, isDark, 'أكشن — ${lead['fullName']}', (set) {
-    final noDate = stage == 'cancelled';
+    final cur = stages.where((s) => s['key'] == stage).firstOrNull;
+    final lost = cur?['kind'] == 'lost';
+    final noDate = lost || cur?['needsDate'] == false;
     final meeting = stage == 'meeting' || stage == 'reschedule';
     return [
       Wrap(spacing: 6, runSpacing: 6, children: [
@@ -449,7 +476,7 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
         ]),
         JphUi.input(isDark: isDark, label: tr('مكان الميتنج'), controller: place, icon: Icons.place_rounded, big: false),
       ],
-      if (stage == 'cancelled') refPicker(context, isDark, tr('سبب الإلغاء'), Icons.cancel_rounded, reasons, reason, (v) => set(() => reason = v), allowNone: false),
+      if (lost) refPicker(context, isDark, tr('سبب الإلغاء'), Icons.cancel_rounded, reasons, reason, (v) => set(() => reason = v), allowNone: false),
       if (!noDate) WhenField(isDark: isDark, value: next, onPick: (v) => set(() => next = v), label: meeting ? tr('معاد الميتنج') : tr('معاد المتابعة الجاية')),
       JphUi.input(isDark: isDark, label: tr('التعليق'), controller: comment, icon: Icons.notes_rounded, big: false),
     ];
@@ -457,8 +484,8 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
     String? err;
     if (stage == null) err = tr('اختار المرحلة');
     else if (comment.text.trim().isEmpty) err = tr('اكتب التعليق');
-    else if (stage == 'cancelled' && reason == null) err = tr('اختار سبب الإلغاء');
-    else if (stage != 'cancelled' && next == null) err = tr('حدد المعاد الجاي');
+    else if (stageInfo(stage)?['kind'] == 'lost' && reason == null) err = tr('اختار سبب الإلغاء');
+    else if (stageInfo(stage)?['kind'] != 'lost' && stageInfo(stage)?['needsDate'] != false && next == null) err = tr('حدد المعاد الجاي');
     if (err != null) {
       JphUi.toast(context, {'success': false, 'message': err});
       return false;
@@ -466,10 +493,10 @@ Future<bool> addLeadAction(BuildContext context, bool isDark, Map<String, dynami
     final m = num.tryParse(mins.text.trim());
     final r = await lpost('/leads/${lead['id']}/actions', {
       'stage': stage, 'answered': answered, 'comment': comment.text.trim(),
-      if (next != null && stage != 'cancelled') 'nextAt': isoUtc(next!),
+      if (next != null && stageInfo(stage)?['kind'] != 'lost' && stageInfo(stage)?['needsDate'] != false) 'nextAt': isoUtc(next!),
       if (answered && m != null && m > 0) 'callSeconds': (m * 60).round(),
       if (stage == 'meeting' || stage == 'reschedule') ...{'meetingKind': meetingKind, 'meetingPlace': place.text.trim()},
-      if (stage == 'cancelled') 'cancelReasonId': reason,
+      if (stageInfo(stage)?['kind'] == 'lost') 'cancelReasonId': reason,
     }, ok: tr('اتسجل الأكشن ✅'));
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;

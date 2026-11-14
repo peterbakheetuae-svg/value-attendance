@@ -260,7 +260,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       can: { all: canAll(a), distribute: canDistribute(a), team: canTeam(a), own: canOwn(a), config: canConfig(a),
         reports: has(a, 'leads.reports'), import: has(a, 'leads.import'), assign: canDistribute(a) || canTeam(a),
         create: has(a, 'leads.create'), edit: has(a, 'leads.edit'), export: has(a, 'leads.export'), tasks: has(a, 'leads.tasks'),
-        roles: has(a, 'roles.manage') },
+        roles: has(a, 'roles.manage'), stages: has(a, 'leads.stages'), deals: has(a, 'deals.view'), dealCreate: has(a, 'deals.create') },
       pendingMinutes: await pendingMinutes(db), me: a.id,
     });
   });

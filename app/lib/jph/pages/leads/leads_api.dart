@@ -48,9 +48,21 @@ class LeadsMeta {
   }
 
   static void clear() => _m = null;
+
+  /// the stages as the leads settings keep them (null until the meta is loaded once)
+  static List<Map<String, dynamic>> get stages => ll(_m?['stages']);
 }
 
-Color stageColor(String? s) => switch (s) {
+/// a stage from the settings (name / colour / kind / timings), when the meta is loaded
+Map<String, dynamic>? stageInfo(String? key) => LeadsMeta.stages.where((s) => s['key'] == key).firstOrNull;
+
+Color? _hex(Object? v) {
+  final s = '${v ?? ''}'.replaceAll('#', '');
+  final x = int.tryParse(s, radix: 16);
+  return s.length == 6 && x != null ? Color(0xFF000000 | x) : null;
+}
+
+Color stageColor(String? s) => _hex(stageInfo(s)?['color']) ?? switch (s) {
       'new' => Ar.info,
       'no_answer' => Ar.grey,
       'following' => Ar.amber,
@@ -78,10 +90,16 @@ IconData stageIcon(String? s) => switch (s) {
       _ => Icons.circle_outlined,
     };
 
-Map<String, String> get stageNames => <String, String>{
-  'new': tr('جديد'), 'no_answer': tr('أول مكالمة — مردّش'), 'following': tr('متابعة'), 'interested': tr('مهتم'), 'meeting': tr('ميتنج'),
-  'after_meeting': tr('متابعة بعد الميتنج'), 'reschedule': tr('تأجيل ميتنج'), 'cancelled': tr('إلغاء'), 'reservation': tr('حجز'), 'done_deal': tr('تم البيع'),
-};
+/// every stage's name in its order: the settings' list (with the added stages) once loaded, else the built-in ones
+Map<String, String> get stageNames {
+  final fixed = <String, String>{
+    'new': tr('جديد'), 'no_answer': tr('أول مكالمة — مردّش'), 'following': tr('متابعة'), 'interested': tr('مهتم'), 'meeting': tr('ميتنج'),
+    'after_meeting': tr('متابعة بعد الميتنج'), 'reschedule': tr('تأجيل ميتنج'), 'cancelled': tr('إلغاء'), 'reservation': tr('حجز'), 'done_deal': tr('تم البيع'),
+  };
+  final st = LeadsMeta.stages;
+  if (st.isEmpty) return fixed;
+  return {for (final s in st) '${s['key']}': tr('${s['name']}')};
+}
 
 String two(int v) => v.toString().padLeft(2, '0');
 

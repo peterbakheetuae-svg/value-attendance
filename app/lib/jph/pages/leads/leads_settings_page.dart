@@ -9,6 +9,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../services/api_service.dart';
 import 'leads_api.dart';
 import 'leads_permissions.dart';
+import 'leads_stages.dart';
 
 /// إعدادات الليدز: the channels (فيسبوك / تيك توك …), the campaigns (with their cost, for the report),
 /// the cancel reasons, and after how many minutes a lead nobody acted on rings the manager.
@@ -68,6 +69,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
               for (final (i, t) in [
                 (tr('القنوات'), Icons.campaign_rounded), (tr('الحملات'), Icons.ads_click_rounded), (tr('أسباب الإلغاء'), Icons.cancel_rounded),
                 (tr('رسايل واتساب'), Icons.chat_rounded), (tr('التنبيه والسحب'), Icons.alarm_rounded), (tr('سجل التصدير'), Icons.file_download_rounded),
+                (tr('المراحل'), Icons.view_week_rounded),
                 // الإعدادات / التحكم في الوصول: the owner only
                 if (ApiService.can('roles.manage')) (tr('صلاحيات الأدوار'), Icons.admin_panel_settings_rounded),
               ].indexed)
@@ -99,6 +101,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
               ],
             4 => [_pending(isDark)],
             5 => _exportsList(isDark),
+            6 => [LeadsStagesView(isDark: isDark)],
             _ => [LeadsPermissionsView(isDark: isDark)],
           }),
         ]),
