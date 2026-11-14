@@ -93,8 +93,8 @@ IconData stageIcon(String? s) => switch (s) {
 /// every stage's name in its order: the settings' list (with the added stages) once loaded, else the built-in ones
 Map<String, String> get stageNames {
   final fixed = <String, String>{
-    'new': tr('جديد'), 'no_answer': tr('أول مكالمة — مردّش'), 'following': tr('متابعة'), 'interested': tr('مهتم'), 'meeting': tr('ميتنج'),
-    'after_meeting': tr('متابعة بعد الميتنج'), 'reschedule': tr('تأجيل ميتنج'), 'cancelled': tr('إلغاء'), 'reservation': tr('حجز'), 'done_deal': tr('تم البيع'),
+    'new': tr('جديد'), 'no_answer': tr('لا رد على المكالمة الأولى'), 'following': tr('متابعة'), 'interested': tr('مهتم'), 'meeting': tr('اجتماع'),
+    'after_meeting': tr('متابعة بعد الاجتماع'), 'reschedule': tr('إعادة جدولة الاجتماع'), 'cancelled': tr('إلغاء'), 'reservation': tr('حجز'), 'done_deal': tr('صفقة مكتملة'),
   };
   final st = LeadsMeta.stages;
   if (st.isEmpty) return fixed;
@@ -112,7 +112,7 @@ String whenAr(Object? iso, {bool withDay = true}) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final day = DateTime(d.year, d.month, d.day);
-  final rel = day == today ? tr('النهارده') : day == today.add(const Duration(days: 1)) ? tr('بكرة') : day == today.subtract(const Duration(days: 1)) ? tr('امبارح') : null;
+  final rel = day == today ? tr('اليوم') : day == today.add(const Duration(days: 1)) ? tr('بكرة') : day == today.subtract(const Duration(days: 1)) ? tr('امبارح') : null;
   final date = rel ?? '${withDay ? '${days[d.weekday - 1]} ' : ''}${d.day}/${d.month}${d.year != now.year ? '/${d.year}' : ''}';
   return '$date — $h:${two(d.minute)} ${d.hour < 12 ? 'ص' : 'م'}';
 }

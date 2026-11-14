@@ -77,14 +77,14 @@ class _LeadsListPageState extends State<LeadsListPage> {
     final can = lm(_meta['can']);
     final manager = can['assign'] == true;
     final tabs = <(String, String)>[
-      ('all', tr('الكل')), if (manager) ('mine', tr('ليدز بتاعتي')), ('today', tr('النهارده')), ('fresh', tr('فريش')), ('cold', tr('كولد')),
-      ('delay', tr('متأخر')), ('pending', tr('مستني أكشن')), if (manager) ('duplicated', tr('مكرر')), if (can['distribute'] == true) ('unassigned', tr('مش متوزع')),
-      ('shared', tr('متشارك')),
+      ('all', tr('الكل')), if (manager) ('mine', tr('عملائي')), ('today', tr('اليوم')), ('fresh', tr('جديد')), ('cold', tr('مكالمات باردة')),
+      ('delay', tr('متأخر')), ('pending', tr('قيد الانتظار')), if (manager) ('duplicated', tr('مكرر')), if (can['distribute'] == true) ('unassigned', tr('مش متوزع')),
+      ('shared', tr('الإحالات')),
     ];
     final delay = (_tabs['delay'] as num?) ?? 0;
     return LeadsShell(
       isDark: isDark,
-      title: tr('الليدز'),
+      title: tr('العملاء المحتملون'),
       fab: _picked.isNotEmpty && manager
           ? FloatingActionButton.extended(
               onPressed: () async {
@@ -116,23 +116,23 @@ class _LeadsListPageState extends State<LeadsListPage> {
           },
           child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 110), children: [
             // ------------------------------------------------ the title, its line and the two buttons
-            Text(tr('الليدز'), style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: JphUi.text(isDark), height: 1.1)),
+            Text(tr('العملاء المحتملون'), style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: JphUi.text(isDark), height: 1.1)),
             const SizedBox(height: 4),
             Text('${_tabs['all'] ?? _total} عميل${delay > 0 ? ' • $delay متأخر' : ''}', style: TextStyle(fontSize: 14, color: JphUi.sub(isDark))),
             const SizedBox(height: 14),
             Row(children: [
               if (can['export'] == true)
-                Expanded(child: dirBtn(isDark, tr('تصدير إكسيل'), Icons.file_download_outlined, () => _export())),
+                Expanded(child: dirBtn(isDark, tr('تصدير'), Icons.file_download_outlined, () => _export())),
               if (can['import'] == true)
                 Expanded(
-                  child: dirBtn(isDark, tr('استورد'), Icons.upload_file_rounded, () async {
+                  child: dirBtn(isDark, tr('استيراد العملاء المحتملين'), Icons.upload_file_rounded, () async {
                     if (await importLeads(context, isDark, _meta)) _load();
                   }),
                 ),
               if (can['create'] == true)
               Expanded(
                 flex: 2,
-                child: dirBtn(isDark, tr('ليد جديد'), Icons.person_add_alt_1_rounded, _meta.isEmpty
+                child: dirBtn(isDark, tr('إنشاء عميل محتمل'), Icons.person_add_alt_1_rounded, _meta.isEmpty
                     ? null
                     : () async {
                         if (await editLead(context, isDark, _meta)) _load();
@@ -289,9 +289,9 @@ class _LeadsListPageState extends State<LeadsListPage> {
           Expanded(flex: 4, child: Text(tr('الاسم'), style: _head(isDark))),
           Expanded(flex: 3, child: Text(tr('المشروع'), style: _head(isDark))),
           Expanded(flex: 3, child: Text(tr('المرحلة'), style: _head(isDark))),
-          if (manager) Expanded(flex: 3, child: Text(tr('السيلز'), style: _head(isDark))),
+          if (manager) Expanded(flex: 3, child: Text(tr('مندوب المبيعات'), style: _head(isDark))),
           Expanded(flex: 3, child: Text(tr('المتابعة الجاية'), style: _head(isDark))),
-          Expanded(flex: 4, child: Text(tr('آخر تعليق'), style: _head(isDark))),
+          Expanded(flex: 4, child: Text(tr('أحدث تعليق'), style: _head(isDark))),
         ]),
       );
 
@@ -405,7 +405,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
           refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(_meta['projects']), p, (v) => set(() => p = v)),
           refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(_meta['channels']), ch, (v) => set(() => ch = v)),
           if (ll(_meta['assignees']).isNotEmpty)
-            refPicker(context, isDark, tr('السيلز'), Icons.person_rounded, ll(_meta['assignees']), who, (v) => set(() => who = v)),
+            refPicker(context, isDark, tr('مندوب المبيعات'), Icons.person_rounded, ll(_meta['assignees']), who, (v) => set(() => who = v)),
           refPicker(context, isDark, tr('تقييم العميل'), Icons.local_fire_department_rounded,
               [{'id': 'hot', 'name': tr('ساخن 🔥')}, {'id': 'warm', 'name': tr('دافي')}, {'id': 'cold', 'name': tr('بارد')}], rt, (v) => set(() => rt = v)),
         ], () async => true, saveLabel: tr('طبّق'), saveIcon: Icons.filter_alt_rounded);
@@ -430,7 +430,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
       for (final l in got) {
         rows.add([
           l['refNo'], l['fullName'], l['phone'], ((l['extraPhones'] as List?) ?? const []).join(' / '), lm(l['project'])['name'], lm(l['channel'])['name'],
-          lm(l['campaign'])['name'], l['kind'] == 'cold' ? tr('كولد') : tr('فريش'), l['stageAr'], {'hot': tr('ساخن'), 'warm': tr('دافي'), 'cold': tr('بارد')}[l['rating']],
+          lm(l['campaign'])['name'], l['kind'] == 'cold' ? tr('مكالمات باردة') : tr('جديد'), l['stageAr'], {'hot': tr('ساخن'), 'warm': tr('دافي'), 'cold': tr('بارد')}[l['rating']],
           lm(l['assignedTo'])['name'], whenAr(l['nextAt']), l['lastComment'], lm(l['cancelReason'])['name'], l['budget'], whenAr(l['createdAt']),
         ]);
       }
@@ -438,8 +438,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
     }
     if (!mounted) return;
     await exportTable(context, 'leads', 'ليدز ${DateTime.now().day}-${DateTime.now().month}', [
-      tr('رقم'), tr('الاسم'), tr('الموبايل'), tr('أرقام تانية'), tr('المشروع'), tr('القناة'), tr('الحملة'), tr('النوع'), tr('المرحلة'), tr('التقييم'), tr('السيلز'), tr('المتابعة الجاية'),
-      tr('آخر تعليق'), tr('سبب الإلغاء'), tr('الميزانية'), tr('اتضاف'),
+      tr('رقم'), tr('الاسم'), tr('الموبايل'), tr('أرقام تانية'), tr('المشروع'), tr('القناة'), tr('الحملة'), tr('النوع'), tr('المرحلة'), tr('التقييم'), tr('مندوب المبيعات'), tr('المتابعة الجاية'),
+      tr('أحدث تعليق'), tr('سبب الإلغاء'), tr('الميزانية'), tr('اتضاف'),
     ], rows, filters: {'tab': _tab, 'stage': _stage, 'projectId': _project, 'channelId': _channel, 'assignedTo': _person, 'rating': _rating});
   }
 }

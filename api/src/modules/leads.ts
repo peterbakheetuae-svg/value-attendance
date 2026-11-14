@@ -16,8 +16,8 @@ import { notify } from './notify.ts';
 export const STAGES = ['new', 'no_answer', 'following', 'interested', 'meeting', 'after_meeting', 'reschedule', 'cancelled', 'reservation', 'done_deal'] as const;
 export type Stage = typeof STAGES[number];
 export const STAGE_AR: Record<Stage, string> = {
-  new: 'جديد', no_answer: 'أول مكالمة — مردّش', following: 'متابعة', interested: 'مهتم', meeting: 'ميتنج',
-  after_meeting: 'متابعة بعد الميتنج', reschedule: 'تأجيل ميتنج', cancelled: 'إلغاء', reservation: 'حجز', done_deal: 'تم البيع',
+  new: 'جديد', no_answer: 'لا رد على المكالمة الأولى', following: 'متابعة', interested: 'مهتم', meeting: 'اجتماع',
+  after_meeting: 'متابعة بعد الاجتماع', reschedule: 'إعادة جدولة الاجتماع', cancelled: 'إلغاء', reservation: 'حجز', done_deal: 'صفقة مكتملة',
 };
 /** the stages the salesman picks in «إضافة أكشن» (حجز / تم البيع come from the reservation and the contract) */
 const ACTION_STAGES = ['no_answer', 'following', 'interested', 'meeting', 'after_meeting', 'reschedule', 'cancelled'] as const;

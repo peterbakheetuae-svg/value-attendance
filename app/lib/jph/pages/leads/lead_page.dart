@@ -121,7 +121,7 @@ class _LeadPageState extends State<LeadPage> {
     final phone = '${l['phone'] ?? ''}';
     final next = l['nextAt'];
     final open = !const ['cancelled', 'done_deal', 'reservation'].contains(l['stage']);
-    final kind = l['kind'] == 'cold' ? tr('كولد كول') : tr('فريش');
+    final kind = l['kind'] == 'cold' ? tr('مكالمات باردة') : tr('جديد');
     final rating = {'hot': (tr('ساخن 🔥'), Ar.red), 'warm': (tr('دافي'), Ar.amber), 'cold': (tr('بارد'), Ar.info)}[l['rating']];
     return ListView(padding: EdgeInsets.fromLTRB(widget.sheet ? 20 : 14, 6, widget.sheet ? 20 : 14, 40), children: [
       // ------------------------------------------------ the big avatar, its pills and the meta line
@@ -161,20 +161,20 @@ class _LeadPageState extends State<LeadPage> {
       // ------------------------------------------------ the actions row: one filled, the rest outlined
       Wrap(children: [
         if (can['act'] == true && l['stage'] != 'done_deal')
-          dirBtn(isDark, tr('إضافة أكشن'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)), primary: true),
+          dirBtn(isDark, tr('إضافة إجراء'), Icons.add_task_rounded, () async => _after(await addLeadAction(context, isDark, l, _meta)), primary: true),
         dirBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone, leadId: l['id']), color: Ar.green),
         dirBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF1FA855)),
-        if (can['reserve'] == true) dirBtn(isDark, tr('حجز وحدة'), Icons.bookmark_add_rounded, () => _reserve(isDark, l)),
+        if (can['reserve'] == true) dirBtn(isDark, tr('حجز'), Icons.bookmark_add_rounded, () => _reserve(isDark, l)),
         if (can['edit'] == true)
           dirBtn(isDark, tr('تعديل'), Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can))),
         if (can['assign'] == true)
-          dirBtn(isDark, tr('توزيع'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']]))),
-        if (can['refer'] == true) dirBtn(isDark, tr('مشاركة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l))),
+          dirBtn(isDark, tr('تعيين'), Icons.switch_account_rounded, () async => _after(await assignLeads(context, isDark, _meta, [l['id']]))),
+        if (can['refer'] == true) dirBtn(isDark, tr('تعيين الإحالة'), Icons.group_add_rounded, () async => _after(await _refer(isDark, l))),
         dirBtn(isDark, tr('مهمة'), Icons.task_alt_rounded, () async => _after(await editTask(context, isDark, lead: l))),
         if (lm(_meta['can'])['dealCreate'] == true && can['act'] == true)
-          dirBtn(isDark, tr('تحويل لصفقة'), Icons.handshake_rounded, () async => _after(await editDeal(context, isDark, _meta, lead: l))),
+          dirBtn(isDark, tr('تحويل العميل'), Icons.handshake_rounded, () async => _after(await editDeal(context, isDark, _meta, lead: l))),
         if (can['act'] == true && const ['meeting', 'reschedule'].contains(l['stage']))
-          dirBtn(isDark, tr('وصلت الميتنج'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green),
+          dirBtn(isDark, tr('تسجيل الحضور'), Icons.where_to_vote_rounded, () async => _after(await leadCheckIn(context, isDark, l)), color: Ar.green),
       ]),
       if (l['pending'] == true || l['overdue'] == true) ...[
         const SizedBox(height: 6),
@@ -224,11 +224,11 @@ class _LeadPageState extends State<LeadPage> {
           for (final t in [
             ('comments', tr('التعليقات'), Icons.forum_rounded),
             ('whatsapp', tr('واتساب'), Icons.chat_rounded),
-            ('request', tr('الطلب والوحدات'), Icons.manage_search_rounded),
+            ('request', tr('طلبات المشتري'), Icons.manage_search_rounded),
             ('units', tr('الحجوزات'), Icons.home_work_rounded),
-            ('files', tr('الملفات'), Icons.attach_file_rounded),
-            ('checkins', tr('الميتنجات'), Icons.where_to_vote_rounded),
-            if (can['log'] == true) ('log', tr('السجل'), Icons.history_rounded),
+            ('files', tr('المرفقات'), Icons.attach_file_rounded),
+            ('checkins', tr('تسجيلات الحضور'), Icons.where_to_vote_rounded),
+            if (can['log'] == true) ('log', tr('سجل الخط الزمني'), Icons.history_rounded),
           ])
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 6),
@@ -268,10 +268,10 @@ class _LeadPageState extends State<LeadPage> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         kv(tr('رقم الليد'), '#${l['refNo']}'),
         kv(tr('المشروع'), '${lm(l['project'])['name'] ?? '—'}'),
-        kv(tr('السيلز'), '${lm(l['assignedTo'])['name'] ?? 'لسه مش متوزع'}'),
+        kv(tr('مندوب المبيعات'), '${lm(l['assignedTo'])['name'] ?? 'لسه مش متوزع'}'),
         if (l['channel'] != null) kv(tr('القناة'), '${lm(l['channel'])['name']}'),
         if (l['campaign'] != null) kv(tr('الحملة'), '${lm(l['campaign'])['name']}'),
-        kv(tr('النوع'), l['kind'] == 'cold' ? tr('كولد كول') : tr('فريش')),
+        kv(tr('النوع'), l['kind'] == 'cold' ? tr('مكالمات باردة') : tr('جديد')),
         if (extra.isNotEmpty) kv(tr('أرقام تانية'), extra),
         if ('${l['email'] ?? ''}'.isNotEmpty) kv(tr('الإيميل'), '${l['email']}'),
         if (l['budget'] != null) kv(tr('الميزانية'), JphUi.money(l['budget'])),
@@ -521,7 +521,7 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
   final people = ll(meta['assignees']);
   final source = isNew || can?['editSource'] == true;
   final phoneOk = isNew || can?['editPhone'] == true;
-  return leadForm(context, isDark, isNew ? tr('ليد جديد') : 'تعديل ${lead['fullName']}', (set) {
+  return leadForm(context, isDark, isNew ? tr('إنشاء عميل محتمل') : 'تعديل ${lead['fullName']}', (set) {
     final camps = ll(meta['campaigns']).where((c) => channel == null || c['channelId'] == null || c['channelId'] == channel).toList();
     return [
       JphUi.input(isDark: isDark, label: tr('اسم العميل'), controller: name, icon: Icons.person_rounded),
@@ -536,7 +536,7 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
         if (camps.isNotEmpty) refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
       ],
       SegmentedButton<String>(
-        segments: [ButtonSegment(value: 'fresh', label: Text(tr('فريش'))), ButtonSegment(value: 'cold', label: Text(tr('كولد كول')))],
+        segments: [ButtonSegment(value: 'fresh', label: Text(tr('جديد'))), ButtonSegment(value: 'cold', label: Text(tr('مكالمات باردة')))],
         selected: {kind},
         onSelectionChanged: (s) => set(() => kind = s.first),
       ),
@@ -545,14 +545,14 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
       JphUi.input(isDark: isDark, label: tr('ملاحظات'), controller: notes, icon: Icons.notes_rounded, big: false),
       if (isNew && people.isNotEmpty)
         JphUi.picker(
-          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('السيلز'),
+          isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('مندوب المبيعات'),
           value: assignees.isEmpty
               ? (mcan['distribute'] == true ? tr('من غير (يفضل مش متوزع)') : tr('ليا أنا'))
               : assignees.length == 1
                   ? '${people.firstWhere((p) => p['id'] == assignees.first, orElse: () => const {'name': ''})['name']}'
                   : '${assignees.length} سيلز بالدور',
           onTap: () async {
-            final v = await pickPeople(context, isDark, tr('السيلز'), people, selected: assignees);
+            final v = await pickPeople(context, isDark, tr('مندوب المبيعات'), people, selected: assignees);
             if (v != null) set(() => assignees = v);
           },
         ),
@@ -594,8 +594,8 @@ Future<bool> assignLeads(BuildContext context, bool isDark, Map<String, dynamic>
         ),
         SegmentedButton<String>(
           segments: [
-            ButtonSegment(value: 'fresh', label: Text(tr('فريش'))),
-            ButtonSegment(value: 'cold', label: Text(tr('كولد كول'))),
+            ButtonSegment(value: 'fresh', label: Text(tr('جديد'))),
+            ButtonSegment(value: 'cold', label: Text(tr('مكالمات باردة'))),
             ButtonSegment(value: 'same', label: Text(tr('نفس المرحلة'))),
           ],
           selected: {mode},
@@ -621,7 +621,7 @@ Future<bool> bulkEditLeads(BuildContext context, bool isDark, Map<String, dynami
   return leadForm(context, isDark, 'تعديل ${ids.length} ليد', (set) => [
         Text(tr('اللي هتسيبه فاضي مش هيتغيّر'), style: TextStyle(color: JphUi.sub(isDark))),
         refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, ll(meta['projects']), project, (v) => set(() => project = v)),
-        refPicker(context, isDark, tr('النوع'), Icons.ac_unit_rounded, [{'id': 'fresh', 'name': tr('فريش')}, {'id': 'cold', 'name': tr('كولد كول')}], kind,
+        refPicker(context, isDark, tr('النوع'), Icons.ac_unit_rounded, [{'id': 'fresh', 'name': tr('جديد')}, {'id': 'cold', 'name': tr('مكالمات باردة')}], kind,
             (v) => set(() => kind = v)),
         refPicker(context, isDark, tr('التقييم'), Icons.local_fire_department_rounded,
             [{'id': 'hot', 'name': tr('ساخن 🔥')}, {'id': 'warm', 'name': tr('دافي')}, {'id': 'cold', 'name': tr('بارد')}], rating, (v) => set(() => rating = v)),

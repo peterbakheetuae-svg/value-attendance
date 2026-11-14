@@ -49,10 +49,10 @@ class _LeadsTargetsPageState extends State<LeadsTargetsPage> {
       isDark: isDark,
       title: tr('التارجت الشهري'),
       action: IconButton(
-        tooltip: tr('تصدير إكسيل'),
+        tooltip: tr('تصدير'),
         icon: Icon(Icons.file_download_rounded, color: JphUi.text(isDark)),
         onPressed: () => exportTable(context, 'targets', 'تارجت $_m', [
-          tr('السيلز'), tr('مكالمات'), tr('تارجت'), tr('ميتنجات'), tr('تارجت'), tr('حجوزات'), tr('تارجت'), tr('تعاقدات'), tr('تارجت'), tr('قيمة التعاقدات'), tr('تارجت'),
+          tr('مندوب المبيعات'), tr('مكالمات'), tr('تارجت'), tr('ميتنجات'), tr('تارجت'), tr('حجوزات'), tr('تارجت'), tr('تعاقدات'), tr('تارجت'), tr('قيمة التعاقدات'), tr('تارجت'),
         ], [
           for (final p in _people)
             [

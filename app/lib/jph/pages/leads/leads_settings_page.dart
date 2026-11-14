@@ -68,7 +68,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             child: Row(children: [
               for (final (i, t) in [
                 (tr('القنوات'), Icons.campaign_rounded), (tr('الحملات'), Icons.ads_click_rounded), (tr('أسباب الإلغاء'), Icons.cancel_rounded),
-                (tr('رسايل واتساب'), Icons.chat_rounded), (tr('التنبيه والسحب'), Icons.alarm_rounded), (tr('سجل التصدير'), Icons.file_download_rounded),
+                (tr('رسايل واتساب'), Icons.chat_rounded), (tr('التنبيه والسحب'), Icons.alarm_rounded), (tr('الصادرات'), Icons.file_download_rounded),
                 (tr('المراحل'), Icons.view_week_rounded),
                 // الإعدادات / التحكم في الوصول: the owner only
                 if (ApiService.can('roles.manage')) (tr('صلاحيات الأدوار'), Icons.admin_panel_settings_rounded),
@@ -156,7 +156,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
         for (final e in _exports)
           ListTile(
             leading: const Icon(Icons.file_download_rounded),
-            title: Text('${e['byName'] ?? ''} — ${{'leads': 'الليدز', 'targets': 'التارجت'}[e['kind']] ?? 'تقرير ${e['kind']}'}',
+            title: Text('${e['byName'] ?? ''} — ${{'leads': 'العملاء المحتملون', 'targets': 'التارجت'}[e['kind']] ?? 'تقرير ${e['kind']}'}',
                 style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
             subtitle: Text('${e['rows']} صف — ${whenAr(e['at'])}'),
           ),
@@ -219,7 +219,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     final ok = await leadForm(context, isDark, 'فورم الحملة — ${c['name']}', (set) => [
           Text(tr('لينك تحطه في الإعلان أو صفحة الهبوط: العميل يكتب اسمه ورقمه، والليد يدخل لوحده بالحملة والقناة ويتوزع بالدور على السيلز اللي تختارهم.'),
               style: TextStyle(color: JphUi.sub(isDark))),
-          SwitchListTile(value: enabled, onChanged: (v) => set(() => enabled = v), title: Text(tr('الفورم شغال'))),
+          SwitchListTile(value: enabled, onChanged: (v) => set(() => enabled = v), title: Text(tr('صفحة الهبوط شغالة'))),
           JphUi.input(isDark: isDark, label: tr('العنوان اللي يظهر للعميل (اختياري)'), controller: title, icon: Icons.title_rounded, big: false),
           JphUi.picker(
             isDark: isDark, icon: Icons.groups_rounded, iconColor: Ar.accent, label: tr('الليدز تروح لمين'),
@@ -275,7 +275,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 Text('${c['leads']} ليد', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
               IconButton(
-                tooltip: tr('فورم الحملة (لينك للإعلان)'),
+                tooltip: tr('صفحة الهبوط (لينك للإعلان)'),
                 onPressed: () => _form(isDark, c),
                 icon: Icon(Icons.link_rounded, color: c['formToken'] != null ? Ar.green : JphUi.sub(isDark)),
               ),

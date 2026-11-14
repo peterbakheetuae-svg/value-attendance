@@ -51,7 +51,7 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
           })),
       if (camps.isNotEmpty) refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
       SegmentedButton<String>(
-        segments: [ButtonSegment(value: 'fresh', label: Text(tr('فريش'))), ButtonSegment(value: 'cold', label: Text(tr('كولد كول')))],
+        segments: [ButtonSegment(value: 'fresh', label: Text(tr('جديد'))), ButtonSegment(value: 'cold', label: Text(tr('مكالمات باردة')))],
         selected: {kind},
         onSelectionChanged: (s) => set(() => kind = s.first),
       ),
@@ -96,7 +96,7 @@ Future<bool> importLeads(BuildContext context, bool isDark, Map<String, dynamic>
       );
     }
     return true;
-  }, saveLabel: tr('استورد'), saveIcon: Icons.cloud_upload_rounded);
+  }, saveLabel: tr('استيراد العملاء المحتملين'), saveIcon: Icons.cloud_upload_rounded);
 }
 
 /// the headers we understand → the field

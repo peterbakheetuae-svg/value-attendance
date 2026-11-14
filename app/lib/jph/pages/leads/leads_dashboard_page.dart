@@ -94,7 +94,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
               backgroundColor: JphUi.primary(isDark),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: Text(tr('ليد جديد'), style: TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(tr('إنشاء عميل محتمل'), style: TextStyle(fontWeight: FontWeight.w800)),
             ),
       child: denied
           ? Center(child: Text('${_d['message'] ?? ''}', style: TextStyle(color: JphUi.sub(isDark))))
@@ -105,7 +105,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                 LayoutBuilder(builder: (context, box) {
                   final wide = box.maxWidth > 700;
                   final go = [
-                    _go(isDark, tr('الليدز'), Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage()), wide),
+                    _go(isDark, tr('العملاء المحتملون'), Icons.people_alt_rounded, Ar.accent, () => _open(const LeadsListPage()), wide),
                     _go(isDark, 'المهام${(tasks['open'] ?? 0) > 0 ? ' (${tasks['open']})' : ''}', Icons.task_alt_rounded,
                         (tasks['late'] ?? 0) > 0 ? Ar.red : Ar.info, () => _open(const TasksPage()), wide),
                     _go(isDark, tr('التقويم'), Icons.calendar_month_rounded, Ar.amber, () => _open(const LeadsCalendarPage()), wide),
@@ -131,15 +131,15 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                     final wide = box.maxWidth > 700;
                     final all = [
                       _stat(isDark, tr('كل العملاء'), c['total'], Icons.groups_rounded, Ar.info, 'all'),
-                      _stat(isDark, tr('النهارده'), c['today'], Icons.today_rounded, Ar.accent, 'today'),
+                      _stat(isDark, tr('اليوم'), c['today'], Icons.today_rounded, Ar.accent, 'today'),
                       _stat(isDark, tr('متأخر'), c['delay'], Icons.alarm_rounded, Ar.red, 'delay'),
-                      _stat(isDark, tr('مستني أكشن'), c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
-                      _stat(isDark, tr('فريش'), c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
+                      _stat(isDark, tr('قيد الانتظار'), c['pending'], Icons.hourglass_top_rounded, Ar.amber, 'pending'),
+                      _stat(isDark, tr('جديد'), c['fresh'], Icons.fiber_new_rounded, Ar.green, 'fresh'),
                       GestureDetector(
                         onTap: () => _open(const LeadsListPage(rating: 'hot')),
                         child: JphUi.stat(isDark, tr('عملاء ساخنين 🔥'), '${c['hot'] ?? 0}', Icons.local_fire_department_rounded, Ar.red),
                       ),
-                      _stat(isDark, tr('كولد كول'), c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
+                      _stat(isDark, tr('مكالمات باردة'), c['cold'], Icons.ac_unit_rounded, Ar.info, 'cold'),
                       if (manager) _stat(isDark, tr('مكرر'), c['duplicated'], Icons.copy_all_rounded, Ar.tan, 'duplicated'),
                       if (can['distribute'] == true) _stat(isDark, tr('مش متوزع'), c['unassigned'], Icons.person_off_rounded, Ar.grey, 'unassigned'),
                       for (final s in stageNames.entries)
@@ -321,9 +321,9 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
       padding: const EdgeInsets.all(14),
       decoration: JphUi.box(isDark),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _title(isDark, tr('الأحسن (عدد الأكشنات)')),
+        _title(isDark, tr('الأفضل')),
         Wrap(spacing: 6, children: [
-          for (final p in [('today', tr('النهارده')), ('week', tr('الأسبوع')), ('month', tr('الشهر')), ('all', tr('الكل'))])
+          for (final p in [('today', tr('اليوم')), ('week', tr('الأسبوع')), ('month', tr('الشهر')), ('all', tr('الكل'))])
             ChoiceChip(selected: _period == p.$1, label: Text(p.$2), onSelected: (_) {
               _period = p.$1;
               _load();

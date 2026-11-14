@@ -278,7 +278,7 @@ Future<bool> editDeal(BuildContext context, bool isDark, Map<String, dynamic> me
   if (project.isEmpty) project = null;
   final projects = ll(meta['projects']);
   final editing = deal != null;
-  return leadForm(context, isDark, editing ? '${tr('صفقة')} #${deal['refNo']}' : (lead != null ? '${tr('تحويل لصفقة')} — ${lead['fullName']}' : tr('صفقة جديدة')), (set) => [
+  return leadForm(context, isDark, editing ? '${tr('صفقة')} #${deal['refNo']}' : (lead != null ? '${tr('تحويل العميل')} — ${lead['fullName']}' : tr('صفقة جديدة')), (set) => [
         JphUi.input(isDark: isDark, label: tr('اسم الصفقة'), controller: title, icon: Icons.handshake_rounded, big: false),
         JphUi.input(isDark: isDark, label: tr('القيمة'), controller: value, number: true, icon: Icons.payments_rounded, big: false),
         refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, projects, project, (v) => set(() => project = v)),

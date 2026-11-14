@@ -195,7 +195,7 @@ class DashboardCards {
 
   Widget delayList() {
     final rows = ll(d['delayList']);
-    return panel(tr('المتأخرين (Delay List)'), Icons.alarm_rounded, Ar.red, [
+    return panel(tr('قائمة التأخير'), Icons.alarm_rounded, Ar.red, [
       if (rows.isEmpty) _empty(tr('مفيش متأخرين 👌')),
       for (final l in rows)
         _row('${l['fullName']}', '${l['stageAr'] ?? stageNames[l['stage']] ?? ''} — ${whenAr(l['nextAt'])}${l['lastComment'] != null ? '\n${l['lastComment']}' : ''}',
@@ -236,9 +236,9 @@ class DashboardCards {
     String what(Map<String, dynamic> x) => switch ('${x['kind']}') {
           'action' => '${tr('أكشن')}: ${stageNames[x['what']] ?? x['what'] ?? ''}',
           'assign' => '${tr('اتوزع على')} ${x['what']}',
-          'create' => tr('ليد جديد'),
+          'create' => tr('إنشاء عميل محتمل'),
           'import' => tr('اتستورد'),
-          'form' => tr('من فورم الحملة'),
+          'form' => tr('من صفحة الهبوط'),
           'call' => tr('اتصال'),
           'whatsapp' => tr('واتساب'),
           'checkin' => tr('وصل الميتنج'),
@@ -252,7 +252,7 @@ class DashboardCards {
           'checkin' => Icons.where_to_vote_rounded,
           _ => Icons.person_add_alt_1_rounded,
         };
-    return panel(tr('النشاط'), Icons.timeline_rounded, Ar.accent, [
+    return panel(tr('المهام اليومية'), Icons.timeline_rounded, Ar.accent, [
       if (rows.isEmpty) _empty(tr('لسه مفيش نشاط')),
       for (final x in rows)
         _row('${x['by'] ?? tr('النظام')} · ${what(x)}', '${lm(x['lead'])['name']} — ${agoAr(x['at'])}',
@@ -283,7 +283,7 @@ class DashboardCards {
                 style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: JphUi.sub(isDark)))),
           ]),
         );
-    return panel(tr('المهام (To Do List)'), Icons.checklist_rounded, Ar.info, [
+    return panel(tr('قائمة الأعمال المطلوبة'), Icons.checklist_rounded, Ar.info, [
       Text(tr('متابعات النهارده: اتعمل منها كام'), style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
       for (final e in st.entries) bar('${stageNames[e.key] ?? e.key}', ((lm(e.value)['done'] as num?) ?? 0).toInt(), ((lm(e.value)['due'] as num?) ?? 0).toInt(), stageColor(e.key)),
       bar(tr('الإجمالي'), done, due, Ar.accent),
