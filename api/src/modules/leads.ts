@@ -931,7 +931,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     ]);
     const stNames = new Map((await stagesOf(db)).map((x) => [x.key as string, x.name_ar as string]));
     const names = new Map<string, string>();
-    const ids = [...new Set(logs.rows.flatMap((g) => [g.data?.to, g.data?.from].filter(Boolean)))];
+    // only employee ids: some logs keep other values in from/to (e.g. «stars» keeps numbers) — casting those to uuid failed the whole request («Invalid value»)
+    const ids = [...new Set(logs.rows.flatMap((g) => [g.data?.to, g.data?.from]).filter((v): v is string => typeof v === 'string' && isUuid(v)))];
     if (ids.length) for (const e of (await db.query(`SELECT id, full_name FROM employees WHERE id = ANY($1::uuid[])`, [ids])).rows) names.set(e.id, e.full_name);
     const top = actions.rows.filter((x) => !x.parent_id);
     const replies = actions.rows.filter((x) => x.parent_id);

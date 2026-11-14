@@ -54,6 +54,10 @@ test('stars and the WhatsApp tab', async () => {
   assert.equal((await h.call(c.t.e1, 'POST', `/leads/${lead.id}/stars`, { stars: 4 })).status, 200);
   assert.equal((await h.call(c.t.e2, 'POST', `/leads/${lead.id}/stars`, { stars: 1 })).status, 404);
   assert.equal((await h.call(c.t.e1, 'GET', `/leads/${lead.id}`)).body.lead.stars, 4);
+  // a manager sees the logs, where «stars» keeps numbers in from/to — opening the lead must still work (was «Invalid value»)
+  const asOwner = await h.call(c.t.owner, 'GET', `/leads/${lead.id}`);
+  assert.equal(asOwner.status, 200, JSON.stringify(asOwner.body));
+  assert.ok(asOwner.body.logs.some((g: any) => g.kind === 'stars' && g.data.to === 4));
   assert.equal((await h.call(c.t.e1, 'POST', `/leads/${lead.id}/whatsapp`, { body: 'أهلا يا فندم' })).status, 201);
   assert.equal((await h.call(c.t.e1, 'POST', `/leads/${lead.id}/whatsapp`, { direction: 'in', body: '' })).status, 400);
   assert.equal((await h.call(c.t.e1, 'POST', `/leads/${lead.id}/whatsapp`, { direction: 'in', body: 'تمام ابعتلي التفاصيل' })).status, 201);
