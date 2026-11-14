@@ -157,7 +157,8 @@ void main() {
   if (wm.existsSync()) {
     wm.writeAsStringSync(wm.readAsStringSync()
         .replaceAll(RegExp(r'"name":\s*"[^"]*"'), '"name": "VALUNIVO — فاليو نيفو"')
-        .replaceAll(RegExp(r'"short_name":\s*"[^"]*"'), '"short_name": "VALUNIVO"'));
+        .replaceAll(RegExp(r'"short_name":\s*"[^"]*"'), '"short_name": "VALUNIVO"')
+        .replaceAll(RegExp(r'"description":\s*"[^"]*"'), '"description": "A New Level of Value - قيمة بمستوى جديد | HR - CRM - Finance"'));
   }
   stdout.writeln('launcher + web icons set to the app logo.');
 
@@ -185,6 +186,23 @@ void main() {
     h = h.replaceFirst(RegExp(r'<title>[^<]*</title>'), '<title>VALUNIVO — فاليو نيفو</title>');
     h = h.replaceFirst(RegExp(r'<meta name="apple-mobile-web-app-title" content="[^"]*">'), '<meta name="apple-mobile-web-app-title" content="VALUNIVO">');
     if (!h.contains('dir="rtl"')) h = h.replaceFirst('<html>', '<html lang="ar" dir="rtl">');
+    // the link preview (WhatsApp / Facebook / Telegram …): the app's name, its tagline and its logo — not «A new Flutter project.»
+    const tag = 'A New Level of Value - قيمة بمستوى جديد | HR - CRM - Finance';
+    const site = 'https://jaurea.com/valunivo/';
+    h = h.replaceFirst(RegExp(r'<meta name="description" content="[^"]*">'), '<meta name="description" content="$tag">');
+    if (!h.contains('og:title')) {
+      h = h.replaceFirst('</head>', '<meta property="og:type" content="website">\n'
+          '<meta property="og:site_name" content="VALUNIVO">\n'
+          '<meta property="og:title" content="VALUNIVO — فاليو نيفو">\n'
+          '<meta property="og:description" content="$tag">\n'
+          '<meta property="og:url" content="$site">\n'
+          '<meta property="og:image" content="${site}icons/Icon-512.png">\n'
+          '<meta property="og:image:width" content="512">\n<meta property="og:image:height" content="512">\n'
+          '<meta name="twitter:card" content="summary">\n'
+          '<meta name="twitter:title" content="VALUNIVO — فاليو نيفو">\n'
+          '<meta name="twitter:description" content="$tag">\n'
+          '<meta name="twitter:image" content="${site}icons/Icon-512.png">\n</head>');
+    }
     web.writeAsStringSync(h);
     stdout.writeln('web/index.html patched: title, lang, dir.');
   }
