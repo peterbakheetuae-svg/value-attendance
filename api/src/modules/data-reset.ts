@@ -22,7 +22,7 @@ const WIPE = [
   'request_actions', 'requests', 'outing_requests', 'notifications', 'kpi_results', 'evaluations',
   'salary_adjustments', 'advance_deductions', 'payouts', 'advance_requests', 'payroll_batch_lines', 'payroll_batches',
   'commission_entitlements', 'cash_receipts', 'cash_expenses', 'cash_transfers', 'cash_adjustments',
-  'sale_installments', 'unit_sales', 'commission_requests', 'project_images', 'ex_inventory', 'developer_images', 'commission_projects', 'ex_payments', 'ex_installments', 'ex_commission_transfers', 'ex_units', 'marketing_companies', 'developers', 'cash_bank_moves',
+  'sale_installments', 'unit_sales', 'commission_requests', 'project_images', 'ex_inventory', 'developer_images', 'commission_projects', 'partner_units', 'partner_projects', 'ex_payments', 'ex_installments', 'ex_commission_transfers', 'ex_units', 'marketing_companies', 'developers', 'cash_bank_moves',
 ];
 const CONFIRM = 'امسح البيانات';
 
@@ -148,6 +148,7 @@ export const dataResetModule: Module = (r, { db }) => {
     const done = await db.tx(async (q) => {
       const before: Record<string, number> = {};
       for (const t of WIPE) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
+      await q.query(`UPDATE integrations SET campaign_id = NULL`);   // the campaigns go; the integrations' keys stay
       await q.query(`TRUNCATE ${WIPE.join(', ')}`);
       await q.query(`SELECT set_config('va.form_delete', '*', true)`);
       const forms = await q.query(`DELETE FROM employee_documents WHERE kind = 'other' AND employee_id IS NOT NULL

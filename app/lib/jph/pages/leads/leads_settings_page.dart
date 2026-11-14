@@ -8,6 +8,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../services/api_service.dart';
 import 'leads_api.dart';
+import 'leads_integrations.dart';
 import 'leads_permissions.dart';
 import 'leads_stages.dart';
 
@@ -70,6 +71,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 (tr('القنوات'), Icons.campaign_rounded), (tr('الحملات'), Icons.ads_click_rounded), (tr('أسباب الإلغاء'), Icons.cancel_rounded),
                 (tr('رسايل واتساب'), Icons.chat_rounded), (tr('التنبيه والسحب'), Icons.alarm_rounded), (tr('الصادرات'), Icons.file_download_rounded),
                 (tr('المراحل'), Icons.view_week_rounded),
+                (tr('الربط'), Icons.hub_rounded),
                 // الإعدادات / التحكم في الوصول: the owner only
                 if (ApiService.can('roles.manage')) (tr('صلاحيات الأدوار'), Icons.admin_panel_settings_rounded),
               ].indexed)
@@ -102,6 +104,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             4 => [_pending(isDark)],
             5 => _exportsList(isDark),
             6 => [LeadsStagesView(isDark: isDark)],
+            7 => [LeadsIntegrationsView(isDark: isDark)],
             _ => [LeadsPermissionsView(isDark: isDark)],
           }),
         ]),

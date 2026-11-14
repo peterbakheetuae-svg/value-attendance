@@ -32,7 +32,7 @@ const canManage = (a: Actor) => canOffice(a);                       // الما�
 const canReserve = (a: Actor) => has(a, 'exclusive.reserve') || canManage(a);
 const canSeeAll = (a: Actor) => canManage(a) || canHrOperate(a);
 // the projects' setup — a project's kind (حصري / تسويق), its developer: المالك / المدير العام and the accountant only
-const canSetup = (a: Actor) => canManage(a) || hrDesk(a);
+export const canSetup = (a: Actor) => canManage(a) || hrDesk(a);
 
 function pct(b: Record<string, unknown>, k: string, def: number) {
   const v = num(b, k, { optional: true, min: 0, max: 100 });

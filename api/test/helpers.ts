@@ -53,7 +53,7 @@ async function ensureTemplate() {
 
 export interface Harness {
   db: Db; base: string; now: { value: Date }; server: Server; dbName: string;
-  call: (token: string | null, method: string, path: string, body?: unknown) => Promise<{ status: number; body: any; headers: Headers; raw: Buffer }>;
+  call: (token: string | null, method: string, path: string, body?: unknown, extra?: Record<string, string>) => Promise<{ status: number; body: any; headers: Headers; raw: Buffer }>;
   login: (identifier: string, password: string) => Promise<string>;
   close: () => Promise<void>;
 }
@@ -70,8 +70,8 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
   await new Promise<void>((res) => server.listen(0, '127.0.0.1', () => res()));
   const port = (server.address() as any).port;
   const base = `http://127.0.0.1:${port}`;
-  const call = async (token: string | null, method: string, path: string, body?: unknown) => {
-    const headers: Record<string, string> = {};
+  const call = async (token: string | null, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) => {
+    const headers: Record<string, string> = { ...extra };
     if (token) headers.authorization = `Bearer ${token}`;
     if (body !== undefined) headers['content-type'] = 'application/json';
     const res = await fetch(base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });

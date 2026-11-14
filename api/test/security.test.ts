@@ -12,7 +12,9 @@ const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', '
   // forgot password: anonymous by nature, protected by emailed OTP + rate limits
   'POST /auth/forgot', 'POST /auth/forgot/verify', 'POST /auth/forgot/reset',
   // a campaign's public lead form: anonymous by nature, needs its secret token (tested in leads2.test.ts)
-  'GET /f/:token', 'POST /public/leads/:token']);
+  'GET /f/:token', 'POST /public/leads/:token',
+  // the integrations' webhooks: Value Aqar sends its secret key, Meta is read back with the office's token (integrations.test.ts)
+  'POST /public/hooks/valueaqar', 'GET /public/hooks/meta', 'POST /public/hooks/meta']);
 const FAKE_ID = '00000000-0000-4000-8000-000000000000';
 
 test('every non-public route rejects anonymous callers with 401', async () => {
