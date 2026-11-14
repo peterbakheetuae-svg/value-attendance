@@ -11,6 +11,9 @@ import '../pages/employees/employees_page.dart'; // أو المسار الصحي
 import 'app_nav.dart';
 import 'app_menu.dart';
 import 'glass_ui.dart';
+import '../pages/leads/leads_api.dart' show seesLeads, tr;
+import '../pages/leads/leads_dashboard_page.dart';
+import '../services/jph_bridge.dart';
 
 class GlassBottomNav extends StatelessWidget {
   final int currentIndex;
@@ -31,6 +34,21 @@ class GlassBottomNav extends StatelessWidget {
 
     // the website on a computer: the side bar takes the bottom bar's place
     if (AppMenu.wide(context)) return const SizedBox.shrink();
+
+    // نظام الليدز: المدير العام / المحاسب get «لوحة السيلز» in «الموظفين»'s place; a salesman gets it before «المزيد»
+    // instead of «الملف الشخصي» (which stays in «المزيد»)
+    final role = JphBridge.session.role;
+    final gmOrAccountant = role == 'manager' || role == 'accountant';
+    final leads = seesLeads;
+    final leadsItem = _Item(
+      icon: Icons.leaderboard_rounded,
+      label: tr('لوحة السيلز'),
+      active: false,
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LeadsDashboardPage())),
+      isDark: isDark,
+      activeColor: Glass.blue,
+      inactiveColor: Glass.ink(isDark).withOpacity(0.85),
+    );
 
     // the «Ardena» dock: smoked glass, the chosen tab filled with our blue
     const activeColor = Glass.blue;
@@ -91,7 +109,9 @@ class GlassBottomNav extends StatelessWidget {
                             activeColor: activeColor,
                             inactiveColor: inactiveColor,
                           ),
-                        if (ApiService.can('employee.read_all'))
+                        if (leads && gmOrAccountant)
+                          leadsItem
+                        else if (ApiService.can('employee.read_all'))
                         _Item(
                           icon: Icons.group_rounded,
                           label: AppLocalizations.of(context, 'Employees'),
@@ -101,6 +121,7 @@ class GlassBottomNav extends StatelessWidget {
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,
                         ),
+                        if (leads && !gmOrAccountant && !AppNav.financeTab) leadsItem,
                         // «المزيد»: every page of the app in one sheet (the settings page is inside it)
                         _Item(
                           icon: Icons.more_horiz_rounded,
@@ -111,7 +132,7 @@ class GlassBottomNav extends StatelessWidget {
                           activeColor: activeColor,
                           inactiveColor: inactiveColor,
                         ),
-                        if (!AppNav.financeTab)
+                        if (!AppNav.financeTab && !leads)
                         _Item(
                           icon: Icons.person_rounded,
                           label: AppLocalizations.of(context, 'profile'),
