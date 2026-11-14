@@ -186,6 +186,8 @@
  "device_binding": "Bind each account to one phone",
  "device_binding_help": "The first phone an employee signs in from is linked (owner excluded)",
  "device_mismatch": "This account is registered on another phone. Ask HR to unlink it",
+ "device_pending": "This phone is new to your account — the general manager / administrative officer was asked to approve it",
+ "device_rejected": "Signing in from this phone was refused. Ask the administration",
  "device_required": "This device could not be identified. Try again",
  "device_unbound": "Phone unlinked",
  "dim_attendance": "Attendance",

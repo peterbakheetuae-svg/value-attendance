@@ -34,7 +34,11 @@ const PROFILE_COLS = `
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
   (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
-  (e.device_id IS NOT NULL) AS device_bound, e.device_lock, e.selfie_required, e.device_label, e.device_bound_at, e.legacy_fields`;
+  EXISTS (SELECT 1 FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS device_bound, e.device_lock, e.selfie_required,
+  (SELECT xd.label FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved' ORDER BY xd.decided_at NULLS LAST LIMIT 1) AS device_label,
+  (SELECT min(xd.decided_at) FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS device_bound_at,
+  (SELECT count(*)::int FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS devices_approved,
+  (SELECT count(*)::int FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'pending') AS devices_pending, e.legacy_fields`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -420,13 +424,15 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     requirePerm(a, 'employee.manage');
     if (!isUuid(req.params.id)) throw notFound();
-    const e = await one(db, `SELECT id, role_key, device_id, device_label FROM employees WHERE id = $1`, [req.params.id]);
+    const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
     if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage') && e.id !== a.id) throw forbidden('Only the owner can unlink this account');
     await db.tx(async (q) => {
+      // every linked phone is unlinked: the next phone he signs in from becomes the first one again
+      const gone = await q.query(`DELETE FROM employee_devices WHERE employee_id = $1 RETURNING label`, [e.id]);
       await q.query(`UPDATE employees SET device_id = NULL, device_label = NULL, device_bound_at = NULL WHERE id = $1`, [e.id]);
       await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [e.id]);
-      await audit(q, a.id, 'employee.unbind_device', 'employee', e.id, { label: e.device_label }, undefined);
+      await audit(q, a.id, 'employee.unbind_device', 'employee', e.id, { labels: gone.rows.map((x) => x.label) }, undefined);
     });
     return ok({ ok: true });
   });

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, dev, PW, type Harness } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 // 2026-03-10 Tue, Cairo UTC+2, schedule 10:00–18:00. Office at Cairo Festival City, radius 100 m.
@@ -57,4 +57,27 @@ test('sweep: missing check-in reminder + tracking stopped alert (deduplicated)',
   await h.call(c.t.hr, 'GET', '/tracking/live');
   const n = (await notes(c.t.e2)).filter((x) => x === 'checkin_reminder').length;
   assert.equal(n, 1, 'reminded once per day');
+});
+
+test('two phones on one account: either phone leaving the office raises the alert, naming the phone', async () => {
+  // E1 also works from a tablet the administration approved
+  await h.db.query(`INSERT INTO employee_devices (employee_id, device_id, label, status, decided_at) VALUES ($1,$2,'تابلت سامسونج','approved', now())`,
+    [c.ids.e1, dev('E1-TABLET')]);
+  const tab = (await h.call(null, 'POST', '/auth/login', { identifier: 'E1', password: PW, deviceId: dev('E1-TABLET') })).body.token;
+  assert.ok(tab, 'the approved tablet signs in');
+  at('2026-03-10T11:00:00Z');
+  assert.equal((await h.call(c.t.e1, 'POST', '/tracking/ping', { lat: OFFICE.lat, lng: OFFICE.lng, accuracyM: 10 })).body.inside, true, 'phone at the office');
+  const before = (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND type = 'unauthorized_exit'`, [c.ids.sm1])).rows[0].n;
+  at('2026-03-10T11:05:00Z');
+  assert.equal((await h.call(tab, 'POST', '/tracking/ping', { lat: OFFICE.lat + 0.01, lng: OFFICE.lng, accuracyM: 10 })).body.inside, false);
+  const n = await h.db.query(`SELECT title FROM notifications WHERE recipient_id = $1 AND type = 'unauthorized_exit' ORDER BY created_at DESC`, [c.ids.sm1]);
+  assert.equal(n.rows.length, before + 1, 'the tablet leaving alerted the manager');
+  assert.match(n.rows[0].title, /تابلت سامسونج/);
+  // the phone staying inside does not hide it: the board shows him outside, from the tablet
+  at('2026-03-10T11:06:00Z');
+  await h.call(c.t.e1, 'POST', '/tracking/ping', { lat: OFFICE.lat, lng: OFFICE.lng, accuracyM: 10 });
+  const row = (await h.call(c.t.sm1, 'GET', '/tracking/live')).body.live.find((x: any) => x.employeeId === c.ids.e1);
+  assert.equal(row.inside, false);
+  assert.equal(row.outDevice, 'تابلت سامسونج');
+  assert.equal(row.devices.length, 2);
 });

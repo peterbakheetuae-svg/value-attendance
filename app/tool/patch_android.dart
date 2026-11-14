@@ -49,7 +49,22 @@ void main() {
   if (!xml.contains('android:showWhenLocked')) {
     xml = xml.replaceFirst('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"');
   }
-  // automatic update (ota_update): file provider for the downloaded APK + install result receiver
+  // in-shift follow-up in the background (flutter_background_service): a location foreground service, so it keeps
+  // running from check-in to check-out with the app closed (Android 14 needs the service type declared)
+  if (!xml.contains('xmlns:tools')) {
+    xml = xml.replaceFirst('<manifest xmlns:android="http://schemas.android.com/apk/res/android"',
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n    xmlns:tools="http://schemas.android.com/tools"');
+  }
+  if (!xml.contains('flutter_background_service.BackgroundService')) {
+    xml = xml.replaceFirst('</application>', '''
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:foregroundServiceType="location"
+            android:exported="false"
+            tools:replace="android:foregroundServiceType"/>
+    </application>''');
+  }
+    // automatic update (ota_update): file provider for the downloaded APK + install result receiver
   if (!xml.contains('OtaUpdateFileProvider')) {
     xml = xml.replaceFirst('</application>', '''
         <provider

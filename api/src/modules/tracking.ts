@@ -52,11 +52,10 @@ export async function sweep(q: Q, now: Date) {
            EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved'
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
            EXISTS (SELECT 1 FROM attendance_breaks b WHERE b.attendance_id = a.id AND b.ended_at IS NULL) AS on_break,
-           ts.last_ping_at
+           (SELECT max(ts.last_ping_at) FROM tracking_state ts WHERE ts.employee_id = e.id AND ts.work_date = $1) AS last_ping_at
       FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
-      LEFT JOIN tracking_state ts ON ts.employee_id = e.id AND ts.work_date = $1
      WHERE e.status = 'active' AND NOT e.attendance_exempt AND e.joining_date <= $1`, [l.date]);
   // approved permission / visit whose return time passed: ring the employee and the approvers once
   const overdue = await q.query(`
@@ -117,12 +116,21 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const outside = locs.length ? Math.min(...locs.map((x) => haversineM(lat, lng, x.lat, x.lng) - x.radius_m)) : null;
     // poor GPS fixes never count as "left the office"
     const inside = outside === null ? null : (acc !== null && acc > 200) ? null : outside <= cfg.away_margin_m;
+    // every phone of the account is followed on its own: any phone that leaves the office raises the alert
+    const dv = await one(db, `
+      SELECT COALESCE(s.device_id, '') AS key, d.label,
+             (SELECT count(*)::int FROM employee_devices x WHERE x.employee_id = s.employee_id AND x.status = 'approved') AS phones
+        FROM sessions s LEFT JOIN employee_devices d ON d.employee_id = s.employee_id AND d.device_id = s.device_id
+       WHERE s.id = $1`, [a.sessionId]);
+    const deviceKey: string = dv?.key ?? '';
+    const deviceLabel: string | null = dv?.label ?? null;
+    const onPhone = (dv?.phones ?? 0) > 1 && deviceLabel ? ` (من جهاز: ${deviceLabel})` : '';
     await db.tx(async (q) => {
-      const prev = await one(q, `SELECT * FROM tracking_state WHERE employee_id = $1 FOR UPDATE`, [a.id]);
+      const prev = await one(q, `SELECT * FROM tracking_state WHERE employee_id = $1 AND device_key = $2 FOR UPDATE`, [a.id, deviceKey]);
       if (offline && prev && new Date(prev.last_ping_at) > now) {
         // a point recorded offline that is older than what we already know: history only, no alerts
-        await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [a.id, now, lat, lng, acc, inside, offline]);
+        await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline, device_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [a.id, now, lat, lng, acc, inside, offline, deviceKey]);
         return;
       }
       const sameDay = prev && prev.work_date === l.date;
@@ -140,29 +148,34 @@ export const trackingModule: Module = (r, { db, clock }) => {
         } else {
           const where = `على بُعد ${Math.round(outside!)} متر من المكتب — الساعة ${hhmm(now)}`;
           const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو زيارة معتمدة';
-          await tellWatchers(q, a.id, 'unauthorized_exit', `خروج غير مصرح: ${a.fullName}`, `${why}. ${where}.`,
-            `unauthorized_exit:${a.id}:${now.getTime()}`);
+          await tellWatchers(q, a.id, 'unauthorized_exit', `خروج غير مصرح: ${a.fullName}${onPhone}`, `${why}. ${where}.`,
+            `unauthorized_exit:${a.id}:${deviceKey}:${now.getTime()}`);
           await notify(q, { to: a.id, type: 'unauthorized_exit_self', title: 'إنت برة المكتب من غير إذن معتمد',
-            body: 'لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.', dedupeKey: `unauthorized_exit_self:${a.id}:${now.getTime()}` });
-          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!) });
+            body: `لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.${onPhone}`, dedupeKey: `unauthorized_exit_self:${a.id}:${deviceKey}:${now.getTime()}` });
+          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!), device: deviceLabel });
         }
       } else if (inside === true && wasInside === false && awaySince) {
         const mins = Math.max(0, Math.round((now.getTime() - awaySince.getTime()) / 60000));
         awayMinutes += mins; awaySince = null;
-        await tellWatchers(q, a.id, 'back_in_office', `${a.fullName} رجع المكتب`, `كان برة ${mins} دقيقة.`,
-          `back_in_office:${a.id}:${now.getTime()}`);
+        await tellWatchers(q, a.id, 'back_in_office', `${a.fullName} رجع المكتب${onPhone}`, `كان برة ${mins} دقيقة.`,
+          `back_in_office:${a.id}:${deviceKey}:${now.getTime()}`);
       }
-      // back inside while out on a permission / visit → it is closed automatically
-      if (inside === true && outing) await markReturned(q, outing, now, null, 'geofence');
+      // back inside while out on a permission / visit → it is closed automatically — unless another of his
+      // phones is still outside right now (a tablet left at the desk must not end a visit)
+      if (inside === true && outing) {
+        const otherOut = await one(q, `SELECT 1 FROM tracking_state WHERE employee_id = $1 AND device_key <> $2 AND work_date = $3
+                                         AND inside = false AND last_ping_at > $4::timestamptz - interval '15 minutes'`, [a.id, deviceKey, l.date, now]);
+        if (!otherOut) await markReturned(q, outing, now, null, 'geofence');
+      }
       await q.query(`
-        INSERT INTO tracking_state (employee_id, work_date, last_ping_at, lat, lng, accuracy_m, inside, distance_m, away_since, away_minutes)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        ON CONFLICT (employee_id) DO UPDATE SET work_date = EXCLUDED.work_date, last_ping_at = EXCLUDED.last_ping_at,
+        INSERT INTO tracking_state (employee_id, work_date, last_ping_at, lat, lng, accuracy_m, inside, distance_m, away_since, away_minutes, device_key, device_label)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (employee_id, device_key) DO UPDATE SET work_date = EXCLUDED.work_date, last_ping_at = EXCLUDED.last_ping_at, device_label = EXCLUDED.device_label,
           lat = EXCLUDED.lat, lng = EXCLUDED.lng, accuracy_m = EXCLUDED.accuracy_m,
           inside = COALESCE(EXCLUDED.inside, tracking_state.inside), distance_m = EXCLUDED.distance_m,
           away_since = EXCLUDED.away_since, away_minutes = EXCLUDED.away_minutes`,
-        [a.id, l.date, now, lat, lng, acc, inside ?? (sameDay ? prev.inside : null), outside === null ? null : Math.max(0, Math.round(outside)), awaySince, awayMinutes]);
-      await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [a.id, now, lat, lng, acc, inside, offline]);
+        [a.id, l.date, now, lat, lng, acc, inside ?? (sameDay ? prev.inside : null), outside === null ? null : Math.max(0, Math.round(outside)), awaySince, awayMinutes, deviceKey, deviceLabel]);
+      await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline, device_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [a.id, now, lat, lng, acc, inside, offline, deviceKey]);
       await q.query(`DELETE FROM tracking_pings WHERE at < $1::timestamptz - interval '14 days'`, [now]);
     });
     await sweep(db, clock());
@@ -187,19 +200,26 @@ export const trackingModule: Module = (r, { db, clock }) => {
     await sweep(db, now);
     const ids = await readableIds(db, a, 'attendance');
     const cfg = await one(db, `SELECT tracking_enabled, tracking_stale_minutes FROM company_settings`);
+    // one line per employee: the phone that is outside wins (any phone out = he is out); "last seen" = his latest phone
     const rows = await db.query(`
       SELECT e.id, e.full_name, e.code, (e.photo IS NOT NULL) AS has_photo, t.name AS team_name, a.check_in_at, a.check_out_at,
-             ts.last_ping_at, ts.lat, ts.lng, ts.accuracy_m, ts.inside, ts.distance_m, ts.away_since, ts.away_minutes
+             ts.lat, ts.lng, ts.accuracy_m, ts.inside, ts.distance_m, ts.away_since, ts.away_minutes, ts.device_label,
+             (SELECT max(z.last_ping_at) FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1) AS last_ping_at,
+             (SELECT COALESCE(json_agg(json_build_object('label', z.device_label, 'inside', z.inside, 'distanceM', z.distance_m,
+                       'lastPingAt', z.last_ping_at) ORDER BY z.last_ping_at DESC), '[]')
+                FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1) AS devices
         FROM employees e
         LEFT JOIN teams t ON t.id = e.team_id
         JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
-        LEFT JOIN tracking_state ts ON ts.employee_id = e.id AND ts.work_date = $1
+        LEFT JOIN LATERAL (SELECT * FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1
+                            ORDER BY (z.inside IS FALSE) DESC, z.last_ping_at DESC LIMIT 1) ts ON true
        WHERE e.status = 'active' AND e.id <> $3 AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
        ORDER BY ts.inside NULLS FIRST, e.full_name`, [l.date, ids, a.id]);
     const live = rows.rows.map((x) => {
       const silent = x.last_ping_at ? Math.floor((now.getTime() - new Date(x.last_ping_at).getTime()) / 60000) : null;
       const awayNow = x.away_since ? Math.round((now.getTime() - new Date(x.away_since).getTime()) / 60000) : 0;
       return {
+        devices: x.devices, outDevice: x.inside === false ? x.device_label : null,
         employeeId: x.id, fullName: x.full_name, code: x.code, hasPhoto: x.has_photo, teamName: x.team_name,
         checkIn: x.check_in_at, checkOut: x.check_out_at, lastPingAt: x.last_ping_at, silentMinutes: silent,
         stopped: !x.check_out_at && cfg.tracking_stale_minutes > 0 && (silent === null || silent >= cfg.tracking_stale_minutes),

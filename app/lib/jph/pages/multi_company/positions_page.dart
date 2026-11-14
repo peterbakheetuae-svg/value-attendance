@@ -22,6 +22,7 @@ const Map<String, List<String>> _permLabels = {
   'employee.read_all': ['الموظفين', 'عرض كل الموظفين'],
   'employee.read_team': ['الموظفين', 'عرض موظفي فريقه'],
   'employee.manage': ['الموظفين', 'إضافة وتعديل وإيقاف الموظفين'],
+  'devices.approve': ['الموظفين', 'الموافقة على جهاز إضافي لحساب موظف'],
   'employee.salary_read': ['الموظفين', 'عرض المرتبات'],
   'employee.salary_manage': ['الموظفين', 'تعديل المرتبات'],
   'documents.read': ['الموظفين', 'عرض مستندات الموظفين'],

@@ -49,6 +49,8 @@ class _LoginPageState extends State<LoginPage> {
       if (e.status == 423) return t('login_locked');
       if (e.status == 403 && e.details?['reason'] == 'device_mismatch') return t('device_mismatch');
       if (e.status == 403 && e.details?['reason'] == 'device_required') return t('device_required');
+      if (e.status == 403 && e.details?['reason'] == 'device_pending') return t('device_pending');
+      if (e.status == 403 && e.details?['reason'] == 'device_rejected') return t('device_rejected');
       if (e.status == 403) return t('account_inactive');
     }
     return errorText(e);

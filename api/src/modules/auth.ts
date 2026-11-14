@@ -6,6 +6,8 @@ import { createHash, randomInt } from 'node:crypto';
 import { one } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
+import { deviceApprovers } from './devices.ts';
+import { notify } from './notify.ts';
 import { authenticate, audit, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
 
@@ -48,24 +50,52 @@ export const authModule: Module = (r, { db }) => {
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
     if (emp.status !== 'active') throw new AppError('forbidden', 'This account is deactivated');
-    // one phone per account when "lock to device" is on for this employee (never for owners)
+    // «ربط الحساب بالجهاز» (never for owners): the first phone is linked by itself, any other phone waits for the
+    // general manager / administrative officer to approve it — only approved phones sign in
     const bind = emp.device_lock === true && emp.role_key !== 'owner';
+    if (bind && !deviceId) throw new AppError('forbidden', 'This device could not be identified', { reason: 'device_required' });
     if (bind) {
-      if (!deviceId) throw new AppError('forbidden', 'This device could not be identified', { reason: 'device_required' });
-      if (emp.device_id && emp.device_id !== deviceId) {
-        throw new AppError('forbidden', 'This account is registered on another phone. Ask HR to unlink it', { reason: 'device_mismatch' });
+      const dev = await one(db, `SELECT id, status FROM employee_devices WHERE employee_id = $1 AND device_id = $2`, [emp.id, deviceId]);
+      if (dev?.status === 'rejected') {
+        throw new AppError('forbidden', 'The request to use this phone was refused. Ask the administration', { reason: 'device_rejected' });
+      }
+      if (dev?.status !== 'approved') {
+        const any = await one(db, `SELECT 1 FROM employee_devices WHERE employee_id = $1 AND status = 'approved'`, [emp.id]);
+        if (any) {
+          // a new phone: ask for approval once (asking again from the same phone only repeats the message)
+          await db.tx(async (q) => {
+            const ins = await one(q, `INSERT INTO employee_devices (employee_id, device_id, label) VALUES ($1,$2,$3)
+                                      ON CONFLICT (employee_id, device_id) DO NOTHING RETURNING id`, [emp.id, deviceId, deviceLabel]);
+            if (!ins) return;
+            await audit(q, emp.id, 'auth.device_requested', 'employee', emp.id, undefined, { label: deviceLabel });
+            const who = await one(q, `SELECT full_name FROM employees WHERE id = $1`, [emp.id]);
+            for (const to of await deviceApprovers(q, emp.id)) {
+              await notify(q, { to, type: 'device_request', title: `${who.full_name} عايز يدخل من جهاز جديد 📱`,
+                body: `${deviceLabel ?? 'جهاز'} — محتاج موافقتك من صفحة الموظف`, entity: 'employee', entityId: emp.id,
+                dedupeKey: `device_request:${ins.id}` });
+            }
+          });
+          throw new AppError('forbidden', 'This phone is waiting for the administration to approve it', { reason: 'device_pending' });
+        }
       }
     }
     const { token, hash } = newToken();
     await db.tx(async (q) => {
       await q.query(`UPDATE employees SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [emp.id]);
-      if (bind && !emp.device_id) {
-        await q.query(`UPDATE employees SET device_id = $2, device_label = $3, device_bound_at = now() WHERE id = $1 AND device_id IS NULL`, [emp.id, deviceId, deviceLabel]);
-        await audit(q, emp.id, 'auth.device_bound', 'employee', emp.id, undefined, { label: deviceLabel });
+      if (bind) {
+        // the first phone: linked by itself (no approved phone yet)
+        const first = await one(q, `INSERT INTO employee_devices (employee_id, device_id, label, status, decided_at, last_login_at)
+                                    VALUES ($1,$2,$3,'approved', now(), now())
+                                    ON CONFLICT (employee_id, device_id) DO UPDATE SET last_login_at = now(),
+                                      status = 'approved', decided_at = COALESCE(employee_devices.decided_at, now())
+                                    RETURNING (xmax = 0) AS created`, [emp.id, deviceId, deviceLabel]);
+        if (first?.created) await audit(q, emp.id, 'auth.device_bound', 'employee', emp.id, undefined, { label: deviceLabel });
+      } else if (deviceId) {
+        await q.query(`UPDATE employee_devices SET last_login_at = now() WHERE employee_id = $1 AND device_id = $2 AND status = 'approved'`, [emp.id, deviceId]);
       }
-      await q.query(`INSERT INTO sessions (token_hash, employee_id, expires_at, user_agent)
-                     VALUES ($1,$2, now() + make_interval(hours => $3), $4)`,
-        [hash, emp.id, SESSION_TTL_HOURS, String(req.headers['user-agent'] ?? '').slice(0, 200)]);
+      await q.query(`INSERT INTO sessions (token_hash, employee_id, expires_at, user_agent, device_id)
+                     VALUES ($1,$2, now() + make_interval(hours => $3), $4, $5)`,
+        [hash, emp.id, SESSION_TTL_HOURS, String(req.headers['user-agent'] ?? '').slice(0, 200), deviceId]);
       await audit(q, emp.id, 'auth.login', 'employee', emp.id);
     });
     return ok({ token, mustChangePassword: emp.must_change_password, expiresInHours: SESSION_TTL_HOURS });

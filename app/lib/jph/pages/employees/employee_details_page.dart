@@ -6,6 +6,8 @@ import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
 import '../../services/api_service.dart';
 import '../../widgets/employee_files.dart';
+import '../../widgets/employee_devices.dart';
+import '../../services/jph_bridge.dart';
 import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
@@ -846,7 +848,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                     onChanged: _savingFlag ? null : (v) => _setFlag(deviceLock: v),
                                     title: Text('ربط الحساب بالجهاز', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
                                     subtitle: Text(_deviceLock
-                                        ? 'الموظف يدخل من موبايل واحد بس${(_employeeData['deviceLabel'] ?? '').toString().isNotEmpty ? ' — ${_employeeData['deviceLabel']}' : ''}'
+                                        ? 'الموظف يدخل من الأجهزة الموافق عليها بس (أول جهاز تلقائي، والباقي بموافقة)'
                                         : 'يقدر يدخل من أي جهاز'),
                                     secondary: Icon(Icons.phonelink_lock_rounded, color: _deviceLock ? Ar.green : Ar.grey),
                                   ),
@@ -860,9 +862,17 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                             content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
                                       },
                                       icon: const Icon(Icons.phonelink_erase_rounded),
-                                      label: const Text('فك ربط الموبايل الحالي (لو غيّر موبايله)'),
+                                      label: const Text('فك ربط كل الأجهزة (لو غيّر موبايله)'),
                                     ),
                                 ]),
+                              ),
+                            if (_deviceLock && _employeeData['roleKey'] != 'owner' && (ApiService.can('employee.manage') || ApiService.can('devices.approve')
+                                || '${_employeeData['generalManagerId'] ?? ''}' == JphBridge.myId))
+                              EmployeeDevicesBox(
+                                key: ValueKey('devices-${_employeeData['deviceBound']}'),
+                                employeeId: '${_employeeData['id'] ?? ''}',
+                                isDark: isDark,
+                                canManage: ApiService.can('employee.manage'),
                               ),
                             if (ApiService.can('employee.manage') && !_noAttendance)
                               Container(

@@ -328,6 +328,8 @@ T.update({
 'send_whatsapp': ('ابعته على واتساب', 'Send on WhatsApp'),
 'device_mismatch': ('الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط', 'This account is registered on another phone. Ask HR to unlink it'),
 'device_required': ('مش قادرين نتعرف على الجهاز. جرّب تاني', 'This device could not be identified. Try again'),
+'device_pending': ('الجهاز ده جديد على حسابك — اتبعت طلب للمدير العام / المسؤول الإداري، وأول ما يوافق تقدر تدخل منه', 'This phone is new to your account — the general manager / administrative officer was asked to approve it'),
+'device_rejected': ('طلب الدخول من الجهاز ده اترفض. كلّم الإدارة', 'Signing in from this phone was refused. Ask the administration'),
 'new_pin': ('رقم سري جديد', 'New PIN'),
 'new_pin_confirm': ('تعمل رقم سري جديد؟ القديم هيبطل.', 'Create a new PIN? The old one stops working.'),
 'pin': ('الرقم السري', 'PIN'), 'phone_or_code': ('رقم الموبايل / الكود', 'Mobile / code'),

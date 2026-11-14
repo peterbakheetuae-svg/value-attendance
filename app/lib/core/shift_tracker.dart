@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'ring_alert.dart';
+import 'shift_service.dart';
 
 /// Value HR "متابعة أثناء الشيفت": while the employee is checked in, the app sends its position
 /// every N minutes. On Android it runs as a foreground service (visible notification) so it keeps
@@ -20,7 +21,8 @@ class ShiftTracker {
   Timer? _timer;
   DateTime? _lastSent;
   int _intervalMin = 5;
-  bool get running => _sub != null || _timer != null;
+  bool _background = false; // Android: the background service does the work (keeps going with the app closed)
+  bool get running => _sub != null || _timer != null || _background;
 
   // ---- leaving the office is detected on the phone itself (rings even with no internet)
   List<Map<String, dynamic>> _offices = [];
@@ -85,6 +87,8 @@ class ShiftTracker {
   /// Starts if the company turned tracking on. Safe to call repeatedly.
   Future<void> start(ApiClient api, {required String notifTitle, required String notifText}) async {
     _api = api;
+    // the background service may have stopped by itself (e.g. the phone killed it): start it again
+    if (_background && !await ShiftService.running()) _background = false;
     if (running) return;
     try {
       Map<String, dynamic>? cfg;
@@ -104,6 +108,12 @@ class ShiftTracker {
       if (p == LocationPermission.denied || p == LocationPermission.deniedForever) return;
 
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        // from check-in to check-out, even with the app closed / swiped away: its own background service
+        if (await ShiftService.start(title: notifTitle, text: notifText, intervalMinutes: _intervalMin)) {
+          _background = true;
+          return;
+        }
+        // could not start it: follow while the app is alive (as before)
         final settings = AndroidSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 0,
@@ -150,6 +160,8 @@ class ShiftTracker {
   }
 
   Future<void> stop() async {
+    if (_background || ShiftService.supported) await ShiftService.stop();
+    _background = false;
     await _sub?.cancel();
     _sub = null;
     _timer?.cancel();

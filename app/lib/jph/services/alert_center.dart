@@ -4,6 +4,7 @@ import '../pages/leads/tasks_page.dart';
 import '../widgets/side_sheet.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import '../widgets/employee_devices.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../pages/notifications/notifications_page.dart';
 import '../widgets/outing_dialogs.dart';
@@ -41,6 +42,24 @@ class AlertCenter with WidgetsBindingObserver {
     }
     if (type.startsWith('lead_') && id != null) {
       await openLead(ctx, id);
+      return;
+    }
+    // a new phone waiting for approval: its employee's phones, with approve / refuse
+    if (type == 'device_request' && id != null) {
+      await showModalBottomSheet<void>(
+        context: ctx,
+        isScrollControlled: true,
+        builder: (c) => SafeArea(
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                  child: EmployeeDevicesBox(employeeId: id, isDark: Theme.of(c).brightness == Brightness.dark)),
+            ),
+          ),
+        ),
+      );
       return;
     }
     if (id == null || !(type == 'outing_awaiting' || type == 'outing_extension_awaiting')) return;

@@ -70,8 +70,9 @@ class Session extends ChangeNotifier {
   Future<void> login(String identifier, String password) async {
     String? device;
     try { device = await DeviceId.get(); } catch (_) {}
+    final label = await DeviceId.labelFull();
     final r = await api.post('/auth/login', {'identifier': identifier, 'password': password,
-      if (device != null) 'deviceId': device, 'deviceLabel': DeviceId.label()});
+      if (device != null) 'deviceId': device, 'deviceLabel': label});
     api.token = r['token'] as String;
     try { (await SharedPreferences.getInstance()).setString('token', api.token!); } catch (_) {}
     await refreshMe();

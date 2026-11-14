@@ -10,15 +10,52 @@ const login = (identifier: string, password: string, deviceId?: string) =>
 
 test('device binding: first device sticks, another phone is refused until HR unlinks', async () => {
   assert.equal((await login('E2', PW)).status, 403, 'no device id');
-  assert.equal((await login('E2', PW, dev('OTHER'))).status, 403, 'E2 was bound to its test device by cast()');
   const r = await login('E2', PW, dev('OTHER'));
-  assert.equal(r.body.error.details.reason, 'device_mismatch');
+  assert.equal(r.status, 403, 'E2 was bound to its test device by cast()');
+  assert.equal(r.body.error.details.reason, 'device_pending', 'another phone asks for approval');
   const prof = await h.call(c.t.hr, 'GET', `/employees/${c.ids.e2}`);
   assert.equal(prof.body.employee.device_bound, true);
+  assert.equal(prof.body.employee.devices_pending, 1);
   assert.equal((await h.call(c.t.e1, 'POST', `/employees/${c.ids.e2}/unbind-device`)).status, 403, 'employees cannot unlink');
   assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e2}/unbind-device`)).status, 200);
   assert.equal((await login('E2', PW, dev('OTHER'))).status, 200, 'new phone binds after unlinking');
-  assert.equal((await login('E2', PW, dev('E2'))).status, 403, 'old phone now refused');
+  assert.equal((await login('E2', PW, dev('E2'))).body.error.details.reason, 'device_pending', 'old phone now has to ask');
+});
+
+test('more than one phone: approved by the general manager or the administrative officer, never by himself', async () => {
+  // E3 is linked to its own phone (cast); a second phone asks
+  const ask = await login('E3', PW, dev('E3-TABLET'));
+  assert.equal(ask.body.error.details.reason, 'device_pending');
+  assert.equal((await login('E3', PW, dev('E3-TABLET'))).body.error.details.reason, 'device_pending', 'asking again just repeats');
+  const mine = await h.call(c.t.e3, 'GET', `/employees/${c.ids.e3}/devices`);
+  assert.equal(mine.status, 200);
+  assert.equal(mine.body.canApprove, false);
+  const pend = mine.body.devices.find((d: any) => d.status === 'pending');
+  assert.ok(pend && mine.body.devices.some((d: any) => d.status === 'approved'));
+  assert.equal((await h.call(c.t.e3, 'POST', `/employees/${c.ids.e3}/devices/${pend.id}/approve`)).status, 403, 'not his own phone');
+  assert.equal((await h.call(c.t.e1, 'POST', `/employees/${c.ids.e3}/devices/${pend.id}/approve`)).status, 403, 'a colleague cannot');
+  assert.equal((await h.call(c.t.hr, 'POST', `/employees/${c.ids.e3}/devices/${pend.id}/approve`)).status, 403, 'HR alone cannot');
+  // the administrative officer is asked (notified) and approves
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
+  const notes = await h.db.query(`SELECT 1 FROM notifications WHERE recipient_id = $1 AND type = 'device_request'`, [c.ids.owner]);
+  assert.ok(notes.rows.length >= 1, 'the owner was asked');
+  const list = await h.call(c.t.acc, 'GET', '/devices/pending');
+  assert.ok(list.body.devices.some((d: any) => d.id === pend.id));
+  assert.equal((await h.call(c.t.acc, 'POST', `/employees/${c.ids.e3}/devices/${pend.id}/approve`)).status, 200);
+  assert.equal((await login('E3', PW, dev('E3-TABLET'))).status, 200, 'the tablet signs in');
+  assert.equal((await login('E3', PW, dev('E3'))).status, 200, 'and the first phone still does');
+  // a third phone refused by the general manager
+  await h.db.query(`UPDATE employees SET general_manager_id = $2 WHERE id = $1`, [c.ids.e3, c.ids.sm1]);
+  await login('E3', PW, dev('E3-THIRD'));
+  const third = (await h.call(c.t.sm1, 'GET', `/employees/${c.ids.e3}/devices`)).body;
+  assert.equal(third.canApprove, true, 'his general manager may decide');
+  const t3 = third.devices.find((d: any) => d.status === 'pending');
+  assert.equal((await h.call(c.t.sm1, 'POST', `/employees/${c.ids.e3}/devices/${t3.id}/reject`)).status, 200);
+  assert.equal((await login('E3', PW, dev('E3-THIRD'))).body.error.details.reason, 'device_rejected');
+  // removing the tablet signs it out and it has to ask again
+  const tab = (await h.call(c.t.owner, 'GET', `/employees/${c.ids.e3}/devices`)).body.devices.find((d: any) => d.id === pend.id);
+  assert.equal((await h.call(c.t.owner, 'POST', `/employees/${c.ids.e3}/devices/${tab.id}/remove`)).status, 200);
+  assert.equal((await login('E3', PW, dev('E3-TABLET'))).body.error.details.reason, 'device_pending');
 });
 
 test('owner is never bound; binding can be switched off', async () => {
