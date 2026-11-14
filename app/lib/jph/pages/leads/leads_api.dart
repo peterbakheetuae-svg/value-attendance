@@ -447,3 +447,9 @@ Widget dirBtn(bool isDark, String label, IconData icon, VoidCallback? onTap, {bo
               ),
       ),
     );
+
+
+/// a page of «لوحة السيلز» (الليدز / المهام / التقويم / ...): a normal page in the content area — on the computer the side
+/// bar stays and the page takes the screen (not a panel on top); the side bar keeps «لوحة السيلز» lit.
+Future<T?> openLeadsPage<T>(BuildContext context, Widget page) =>
+    Navigator.of(context).push<T>(MaterialPageRoute(settings: const RouteSettings(name: 'leads'), builder: (_) => page));

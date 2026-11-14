@@ -58,7 +58,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
   }
 
   Future<void> _open(Widget page) async {
-    await pushSide(context, page, width: 900);
+    await openLeadsPage(context, page);
     _load();
   }
 
