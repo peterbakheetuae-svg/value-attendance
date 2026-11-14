@@ -156,8 +156,14 @@ class JphUi {
 
   /// The one drop-down list of the app — same look as "نوع الطلب" in طلبات المالية: a floating rounded card with a title,
   /// a close button and each choice as a tile with its icon, the current one ticked.
+  /// photo links of employees: key (UUID or employee code) → its photo URL (set once in main()).
+  static Future<Map<String, String>> Function(List<String> keys)? photosOf;
+
+  /// [people]: the options are employees (value = their id or code) → each row shows the employee's photo
+  /// (or the initials) instead of an icon.
   static Future<T?> sheet<T>(BuildContext context, bool isDark, String title, List<(T, String, IconData?)> options,
-      {T? selected, IconData? icon, Color? color}) {
+      {T? selected, IconData? icon, Color? color, bool people = false}) {
+    final photos = people && photosOf != null ? photosOf!(options.map((o) => '${o.$1}').where((k) => k.isNotEmpty).toList()) : null;
     final c = color ?? primary(isDark);
     return showAppSheet<T>(
       context: context,
@@ -190,11 +196,15 @@ class JphUi {
                   Padding(padding: const EdgeInsets.all(20), child: Text('مفيش اختيارات متاحة', style: TextStyle(color: sub(isDark))))
                 else
                   Flexible(
-                    child: ListView(shrinkWrap: true, children: [
-                      for (final o in options)
-                        _sheetTile(isDark, o.$2, o.$3 ?? icon ?? Icons.circle_outlined, c, o.$1 == selected && selected != null,
-                            () => Navigator.pop(ctx, o.$1)),
-                    ]),
+                    child: FutureBuilder<Map<String, String>>(
+                      future: photos,
+                      builder: (ctx2, snap) => ListView(shrinkWrap: true, children: [
+                        for (final o in options)
+                          _sheetTile(isDark, o.$2, o.$3 ?? icon ?? Icons.circle_outlined, c, o.$1 == selected && selected != null,
+                              () => Navigator.pop(ctx, o.$1),
+                              lead: people && (snap.data?.containsKey('${o.$1}') ?? false) ? personAvatar(o.$2, snap.data!['${o.$1}'], size: 44) : null),
+                      ]),
+                    ),
                   ),
               ]),
             ),
@@ -204,7 +214,27 @@ class JphUi {
     );
   }
 
-  static Widget _sheetTile(bool isDark, String label, IconData icon, Color c, bool on, VoidCallback onTap) => GestureDetector(
+  /// an employee's round photo; the initials on a soft colour when there is none
+  static Widget personAvatar(String name, String? url, {double size = 40}) {
+    final n = name.split(' — ').first.trim();
+    final parts = n.split(RegExp(r'\s+')).where((x) => x.isNotEmpty).toList();
+    final ini = parts.isEmpty ? '?' : (parts.length == 1 ? parts.first.characters.first : '${parts.first.characters.first}${parts[1].characters.first}');
+    const colors = [Color(0xFFF7C59F), Color(0xFFB8E0D2), Color(0xFFD6C7F7), Color(0xFFF9D976), Color(0xFFA9D6F5), Color(0xFFF4B6C2)];
+    final bg = colors[n.codeUnits.fold<int>(0, (a, b) => a + b) % colors.length];
+    final fallback = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+      child: Text(ini, style: TextStyle(fontSize: size * 0.36, fontWeight: FontWeight.w800, color: const Color(0xFF2B2A28))),
+    );
+    if (url == null || url.isEmpty) return fallback;
+    return ClipOval(
+      child: Image.network(url, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback),
+    );
+  }
+
+  static Widget _sheetTile(bool isDark, String label, IconData icon, Color c, bool on, VoidCallback onTap, {Widget? lead}) => GestureDetector(
         onTap: onTap,
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -216,7 +246,7 @@ class JphUi {
                 color: on ? c.withOpacity(0.5) : (isDark ? Colors.white.withOpacity(0.2) : Ar.grey.shade300), width: on ? 1.5 : 1),
           ),
           child: Row(children: [
-            iconTile(isDark, icon, c),
+            lead ?? iconTile(isDark, icon, c),
             const SizedBox(width: 12),
             Expanded(
               child: Text(label,

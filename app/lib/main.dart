@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/app_updater.dart';
 import 'core/push.dart';
+import 'core/permissions_gate.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +20,7 @@ import 'jph/services/session_service.dart';
 import 'jph/theme/dark_theme.dart';
 import 'jph/theme/light_theme.dart';
 import 'jph/widgets/logo_orbit.dart';
+import 'jph/widgets/jph_form_ui.dart' show JphUi;
 import 'jph/pages/leads/leads_api.dart' show LeadsTr;
 import 'pages/change_password_page.dart';
 import 'jph/pages/attendance/attendance_report_page.dart';
@@ -30,6 +32,7 @@ Future<void> main() async {
 
   final session = Session(ApiClient());
   JphBridge.session = session;
+  JphUi.photosOf = ApiService.photosOf;   // employees' photos in every «اختار الموظف»
   final appController = AppController();
   // startup steps don't depend on each other: load them together instead of one after another
   // (strings for the added screens, the saved session, theme / language)
@@ -139,6 +142,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
           darkTheme: DarkTheme.theme,
           themeMode: appController.themeMode,
           navigatorKey: navigatorKey,
+          // Android: location / over other apps / battery first; never opens without the location permission
+          builder: (context, child) => PermissionsGate(child: child ?? const SizedBox()),
           home: _home(),
         );
       },

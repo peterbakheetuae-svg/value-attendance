@@ -209,7 +209,7 @@ class DashboardCards {
     final rows = ll(d['latest']);
     return panel(tr('أحدث العملاء المحتملين'), Icons.fiber_new_rounded, Ar.green, [
       if (rows.isEmpty) _empty(tr('لسه مفيش ليدز')),
-      for (final l in rows)
+      for (final l in rows.take(10))
         _row('${l['fullName']}', [
           if (lm(l['project'])['name'] != null) '${lm(l['project'])['name']}',
           '${lm(l['assignedTo'])['name'] ?? tr('مش متوزع')}',
@@ -254,9 +254,11 @@ class DashboardCards {
         };
     return panel(tr('المهام اليومية'), Icons.timeline_rounded, Ar.accent, [
       if (rows.isEmpty) _empty(tr('لسه مفيش نشاط')),
-      for (final x in rows)
-        _row('${x['by'] ?? tr('النظام')} · ${what(x)}', '${lm(x['lead'])['name']} — ${agoAr(x['at'])}',
-            lead: Icon(icon('${x['kind']}'), size: 20, color: Ar.accent.shade700), onTap: () => openLead('${lm(x['lead'])['id']}')),
+      MoreList([
+        for (final x in rows)
+          _row('${x['by'] ?? tr('النظام')} · ${what(x)}', '${lm(x['lead'])['name']} — ${agoAr(x['at'])}',
+              lead: Icon(icon('${x['kind']}'), size: 20, color: Ar.accent.shade700), onTap: () => openLead('${lm(x['lead'])['id']}')),
+      ]),
     ]);
   }
 
@@ -323,6 +325,37 @@ class DashboardCards {
             ]),
           ),
       ]),
+    ]);
+  }
+}
+
+/// the first [show] rows; the rest open with «المزيد»
+class MoreList extends StatefulWidget {
+  final List<Widget> rows;
+  final int show;
+  const MoreList(this.rows, {super.key, this.show = 10});
+
+  @override
+  State<MoreList> createState() => _MoreListState();
+}
+
+class _MoreListState extends State<MoreList> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final rest = widget.rows.length - widget.show;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ...(_open || rest <= 0 ? widget.rows : widget.rows.take(widget.show)),
+      if (rest > 0)
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: TextButton.icon(
+            onPressed: () => setState(() => _open = !_open),
+            icon: Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded),
+            label: Text(_open ? tr('أقل') : '${tr('المزيد')} ($rest)', style: const TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ),
     ]);
   }
 }

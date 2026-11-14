@@ -25,6 +25,9 @@ void main() {
     'android.permission.VIBRATE',
     // automatic update: the new APK is downloaded and handed to the Android installer
     'android.permission.REQUEST_INSTALL_PACKAGES',
+    // first start: «الظهور فوق التطبيقات» and «بطارية غير مقيدة»
+    'android.permission.SYSTEM_ALERT_WINDOW',
+    'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
   ];
   for (final p in perms) {
     if (!xml.contains('"$p"')) {

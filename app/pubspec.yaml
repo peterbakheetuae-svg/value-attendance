@@ -17,6 +17,8 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.3.2
   geolocator: ^13.0.1
+  # first start: location (required), display over other apps, unrestricted battery
+  permission_handler: ^11.3.1
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   image_picker: ^1.1.2

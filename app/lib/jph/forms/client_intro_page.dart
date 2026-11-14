@@ -175,7 +175,7 @@ class _NewFormState extends State<_NewForm> {
               : () async {
                   final v = await JphUi.sheet<String>(context, isDark, 'مسؤول المبيعات',
                       [for (final e in _employees) ('${e['id']}', '${e['name']}', Icons.person_outline_rounded)],
-                      selected: _salesId, icon: Icons.support_agent_rounded);
+                      selected: _salesId, icon: Icons.support_agent_rounded, people: true);
                   if (v == null) return;
                   setState(() {
                     _salesId = v;
@@ -307,7 +307,7 @@ class _HistoryState extends State<_History> {
           onTap: () async {
             final v = await JphUi.sheet<String>(context, isDark, 'الموظف',
                 [('', 'كل الموظفين', Icons.groups_rounded), for (final e in people.entries) (e.key, e.value, Icons.person_rounded)],
-                selected: _empId ?? '');
+                selected: _empId ?? '', people: true);
             if (v != null && mounted) setState(() => _empId = v.isEmpty ? null : v);
           },
         ),

@@ -608,7 +608,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     // «الأحسن»: actions per salesman (all of them, like Engaz — everyone sees the ranking)
     const period = oneOf(Object.fromEntries(req.query), 'period', ['today', 'week', 'month', 'all'] as const, true) ?? 'month';
     const since = period === 'today' ? `date_trunc('day', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'`
-      : period === 'week' ? `$1::timestamptz - interval '7 days'` : period === 'month' ? `date_trunc('month', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'` : `'-infinity'::timestamptz`;
+      : period === 'week' ? `$1::timestamptz - interval '7 days'` : period === 'month' ? `date_trunc('month', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'` : `($1::timestamptz - interval '200 years')`;   // «الكل» (uses $1 too: an unused parameter is an error)
     const best = await db.query(`
       SELECT e.id, e.full_name, count(x.id)::int AS actions,
              count(x.id) FILTER (WHERE x.stage IN ('meeting','after_meeting'))::int AS meetings
@@ -640,7 +640,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
           FROM lead_logs g JOIN leads l ON l.id = g.lead_id LEFT JOIN employees e ON e.id = g.by_id
           LEFT JOIN employees te ON g.kind = 'assign' AND te.id::text = g.data->>'to'
          WHERE ${scope} AND g.kind IN ('create','assign','import','form','call','whatsapp','checkin')
-      ) z ORDER BY at DESC LIMIT 15`, params);
+      ) z ORDER BY at DESC LIMIT 50`, params);   // the card shows 10, the rest under «المزيد»
     // Phone Call / WhatsApp Contacts / Created today / Avg Response Time (this week) / Lead creation · last 7 days
     const k = await one(db, `
       SELECT

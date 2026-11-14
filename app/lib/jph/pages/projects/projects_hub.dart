@@ -865,7 +865,7 @@ class _ClientsPageState extends State<ClientsPage> {
         final s = await JphUi.sheet<String>(context, isDark, 'السيلز', [
           ('all', 'كل السيلز', Icons.groups_rounded),
           for (final e in sales.entries) (e.key, e.value, Icons.person_rounded),
-        ], selected: _sales ?? 'all', icon: Icons.person_rounded);
+        ], selected: _sales ?? 'all', icon: Icons.person_rounded, people: true);
         if (s != null) setState(() => _sales = s == 'all' ? null : s);
       case 'project':
         final s = await JphUi.sheet<String>(context, isDark, 'المشروع', [

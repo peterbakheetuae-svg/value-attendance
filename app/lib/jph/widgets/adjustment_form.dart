@@ -155,7 +155,7 @@ class _AdjustmentsTabState extends State<AdjustmentsTab> {
                 : () async {
                     final v = await JphUi.sheet<String>(context, isDark, 'اختار الموظف',
                         [for (final e in _employees) ('${e['id']}', '${e['name'] ?? ''}', Icons.person_outline_rounded)],
-                        selected: _empId, icon: Icons.badge_rounded);
+                        selected: _empId, icon: Icons.badge_rounded, people: true);
                     if (v == null) return;
                     setState(() {
                       _empId = v;

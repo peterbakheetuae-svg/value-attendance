@@ -222,6 +222,7 @@ Future<List<String>?> pickPeople(BuildContext context, bool isDark, String title
     {List<String> selected = const [], bool multi = true}) {
   final chosen = {...selected};
   final search = TextEditingController();
+  final photos = JphUi.photosOf?.call(people.map((p) => '${p['id']}').toList()) ?? Future.value(<String, String>{});
   return showAppSheet<List<String>>(
     context: context,
     isScrollControlled: true,
@@ -257,21 +258,44 @@ Future<List<String>?> pickPeople(BuildContext context, bool isDark, String title
                 TextButton(onPressed: () => set(() => chosen.addAll(shown.map((p) => '${p['id']}'))), child: Text(tr('اختار الكل'))),
                 TextButton(onPressed: () => set(chosen.clear), child: Text(tr('شيل الكل'))),
               ]),
+            // like «المشروع» in a new lead: one card a person — the photo, the name (no employee code), a tick when chosen
             Flexible(
-              child: ListView(shrinkWrap: true, children: [
-                for (final p in shown)
-                  CheckboxListTile(
-                    value: chosen.contains('${p['id']}'),
-                    onChanged: (v) => set(() {
-                      if (!multi) chosen.clear();
-                      v == true ? chosen.add('${p['id']}') : chosen.remove('${p['id']}');
-                      if (!multi && v == true) Navigator.pop(ctx, chosen.toList());
-                    }),
-                    title: Text('${p['name']}', style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
-                    subtitle: p['code'] == null ? null : Text('${p['code']}'),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-              ]),
+              child: FutureBuilder<Map<String, String>>(
+                future: photos,
+                builder: (ctx2, snap) => ListView(shrinkWrap: true, children: [
+                  for (final p in shown)
+                    () {
+                      final id = '${p['id']}';
+                      final on = chosen.contains(id);
+                      final c = JphUi.primary(isDark);
+                      return GestureDetector(
+                        onTap: () => set(() {
+                          if (!multi) {
+                            Navigator.pop(ctx, [id]);
+                            return;
+                          }
+                          on ? chosen.remove(id) : chosen.add(id);
+                        }),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: on ? c.withOpacity(isDark ? 0.3 : 0.15) : (isDark ? Colors.white.withOpacity(0.08) : Ar.grey.shade50),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: on ? c.withOpacity(0.5) : (isDark ? Colors.white.withOpacity(0.18) : Ar.grey.shade300), width: on ? 1.5 : 1),
+                          ),
+                          child: Row(children: [
+                            JphUi.personAvatar('${p['name']}', snap.data?[id], size: 44),
+                            const SizedBox(width: 12),
+                            Expanded(child: Text('${p['name']}', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+                            if (on) Icon(Icons.check_circle_rounded, color: c, size: 24)
+                            else if (multi) Icon(Icons.radio_button_unchecked_rounded, color: JphUi.sub(isDark), size: 22),
+                          ]),
+                        ),
+                      );
+                    }(),
+                ]),
+              ),
             ),
             if (multi) ...[
               const SizedBox(height: 8),

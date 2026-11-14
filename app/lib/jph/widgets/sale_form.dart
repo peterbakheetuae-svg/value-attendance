@@ -350,7 +350,7 @@ class _SalesTabState extends State<SalesTab> {
             onTap: () async {
               final v = await JphUi.sheet<String>(context, isDark, 'اختار الموظف صاحب العمولة',
                   [('', 'أنا', Icons.person_rounded), for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)],
-                  selected: _seller ?? '', icon: Icons.badge_rounded);
+                  selected: _seller ?? '', icon: Icons.badge_rounded, people: true);
               if (v != null) setState(() => _seller = v.isEmpty ? null : v);
             },
           ),

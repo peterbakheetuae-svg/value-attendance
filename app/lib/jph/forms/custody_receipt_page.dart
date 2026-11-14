@@ -126,7 +126,7 @@ class _NewReceiptState extends State<_NewReceipt> {
   Future<void> _pickEmployee() async {
     final v = await JphUi.sheet<String>(context, widget.isDark, 'اختار الموظف',
         [for (final p in _people) ('${p['id']}', '${p['name']}', Icons.person_outline_rounded)],
-        selected: _employeeId, icon: Icons.badge_rounded);
+        selected: _employeeId, icon: Icons.badge_rounded, people: true);
     if (v == null) return;
     setState(() {
       _employeeId = v;

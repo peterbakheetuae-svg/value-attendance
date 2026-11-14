@@ -106,7 +106,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
                 ? null
                 : () async {
                     final v = await JphUi.sheet<String>(context, isDark, 'الموظف',
-                        [for (final e in emps) ('${e['id']}', '${e['name'] ?? ''}', Icons.person_outline_rounded)], selected: empId);
+                        [for (final e in emps) ('${e['id']}', '${e['name'] ?? ''}', Icons.person_outline_rounded)], selected: empId, people: true);
                     if (v != null) set(() { empId = v; empName = '${emps.firstWhere((e) => '${e['id']}' == v)['name']}'; });
                   },
           ),

@@ -885,7 +885,7 @@ class EmployeeDropdown extends StatelessWidget {
             for (final e in employees)
               ('${e['uid']}', '${e['name'] ?? ''}${(e['role'] ?? '').toString().isEmpty ? '' : ' — ${e['role']}'}',
                   e['active'] == false ? Icons.person_off_outlined : Icons.person_outline_rounded),
-          ], selected: selectedUid, icon: Icons.badge_rounded);
+          ], selected: selectedUid, icon: Icons.badge_rounded, people: true);
           if (v == null) return;
           final emp = employees.where((e) => '${e['uid']}' == v).firstOrNull;
           onChanged(v, emp?['name']?.toString());

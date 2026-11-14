@@ -187,10 +187,11 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                         _best(isDark),
                         cards.activity(),
                         cards.todo(),
+                        // on the computer «المستخدمون المتصلون» sits beside «أحدث العملاء المحتملين»
                         cards.latest(),
+                        cards.online(),
                         cards.lastComments(),
                       ]),
-                      cards.online(),
                     ];
                   }(),
                 ],

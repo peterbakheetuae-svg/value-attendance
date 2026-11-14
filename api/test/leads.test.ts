@@ -151,6 +151,10 @@ test('«إضافة أكشن», the follow-up reminder and the 25 minutes alert',
   assert.ok(late.leads.some((x: any) => x.id === l.id && x.overdue));
   const dash = (await h.call(c.t.e2, 'GET', '/leads/dashboard')).body;
   assert.equal(dash.view, 'me');
+  for (const period of ['today', 'week', 'month', 'all']) {   // «الأفضل» — every period answers (الكل used to fail)
+    const r = await h.call(c.t.e2, 'GET', `/leads/dashboard?period=${period}`);
+    assert.equal(r.status, 200, period);
+  }
   assert.ok(dash.counts.delay >= 1);
   assert.equal(dash.delayByStage.meeting, 1);
   assert.ok(dash.best.some((b: any) => b.me && b.actions === 2));

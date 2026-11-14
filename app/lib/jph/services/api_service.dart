@@ -135,6 +135,22 @@ class JphRouter {
     return JphBridge.codeToId[s.toUpperCase()] ?? s;
   }
 
+  static final Map<String, String> _photoCache = {};   // employee id → signed photo URL ('' = none)
+  static final _uuid = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false);
+
+  /// photo links for pickers: key (employee UUID or code) → URL ('' when the employee has no photo)
+  static Future<Map<String, String>> photosOf(List<String> keys) async {
+    String? idOf(String k) => _uuid.hasMatch(k) ? k : JphBridge.codeToId[k.toUpperCase()];
+    final need = {for (final k in keys) idOf(k)}.whereType<String>().where((id) => !_photoCache.containsKey(id)).toList();
+    if (need.isNotEmpty) {
+      final links = await _links(photos: need);
+      for (final id in need) {
+        _photoCache[id] = links['photo:$id'] ?? '';
+      }
+    }
+    return {for (final k in keys) if (idOf(k) != null) k: _photoCache[idOf(k)!] ?? ''};   // only the keys that are employees
+  }
+
   static Future<Map<String, String>> _links({List<String> photos = const [], List<String> selfies = const []}) async {
     if (photos.isEmpty && selfies.isEmpty) return {};
     try {
