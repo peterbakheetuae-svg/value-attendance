@@ -31,6 +31,11 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 const n = (v: unknown) => Number(v ?? 0);
 const iso = (v: unknown) => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
 
+/** SQL: employee [e] has [perm] — his role's, with his own exceptions (employee_permissions) */
+export const empHas = (e: string, perm: string) => `((EXISTS (SELECT 1 FROM role_permissions rpx WHERE rpx.role_key = COALESCE(${e}.position_key, ${e}.role_key) AND rpx.perm_key = '${perm}')
+   AND NOT EXISTS (SELECT 1 FROM employee_permissions epx WHERE epx.employee_id = ${e}.id AND epx.perm_key = '${perm}' AND NOT epx.allow))
+   OR EXISTS (SELECT 1 FROM employee_permissions epx WHERE epx.employee_id = ${e}.id AND epx.perm_key = '${perm}' AND epx.allow))`;
+
 export const canAll = (a: Actor) => has(a, 'leads.read_all') || has(a, 'leads.distribute');
 export const canDistribute = (a: Actor) => has(a, 'leads.distribute');
 export const canTeam = (a: Actor) => has(a, 'leads.team');
@@ -83,8 +88,8 @@ export async function canWork(q: Q, a: Actor, l: any): Promise<boolean> {
 export async function assignable(q: Q, a: Actor): Promise<any[]> {
   const rows = (await q.query(`
     SELECT DISTINCT e.id, e.full_name, e.code, e.role_key, e.team_id
-      FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه' ORDER BY e.full_name`)).rows;
+      FROM employees e
+     WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه' ORDER BY e.full_name`)).rows;
   if (canDistribute(a)) return rows;
   if (canTeam(a)) {
     const team = new Set([a.id, ...await teamMemberIds(q, a.id)]);
@@ -243,7 +248,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id })),
       assignees: (canDistribute(a) || canTeam(a)) ? people.map((e) => ({ id: e.id, name: e.full_name, code: e.code })) : [],
       can: { all: canAll(a), distribute: canDistribute(a), team: canTeam(a), own: canOwn(a), config: canConfig(a),
-        reports: canAll(a) || canTeam(a), import: canDistribute(a), assign: canDistribute(a) || canTeam(a) },
+        reports: has(a, 'leads.reports'), import: has(a, 'leads.import'), assign: canDistribute(a) || canTeam(a),
+        create: has(a, 'leads.create'), edit: has(a, 'leads.edit'), export: has(a, 'leads.export'), tasks: has(a, 'leads.tasks'),
+        roles: has(a, 'roles.manage') },
       pendingMinutes: await pendingMinutes(db), me: a.id,
     });
   });
@@ -328,6 +335,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ add one lead
   r.post('/leads', async (req) => {
     const a = await auth(req);
+    if (!has(a, 'leads.create')) throw forbidden('مش مسموح لك تضيف ليدز');
     const b = obj(req.body);
     const x = readLead(b);
     const now = clock();
@@ -359,7 +367,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ import (Excel rows, sent as JSON by the app)
   r.post('/leads/import', async (req) => {
     const a = await auth(req);
-    if (!canDistribute(a)) throw forbidden('الاستيراد لموزّع الليدز بس');
+    if (!has(a, 'leads.import')) throw forbidden('مش مسموح لك تستورد ليدز');
     const b = obj(req.body);
     const rows = Array.isArray(b.rows) ? b.rows : [];
     if (!rows.length) throw invalid('الملف فاضي', { field: 'rows' });
@@ -540,8 +548,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (!await canWork(q, a, l)) throw forbidden();
       const raw = Array.isArray(b.to) ? b.to.filter((x): x is string => typeof x === 'string' && isUuid(x)) : [];
       if (!raw.length) throw invalid('اختار السيلز', { field: 'to' });
-      const people = new Set((await q.query(`SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-                                               WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'`)).rows.map((e) => e.id));
+      const people = new Set((await q.query(`SELECT DISTINCT e.id FROM employees e
+                                               WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'`)).rows.map((e) => e.id));
       for (const id of raw) {
         if (!people.has(id) || id === l.assigned_to) continue;
         const ins = await q.query(`INSERT INTO lead_referrals (lead_id, employee_id, by_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [l.id, id, a.id, now]);
@@ -693,7 +701,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ reports
   r.get('/leads/reports', async (req) => {
     const a = await auth(req);
-    if (!canAll(a) && !canTeam(a)) throw forbidden();
+    if (!has(a, 'leads.reports')) throw forbidden();
     const now = clock();
     const from = req.query.get('from') && /^\d{4}-\d{2}-\d{2}$/.test(req.query.get('from')!) ? req.query.get('from')! : `${now.toISOString().slice(0, 7)}-01`;
     const to = req.query.get('to') && /^\d{4}-\d{2}-\d{2}$/.test(req.query.get('to')!) ? req.query.get('to')! : now.toISOString().slice(0, 10);
@@ -928,7 +936,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       referrals: refs.rows.map((x) => ({ id: x.employee_id, name: x.full_name, at: iso(x.created_at) })),
       units: units.rows.map((u) => ({ id: u.id, unitNo: u.unit_no, projectName: u.project_name, status: u.status, statusAr: STATUS_AR[u.status] ?? u.status,
         price: n(u.unit_price), deposit: n(u.deposit_amount), at: iso(u.created_at) })),
-      can: { act: work, reserve: work && l.assigned_to != null && !CLOSED.includes(l.stage), edit: work || canDistribute(a),
+      can: { act: work, reserve: work && l.assigned_to != null && !CLOSED.includes(l.stage), edit: (work || canDistribute(a)) && has(a, 'leads.edit'),
         editPhone: canDistribute(a), editSource: canDistribute(a), assign: canDistribute(a) || (canTeam(a) && work),
         refer: work, log: manager, reply: true },
     });
@@ -943,6 +951,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       const l = await one(q, `SELECT * FROM leads WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!l || !await canSee(q, a, l.id)) throw notFound();
       if (!await canWork(q, a, l) && !canDistribute(a)) throw forbidden();
+      // the client's data needs «تعديل بيانات العميل»; the rating alone is part of working the lead
+      if (Object.keys(b).some((k) => k !== 'rating') && !has(a, 'leads.edit')) throw forbidden('مش مسموح لك تعدّل بيانات العميل');
       const set: string[] = [], vals: unknown[] = [l.id], changed: string[] = [];
       const put = (col: string, v: unknown, key: string) => { vals.push(v); set.push(`${col} = $${vals.length}`); changed.push(key); };
       if (b.fullName !== undefined) put('full_name', str(b, 'fullName', { min: 2, max: 120 }), 'fullName');
@@ -985,7 +995,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     late: !!(k.due_at && ['open', 'doing'].includes(k.status) && new Date(k.due_at) < now),
     can: { edit: k.created_by === a.id || canAll(a), status: k.assigned_to === a.id || k.created_by === a.id || canAll(a) },
   });
-  const canGiveTasks = (a: Actor) => canAll(a) || canTeam(a) || has(a, 'employee.read_all');
+  const canGiveTasks = (a: Actor) => canAll(a) || canTeam(a) || has(a, 'employee.read_all') || has(a, 'leads.tasks');
   async function taskPeople(q: Q, a: Actor): Promise<any[]> {
     if (canAll(a) || has(a, 'employee.read_all')) return (await q.query(`SELECT id, full_name FROM employees WHERE status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه' ORDER BY full_name`)).rows;
     const ids = [a.id, ...(canTeam(a) ? await teamMemberIds(q, a.id) : [])];

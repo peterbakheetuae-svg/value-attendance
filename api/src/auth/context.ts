@@ -30,7 +30,9 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   const row = await one(q, `
     SELECT s.id AS session_id, (s.last_seen_at IS NULL OR s.last_seen_at < now() - interval '5 minutes') AS stale,
            e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password, e.legacy_fields->>'status' AS work_status,
-           COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms
+           COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS plus,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE NOT x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS minus
       FROM sessions s
       JOIN employees e ON e.id = s.employee_id
       LEFT JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
@@ -45,7 +47,8 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   }
   const actor: Actor = {
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
-    perms: new Set(row.perms), sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    // his role's permissions, then his own exceptions (allowed / denied one by one)
+    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p))), sessionId: row.session_id, mustChangePassword: row.must_change_password,
   };
   // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own
   // records (the attendance report) and signing out / changing the password

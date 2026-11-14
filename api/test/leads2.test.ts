@@ -160,3 +160,28 @@ test('the sales board cards: delay list, latest, comments, activity, calls / Wha
   const mine = (await h.call(c.t.e1, 'GET', '/leads/dashboard')).body;
   assert.ok(mine.latest.every((x: any) => x.assignedTo?.id === c.ids.e1), 'a salesman sees only his own');
 });
+
+test('صلاحيات الأدوار: the owner turns a leads permission off for a role, then gives it back to one employee', async () => {
+  assert.equal((await h.call(c.t.acc, 'GET', '/leads/permissions')).status, 403, 'owner only');
+  const p = (await h.call(c.t.owner, 'GET', '/leads/permissions')).body;
+  assert.ok(p.perms.some((x: any) => x.key === 'leads.create'));
+  const se = p.roles.find((x: any) => x.key === 'sales_employee');
+  assert.ok(se.perms.includes('leads.create') && se.perms.includes('leads.own'), 'nothing changed for anyone');
+  assert.ok(!p.roles.some((x: any) => x.key === 'owner'));
+  const add = (t: string) => h.call(t, 'POST', '/leads', { fullName: 'عميل صلاحيات', phone: '0105' + Math.floor(1e6 + Math.random() * 8e6), projectId: pid, channelId: channel });
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/role', { role: 'sales_employee', perm: 'leads.create', on: false })).status, 200);
+  assert.equal((await add(c.t.e1)).status, 403, 'the role lost «إضافة العملاء»');
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/employee', { employeeId: c.ids.e1, perm: 'leads.create', value: 'allow' })).status, 200);
+  assert.equal((await add(c.t.e1)).status, 201, 'his own exception');
+  assert.equal((await add(c.t.e2)).status, 403, 'the others in the role still cannot');
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/employee', { employeeId: c.ids.e1, perm: 'leads.own', value: 'deny' })).status, 200);
+  const meta = (await h.call(c.t.acc, 'GET', '/leads/meta')).body;
+  assert.ok(!meta.assignees.some((x: any) => x.id === c.ids.e1), 'denied «يشتغل على ليدز» → not offered for leads');
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/employee', { employeeId: c.ids.owner, perm: 'leads.own', value: 'deny' })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/role', { role: 'owner', perm: 'leads.own', on: false })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'PUT', '/leads/permissions/role', { role: 'sales_employee', perm: 'roles.manage', on: true })).status, 400, 'only leads permissions here');
+  // back as it was
+  await h.call(c.t.owner, 'PUT', '/leads/permissions/role', { role: 'sales_employee', perm: 'leads.create', on: true });
+  await h.call(c.t.owner, 'PUT', '/leads/permissions/employee', { employeeId: c.ids.e1, perm: 'leads.create', value: 'inherit' });
+  await h.call(c.t.owner, 'PUT', '/leads/permissions/employee', { employeeId: c.ids.e1, perm: 'leads.own', value: 'inherit' });
+});

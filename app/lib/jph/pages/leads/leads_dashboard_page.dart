@@ -84,7 +84,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
             )
           : null,
       title: tr('لوحة السيلز'),
-      fab: can.isEmpty
+      fab: can['create'] != true
           ? null
           : FloatingActionButton.extended(
               onPressed: () async {

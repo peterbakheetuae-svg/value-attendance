@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, teamMemberIds, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 import {
@@ -257,6 +257,80 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     return ok({ ok: true });
   });
 
+  // ------------------------------------------------------------------ الإعدادات / التحكم في الوصول / صلاحيات الأدوار
+  // (like Elite) the owner gives each role the sales-board permissions, then exceptions per employee on top.
+  const LEAD_PERMS: { key: string; ar: string; group: string }[] = [
+    { key: 'leads.own', ar: 'يشتغل على ليدز (سيلز)', group: 'العملاء' },
+    { key: 'leads.team', ar: 'يشوف ليدز فريقه', group: 'العملاء' },
+    { key: 'leads.read_all', ar: 'يشوف كل الليدز', group: 'العملاء' },
+    { key: 'leads.create', ar: 'إضافة العملاء المحتملين', group: 'العملاء' },
+    { key: 'leads.edit', ar: 'تعديل بيانات العميل', group: 'العملاء' },
+    { key: 'leads.distribute', ar: 'توزيع وإعادة إسناد الليدز', group: 'العملاء' },
+    { key: 'leads.import', ar: 'استيراد الليدز', group: 'البيانات' },
+    { key: 'leads.export', ar: 'تصدير إكسيل', group: 'البيانات' },
+    { key: 'leads.reports', ar: 'عرض التقارير', group: 'البيانات' },
+    { key: 'leads.tasks', ar: 'إضافة مهام لغيره', group: 'المهام' },
+    { key: 'leads.config', ar: 'إعدادات الليدز (القنوات، الحملات، أسباب الإلغاء، القوالب)', group: 'الإعدادات' },
+  ];
+  const leadPerm = (k: unknown) => {
+    const p = LEAD_PERMS.find((x) => x.key === k);
+    if (!p) throw invalid('صلاحية مش معروفة', { field: 'perm' });
+    return p.key;
+  };
+  r.get('/leads/permissions', async (req) => {
+    const a = await auth(req);
+    if (!has(a, 'roles.manage')) throw forbidden('صلاحيات الأدوار للمالك بس');
+    const roles = await db.query(`SELECT key, name_ar, name_en, rank, builtin, base_key FROM roles WHERE key <> 'owner' ORDER BY rank DESC, name_ar`);
+    const grants = await db.query(`SELECT role_key, perm_key FROM role_permissions WHERE perm_key LIKE 'leads.%'`);
+    const people = await db.query(`
+      SELECT e.id, e.full_name, e.code, COALESCE(p.name_ar, r.name_ar) AS role_name, COALESCE(e.position_key, e.role_key) AS role_key
+        FROM employees e JOIN roles r ON r.key = e.role_key LEFT JOIN roles p ON p.key = e.position_key
+       WHERE e.status = 'active' AND e.role_key <> 'owner' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
+       ORDER BY e.full_name`);
+    const ov = await db.query(`SELECT employee_id, perm_key, allow FROM employee_permissions WHERE perm_key LIKE 'leads.%'`);
+    const byRole: Record<string, string[]> = {};
+    for (const g of grants.rows) (byRole[g.role_key] ??= []).push(g.perm_key);
+    const byEmp: Record<string, Record<string, boolean>> = {};
+    for (const o of ov.rows) (byEmp[o.employee_id] ??= {})[o.perm_key] = o.allow;
+    return ok({
+      perms: LEAD_PERMS,
+      roles: roles.rows.map((x) => ({ key: x.key, name: x.name_ar, builtin: x.builtin, base: x.base_key, perms: byRole[x.key] ?? [] })),
+      employees: people.rows.map((x) => ({ id: x.id, name: x.full_name, code: x.code, role: x.role_name, roleKey: x.role_key, overrides: byEmp[x.id] ?? {} })),
+    });
+  });
+  r.put('/leads/permissions/role', async (req) => {
+    const a = await auth(req);
+    if (!has(a, 'roles.manage')) throw forbidden('صلاحيات الأدوار للمالك بس');
+    const b = obj(req.body);
+    const perm = leadPerm(b.perm);
+    const on = bool(b, 'on', false)!;
+    const role = await one(db, `SELECT key FROM roles WHERE key = $1`, [str(b, 'role', { min: 1, max: 60 })]);
+    if (!role) throw notFound('الدور مش موجود');
+    if (role.key === 'owner') throw forbidden('المالك عنده كل الصلاحيات دايمًا');
+    if (on) await db.query(`INSERT INTO role_permissions (role_key, perm_key) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [role.key, perm]);
+    else await db.query(`DELETE FROM role_permissions WHERE role_key = $1 AND perm_key = $2`, [role.key, perm]);
+    await audit(db, a.id, 'leads.role_permission', 'role', role.key, undefined, { perm, on });
+    return ok({ ok: true });
+  });
+  r.put('/leads/permissions/employee', async (req) => {
+    const a = await auth(req);
+    if (!has(a, 'roles.manage')) throw forbidden('صلاحيات المستخدمين للمالك بس');
+    const b = obj(req.body);
+    const perm = leadPerm(b.perm);
+    const value = oneOf(b, 'value', ['allow', 'deny', 'inherit'] as const)!;
+    const id = str(b, 'employeeId', { min: 36, max: 36 })!;
+    if (!isUuid(id)) throw notFound();
+    const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [id]);
+    if (!e) throw notFound('الموظف مش موجود');
+    if (e.role_key === 'owner') throw forbidden('المالك عنده كل الصلاحيات دايمًا');
+    if (value === 'inherit') await db.query(`DELETE FROM employee_permissions WHERE employee_id = $1 AND perm_key = $2`, [id, perm]);
+    else await db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow, by_id, updated_at) VALUES ($1,$2,$3,$4,$5)
+                           ON CONFLICT (employee_id, perm_key) DO UPDATE SET allow = EXCLUDED.allow, by_id = EXCLUDED.by_id, updated_at = EXCLUDED.updated_at`,
+      [id, perm, value === 'allow', a.id, clock()]);
+    await audit(db, a.id, 'leads.employee_permission', 'employee', id, undefined, { perm, value });
+    return ok({ ok: true });
+  });
+
   // «اتصال» / «واتساب» tapped on a lead: counted on the sales board (Phone Call / WhatsApp Contacts)
   r.post('/leads/:id/contact', async (req) => {
     const a = await auth(req);
@@ -404,7 +478,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
   /** الشغل اليومي: the actions of every salesman per hour of the day */
   r.get('/leads/reports/hourly', async (req) => {
     const a = await auth(req);
-    if (!canAll(a) && !canTeam(a)) throw forbidden();
+    if (!has(a, 'leads.reports')) throw forbidden();
     const now = clock();
     const from = dayRe.test(req.query.get('from') ?? '') ? req.query.get('from')! : now.toISOString().slice(0, 10);
     const to = dayRe.test(req.query.get('to') ?? '') ? req.query.get('to')! : from;
@@ -449,7 +523,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
   /** تقرير التوزيع: who received how many leads, from whom, in turn or by hand */
   r.get('/leads/reports/distribution', async (req) => {
     const a = await auth(req);
-    if (!canAll(a) && !canTeam(a)) throw forbidden();
+    if (!has(a, 'leads.reports')) throw forbidden();
     const now = clock();
     const from = dayRe.test(req.query.get('from') ?? '') ? req.query.get('from')! : `${now.toISOString().slice(0, 7)}-01`;
     const to = dayRe.test(req.query.get('to') ?? '') ? req.query.get('to')! : now.toISOString().slice(0, 10);
@@ -472,7 +546,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ سجل التصدير
   r.post('/leads/exports', async (req) => {
     const a = await auth(req);
-    if (!canDistribute(a) && !canTeam(a) && !canAll(a)) throw forbidden('التصدير للمديرين بس');
+    if (!has(a, 'leads.export')) throw forbidden('مش مسموح لك تصدّر');
     const b = obj(req.body);
     const kind = str(b, 'kind', { min: 2, max: 60 })!;
     const rows = num(b, 'rows', { optional: true, min: 0, max: 1_000_000, int: true }) ?? 0;

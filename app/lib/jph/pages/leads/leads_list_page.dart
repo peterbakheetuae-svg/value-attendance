@@ -121,7 +121,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
             Text('${_tabs['all'] ?? _total} عميل${delay > 0 ? ' • $delay متأخر' : ''}', style: TextStyle(fontSize: 14, color: JphUi.sub(isDark))),
             const SizedBox(height: 14),
             Row(children: [
-              if (manager)
+              if (can['export'] == true)
                 Expanded(child: dirBtn(isDark, tr('تصدير إكسيل'), Icons.file_download_outlined, () => _export())),
               if (can['import'] == true)
                 Expanded(
@@ -129,6 +129,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                     if (await importLeads(context, isDark, _meta)) _load();
                   }),
                 ),
+              if (can['create'] == true)
               Expanded(
                 flex: 2,
                 child: dirBtn(isDark, tr('ليد جديد'), Icons.person_add_alt_1_rounded, _meta.isEmpty
