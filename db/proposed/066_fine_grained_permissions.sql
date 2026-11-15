@@ -12,6 +12,8 @@
 --   attendance.view_location                                 ← attendance.read_all OR attendance.read_team
 --   report.export                                            ← everyone (the export had no separate check)
 --   request.create_for_others                                ← request.approve_hr
+--   cash.approve / .reverse / .bank_view / .bank_transfer / .owner_funds  ← cash.office
+--   finance.dashboard_view                                   ← cash.hr_view OR cash.office
 --   data.reset, commission.void_approved                     ← the owner role (was checked by role name)
 -- The broad keys are not touched (other modules still use them).
 
@@ -24,6 +26,12 @@ INSERT INTO permissions (key, description) VALUES
   ('attendance.view_location', 'See employees'' locations (tracking map, location points, check-in place) within scope'),
   ('report.export',            'Download the monthly attendance report / payroll summary as Excel (within scope)'),
   ('request.create_for_others', 'Record a leave / permission for another employee (approved on entry)'),
+  ('cash.approve',             'Approve / reject large expenses and transfer requests, mark expenses reviewed (never own)'),
+  ('cash.reverse',             'Reverse a posted receipt or expense (with a reason, audited)'),
+  ('cash.bank_view',           'See the moves between the office cashbox and the bank'),
+  ('cash.bank_transfer',       'Record a deposit to / withdrawal from the bank'),
+  ('cash.owner_funds',         'Owners'' injections, profit draws and shares'),
+  ('finance.dashboard_view',   'The finance dashboard and its details (within the cashboxes he may see)'),
   ('data.reset',               'Import old data or wipe company data (was the owner by name)'),
   ('commission.void_approved', 'Cancel an approved commission (was the owner by name)')
   ON CONFLICT (key) DO NOTHING;
@@ -37,6 +45,9 @@ INSERT INTO m066 VALUES
   ('attendance.view_location', 'attendance.read_all'), ('attendance.view_location', 'attendance.read_team'),
   ('report.export', '*'),
   ('request.create_for_others', 'request.approve_hr'),
+  ('cash.approve', 'cash.office'), ('cash.reverse', 'cash.office'), ('cash.bank_view', 'cash.office'),
+  ('cash.bank_transfer', 'cash.office'), ('cash.owner_funds', 'cash.office'),
+  ('finance.dashboard_view', 'cash.hr_view'), ('finance.dashboard_view', 'cash.office'),
   ('data.reset', 'owner'), ('commission.void_approved', 'owner');
 
 -- 1. job titles

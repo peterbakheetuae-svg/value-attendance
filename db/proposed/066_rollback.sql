@@ -5,8 +5,8 @@
 -- individually denied «عرض بيانات التواصل» sees contact details again if he holds employee.read_all; someone individually
 -- given «إضافة موظف» without employee.manage loses it. The audit_log rows (066's and later ones) stay (append-only).
 DELETE FROM employee_permissions WHERE perm_key IN ('employee.create','employee.edit','employee.deactivate','employee.reset_password',
-  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','data.reset','commission.void_approved');
+  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','cash.approve','cash.reverse','cash.bank_view','cash.bank_transfer','cash.owner_funds','finance.dashboard_view','data.reset','commission.void_approved');
 DELETE FROM role_permissions WHERE perm_key IN ('employee.create','employee.edit','employee.deactivate','employee.reset_password',
-  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','data.reset','commission.void_approved');
+  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','cash.approve','cash.reverse','cash.bank_view','cash.bank_transfer','cash.owner_funds','finance.dashboard_view','data.reset','commission.void_approved');
 DELETE FROM permissions WHERE key IN ('employee.create','employee.edit','employee.deactivate','employee.reset_password',
-  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','data.reset','commission.void_approved');
+  'employee.view_contact','attendance.view_location','report.export','request.create_for_others','cash.approve','cash.reverse','cash.bank_view','cash.bank_transfer','cash.owner_funds','finance.dashboard_view','data.reset','commission.void_approved');

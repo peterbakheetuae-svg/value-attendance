@@ -102,6 +102,12 @@ export const PERMISSIONS: PermDef[] = [
   P('cash', 'cash.hr_view', 'عرض خزنة الموارد البشرية', 'الرصيد والحركات والمصروفات', { sensitive: true }),
   P('cash', 'cash.hr_operate', 'تشغيل خزنة الموارد البشرية', 'تحصيل ومصروفات وطلبات تحويل', { sensitive: true }),
   P('cash', 'cash.office', 'خزنة المكتب', 'عرضها وتسجيل حركاتها واعتماد التحويلات', { sensitive: true }),
+  P('cash', 'cash.approve', 'اعتماد مصروفات وتحويلات', 'موافقة / رفض المصروفات الكبيرة وطلبات التحويل، وتأكيد المراجعة (مش اللي عمله بنفسه)', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('cash', 'cash.reverse', 'عكس الحركات', 'عكس تحصيل أو مصروف مُسجّل (بسبب، ومتسجل)', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('cash', 'cash.bank_view', 'عرض حركات البنك', 'الإيداعات والسحوبات بين الخزنة والبنك', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('cash', 'cash.bank_transfer', 'تحويل بين الخزنة والبنك', 'تسجيل إيداع في البنك أو سحب منه', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('cash', 'cash.owner_funds', 'ضخ وسحب أموال الملاك', 'ضخ أموال، سحب أرباح، ونسب الملاك', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('finance', 'finance.dashboard_view', 'لوحة المالية', 'لوحة المالية وتفاصيلها (في حدود الخزن اللي يشوفها)', { sensitive: true, splitFrom: ['cash.hr_view', 'cash.office'], since: 66 }),
   P('cash', 'cash.settings', 'إعدادات الخزن', 'حد اعتماد المصروفات والأرصدة الافتتاحية', { sensitive: true }),
   // ---- commissions
   P('commissions', 'commission.read_all', 'عرض كل العمولات', 'كل العمولات المعتمدة واستحقاقات الموظفين', { sensitive: true }),

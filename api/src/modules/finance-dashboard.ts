@@ -3,7 +3,7 @@ import { one } from '../db.ts';
 import { forbidden, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam } from '../http/validate.ts';
-import { authenticate, has } from '../auth/context.ts';
+import { authenticate, has, can } from '../auth/context.ts';
 import { cashSummary, canHrView, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 
@@ -138,7 +138,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
   r.get('/finance/dashboard', async (req) => {
     const a = await authenticate(db, req);
     const hr = canHrView(a), office = canOffice(a);
-    if (!hr && !office) throw forbidden();
+    if ((!hr && !office) || !can(a, 'finance.dashboard_view', ['cash.hr_view', 'cash.office'])) throw forbidden();
     const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
     const t = today();
     const cash = await cashSummary(db, a);
@@ -213,7 +213,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
   r.get('/finance/dashboard/details', async (req) => {
     const a = await authenticate(db, req);
     const hr = canHrView(a), office = canOffice(a);
-    if (!hr && !office) throw forbidden();
+    if ((!hr && !office) || !can(a, 'finance.dashboard_view', ['cash.hr_view', 'cash.office'])) throw forbidden();
     const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
     const key = req.query.get('key') ?? '';
     const boxes = office ? ['hr', 'office'] : ['hr'];

@@ -4,7 +4,7 @@ WITH m(fine, broad) AS (VALUES
   ('employee.create','employee.manage'),('employee.edit','employee.manage'),('employee.deactivate','employee.manage'),
   ('employee.reset_password','employee.manage'),('employee.view_contact','employee.read_all'),
   ('attendance.view_location','attendance.read_all'),('attendance.view_location','attendance.read_team'),
-  ('report.export','*'),('request.create_for_others','request.approve_hr'),('data.reset','owner'),('commission.void_approved','owner'))
+  ('report.export','*'),('request.create_for_others','request.approve_hr'),('cash.approve','cash.office'),('cash.reverse','cash.office'),('cash.bank_view','cash.office'),('cash.bank_transfer','cash.office'),('cash.owner_funds','cash.office'),('finance.dashboard_view','cash.hr_view'),('finance.dashboard_view','cash.office'),('data.reset','owner'),('commission.void_approved','owner'))
 SELECT 'role' AS kind, r.key AS id, r.name_ar AS name, string_agg(DISTINCT m.fine, ', ' ORDER BY m.fine) AS gets
   FROM roles r JOIN m ON m.broad = '*' OR (m.broad = 'owner' AND r.key = 'owner')
     OR EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_key = r.key AND rp.perm_key = m.broad)
