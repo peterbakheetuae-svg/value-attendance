@@ -186,11 +186,11 @@ jobs:
         shell: pwsh
         run: Import-Certificate -FilePath "$env:E\tls.cer" -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
       - run: flutter config --enable-windows-desktop && flutter pub get
-      - name: Build 1.0.A, 1.0.A+1 and a broken 1.0.A+2 (+ installers)
+      - name: Build 1.0.A, 1.0.A+1, a broken 1.0.A+2 and 1.0.A+3 (+ installers)
         run: |
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"; [ -x "$ISCC" ] || { choco install innosetup -y --no-progress >/dev/null; }
           R=build/windows/x64/runner/Release
-          for N in $A $((A+1)) $((A+2)); do
+          for N in $A $((A+1)) $((A+2)) $((A+3)); do
             flutter build windows --release --build-name=1.0.$N --build-number=$N \
               --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS \
               --dart-define=UPDATE_BASE_URL=$E2E_BASE --dart-define=UPDATE_PUBLIC_KEY=$TEST_PUB
@@ -207,7 +207,8 @@ jobs:
           bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" 1.0.$((A+1)) $((A+1)) "$E/m-next-early.json"; sleep 2
           bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" 1.0.$((A+1)) $((A+1)) "$E/m-next.json"; sleep 2
           bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$A.exe"       1.0.$A       $A       "$E/m-downgrade.json"; sleep 2
-          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+2)).exe" 1.0.$((A+2)) $((A+2)) "$E/m-broken.json"
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+2)).exe" 1.0.$((A+2)) $((A+2)) "$E/m-broken.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+3)).exe" 1.0.$((A+3)) $((A+3)) "$E/m-close.json"
           # a corrupted copy of the good installer: same size, one byte changed
           python - "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" "$E/corrupt.exe" <<'PY'
           import sys
@@ -219,7 +220,7 @@ jobs:
         timeout-minutes: 60
         run: |
           $ErrorActionPreference = 'Stop'
-          $A = [int]$env:A; $B = $A + 1; $C = $A + 2
+          $A = [int]$env:A; $B = $A + 1; $C = $A + 2; $D = $A + 3
           $E = $env:E; $served = "$E\served"; $inst = "$E\inst"
           $state = "$env:LOCALAPPDATA\VALUNIVO\updates"; $appDir = "$env:LOCALAPPDATA\Programs\VALUNIVO"; $exe = "$appDir\VALUNIVO.exe"
           $log = "$state\updater-app.log"; $hlog = "$state\updater.log"
@@ -319,6 +320,26 @@ jobs:
           if (-not (Wait-Log "skipping build $C" 90)) { Fail "broken build offered again" }
           Stop-App
           Write-Host "== 5. broken 1.0.$C rolled back to 1.0.$B automatically; not offered again"
+
+          # 6. update waiting when the person closes VALUNIVO normally (window close) → installed on close, not reopened
+          foreach ($f in "$state\result.json", "$state\result-seen.json") { if (Test-Path $f) { Move-Item $f "$state\result-5.json" -Force } }
+          Serve "$E\m-close.json" "$inst\VALUNIVO-Setup-1.0.$D.exe" "VALUNIVO-Setup-1.0.$D.exe"
+          Start-App
+          if (-not (Wait-Log "downloaded and verified .*1\.0\.$D" 120)) { Fail "1.0.$D was not downloaded" }
+          $w = Get-Process VALUNIVO
+          if (-not $w.CloseMainWindow()) { Fail "could not close the window" }   # like the user clicking X (before the 60 s idle restart)
+          if (-not $w.WaitForExit(30000)) { Fail "VALUNIVO did not close" }
+          $r = Wait-Result 'updated_on_close' 300
+          if (-not $r -or $r.result -ne 'updated_on_close' -or $r.to -ne $D) { Fail "update on close did not complete" }
+          if ((Build-Of $exe) -ne $D) { Fail "after close-update VALUNIVO.exe is build $(Build-Of $exe), expected $D" }
+          if (Get-Process VALUNIVO -ErrorAction SilentlyContinue) { Fail "the app was reopened after the person closed it" }
+          Remove-Item "$state\healthy-$D" -ErrorAction SilentlyContinue
+          Start-App
+          for ($i = 0; $i -lt 60 -and -not (Test-Path "$state\healthy-$D"); $i += 2) { Start-Sleep 2 }
+          if (-not (Test-Path "$state\healthy-$D")) { Fail "1.0.$D does not start after the close-update" }
+          if ((Get-Content "$prefsDir\shared_preferences.json" -Raw) -notmatch [regex]::Escape($deviceId)) { Fail "settings / device id lost" }
+          Stop-App
+          Write-Host "== 6. update installed when VALUNIVO was closed; 1.0.$D starts normally; settings kept"
 
           Show-Logs
           Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
