@@ -164,6 +164,7 @@ class _Worker {
     api.token = token;
     final rangBefore = p.getBool('bg_ringed_outside') == true;
     final outside = await _checkOffice(p, pos);
+    if (_done) return; // switched off for this employee: stopped, nothing sent
     // the phone rang just now: tell the server at once (it alerts the managers), not at the next interval
     final rang = outside == true && !rangBefore && p.getBool('bg_ringed_outside') == true;
     _status(outside);
@@ -233,12 +234,28 @@ class _Worker {
       return false;
     }
     if (p.getBool('bg_ringed_outside') == true || await _allowedOut(p)) return true;
+    // «تتبع أثناء العمل» / «حضور وانصراف» switched off since the shift started: no ring, the service stops
+    // (asked at the moment of leaving; with no internet the phone rings on its last known settings)
+    if (!await _stillFollowed(p)) {
+      await finish();
+      return null;
+    }
     await p.setBool('bg_ringed_outside', true);
     try {
       await RingAlert.show(id: 7001, title: 'إنت برّه نطاق المكتب ⚠️',
           body: 'ارجع المكتب، أو اطلب إذن / زيارة من التطبيق.', payload: 'unauthorized_exit_self');
     } catch (_) {}
     return true;
+  }
+
+  Future<bool> _stillFollowed(SharedPreferences p) async {
+    try {
+      final c = await api.get('/tracking/config');
+      await p.setBool('tracking_enabled', c['enabled'] == true);
+      return c['enabled'] == true;
+    } catch (_) {
+      return true;
+    }
   }
 
   /// An approved permission / visit right now (asked from the server, else the last answer kept on the phone).

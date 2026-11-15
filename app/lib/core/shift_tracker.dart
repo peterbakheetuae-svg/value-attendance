@@ -63,6 +63,17 @@ class ShiftTracker {
       return false;
     }
     if (_ringedOutside || await _allowedOut()) return false;
+    // «تتبع أثناء العمل» / «حضور وانصراف» switched off since the shift started: no ring, stop
+    // (asked at the moment of leaving; with no internet the phone rings on its last known settings)
+    try {
+      final c = await _api?.get('/tracking/config');
+      if (c != null && c['enabled'] != true) {
+        final p = await SharedPreferences.getInstance();
+        await p.setBool('tracking_enabled', false);
+        await stop();
+        return false;
+      }
+    } catch (_) {}
     _ringedOutside = true;
     await RingAlert.init();
     await RingAlert.show(id: 7001, title: 'إنت برّه نطاق المكتب ⚠️',
@@ -147,6 +158,7 @@ class ShiftTracker {
 
   Future<void> _send(Position pos) async {
     final rang = await _checkOffice(pos);
+    if (!running) return; // switched off for this employee: stopped, nothing sent
     final now = DateTime.now();
     // a departure the phone just saw goes to the server right away (it alerts the managers), not at the next interval
     if (!rang && _lastSent != null && now.difference(_lastSent!) < Duration(minutes: _intervalMin) - const Duration(seconds: 20)) return;

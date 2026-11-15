@@ -143,3 +143,50 @@ test('no general manager set: the «المدير» role holders hear it instead'
   assert.ok(n.includes(ao), 'the administrative officer');
   assert.equal(new Set(n).size, n.length, 'one notification per person');
 });
+
+test('pre-release checks: settings persist across sign-out / sign-in; only authorized roles change them', async () => {
+  // E3: «حضور وانصراف» off, «تتبع أثناء العمل» on; SOLO: both off (set above). Sign out and in again.
+  for (const [code, key] of [['E3', 'e3'], ['SOLO', 'solo']] as const) {
+    assert.equal((await h.call(c.t[key], 'POST', '/auth/logout', {})).status < 300, true);
+    c.t[key] = await h.login(code, PW);
+  }
+  const e3 = (await h.call(c.t.owner, 'GET', `/employees/${c.ids.e3}`)).body.employee;
+  const solo = (await h.call(c.t.owner, 'GET', `/employees/${c.ids.solo}`)).body.employee;
+  assert.deepEqual([e3.work_tracking, e3.attendance_exempt], [true, true]);
+  assert.deepEqual([solo.work_tracking, solo.attendance_exempt], [false, true]);
+  assert.equal((await h.call(c.t.e3, 'GET', '/tracking/config')).body.reason, 'no_attendance', 'still applied after signing in again');
+  // nobody without the permissions changes them — himself, a colleague, a sales manager, the accountant
+  for (const t of [c.t.e3, c.t.e1, c.t.sm1, c.t.acc]) {
+    const before = (await h.db.query(`SELECT legacy_fields, attendance_exempt FROM employees WHERE id = $1`, [c.ids.e3])).rows[0];
+    const r1 = await h.call(t, 'PATCH', `/employees/${c.ids.e3}`, { workTracking: false });
+    const r2 = await h.call(t, 'PATCH', `/employees/${c.ids.e3}`, { attendanceExempt: false });
+    const after = (await h.db.query(`SELECT legacy_fields, attendance_exempt FROM employees WHERE id = $1`, [c.ids.e3])).rows[0];
+    assert.deepEqual(after, before, `unchanged (statuses ${r1.status}/${r2.status})`);
+    assert.ok(r1.status >= 400 && r2.status >= 400);
+  }
+});
+
+test('pre-release checks: an existing employee with legacy fields but no workTracking key is followed', async () => {
+  await h.db.query(`UPDATE employees SET legacy_fields = '{"nationality":"مصري","managedBy":"x"}'::jsonb WHERE id = $1`, [c.ids.e2]);
+  assert.equal((await h.call(c.t.owner, 'GET', `/employees/${c.ids.e2}`)).body.employee.work_tracking, true);
+  assert.equal((await h.call(c.t.e2, 'GET', '/tracking/config')).body.enabled, true);
+});
+
+test('pre-release checks: the new audit records carry no coordinates; the phone ring is logged once per event', async () => {
+  const rows = (await h.db.query(`SELECT action, after FROM audit_log
+    WHERE action IN ('tracking.alert_dispatch', 'tracking.authorized_exit', 'tracking.local_alarm')`)).rows;
+  assert.ok(rows.length >= 3);
+  for (const r of rows) {
+    const j = JSON.stringify(r.after);
+    assert.ok(!/"lat"|"lng"|"acc"/.test(j), `${r.action} has no coordinates`);
+  }
+  // the first exit was sent with localAlarm: recorded in its own event, not as a separate local_alarm
+  assert.equal(rows.filter((r) => r.action === 'tracking.local_alarm').length, 0);
+  // a ring while the server already knew him outside → one local_alarm record
+  at('2026-03-10T11:25:00Z');
+  await h.call(c.t.e2, 'POST', '/tracking/ping', { ...AWAY, localAlarm: true });
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'tracking.local_alarm' AND actor_id = $1`, [c.ids.e2])).rows[0].n, 1);
+  // still no second alert to anyone for E2's single exit
+  const n = (await h.db.query(`SELECT recipient_id, count(*)::int AS n FROM notifications WHERE type IN ('unauthorized_exit', 'unauthorized_exit_self') AND entity_id IS NOT DISTINCT FROM $1 GROUP BY 1 HAVING count(*) > 1`, [c.ids.e2])).rows;
+  assert.equal(n.length, 0, 'no duplicates');
+});

@@ -175,6 +175,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const deviceKey: string = dv?.key ?? '';
     const deviceLabel: string | null = dv?.label ?? null;
     const onPhone = (dv?.phones ?? 0) > 1 && deviceLabel ? ` (من جهاز: ${deviceLabel})` : '';
+    let departure = false; // this ping opened a new «left the office» event (its record already says localAlarm)
     await db.tx(async (q) => {
       const prev = await one(q, `SELECT * FROM tracking_state WHERE employee_id = $1 AND device_key = $2 FOR UPDATE`, [a.id, deviceKey]);
       if (offline && prev && new Date(prev.last_ping_at) > now) {
@@ -192,6 +193,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
       const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       if (inside === false && wasInside !== false) {
         awaySince = now;
+        departure = true;
         // stages (location-free): departure detected → eligibility verified (above) → permission checked
         const stages = { departure: true, eligible: true, permission: authorized ? 'approved' : outing ? 'expired' : 'none', localAlarm, device: deviceLabel };
         if (authorized) {
@@ -239,8 +241,8 @@ export const trackingModule: Module = (r, { db, clock }) => {
       await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline, device_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [a.id, now, lat, lng, acc, inside, offline, deviceKey]);
       await q.query(`DELETE FROM tracking_pings WHERE at < $1::timestamptz - interval '14 days'`, [now]);
     });
-    // a ring the phone did by itself while it was already known outside (e.g. its own check before the ping)
-    if (localAlarm) await audit(db, a.id, 'tracking.local_alarm', 'employee', a.id, undefined, { at: now, device: deviceLabel, inside });
+    // a ring the phone did by itself that did not open a new event here (e.g. the server already knew him outside)
+    if (localAlarm && !departure) await audit(db, a.id, 'tracking.local_alarm', 'employee', a.id, undefined, { at: now, device: deviceLabel, inside });
     await sweep(db, clock());
     return ok({ tracking: true, inside, intervalMinutes: cfg.tracking_interval_minutes });
   });
