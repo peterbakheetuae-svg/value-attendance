@@ -21,7 +21,9 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: '3.5'
 jobs:
   build:
-    runs-on: windows-latest
+    # Visual Studio 2022 (the toolchain Flutter 3.38 supports); windows-latest has VS 2026, whose MSVC 14.51
+    # rejects the C++/WinRT coroutines used by audioplayers_windows and flutter_local_notifications_windows
+    runs-on: windows-2022
     defaults: { run: { working-directory: app, shell: bash } }
     outputs:
       version: ${{ steps.v.outputs.version }}

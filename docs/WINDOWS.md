@@ -4,7 +4,7 @@ A native Flutter Windows build of the same `app/` source as Web and Android: sam
 API (`API_BASE_URL`), roles, permissions and database. No WebView, no browser, no Electron.
 
 ## Build
-`.github/workflows/windows.yml` (runs on `windows-latest`, Flutter 3.38.10 — same as `app.yml`):
+`.github/workflows/windows.yml` (runs on `windows-2022` / Visual Studio 2022, Flutter 3.38.10 — same as `app.yml`):
 
 | Branch | Builds | Publishes |
 |---|---|---|
