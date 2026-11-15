@@ -21,7 +21,7 @@ test('/me: location for attendance readers only, export for everyone (as before)
 });
 
 test('every attendance read is scoped on the server (direct API access)', async () => {
-  for (const [p, ok] of [[`/attendance?employeeId=${c.ids.e1}`, 200], [`/attendance/range?employeeId=${c.ids.e1}&from=2026-03-01&to=2026-03-31`, 200],
+  for (const [p, ok] of [[`/attendance?employeeId=${c.ids.e1}&month=2026-03`, 200], [`/attendance/range?employeeId=${c.ids.e1}&from=2026-03-01&to=2026-03-31`, 200],
     [`/tracking/employee/${c.ids.e1}`, 200]] as const) {
     assert.equal((await h.call(c.t.sm1, 'GET', p)).status, ok, `team manager: ${p}`);
     assert.equal((await h.call(c.t.sm2, 'GET', p)).status, 404, `other team: ${p}`);
