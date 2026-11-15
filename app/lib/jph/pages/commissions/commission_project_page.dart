@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
-import '../../services/jph_bridge.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'project_form_page.dart';
@@ -210,7 +209,8 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
     });
   }
 
-  bool get _canVoid => JphBridge.session.isOwner;
+  /// «إلغاء عمولة معتمدة» (the server checks the same permission)
+  bool get _canVoid => ApiService.can('commission.void_approved');
 
   Widget _table(bool isDark, List<Map<String, dynamic>> units) {
     final company = units.any((u) => u['companyAmount'] != null);
