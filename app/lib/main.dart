@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'core/app_updater.dart';
 import 'core/push.dart';
 import 'core/windows_camera.dart';
+import 'core/windows_updater.dart';
 import 'core/permissions_gate.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -102,7 +103,7 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     // in-app alerts with sound (polls while signed in)
     AlertCenter.instance.start(navigatorKey);
     // automatic update of the Android / Windows app
-    AppUpdater.instance.start(navigatorKey);
+    AppUpdater.instance.start(navigatorKey, signedIn: () => JphBridge.session.signedIn);
     // Windows app: the PC's webcam for «صوّر» / check-in selfie (no-op on Android and web)
     WindowsCamera.register(navigatorKey);
   }
@@ -147,7 +148,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
           themeMode: appController.themeMode,
           navigatorKey: navigatorKey,
           // Android: location / over other apps / battery first; never opens without the location permission
-          builder: (context, child) => PermissionsGate(child: child ?? const SizedBox()),
+          // Windows app: + the small update status chip (nothing on Android / web)
+          builder: (context, child) => WindowsUpdateOverlay(child: PermissionsGate(child: child ?? const SizedBox())),
           home: _home(),
         );
       },

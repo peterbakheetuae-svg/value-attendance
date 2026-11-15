@@ -3,6 +3,7 @@
 ;   iscc /DAppVersion=1.0.N /DSourceDir=<Release folder> /DOutputDir=<out> app\windows_installer\valunivo.iss
 ; Installs the real Flutter Windows app (VALUNIVO.exe + its DLLs + data\) — not a web shortcut.
 ; Per-user install (no admin prompt), so in-app updates can run the next installer silently.
+; Contents: VALUNIVO.exe, VALUNIVO-Updater.exe (update helper), flutter_windows.dll, plugin DLLs, VC++ runtime, data\.
 
 #ifndef AppVersion
   #define AppVersion "1.0.0"
@@ -80,5 +81,4 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; AppUserModelID: "
 [Run]
 ; normal install: offer to open the app at the end
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
-; in-app update (silent): open the updated app again
-Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
+; in-app updates are run by VALUNIVO-Updater.exe, which reopens the app itself and checks it starts

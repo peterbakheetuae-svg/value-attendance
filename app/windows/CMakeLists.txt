@@ -106,3 +106,6 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# VALUNIVO-Updater.exe (applies verified updates after the app closes) — installed next to VALUNIVO.exe
+add_subdirectory("updater")
