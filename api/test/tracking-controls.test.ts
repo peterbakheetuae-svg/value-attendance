@@ -73,7 +73,7 @@ test('unauthorized exit: the employee, his general manager and the administrativ
   assert.equal(await count(c.ids.e1, 'unauthorized_exit_self'), 1, 'the employee');
   assert.equal(await count(gm, 'unauthorized_exit'), 1, 'his general manager');
   assert.equal(await count(ao, 'unauthorized_exit'), 1, 'the administrative officer');
-  assert.equal(await count(gm2, 'unauthorized_exit'), 0, 'another manager is not his general manager');
+  assert.equal(await count(c.ids.sm2, 'unauthorized_exit'), 0, 'another team\'s sales manager is not told');
   assert.equal(await count(c.ids.e1, 'unauthorized_exit'), 0, 'not sent to himself as a manager alert');
   assert.equal(await count(c.ids.e3, 'unauthorized_exit'), 0, 'colleagues never see it');
   // still outside: no new event, no repeat
