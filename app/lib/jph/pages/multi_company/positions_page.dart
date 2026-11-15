@@ -120,7 +120,7 @@ class _PositionsPageState extends State<PositionsPage> {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: const Text('الوظائف والصلاحيات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          title: const Text('المسميات الوظيفية', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).pop()),
           actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
         ),
@@ -141,7 +141,7 @@ class _PositionsPageState extends State<PositionsPage> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                       children: [
-                        Text('أي وظيفة جديدة بتظهر هنا تلقائياً. الوظيفة الجديدة بتبدأ بنفس صلاحيات الدور اللي بتتبعه بالظبط، وبعدين المالك يقدر يزوّد أو يقلّل.',
+                        Text('أي وظيفة جديدة بتظهر هنا تلقائياً وبتبدأ بنفس صلاحيات الدور اللي بتتبعه بالظبط. تعديل الصلاحيات نفسها من «الإعدادات ← الصلاحيات».',
                             style: TextStyle(fontSize: 12, color: AppColors.onSurfaceVariantLight)),
                         const SizedBox(height: 12),
                         ..._roles.map(_card),
@@ -157,7 +157,6 @@ class _PositionsPageState extends State<PositionsPage> {
     final perms = ((r['permissions'] as List?) ?? const []).map((e) => '$e').toSet();
     final active = r['active'] != false;
     final builtin = r['builtin'] == true;
-    final locked = r['key'] == 'owner' || r['key'] == 'sales_employee';
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: GlassCard(
@@ -200,15 +199,8 @@ class _PositionsPageState extends State<PositionsPage> {
                             contentPadding: EdgeInsets.zero,
                             value: perms.contains(k),
                             title: Text(_permLabels[k]?[1] ?? k),
-                            onChanged: !_canEditPerms || locked
-                                ? null
-                                : (v) async {
-                                    final next = {...perms};
-                                    v == true ? next.add(k) : next.remove(k);
-                                    final res = await ApiService.post({'action': 'set_position_permissions', 'key': r['key'], 'permissions': next.toList()});
-                                    _snack(res);
-                                    _load();
-                                  },
+                            // read-only here: permissions are changed on «الإعدادات ← الصلاحيات» (one place)
+                            onChanged: null,
                           )),
                     ]),
             ],

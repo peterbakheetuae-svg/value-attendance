@@ -35,7 +35,7 @@ class CustodyReceiptPage extends StatelessWidget {
 
   String get title => device == 'laptop' ? 'استلام عهدة — كمبيوتر محمول' : 'استلام عهدة — موبايل';
 
-  static bool get canUse => ApiService.can('documents.manage') || ApiService.can('employee.manage');
+  static bool get canUse => ApiService.can('documents.manage') || ApiService.can('employee.edit');
 
   @override
   Widget build(BuildContext context) {

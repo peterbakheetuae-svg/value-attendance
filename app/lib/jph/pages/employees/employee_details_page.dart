@@ -476,7 +476,11 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
         final bool canEdit = widget.currentUserRole == 'المالك' &&
             widget.currentUserId == _employeeData['uid'];
         final bool isViewingOwner = _employeeData['role'] == 'المالك';
-        final bool canToggleEdit = _isEditing || canEdit || !isViewingOwner;
+        // every button follows its own permission (the server enforces the same ones)
+        final bool isSelf = '${_employeeData['id'] ?? ''}' == JphBridge.myId;
+        final bool canToggleEdit = _isEditing || (ApiService.can('employee.edit') && (canEdit || !isViewingOwner));
+        final bool canDeactivate = ApiService.can('employee.deactivate') && !isViewingOwner && !isSelf;
+        final bool canResetPassword = ApiService.can('employee.reset_password') && !isViewingOwner && !isSelf;
 
         return AppBackground(
           child: Directionality(
@@ -837,7 +841,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Ar.amber.shade700, fontWeight: FontWeight.w600)),
                               ),
-                            if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
+                            if (ApiService.can('employee.edit') && _employeeData['roleKey'] != 'owner')
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: Glass.tile(isDark, r: 12),
@@ -865,16 +869,16 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                     ),
                                 ]),
                               ),
-                            if (_deviceLock && _employeeData['roleKey'] != 'owner' && (ApiService.can('employee.manage') || ApiService.can('devices.approve')
+                            if (_deviceLock && _employeeData['roleKey'] != 'owner' && (ApiService.can('employee.edit') || ApiService.can('devices.approve')
                                 || '${_employeeData['generalManagerId'] ?? ''}' == JphBridge.myId))
                               EmployeeDevicesBox(
                                 key: ValueKey('devices-${_employeeData['deviceBound']}'),
                                 employeeId: '${_employeeData['id'] ?? ''}',
                                 isDark: isDark,
-                                canManage: ApiService.can('employee.manage'),
+                                canManage: ApiService.can('employee.edit'),
                               ),
                             // «تتبع أثناء العمل»: the office-exit alarm and the location follow-up during the shift (web + app)
-                            if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
+                            if (ApiService.can('employee.edit') && _employeeData['roleKey'] != 'owner')
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: Glass.tile(isDark, r: 12),
@@ -905,7 +909,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Ar.amber : Ar.green),
                                 ),
                               ),
-                            if (ApiService.can('employee.manage') && !_noAttendance)
+                            if (ApiService.can('employee.edit') && !_noAttendance)
                               Container(
                                 margin: const EdgeInsets.only(bottom: 12),
                                 decoration: Glass.tile(isDark, r: 12),
@@ -1101,7 +1105,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   ),
                                 ],
                               )
-                            else if (canToggleEdit) // إظهار زر تغيير الحالة فقط للمستخدمين المسموح لهم
+                            else if (canDeactivate) // «إيقاف / تفعيل موظف»
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
@@ -1123,7 +1127,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                   ),
                                 ),
                               ),
-                            if (!_isEditing && canToggleEdit) ...[
+                            if (!_isEditing && canResetPassword) ...[
                               const SizedBox(height: 12),
                               SizedBox(
                                 width: double.infinity,

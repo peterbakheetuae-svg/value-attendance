@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, forbidden, notFound } from '../http/errors.ts';
 import { isUuid } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, can, has, type Actor } from '../auth/context.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
 
 /**
@@ -34,7 +34,7 @@ export const devicesModule: Module = (r, { db }) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
     const approver = await canApprove(db, a, req.params.id);
-    if (a.id !== req.params.id && !approver && !has(a, 'employee.manage')) throw notFound();
+    if (a.id !== req.params.id && !approver && !can(a, 'employee.edit', 'employee.manage')) throw notFound();
     const rows = await db.query(`
       SELECT d.*, x.full_name AS decided_by_name FROM employee_devices d LEFT JOIN employees x ON x.id = d.decided_by
        WHERE d.employee_id = $1
@@ -84,7 +84,7 @@ export const devicesModule: Module = (r, { db }) => {
     const a = await authenticate(db, req);
     const { id, did } = req.params;
     if (!isUuid(id) || !isUuid(did)) throw notFound();
-    if (!await canApprove(db, a, id) && !has(a, 'employee.manage')) throw forbidden();
+    if (!await canApprove(db, a, id) && !can(a, 'employee.edit', 'employee.manage')) throw forbidden();
     await db.tx(async (q) => {
       const d = await one(q, `DELETE FROM employee_devices WHERE id = $1 AND employee_id = $2 RETURNING *`, [did, id]);
       if (!d) throw notFound();

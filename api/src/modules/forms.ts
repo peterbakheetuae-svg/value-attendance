@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, str, isUuid } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, can, has, type Actor } from '../auth/context.ts';
 
 /**
  * استمارات — pilot: استمارة استلام عهدة (mobile phone custody receipt).
@@ -25,7 +25,7 @@ type Device = keyof typeof DEVICES;
 const deviceOf = (v: unknown): Device => (v === 'laptop' ? 'laptop' : 'mobile');
 const ANY_PREFIX = `(d.file_name LIKE '${FILE_PREFIX}%' OR d.file_name LIKE 'laptop-receipt-%')`;
 
-const canManage = (a: Actor) => has(a, 'documents.manage') || has(a, 'employee.manage');
+const canManage = (a: Actor) => has(a, 'documents.manage') || can(a, 'employee.edit', 'employee.manage');
 const canReadAll = (a: Actor) => canManage(a) || has(a, 'documents.read') || has(a, 'employee.read_all');
 /** HR / المدير / the owner may delete an earlier form. */
 const canDelete = (a: Actor) => has(a, 'forms.delete');

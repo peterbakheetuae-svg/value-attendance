@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'device_id.dart';
@@ -19,7 +20,16 @@ class Session extends ChangeNotifier {
     api.onUnauthorized = () {
       if (api.token != null) _clear();
     };
+    // the server refused something: re-read the permissions (at most once a minute) so the screens follow a change
+    // an administrator made — the server enforces the new permissions from the very next request anyway
+    api.onForbidden = () {
+      final now = DateTime.now();
+      if (api.token == null || (_permsReadAt != null && now.difference(_permsReadAt!) < const Duration(minutes: 1))) return;
+      _permsReadAt = now;
+      refreshMe().catchError((_) {});
+    };
   }
+  DateTime? _permsReadAt;
 
   bool get signedIn => api.token != null && me != null;
   String get id => me?['id']?.toString() ?? '';
@@ -41,7 +51,13 @@ class Session extends ChangeNotifier {
   bool get configuresKpi => has('kpi.config');
   bool get isAdmin => has('org.manage') || has('attendance.config') || has('settings.manage') || has('roles.manage');
 
+  bool _watching = false;
   Future<void> restore() async {
+    // coming back to the app re-reads the permissions (an administrator may have changed them meanwhile)
+    if (!_watching) {
+      _watching = true;
+      WidgetsBinding.instance.addObserver(_ResumeRefresh(this));
+    }
     try {
       final p = await SharedPreferences.getInstance();
       final tok = p.getString('token');
@@ -117,5 +133,19 @@ class Session extends ChangeNotifier {
       await p.remove('me_cache');
     } catch (_) {}
     notifyListeners();
+  }
+}
+
+class _ResumeRefresh with WidgetsBindingObserver {
+  final Session s;
+  DateTime? _at;
+  _ResumeRefresh(this.s);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || s.api.token == null) return;
+    final now = DateTime.now();
+    if (_at != null && now.difference(_at!) < const Duration(minutes: 2)) return;
+    _at = now;
+    s.refreshMe().catchError((_) {});
   }
 }

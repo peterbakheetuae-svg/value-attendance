@@ -8,7 +8,7 @@ import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
 import { deviceApprovers } from './devices.ts';
 import { notify } from './notify.ts';
-import { authenticate, audit, SESSION_TTL_HOURS } from '../auth/context.ts';
+import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
 
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
@@ -258,6 +258,6 @@ export const authModule: Module = (r, { db }) => {
         LEFT JOIN employees m ON m.id = e.sales_manager_id
        WHERE e.id = $1`, [a.id]);
     const s = await one(db, `SELECT company_name_ar, company_name_en, gps_required, currency, allow_pin, device_binding, break_minutes FROM company_settings`);
-    return ok({ employee: e, permissions: [...a.perms].sort(), company: s });
+    return ok({ employee: e, permissions: effectivePermissions(a), company: s });
   });
 };

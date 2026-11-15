@@ -302,7 +302,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                               ),
                             ),
                           ),
-                          // زر إضافة موظف جديد بدلاً من زر التحديث
+                          // زر إضافة موظف جديد — «إضافة موظف»
+                          if (ApiService.can('employee.create'))
                           IconButton(
                             icon: Icon(
                               Icons.person_add,

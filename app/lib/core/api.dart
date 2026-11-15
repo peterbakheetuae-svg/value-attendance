@@ -30,6 +30,8 @@ class ApiClient {
   final http.Client _http;
   String? token;
   void Function()? onUnauthorized;
+  /// a 403: the permissions this app holds may be out of date (changed by an administrator) — re-read them
+  void Function()? onForbidden;
 
   /// The address currently in use (switches to a mirror when the first one is unreachable).
   String get baseUrl => _bases[_active];
@@ -279,6 +281,7 @@ class ApiClient {
     if (res.statusCode >= 400) {
       final e = _error(res);
       if (res.statusCode == 401) onUnauthorized?.call();
+      if (res.statusCode == 403 && !e.mustChangePassword) onForbidden?.call();
       throw e;
     }
     if (res.body.isEmpty) return {};

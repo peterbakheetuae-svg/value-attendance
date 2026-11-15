@@ -3,7 +3,7 @@ import { mailEnabled, passwordResetMail, sendMail } from '../lib/mail.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, has, readableIds, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, can, has, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
@@ -173,7 +173,10 @@ export const employeesModule: Module = (r, { db, clock }) => {
     // Team-scoped readers get a reduced card, never contact/emergency/notes of others
     const full = has(a, 'employee.read_all');
     const canSal = has(a, 'employee.salary_read');
-    const out = rows.rows.map((e) => scrubSalary(full || e.id === a.id ? e : teamCard(e), canSal || e.id === a.id));
+    const out = rows.rows.map((e) => {
+      const card = scrubSalary(full || e.id === a.id ? e : teamCard(e), canSal || e.id === a.id);
+      return canSeeContact(a, e.id) ? card : scrubContact(card);
+    });
     if (has(a, 'employee.salary_read') && out.length) {
       const sal = await db.query(`SELECT employee_id, base_salary FROM employee_salaries WHERE employee_id = ANY($1::uuid[])`, [out.map((e: any) => e.id)]);
       const by = new Map(sal.rows.map((x) => [x.employee_id, x.base_salary]));
@@ -188,7 +191,8 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const scope = await assertCanRead(db, a, req.params.id, 'employee');
     const e = await one(db, `SELECT ${PROFILE_COLS} ${PROFILE_FROM} WHERE e.id = $1`, [req.params.id]);
     if (!e) throw notFound();
-    const out: any = scrubSalary(scope === 'team' ? teamCard(e) : e, has(a, 'employee.salary_read') || e.id === a.id);
+    let out: any = scrubSalary(scope === 'team' ? teamCard(e) : e, has(a, 'employee.salary_read') || e.id === a.id);
+    if (!canSeeContact(a, e.id)) out = scrubContact(out);
     if (has(a, 'employee.salary_read')) {
       out.salary = (await one(db, `SELECT base_salary, currency, updated_at FROM employee_salaries WHERE employee_id = $1`, [e.id])) ?? null;
     }
@@ -197,7 +201,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
 
   r.post('/employees', async (req) => {
     const a = await authenticate(db, req);
-    requirePerm(a, 'employee.manage');
+    requireCan(a, 'employee.create', 'employee.manage');
     const b = obj(req.body);
     const pos = b.position !== undefined && b.position !== null && b.position !== ''
       ? await resolvePosition(db, b.position) : { role: oneOf(b, 'role', ROLES)!, positionKey: null, nameAr: '' };
@@ -287,7 +291,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     const isSelf = req.params.id === a.id;
-    if (!has(a, 'employee.manage')) {
+    if (!can(a, 'employee.edit', 'employee.manage')) {
       // self-service: contact fields only
       if (!isSelf) throw notFound('Employee not found');
       const allowed = new Set(['phone', 'email', 'address', 'emergencyContactName', 'emergencyContactPhone']);
@@ -328,7 +332,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       lfOut = lf;
     }
     if (opt('workTracking')) {
-      if (!has(a, 'employee.manage')) throw forbidden('You cannot change the work tracking');
+      if (!can(a, 'employee.edit', 'employee.manage')) throw forbidden('You cannot change the work tracking');
       lfOut = { ...((lfOut ?? before.legacy_fields ?? {}) as Record<string, unknown>), workTracking: bool(b, 'workTracking', false) };
     }
     if (lfOut) put('legacy_fields', JSON.stringify(lfOut));
@@ -352,12 +356,12 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const hours = workHours(b);
     if (hours) { put('work_start', hours.start); put('work_end', hours.end); }
     if (opt('selfieRequired')) {
-      if (!has(a, 'employee.manage')) throw forbidden('You cannot change this');
+      if (!can(a, 'employee.edit', 'employee.manage')) throw forbidden('You cannot change this');
       put('selfie_required', bool(b, 'selfieRequired', false));
     }
     let lockTurnedOn = false;
     if (opt('deviceLock')) {
-      if (!has(a, 'employee.manage')) throw forbidden('You cannot change the phone lock');
+      if (!can(a, 'employee.edit', 'employee.manage')) throw forbidden('You cannot change the phone lock');
       const on = bool(b, 'deviceLock', false)!;
       if (on && before.role_key === 'owner') throw invalid('The owner account is never locked to one phone', { field: 'deviceLock' });
       lockTurnedOn = on && !before.device_lock;
@@ -389,7 +393,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
 
   r.post('/employees/:id/status', async (req) => {
     const a = await authenticate(db, req);
-    requirePerm(a, 'employee.manage');
+    requireCan(a, 'employee.deactivate', 'employee.manage');
     if (!isUuid(req.params.id)) throw notFound();
     const status = oneOf(obj(req.body), 'status', ['active', 'inactive'] as const)!;
     if (req.params.id === a.id) throw forbidden('You cannot change your own account status');
@@ -407,7 +411,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
 
   r.post('/employees/:id/reset-password', async (req) => {
     const a = await authenticate(db, req);
-    requirePerm(a, 'employee.manage');
+    requireCan(a, 'employee.reset_password', 'employee.manage');
     if (!isUuid(req.params.id) || req.params.id === a.id) throw forbidden('Use change password for your own account');
     const e = await one(db, `SELECT id, role_key, email, full_name, code FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
@@ -437,7 +441,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
 
   r.post('/employees/:id/unbind-device', async (req) => {
     const a = await authenticate(db, req);
-    requirePerm(a, 'employee.manage');
+    requireCan(a, 'employee.edit', 'employee.manage');
     if (!isUuid(req.params.id)) throw notFound();
     const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
@@ -487,7 +491,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
   r.put('/employees/:id/photo', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    if (req.params.id !== a.id && !has(a, 'employee.manage')) throw forbidden();
+    if (req.params.id !== a.id && !can(a, 'employee.edit', 'employee.manage')) throw forbidden();
     const b = obj(req.body);
     const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
     const buf = decodeBase64(b.data, 'data');
@@ -511,7 +515,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
   // Required employee documents (acknowledgment PDF, job description PDF, national-ID image) + free attachments.
   // Private: served only through the authenticated /documents/:id endpoint, never through public URLs.
   const canReadDocs = (a: Actor, employeeId: string) => employeeId === a.id || has(a, 'documents.read') || has(a, 'employee.read_all');
-  const canManageDocs = (a: Actor) => has(a, 'documents.manage') || has(a, 'employee.manage');
+  const canManageDocs = (a: Actor) => has(a, 'documents.manage') || can(a, 'employee.edit', 'employee.manage');
 
   r.get('/employees/:id/documents', async (req) => {
     const a = await authenticate(db, req);
@@ -577,6 +581,21 @@ export const employeesModule: Module = (r, { db, clock }) => {
     return { binary: d.content, contentType: d.mime, fileName: d.file_name };
   });
 };
+
+/** contact / identity details of another employee: only with «عرض بيانات التواصل» (before migration 066: employee.read_all) */
+const CONTACT_COLS = ['phone', 'email', 'address', 'emergency_contact_name', 'emergency_contact_phone'];
+const CONTACT_LEGACY = ['nationalIdNo', 'birthDate'];
+export function scrubContact<T extends Record<string, any>>(e: T): T {
+  const out: any = { ...e };
+  for (const k of CONTACT_COLS) if (k in out) out[k] = null;
+  if (out.legacy_fields && typeof out.legacy_fields === 'object') {
+    const lf = { ...out.legacy_fields };
+    for (const k of CONTACT_LEGACY) delete lf[k];
+    out.legacy_fields = lf;
+  }
+  return out;
+}
+const canSeeContact = (a: Actor, id: string) => id === a.id || can(a, 'employee.view_contact', 'employee.read_all');
 
 function teamCard(e: any) {
   const { id, code, full_name, job_title, department_id, department_name, team_id, team_name,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'permissions_page.dart';
 import '../../../core/app_updater.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../../forms/custody_receipt_page.dart';
@@ -768,8 +769,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   List<(String, IconData, Widget Function())> _companyItems() => [
         if (ApiService.can('settings.manage')) ('معلومات الشركة', Icons.business, () => const CompanyInfoPage()),
+        if (PermissionsPage.canOpen) ('الصلاحيات', Icons.admin_panel_settings_rounded, () => const PermissionsPage()),
         if (ApiService.can('positions.manage') || ApiService.can('roles.manage'))
-          ('الوظائف والصلاحيات', Icons.admin_panel_settings_outlined, () => const PositionsPage()),
+          ('المسميات الوظيفية', Icons.work_outline_rounded, () => const PositionsPage()),
         if (ApiService.can('settings.manage')) ('خصم التأخير', Icons.timer_off_outlined, () => const LateRulesPage()),
         if (ApiService.can('settings.manage') || ApiService.can('attendance.config'))
           ('لوجو الشركة', Icons.verified_rounded, () => const CompanyLogoPage()),

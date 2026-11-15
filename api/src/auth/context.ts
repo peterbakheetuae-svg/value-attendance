@@ -3,7 +3,7 @@ import { one } from '../db.ts';
 import { AppError, forbidden, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { sha256 } from './password.ts';
-import { isRegistered } from '../lib/permission-registry.ts';
+import { PERMISSIONS, isRegistered } from '../lib/permission-registry.ts';
 
 export interface Actor {
   id: string;
@@ -87,6 +87,28 @@ export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
  */
 export function can(a: Actor, fine: string, broad: string): boolean {
   return a.known?.has(fine) ? has(a, fine) : has(a, broad);
+}
+
+/**
+ * A permission that replaces a check on the owner's role name (migration 066: data.reset, commission.void_approved).
+ * Once the key exists only the permission counts; until then the previous rule (the owner) applies unchanged.
+ */
+export function canOwnerOnly(a: Actor, key: string): boolean {
+  return a.known?.has(key) ? has(a, key) : (a.role === 'owner' && !a.settled);
+}
+
+/**
+ * What the app is told (GET /me): the permissions in force, with every fine-grained key resolved the way the server
+ * resolves it — so the app asks only for the fine keys, before and after migration 066 alike.
+ */
+export function effectivePermissions(a: Actor): string[] {
+  const out = new Set(a.perms);
+  if (a.settled) return [];
+  for (const p of PERMISSIONS) {
+    if (a.known?.has(p.key)) continue;
+    if (p.splitFrom ? has(a, p.splitFrom) : (p.since && a.role === 'owner')) out.add(p.key);
+  }
+  return [...out].sort();
 }
 
 export function requirePerm(a: Actor, ...anyOf: string[]) {
