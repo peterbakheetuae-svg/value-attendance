@@ -1,7 +1,7 @@
 import 'side_sheet.dart';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../core/platform_info.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -58,7 +58,7 @@ class AppMenu {
   static String get role => AppNav.role ?? JphBridge.session.role;
 
   /// the website on a computer: a side bar instead of the bottom bar
-  static bool wide(BuildContext context) => kIsWeb && MediaQueryData.fromView(View.of(context)).size.width >= 1100;
+  static bool wide(BuildContext context) => PlatformInfo.isComputer && MediaQueryData.fromView(View.of(context)).size.width >= 1100;
 
   // ------------------------------------------------------------------ the lists
   static List<MenuEntry> financeItems() => [

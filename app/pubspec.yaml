@@ -1,5 +1,5 @@
 name: jph_real_estate_hr
-description: Value Attendance — HR attendance & sales-team management (Web + Android).
+description: Value Attendance — HR attendance & sales-team management (Web + Android + Windows).
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -44,9 +44,19 @@ dependencies:
   open_filex: ^4.6.0
   # reading .xlsx for the leads import (already pulled in by pdf)
   archive: ^4.0.10
+  # Windows desktop app (VALUNIVO.exe) — Windows-only additions; Android / web builds do not use them:
+  # the PC's webcam for «صوّر» / check-in selfie (camera does not include Windows by itself)
+  camera_windows: ^0.2.6
+  # hooks that webcam into ImagePicker's camera source (already pulled in by image_picker)
+  image_picker_platform_interface: ^2.11.1
+  # SHA-256 check of a downloaded Windows update before it runs (already pulled in by other packages)
+  crypto: ^3.0.6
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  # Windows CI smoke test (integration_test/) — test-only, never part of any app build
+  integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/app_updater.dart';
 import 'core/push.dart';
+import 'core/windows_camera.dart';
 import 'core/permissions_gate.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -100,8 +101,10 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     JphBridge.session.addListener(_onSession);
     // in-app alerts with sound (polls while signed in)
     AlertCenter.instance.start(navigatorKey);
-    // automatic update of the Android app (newest GitHub release)
+    // automatic update of the Android / Windows app
     AppUpdater.instance.start(navigatorKey);
+    // Windows app: the PC's webcam for «صوّر» / check-in selfie (no-op on Android and web)
+    WindowsCamera.register(navigatorKey);
   }
 
   Future<void> _onSession() async {

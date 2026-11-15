@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../jph/widgets/glass_dialog.dart';
+import 'platform_info.dart';
 
 /// App update (Android): every Android build is published on the app's own site —
 /// https://jaurea.com/valunivo/android/latest.json names the newest version and its APK next to it.
@@ -16,11 +18,17 @@ import '../jph/widgets/glass_dialog.dart';
 ///  - The APK is downloaded ONCE and kept; pressing again never downloads it a second time — it just offers "تثبيت".
 ///  - Only one download at a time. Old APK files are removed once the app is on a newer build.
 /// Android always asks the person to tap "Install" — no app can skip that.
+///
+/// Windows app: the same, from https://jaurea.com/valunivo/windows/latest.json and its installer next to it
+/// ({"version","build","installer":"VALUNIVO-Setup-1.0.N.exe","size","sha256"}). The installer is checked
+/// against its SHA-256 before it runs, then it updates the installed app in place and opens it again.
 class AppUpdater with WidgetsBindingObserver {
   AppUpdater._();
   static final AppUpdater instance = AppUpdater._();
 
-  static const _base = 'https://jaurea.com/valunivo/android/';
+  static String get _base => PlatformInfo.isWindows ? 'https://jaurea.com/valunivo/windows/' : 'https://jaurea.com/valunivo/android/';
+  static String get _ext => PlatformInfo.isWindows ? 'exe' : 'apk';
+  String? _sha256; // expected hash of the installer being offered (Windows)
 
   GlobalKey<NavigatorState>? _nav;
   DateTime? _lastCheck;
@@ -28,7 +36,7 @@ class AppUpdater with WidgetsBindingObserver {
   final ValueNotifier<double> _progress = ValueNotifier(0);
   bool _dialogOpen = false;
 
-  static bool get supported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  static bool get supported => (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || PlatformInfo.isWindows;
 
   void start(GlobalKey<NavigatorState> nav) {
     if (!supported) return; // the web version is always current
@@ -48,7 +56,7 @@ class AppUpdater with WidgetsBindingObserver {
     return d;
   }
 
-  Future<File> _fileFor(String version) async => File('${(await _dir()).path}/value-attendance-$version.apk');
+  Future<File> _fileFor(String version) async => File('${(await _dir()).path}/value-attendance-$version.$_ext');
 
   /// Looks for a newer build. [manual] = the person pressed the button: always answers (up to date / failed).
   Future<void> check({BuildContext? context, bool manual = false}) async {
@@ -74,8 +82,11 @@ class AppUpdater with WidgetsBindingObserver {
         if (manual && context != null && context.mounted) _say(context, 'إنت على أحدث نسخة ✅ (${info.version}+${info.buildNumber})');
         return;
       }
-      final apk = '${j['apk'] ?? ''}';
-      if (!RegExp(r'^[\w.-]+\.apk$').hasMatch(apk)) throw Exception('no apk');
+      final apk = '${j[PlatformInfo.isWindows ? 'installer' : 'apk'] ?? ''}';
+      if (!RegExp('^[\\w.-]+\\.$_ext\$').hasMatch(apk)) throw Exception('no $_ext');
+      _sha256 = '${j['sha256'] ?? ''}'.toLowerCase();
+      // Windows runs the downloaded file: never without a hash to check it against
+      if (PlatformInfo.isWindows && !RegExp(r'^[0-9a-f]{64}$').hasMatch(_sha256!)) throw Exception('no sha256');
       final url = '$_base$apk';
       final size = (j['size'] as num?)?.toInt() ?? 0;
       await _offer(url, version, size);
@@ -89,7 +100,7 @@ class AppUpdater with WidgetsBindingObserver {
   Future<void> _cleanup(int mine) async {
     try {
       for (final f in (await _dir()).listSync().whereType<File>()) {
-        final b = int.tryParse(RegExp(r'(\d+)\.apk(\.part)?$').firstMatch(f.path)?.group(1) ?? '');
+        final b = int.tryParse(RegExp(r'(\d+)\.(apk|exe)(\.part)?$').firstMatch(f.path)?.group(1) ?? '');
         if (b != null && b <= mine) f.deleteSync();
       }
     } catch (_) {}
@@ -134,6 +145,21 @@ class AppUpdater with WidgetsBindingObserver {
   }
 
   Future<void> _install(File file) async {
+    if (PlatformInfo.isWindows) {
+      // the installer must be exactly the published one
+      final want = _sha256 ?? '';
+      final got = sha256.convert(await file.readAsBytes()).toString();
+      if (want.isEmpty || got != want) {
+        try { file.deleteSync(); } catch (_) {}
+        final ctx = _nav?.currentContext;
+        if (ctx != null && ctx.mounted) _say(ctx, 'ملف التحديث مش سليم واتمسح — جرب تاني بعدين.');
+        return;
+      }
+      // updates the installed app in place (same settings and sign-in), then opens it again
+      await Process.start(file.path, const ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS'],
+          mode: ProcessStartMode.detached);
+      exit(0);
+    }
     await OpenFilex.open(file.path, type: 'application/vnd.android.package-archive');
   }
 
