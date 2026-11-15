@@ -313,6 +313,11 @@ export const leadsModule: Module = (r, { db, clock }) => {
       unassigned: `l.assigned_to IS NULL`,
       shared: `EXISTS (SELECT 1 FROM lead_referrals rf WHERE rf.lead_id = l.id)`,
       today: `${OPEN_SQL} AND (l.next_at AT TIME ZONE 'Africa/Cairo')::date = ($${nowI}::timestamptz AT TIME ZONE 'Africa/Cairo')::date`,
+      // opened from the home (لوحة التحكم ← سيلز): the same numbers its cards count
+      created_today: `(l.created_at AT TIME ZONE 'Africa/Cairo')::date = ($${nowI}::timestamptz AT TIME ZONE 'Africa/Cairo')::date`,
+      acted_today: `EXISTS (SELECT 1 FROM lead_actions x WHERE x.lead_id = l.id AND x.parent_id IS NULL AND NOT x.auto
+                      AND (x.created_at AT TIME ZONE 'Africa/Cairo')::date = ($${nowI}::timestamptz AT TIME ZONE 'Africa/Cairo')::date)`,
+      waiting: `${OPEN_SQL} AND l.assigned_to IS NULL AND l.wait_since IS NOT NULL`,
     };
     const tab = qs.get('tab') && TABS[qs.get('tab')!] ? qs.get('tab')! : 'all';
     const stage = qs.get('stage');

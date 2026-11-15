@@ -15,7 +15,8 @@ import { LATE as LEAD_LATE, OPEN_SQL } from './leads.ts';
  *   view=sales     — لوحة السيلز: الليدز الجديدة، المتابعات المتأخرة، الأكشنز، الحجوزات والتعاقدات قدام التارجت، المراحل،
  *                    أنشط السيلز، أحدث الليدز، الميتنجات الجاية، والليدز اللي مستنية سيلز
  * All return the same card shapes (kpis · chart · pipeline · ranked · latest · wallet · ring · coming · attention · last),
- * so the app draws one page. Every card carries a `route` key the app maps to its page.
+ * so the app draws one page. Every card — and every line inside it — carries a `route`: the page it opens with its filter
+ * ('leads?stage=new', 'leads?tab=delay', 'lead?id=…', 'unit?id=…', 'attendance_today?filter=absent', 'commissions'…).
  */
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const n = (v: unknown) => Number(v ?? 0);
@@ -23,6 +24,11 @@ const ds = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v ?? ''
 const LATE = `((at.check_in_at AT TIME ZONE 'Africa/Cairo')::time > at.schedule_start + make_interval(mins => at.late_grace_minutes))`;
 const IN_RANGE = (col: string, from: string, to: string) =>
   `${col} >= (${from}::date AT TIME ZONE 'Africa/Cairo') AND ${col} < ((${to}::date + 1) AT TIME ZONE 'Africa/Cairo')`;
+/** a route with its filter: go('leads', { stage: 'new' }) → 'leads?stage=new' */
+const go = (page: string, q: Record<string, string | number | null | undefined> = {}) => {
+  const qs = Object.entries(q).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+  return qs ? `${page}?${qs}` : page;
+};
 const addDays = (d: string, k: number) => new Date(Date.parse(d + 'T00:00:00Z') + k * 86400000).toISOString().slice(0, 10);
 
 type Card = Record<string, unknown>;
@@ -97,12 +103,13 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
     db.query(`
       SELECT * FROM (
         SELECT i.due_date AS day, 'قسط ' || u.client_name AS title, p.name || ' — وحدة ' || u.unit_no AS sub,
-               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0) AS amount, 'ex' AS src
+               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0) AS amount, 'ex' AS src,
+               u.id::text AS unit_id
           FROM ex_installments i JOIN ex_units u ON u.id = i.unit_id JOIN commission_projects p ON p.id = u.project_id
          WHERE u.status = 'contracted' AND i.due_date BETWEEN $1 AND ($1::date + 14)
         UNION ALL
         SELECT i.due_date, 'قسط ' || s.buyer_name, 'وحدة ' || s.unit_no,
-               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0), 'mk'
+               i.amount_egp - COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0), 'mk', NULL
           FROM sale_installments i JOIN unit_sales s ON s.id = i.sale_id
          WHERE s.status = 'active' AND i.due_date BETWEEN $1 AND ($1::date + 14)
       ) x WHERE amount > 0 ORDER BY day LIMIT 5`, [t]),
@@ -157,8 +164,8 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       { label: 'الخزنة', value: total, format: 'money', highlight: true, progress: total > 0 ? r2((total - bank) / total) : 0,
         foot: `نقدي ${short(total - bank)} · بنك ${short(bank)}`, route: 'cash', icon: 'wallet' },
       { label: 'عمولتي', value: mine.transferred, format: 'money', foot: `في الأمانة ${short(mine.pending)} · جاية ${short(mine.upcoming)}`,
-        delta: null, route: 'exclusive', icon: 'percent' },
-      { label: 'المستحق للملاك', value: ownersDue, format: 'money', foot: `اتصرف لهم ${short(ownersPaid)}`, route: 'exclusive', icon: 'owner' },
+        delta: null, route: 'commissions', icon: 'percent' },
+      { label: 'المستحق للملاك', value: ownersDue, format: 'money', foot: `اتصرف لهم ${short(ownersPaid)}`, route: 'owners', icon: 'owner' },
       { label: 'صافي المكتب', value: net, format: 'money', tone: net >= 0 ? 'good' : 'bad',
         foot: `دخل ${short(income)} − مصاريف ${short(costs)}`, route: 'finance', icon: 'profit' },
     ],
@@ -176,19 +183,21 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       route: 'cash',
     },
     pipeline: {
-      title: 'الوحدات', sub: 'المشاريع الحصري — كل الوحدات حسب حالتها', route: 'exclusive',
+      title: 'الوحدات', sub: 'المشاريع الحصري — كل الوحدات حسب حالتها', route: go('units', { stage: 'reservation' }),
       rows: [
-        { label: 'محجوز', value: units.reserved, tone: 'accent' }, { label: 'متعاقد', value: units.contracted, tone: 'warn' },
-        { label: 'مكتمل', value: units.completed, tone: 'info' }, { label: 'ملغي', value: units.cancelled, tone: 'muted' },
+        { label: 'محجوز', value: units.reserved, tone: 'accent', route: go('units', { stage: 'reservation' }) },
+        { label: 'متعاقد', value: units.contracted, tone: 'warn', route: go('units', { stage: 'contract' }) },
+        { label: 'مكتمل', value: units.completed, tone: 'info', route: go('units', { stage: 'contract' }) },
+        { label: 'ملغي', value: units.cancelled, tone: 'muted', route: go('units', { stage: 'reservation' }) },
       ],
       footer: next ? { icon: 'calendar', strong: ds(next.day), text: `أقرب قسط · ${next.title}` } : { icon: 'calendar', strong: '', text: 'مفيش أقساط قريبة' },
-      button: 'المشاريع',
+      button: 'الوحدات',
     },
     ranked: {
-      title: 'أمانات الملاك', sub: 'لكل مشروع: اللي في الأمانة والمستحق للمالك', route: 'exclusive',
+      title: 'أمانات الملاك', sub: 'لكل مشروع: اللي في الأمانة والمستحق للمالك', route: 'owners',
       rows: ex.filter((p) => p.units.total > 0 || p.owner.inTrust > 0).sort((x, y) => y.owner.inTrust - x.owner.inTrust).slice(0, 5).map((p) => ({
         title: p.name, sub: `${p.ownerName} · ${p.units.contracted + p.units.completed} مباع`, value: p.owner.due, format: 'money',
-        progress: r2(p.owner.inTrust / maxDue), id: p.id,
+        progress: r2(p.owner.inTrust / maxDue), id: p.id, route: go('project_trust', { id: p.id, name: p.name }),
         detail: { collected: p.collected, transferred: p.commission.transferred, paid: p.owner.paid, inTrust: p.owner.inTrust, due: p.owner.due },
       })),
       empty: 'لسه مفيش مشاريع حصري',
@@ -196,14 +205,16 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
     latest: {
       title: 'الطلبات المالية', sub: 'سلف، توريد، صرف للملاك، تعاقدات', route: 'finance_requests',
       rows: latest.rows.map((x) => ({ kind: x.kind, id: x.id, title: x.title, sub: x.sub ?? '', at: x.at, amount: x.amount == null ? null : r2(n(x.amount)),
-        status: x.status, tone: x.tone })),
+        status: x.status, tone: x.tone,
+        // a contract / cancellation opens its unit; an advance its tab; transfers / payouts / expenses the cashbox
+        route: x.kind === 'contract' || x.kind === 'cancel' ? go('unit', { id: x.id }) : x.kind === 'advance' ? go('finance_requests', { tab: 0 }) : 'cash' })),
       empty: 'مفيش طلبات مستنياك',
     },
     wallet: {
       title: 'الخزنة', label: 'الرصيد دلوقتي', value: total, format: 'money', spark,
-      rows: [{ label: 'خزنة المكتب', value: office, format: 'money' }, { label: 'خزنة المحاسب', value: accountant, format: 'money' }],
+      rows: [{ label: 'خزنة المكتب', value: office, format: 'money', route: 'cash' }, { label: 'خزنة المحاسب', value: accountant, format: 'money', route: 'cash' }],
       button: { label: 'طلب توريد', route: 'cash' },
-      warn: n(overdue.n) > 0 ? { label: `${overdue.n} قسط متأخر`, route: 'sales' } : null,
+      warn: n(overdue.n) > 0 ? { label: `${overdue.n} قسط متأخر`, route: 'installments' } : null,
       route: 'cash',
     },
     ring: {
@@ -216,23 +227,24 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
         { label: 'في اليوم', value: r2(Math.max(costs - income, 0) / daysLeft), format: 'money' },
       ],
       extra: [
-        { label: 'عمولة جاية من أقساط', value: mine.upcoming, format: 'money' },
-        { label: 'عمولة محتملة من حجوزات', value: mine.potential, format: 'money' },
+        { label: 'عمولة جاية من أقساط', value: mine.upcoming, format: 'money', route: 'expected_commissions' },
+        { label: 'عمولة محتملة من حجوزات', value: mine.potential, format: 'money', route: 'expected_commissions' },
       ],
       route: 'finance',
     },
     coming: {
-      title: 'الجاي', sub: 'أقساط الأسبوعين الجايين', route: 'sales',
-      rows: coming.rows.map((x) => ({ day: ds(x.day), title: x.title, sub: x.sub, amount: r2(n(x.amount)), tone: x.src === 'ex' ? 'accent' : 'info' })),
+      title: 'الجاي', sub: 'أقساط الأسبوعين الجايين', route: 'installments',
+      rows: coming.rows.map((x) => ({ day: ds(x.day), title: x.title, sub: x.sub, amount: r2(n(x.amount)), tone: x.src === 'ex' ? 'accent' : 'info',
+        route: x.unit_id ? go('unit', { id: x.unit_id }) : 'installments' })),
       empty: 'مفيش أقساط قريبة',
     },
     attention: {
       title: 'محتاج انتباه', sub: 'حاجات مستنية قرار', route: 'finance_requests',
       rows: [
-        n(overdue.n) > 0 ? { icon: 'alert', title: `${overdue.n} قسط متأخر`, sub: `${fmt(n(overdue.s))} لسه متحصلتش`, button: 'الأقساط', route: 'sales' } : null,
-        mine.pending > 0 ? { icon: 'percent', title: 'عمولة مستنية التحويل', sub: `${fmt(mine.pending)} لسه جوه أمانات الملاك`, button: 'حوّل', route: 'exclusive' } : null,
-        units.reserved > 0 ? { icon: 'home', title: `${units.reserved} وحدة محجوزة`, sub: `عمولة محتملة ${fmt(mine.potential)}`, button: 'الوحدات', route: 'exclusive' } : null,
-        pay.due - pay.paid > 0 ? { icon: 'payroll', title: 'مرتبات لسه متصرفتش', sub: `${fmt(r2(pay.due - pay.paid))} من ${fmt(pay.due)}`, button: 'المرتبات', route: 'finance_requests' } : null,
+        n(overdue.n) > 0 ? { icon: 'alert', title: `${overdue.n} قسط متأخر`, sub: `${fmt(n(overdue.s))} لسه متحصلتش`, button: 'الأقساط', route: 'installments' } : null,
+        mine.pending > 0 ? { icon: 'percent', title: 'عمولة مستنية التحويل', sub: `${fmt(mine.pending)} لسه جوه أمانات الملاك`, button: 'حوّل', route: 'commissions' } : null,
+        units.reserved > 0 ? { icon: 'home', title: `${units.reserved} وحدة محجوزة`, sub: `عمولة محتملة ${fmt(mine.potential)}`, button: 'الوحدات', route: go('units', { stage: 'reservation' }) } : null,
+        pay.due - pay.paid > 0 ? { icon: 'payroll', title: 'مرتبات لسه متصرفتش', sub: `${fmt(r2(pay.due - pay.paid))} من ${fmt(pay.due)}`, button: 'المرتبات', route: go('finance_requests', { tab: 1 }) } : null,
       ].filter(Boolean),
       empty: 'كله تمام',
     },
@@ -263,7 +275,7 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
              (SELECT count(*) FROM attendance at JOIN employees e ON e.id = at.employee_id WHERE at.work_date = d::date AND NOT e.attendance_exempt AND ${LATE}) AS late
         FROM generate_series($1::date, $2::date, interval '1 day') d ORDER BY 1`, [from, t]),
     db.query(`
-      SELECT e.id, e.full_name, e.job_title, count(at.id)::int AS days, count(at.id) FILTER (WHERE ${LATE})::int AS late_days
+      SELECT e.id, e.code, e.full_name, e.job_title, count(at.id)::int AS days, count(at.id) FILTER (WHERE ${LATE})::int AS late_days
         FROM employees e LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date >= $1 AND at.work_date <= $2
        WHERE e.status = 'active' AND NOT e.attendance_exempt GROUP BY e.id ORDER BY count(at.id) DESC`, [month, t]),
     db.query(`
@@ -322,9 +334,9 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
     }
   }
   const coming = [
-    ...leaves.rows.map((x) => ({ day: ds(x.day), title: `إجازة ${x.title}`, sub: `${x.days_count} يوم`, tone: 'info' })),
-    ...holidays.rows.map((x) => ({ day: ds(x.day), title: x.name, sub: 'إجازة رسمية', tone: 'good' })),
-    ...bd.map((x) => ({ ...x, sub: '🎂', tone: 'accent' })),
+    ...leaves.rows.map((x) => ({ day: ds(x.day), title: `إجازة ${x.title}`, sub: `${x.days_count} يوم`, tone: 'info', route: 'requests' })),
+    ...holidays.rows.map((x) => ({ day: ds(x.day), title: x.name, sub: 'إجازة رسمية', tone: 'good', route: 'holidays' })),
+    ...bd.map((x) => ({ ...x, sub: '🎂', tone: 'accent', route: 'employees' })),
   ].sort((x, y) => x.day.localeCompare(y.day)).slice(0, 5);
   return {
     summary: [
@@ -335,10 +347,10 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
     ].filter(Boolean),
     kpis: [
       { label: 'الحضور النهارده', value: Math.round(pct * 100), format: 'pct', highlight: true, progress: r2(pct),
-        foot: `${today.present} من ${today.active} · انصرف ${today.out_done}`, route: 'attendance_today', icon: 'checkin' },
+        foot: `${today.present} من ${today.active} · انصرف ${today.out_done}`, route: go('attendance_today', { filter: 'present' }), icon: 'checkin' },
       { label: 'عدد الموظفين', value: today.active, format: 'count', foot: `${today.on_leave} في إجازة النهارده`, route: 'employees', icon: 'people' },
-      { label: 'التأخير', value: today.late, format: 'count', foot: `${monthLate} يوم تأخير الشهر ده`, route: 'attendance_report', icon: 'late', tone: today.late ? 'warn' : null },
-      { label: 'الغياب', value: absent.length, format: 'count', foot: absent.slice(0, 2).join('، ') || 'محدش غايب', route: 'attendance_today', icon: 'absent', tone: absent.length ? 'bad' : null },
+      { label: 'التأخير', value: today.late, format: 'count', foot: `${monthLate} يوم تأخير الشهر ده`, route: go('attendance_today', { filter: 'late' }), icon: 'late', tone: today.late ? 'warn' : null },
+      { label: 'الغياب', value: absent.length, format: 'count', foot: absent.slice(0, 2).join('، ') || 'محدش غايب', route: go('attendance_today', { filter: 'absent' }), icon: 'absent', tone: absent.length ? 'bad' : null },
     ],
     chart: {
       title: 'الحضور اليومي', sub: 'عدد الحاضرين كل يوم — العمود الملوّن يوم الكل حضر فيه', unit: 'count',
@@ -354,38 +366,41 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
       route: 'attendance_report',
     },
     pipeline: {
-      title: 'النهارده', sub: 'كل الموظفين حسب حالتهم دلوقتي', route: 'attendance_today',
+      title: 'النهارده', sub: 'كل الموظفين حسب حالتهم دلوقتي', route: go('attendance_today', { filter: 'present' }),
       rows: [
-        { label: 'حاضر', value: today.present - today.out_done, tone: 'accent' }, { label: 'انصرف', value: today.out_done, tone: 'info' },
-        { label: 'خارج دلوقتي', value: outs.out_now, tone: 'warn' }, { label: 'غايب', value: absent.length, tone: 'bad' },
-        { label: 'إجازة', value: today.on_leave, tone: 'muted' },
+        { label: 'حاضر', value: today.present - today.out_done, tone: 'accent', route: go('attendance_today', { filter: 'present' }) },
+        { label: 'انصرف', value: today.out_done, tone: 'info', route: go('attendance_today', { filter: 'present' }) },
+        { label: 'خارج دلوقتي', value: outs.out_now, tone: 'warn', route: 'requests' },
+        { label: 'غايب', value: absent.length, tone: 'bad', route: go('attendance_today', { filter: 'absent' }) },
+        { label: 'إجازة', value: today.on_leave, tone: 'muted', route: 'requests' },
       ],
       footer: { icon: 'clock', strong: `${outs.today}`, text: 'خروج وزيارة النهارده' },
       button: 'الحضور',
     },
     ranked: {
       title: 'أفضل الموظفين', sub: 'الشهر ده — الالتزام بالمواعيد', route: 'attendance_report',
-      rows: top.map((x) => ({ title: x.full_name, sub: `${x.days} يوم حضور · ${x.late_days} تأخير`, value: Math.round(x.punct * 100), format: 'pct', progress: r2(x.punct) })),
+      rows: top.map((x) => ({ title: x.full_name, sub: `${x.days} يوم حضور · ${x.late_days} تأخير`, value: Math.round(x.punct * 100), format: 'pct', progress: r2(x.punct),
+        route: go('attendance_report', { employee: x.code }) })),
       empty: 'لسه مفيش حضور الشهر ده',
     },
     latest: {
       title: 'الإجازات والأذونات', sub: 'طلبات مستنية الرد', route: 'requests',
-      rows: pending.rows.map((x) => ({ kind: x.kind, id: x.id, title: x.title, sub: x.sub, at: x.at, amount: null, status: x.status, tone: 'warn' })),
+      rows: pending.rows.map((x) => ({ kind: x.kind, id: x.id, title: x.title, sub: x.sub, at: x.at, amount: null, status: x.status, tone: 'warn', route: 'requests' })),
       empty: 'مفيش طلبات مستنية',
     },
     wallet: {
       title: 'الخروج والزيارات', label: 'خرجوا النهارده', value: outs.today, format: 'count',
       spark: outDaily.rows.map((x) => n(x.n)),
-      rows: [{ label: 'أذونات الشهر', value: outs.perms_month, format: 'count' }, { label: 'زيارات الشهر', value: outs.visits_month, format: 'count' }],
+      rows: [{ label: 'أذونات الشهر', value: outs.perms_month, format: 'count', route: 'requests' }, { label: 'زيارات الشهر', value: outs.visits_month, format: 'count', route: 'requests' }],
       button: { label: 'الطلبات', route: 'requests' },
-      warn: outs.late_back > 0 ? { label: `${outs.late_back} اتأخر في الرجوع`, route: 'attendance_today' } : null,
+      warn: outs.late_back > 0 ? { label: `${outs.late_back} اتأخر في الرجوع`, route: go('attendance_today', { filter: 'present' }) } : null,
       route: 'requests',
     },
     ring: {
       title: 'مؤشرات الأداء KPIs', sub: `${scores.length} موظف اتقيّم الشهر ده`, pct: Math.min(1, kpiAvg / 100), center: `${Math.round(kpiAvg)}٪`,
       centerSub: 'متوسط الإنجاز',
       stats: [
-        { label: 'الأعلى', value: scores[0] ? Math.round(scores[0].s) : 0, format: 'pct', tone: 'good', name: scores[0]?.name ?? '' },
+        { label: 'الأعلى', value: scores[0] ? Math.round(scores[0].s) : 0, format: 'pct', tone: 'good', name: scores[0]?.name ?? '', route: 'kpi' },
         { label: 'الأقل', value: scores.length ? Math.round(scores[scores.length - 1].s) : 0, format: 'pct', name: scores[scores.length - 1]?.name ?? '' },
         { label: 'اتقيّموا', value: scores.length, format: 'count', of: today.active },
       ],
@@ -395,10 +410,10 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
     attention: {
       title: 'محتاج انتباه', sub: 'النهارده', route: 'attendance_today',
       rows: [
-        absent.length ? { icon: 'absent', title: `غياب: ${absent.length}`, sub: absent.join('، '), button: 'الحضور', route: 'attendance_today' } : null,
-        late.length ? { icon: 'late', title: `تأخير: ${late.length}`, sub: late.join('، '), button: 'التقرير', route: 'attendance_report' } : null,
+        absent.length ? { icon: 'absent', title: `غياب: ${absent.length}`, sub: absent.join('، '), button: 'الغياب', route: go('attendance_today', { filter: 'absent' }) } : null,
+        late.length ? { icon: 'late', title: `تأخير: ${late.length}`, sub: late.join('، '), button: 'المتأخرين', route: go('attendance_today', { filter: 'late' }) } : null,
         forgot.rows.length ? { icon: 'clock', title: `نسيوا الانصراف امبارح: ${forgot.rows.length}`, sub: forgot.rows.map((x) => x.full_name).join('، '), button: 'تعديل', route: 'attendance_report' } : null,
-        outs.late_back ? { icon: 'alert', title: `${outs.late_back} اتأخر في الرجوع`, sub: 'من إذن خروج أو زيارة', button: 'متابعة', route: 'attendance_today' } : null,
+        outs.late_back ? { icon: 'alert', title: `${outs.late_back} اتأخر في الرجوع`, sub: 'من إذن خروج أو زيارة', button: 'متابعة', route: go('attendance_today', { filter: 'present' }) } : null,
       ].filter(Boolean),
       empty: 'كله تمام النهارده',
     },
@@ -446,7 +461,7 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
     db.query(`SELECT s.key, s.name_ar, s.kind, count(l.id)::int AS n FROM lead_stages s LEFT JOIN leads l ON l.stage = s.key
                WHERE s.active AND s.kind IN ('new','action') GROUP BY s.key ORDER BY s.sort`),
     db.query(`
-      SELECT e.full_name, count(x.id)::int AS actions, count(x.id) FILTER (WHERE x.stage IN ('meeting','after_meeting'))::int AS meetings,
+      SELECT e.id, e.full_name, count(x.id)::int AS actions, count(x.id) FILTER (WHERE x.stage IN ('meeting','after_meeting'))::int AS meetings,
              (SELECT count(*) FROM ex_units u WHERE u.sales_id = e.id AND u.status <> 'cancelled' AND ${IN_RANGE('u.created_at', '$1', '$2')})::int AS res
         FROM lead_actions x JOIN employees e ON e.id = x.by_id
        WHERE x.parent_id IS NULL AND NOT x.auto AND ${IN_RANGE('x.created_at', '$1', '$2')}
@@ -457,7 +472,7 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
         LEFT JOIN lead_channels ch ON ch.id = l.channel_id LEFT JOIN commission_projects p ON p.id = l.project_id
        ORDER BY l.created_at DESC LIMIT 6`),
     db.query(`
-      SELECT l.next_at, l.full_name, e.full_name AS sales FROM leads l LEFT JOIN employees e ON e.id = l.assigned_to
+      SELECT l.id, l.next_at, l.full_name, e.full_name AS sales FROM leads l LEFT JOIN employees e ON e.id = l.assigned_to
        WHERE l.stage IN ('meeting','reschedule') AND l.next_at >= $1 AND l.next_at < $1::timestamptz + interval '14 days'
        ORDER BY l.next_at LIMIT 5`, [now]),
     db.query(`
@@ -484,8 +499,9 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
   const maxActions = Math.max(1, ...ranked.rows.map((x) => n(x.actions)));
   const open = stages.rows.filter((x) => n(x.n) > 0);
   const coming = [
-    ...meetings.rows.map((x) => ({ day: local(new Date(x.next_at)).date, title: `ميتنج ${x.full_name}`, sub: x.sales ?? 'مش متوزع', tone: 'accent' })),
-    ...tasksSoon.rows.map((x) => ({ day: local(new Date(x.due_at)).date, title: x.title, sub: `مهمة · ${x.who}`, tone: 'info' })),
+    ...meetings.rows.map((x) => ({ day: local(new Date(x.next_at)).date, title: `ميتنج ${x.full_name}`, sub: x.sales ?? 'مش متوزع', tone: 'accent',
+      route: go('lead', { id: x.id }) })),
+    ...tasksSoon.rows.map((x) => ({ day: local(new Date(x.due_at)).date, title: x.title, sub: `مهمة · ${x.who}`, tone: 'info', route: 'tasks' })),
   ].sort((x, y) => x.day.localeCompare(y.day)).slice(0, 5);
   const onlineN = n(online?.n);
   return {
@@ -497,11 +513,11 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
     ].filter(Boolean),
     kpis: [
       { label: 'حجوزات وتعاقدات الشهر', value: won, format: 'count', highlight: true, progress: target ? r2(pct) : null,
-        foot: `${k.res_month} حجز · ${k.deals_month} تعاقد${target ? ` · التارجت ${target}` : ''}`, route: 'sales', icon: 'handshake' },
-      { label: 'ليدز جديدة النهارده', value: k.new_today, format: 'count', foot: `${k.new_month} الشهر ده`, route: 'leads', icon: 'lead' },
+        foot: `${k.res_month} حجز · ${k.deals_month} تعاقد${target ? ` · التارجت ${target}` : ''}`, route: go('units', { stage: 'reservation' }), icon: 'handshake' },
+      { label: 'ليدز جديدة النهارده', value: k.new_today, format: 'count', foot: `${k.new_month} الشهر ده`, route: go('leads', { tab: 'created_today' }), icon: 'lead' },
       { label: 'متابعات متأخرة', value: k.late, format: 'count', foot: k.unassigned ? `${k.unassigned} مش متوزع` : 'كله متوزع',
-        route: 'leads', icon: 'late', tone: k.late ? 'warn' : null },
-      { label: 'أكشنز النهارده', value: k.actions_today, format: 'count', foot: `${k.answered_today} رد · ${k.no_answer_today} مردّش`, route: 'leads', icon: 'phone' },
+        route: go('leads', { tab: 'delay' }), icon: 'late', tone: k.late ? 'warn' : null },
+      { label: 'أكشنز النهارده', value: k.actions_today, format: 'count', foot: `${k.answered_today} رد · ${k.no_answer_today} مردّش`, route: go('leads', { tab: 'acted_today' }), icon: 'phone' },
     ],
     chart: {
       title: 'الليدز اليومية', sub: 'الليدز الجديدة كل يوم — الخط المتقطع هو المتوسط', unit: 'count',
@@ -514,58 +530,62 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
         { label: 'أكشنز الفترة', value: daily.rows.reduce((s2, x) => s2 + n(x.actions), 0), format: 'count' },
         { label: 'أعلى يوم', value: best?.value ?? 0, format: 'count', day: best?.day ?? null },
       ],
-      route: 'leads',
+      route: go('leads', { tab: 'created_today' }),
     },
     pipeline: {
-      title: 'الليدز المفتوحة', sub: `${k.open} ليد حسب المرحلة`, route: 'leads',
-      rows: open.slice(0, 6).map((x, i) => ({ label: x.name_ar, value: n(x.n), tone: i === 0 ? 'accent' : (STAGE_TONE[x.kind] ?? 'info') })),
+      title: 'الليدز المفتوحة', sub: `${k.open} ليد حسب المرحلة`, route: 'leads_dashboard',
+      // each stage opens the leads list on that stage («جديد» → the leads that are new)
+      rows: open.slice(0, 6).map((x, i) => ({ label: x.name_ar, value: n(x.n), tone: i === 0 ? 'accent' : (STAGE_TONE[x.kind] ?? 'info'),
+        route: go('leads', { stage: x.key }) })),
       footer: { icon: 'people', strong: `${k.unassigned}`, text: 'ليد مش متوزع على سيلز' },
       button: 'لوحة السيلز',
     },
     ranked: {
       title: 'أنشط السيلز', sub: 'الشهر ده — عدد الأكشنز', route: 'leads',
       rows: ranked.rows.map((x) => ({ title: x.full_name, sub: `${x.meetings} ميتنج · ${x.res} حجز`, value: x.actions, format: 'count',
-        progress: r2(n(x.actions) / maxActions) })),
+        progress: r2(n(x.actions) / maxActions), route: go('leads', { person: x.id }) })),
       empty: 'لسه مفيش أكشنز الشهر ده',
     },
     latest: {
       title: 'أحدث الليدز', sub: 'آخر اللي نزل', route: 'leads',
       rows: latest.rows.map((x) => ({ kind: 'lead', id: x.id, title: x.full_name, at: x.created_at, amount: null,
         sub: [x.channel ?? 'من غير قناة', x.project, x.sales ?? 'مش متوزع'].filter(Boolean).join(' · '),
-        status: x.assigned_to ? (x.stage_name ?? '') : 'مش متوزع', tone: x.assigned_to ? (STAGE_TONE[x.kind] ?? 'info') : 'bad' })),
+        status: x.assigned_to ? (x.stage_name ?? '') : 'مش متوزع', tone: x.assigned_to ? (STAGE_TONE[x.kind] ?? 'info') : 'bad',
+        route: go('lead', { id: x.id }) })),
       empty: 'لسه مفيش ليدز',
     },
     wallet: {
       title: 'المبيعات', label: 'قيمة التعاقدات الشهر ده', value: n(k.deals_value_month), format: 'money',
       spark: daily.rows.map((x) => n(x.value)),
-      rows: [{ label: 'حجوزات الشهر', value: k.res_month, format: 'count' }, { label: 'صفقات مفتوحة', value: k.deals_open, format: 'count' }],
-      button: { label: 'لوحة السيلز', route: 'leads' },
-      warn: k.waiting > 0 ? { label: `${k.waiting} ليد مستني سيلز متصل`, route: 'leads' } : null,
-      route: 'sales',
+      rows: [{ label: 'حجوزات الشهر', value: k.res_month, format: 'count', route: go('units', { stage: 'reservation' }) },
+        { label: 'صفقات مفتوحة', value: k.deals_open, format: 'count', route: 'deals' }],
+      button: { label: 'لوحة السيلز', route: 'leads_dashboard' },
+      warn: k.waiting > 0 ? { label: `${k.waiting} ليد مستني سيلز متصل`, route: go('leads', { tab: 'waiting' }) } : null,
+      route: go('units', { stage: 'contract' }),
     },
     ring: {
       title: 'التارجت', sub: target ? 'الحجوزات والتعاقدات قدام تارجت الشهر' : 'لسه مفيش تارجت متحدد للشهر ده', pct,
       center: target ? `${Math.round(pct * 100)}٪` : '—', centerSub: 'تحقيق التارجت',
       stats: [
-        { label: 'الحجوزات', value: k.res_month, format: 'count', of: k.t_res || null, tone: 'good' },
-        { label: 'التعاقدات', value: k.deals_month, format: 'count', of: k.t_deals || null },
-        { label: 'السيلز المتصلين', value: onlineN, format: 'count', of: k.sales_people },
+        { label: 'الحجوزات', value: k.res_month, format: 'count', of: k.t_res || null, tone: 'good', route: go('units', { stage: 'reservation' }) },
+        { label: 'التعاقدات', value: k.deals_month, format: 'count', of: k.t_deals || null, route: go('units', { stage: 'contract' }) },
+        { label: 'السيلز المتصلين', value: onlineN, format: 'count', of: k.sales_people, route: 'leads_dashboard' },
       ],
       extra: [
-        { label: 'متوسط سرعة الرد على الليد (دقيقة) — آخر 7 أيام', value: n(k.response_min), format: 'count' },
-        { label: 'ليدز مفتوحة', value: k.open, format: 'count' },
+        { label: 'متوسط سرعة الرد على الليد (دقيقة) — آخر 7 أيام', value: n(k.response_min), format: 'count', route: 'leads_reports' },
+        { label: 'ليدز مفتوحة', value: k.open, format: 'count', route: 'leads' },
       ],
       route: 'leads_targets',
     },
-    coming: { title: 'الجاي', sub: 'ميتنجات ومهام الأسبوعين الجايين', route: 'leads', rows: coming, empty: 'مفيش ميتنجات ولا مهام جاية' },
+    coming: { title: 'الجاي', sub: 'ميتنجات ومهام الأسبوعين الجايين', route: 'leads_calendar', rows: coming, empty: 'مفيش ميتنجات ولا مهام جاية' },
     attention: {
-      title: 'محتاج انتباه', sub: 'السيلز', route: 'leads',
+      title: 'محتاج انتباه', sub: 'السيلز', route: 'leads_dashboard',
       rows: [
         k.waiting ? { icon: 'alert', title: `مستنيين سيلز متصل: ${k.waiting}`, sub: 'محدش من السيلز المختارين فاتح — وزّعهم أو هيروحوا لأول واحد يفتح',
-          button: 'وزّع', route: 'leads' } : null,
-        k.unassigned - k.waiting > 0 ? { icon: 'people', title: `مش متوزعين: ${k.unassigned - k.waiting}`, sub: 'ليدز من غير سيلز', button: 'وزّع', route: 'leads' } : null,
-        k.late ? { icon: 'late', title: `متابعات متأخرة: ${k.late}`, sub: lateBy.rows.map((x) => `${x.full_name} (${x.n})`).join('، '), button: 'متابعة', route: 'leads' } : null,
-        k.tasks_late ? { icon: 'calendar', title: `مهام متأخرة: ${k.tasks_late}`, sub: 'عدّى ميعادها ولسه مفتوحة', button: 'المهام', route: 'leads' } : null,
+          button: 'وزّع', route: go('leads', { tab: 'waiting' }) } : null,
+        k.unassigned - k.waiting > 0 ? { icon: 'people', title: `مش متوزعين: ${k.unassigned - k.waiting}`, sub: 'ليدز من غير سيلز', button: 'وزّع', route: go('leads', { tab: 'unassigned' }) } : null,
+        k.late ? { icon: 'late', title: `متابعات متأخرة: ${k.late}`, sub: lateBy.rows.map((x) => `${x.full_name} (${x.n})`).join('، '), button: 'متابعة', route: go('leads', { tab: 'delay' }) } : null,
+        k.tasks_late ? { icon: 'calendar', title: `مهام متأخرة: ${k.tasks_late}`, sub: 'عدّى ميعادها ولسه مفتوحة', button: 'المهام', route: 'tasks' } : null,
       ].filter(Boolean),
       empty: 'كله تمام في السيلز',
     },

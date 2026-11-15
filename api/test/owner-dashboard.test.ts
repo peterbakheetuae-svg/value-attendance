@@ -70,4 +70,30 @@ test('sales view (لوحة السيلز): new leads, late follow-ups, actions, r
   assert.ok(r.body.pipeline.rows.length > 0);
   assert.equal(r.body.chart.series.new.length, 14);
   assert.ok(r.body.attention.rows.some((x: any) => /مش متوزعين/.test(x.title)));
+  // every card / line opens its own page with its filter
+  assert.equal(kp['ليدز جديدة النهارده'].route, 'leads?tab=created_today');
+  assert.equal(kp['متابعات متأخرة'].route, 'leads?tab=delay');
+  assert.ok(r.body.pipeline.rows.every((x: any) => /^leads\?stage=[a-z_]+$/.test(x.route)), 'each stage → the list on that stage');
+  assert.ok(r.body.latest.rows.every((x: any) => /^lead\?id=/.test(x.route)), 'each lead → that lead');
+  assert.ok(r.body.ranked.rows.every((x: any) => /^leads\?person=/.test(x.route)), 'each salesman → his leads');
+  // the list's tabs the home opens count what the cards count
+  const tabs = (await h.call(c.t.owner, 'GET', '/leads?tab=created_today')).body;
+  assert.equal(tabs.leads.length, 2);
+  assert.equal((await h.call(c.t.owner, 'GET', '/leads?tab=acted_today')).body.leads.length, 1);
+  assert.equal((await h.call(c.t.owner, 'GET', '/leads?tab=delay')).body.leads.length, 1);
+  assert.equal((await h.call(c.t.owner, 'GET', '/leads?tab=waiting')).body.leads.length, 0);
+});
+
+test('finance / employees views: each line opens its own page (commissions, owners, a unit, today\'s absent…)', async () => {
+  const f = (await h.call(c.t.owner, 'GET', '/dashboard/owner?view=finance')).body;
+  const fk = Object.fromEntries(f.kpis.map((x: any) => [x.label, x.route]));
+  assert.equal(fk['عمولتي'], 'commissions', 'my commission → the commissions, not the projects');
+  assert.equal(fk['المستحق للملاك'], 'owners');
+  assert.deepEqual(f.pipeline.rows.map((x: any) => x.route), ['units?stage=reservation', 'units?stage=contract', 'units?stage=contract', 'units?stage=reservation']);
+  assert.ok(f.ranked.rows.every((x: any) => /^project_trust\?id=/.test(x.route)));
+  const e = (await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees')).body;
+  const ek = Object.fromEntries(e.kpis.map((x: any) => [x.label, x.route]));
+  assert.equal(ek['الغياب'], 'attendance_today?filter=absent');
+  assert.equal(ek['التأخير'], 'attendance_today?filter=late');
+  assert.ok(e.pipeline.rows.every((x: any) => typeof x.route === 'string' && x.route.length > 0));
 });
