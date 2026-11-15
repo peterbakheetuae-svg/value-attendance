@@ -6,6 +6,7 @@ import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
+import { deliverLead, onlineAmong } from './lead_routing.ts';
 import {
   anyLeads, assignable, canAll, canConfig, canDistribute, canSee, canTeam, canWork, insertLead, log, OPEN_SQL, phoneNorm, readLead, ref,
   rotation, scopeSql, STAGE_AR, stagesOf, stageShape, LATE, type Stage,
@@ -613,14 +614,8 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
       if (await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`, [c.id, phoneNorm(x.phone), now])) return;
       const today = await one(q, `SELECT count(*)::int AS n FROM leads WHERE campaign_id = $1 AND created_at > $2::timestamptz - interval '1 day'`, [c.id, now]);
       if (today.n >= 1000) throw conflict('الفورم مقفول النهارده');
-      const pool: string[] = c.form_assignees ?? [];
-      const live = pool.length ? (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه'`, [pool])).rows.map((e) => e.id) : [];
-      const to = live.length ? (await rotation(q, live))[0] : null;
-      const res = await insertLead(q, null, x, to, now, 'form', live);
-      if (res.to) {
-        await notify(q, { to: res.to, type: 'lead_assigned', title: `ليد جديد من الفورم: ${x.fullName}`, body: c.name, entity: 'lead', entityId: res.lead.id,
-          dedupeKey: `lead:${res.lead.id}:form` });
-      }
+      // the campaign's salesmen, as its distribution says (one / online / turn)
+      await deliverLead(q, x, c.assign_mode ?? 'turn', c.form_assignees ?? [], now, 'الفورم', c.name);
     });
     return ok({ ok: true }, 201);
   });
@@ -634,14 +629,16 @@ export async function leadsAutoReassign(q: Q, now: Date) {
   const s = await one(q, `SELECT lead_auto_reassign_minutes AS m FROM company_settings LIMIT 1`);
   if (!s?.m) return;
   const rows = await q.query(`
-    SELECT l.id, l.full_name, l.assigned_to, l.assign_pool, e.full_name AS from_name FROM leads l JOIN employees e ON e.id = l.assigned_to
+    SELECT l.id, l.full_name, l.assigned_to, l.assign_pool, l.assign_mode, e.full_name AS from_name FROM leads l JOIN employees e ON e.id = l.assigned_to
      WHERE ${OPEN_SQL} AND cardinality(l.assign_pool) > 1 AND (l.last_action_at IS NULL OR l.last_action_at < l.assigned_at)
        AND l.assigned_at <= $1::timestamptz - make_interval(mins => $2)
      LIMIT 200 FOR UPDATE OF l SKIP LOCKED`, [now, s.m]);
   for (const l of rows.rows) {
     const live = (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active' AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه' AND id <> $2`, [l.assign_pool, l.assigned_to])).rows.map((e) => e.id);
-    if (!live.length) continue;
-    const to = (await rotation(q, live))[0];
+    // «بالدور على المتصلين»: it moves to a colleague who is online now (none online → it stays until one is)
+    const pick = l.assign_mode === 'online' ? await onlineAmong(q, live, now) : live;
+    if (!pick.length) continue;
+    const to = (await rotation(q, pick))[0];
     await q.query(`UPDATE leads SET assigned_to = $2, assigned_at = $3, pending_alerted_at = NULL, reminded_at = NULL, updated_at = $3 WHERE id = $1`, [l.id, to, now]);
     await log(q, l.id, 'assign', null, { from: l.assigned_to, to, mode: 'auto', turn: true });
     await notify(q, { to, type: 'lead_assigned', title: `اتحوّل عليك ليد: ${l.full_name}`, body: `${l.from_name} ماعملش عليه أكشن`, entity: 'lead', entityId: l.id,

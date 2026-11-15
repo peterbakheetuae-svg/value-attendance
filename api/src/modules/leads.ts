@@ -527,7 +527,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       for (const l of leads) {
         const who = order[k++ % order.length];
         await q.query(`UPDATE leads SET assigned_to = $2, assigned_at = $3, assigned_by = $4, pending_alerted_at = NULL, reminded_at = NULL,
-            assign_pool = $7::uuid[],
+            assign_pool = $7::uuid[], wait_pool = '{}', wait_since = NULL,
             kind = CASE WHEN $5 = 'same' THEN kind ELSE $5 END,
             stage = CASE WHEN $6 OR stage IN ('reservation','done_deal') THEN stage ELSE 'new' END,
             next_at = CASE WHEN $6 OR stage IN ('reservation','done_deal') THEN next_at ELSE NULL END,

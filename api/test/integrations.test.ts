@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { harness, cast, type Harness } from './helpers.ts';
+import { assignWaiting } from '../src/modules/lead_routing.ts';
 
 /** Value Aqar's webhooks (inquiries → leads; projects / units → «المشاريع الواردة» → adopted ones come in) and Meta's check */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let key: string; let campaign: string;
@@ -18,21 +19,33 @@ after(async () => { await h.close(); });
 
 const hook = (body: unknown, k = key) => h.call(null, 'POST', '/public/hooks/valueaqar', body, { 'x-value-key': k });
 
-test('Value Aqar: the key, an inquiry becomes a lead on the campaign, the same number twice once', async () => {
+test('Value Aqar: the key; an inquiry is a lead on the «فاليو عقار» channel (no campaign), by the default rule; the same number twice once', async () => {
   assert.equal((await h.call(c.t.e1, 'GET', '/integrations')).status, 403);
   const k = await h.call(c.t.acc, 'POST', '/integrations/valueaqar/key', {});
   assert.equal(k.status, 200, JSON.stringify(k.body));
   key = k.body.key;
   const list = (await h.call(c.t.acc, 'GET', '/integrations')).body;
   assert.ok(list.valueaqar.hasKey && !JSON.stringify(list).includes(key), 'the key is never shown again');
-  assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/valueaqar', { campaignId: campaign })).status, 200);
+  assert.ok(list.people.length > 0, 'the salesmen to choose from');
   assert.equal((await hook({ type: 'INSERT', table: 'inquiries', record: { name: 'x', phone: '01011112222' } }, 'wrong')).status, 401);
+  // no rule yet: the lead still comes in, with nobody — and the managers are told
+  const r0 = await hook({ type: 'INSERT', table: 'inquiries', record: { id: 'q0', full_name: 'عميل بدري', phone: '01099990000' } });
+  assert.equal(r0.status, 200, JSON.stringify(r0.body));
+  const l0 = (await h.db.query(`SELECT l.*, ch.name AS ch FROM leads l LEFT JOIN lead_channels ch ON ch.id = l.channel_id WHERE l.id = $1`, [r0.body.lead])).rows[0];
+  assert.equal(l0.ch, 'فاليو عقار');
+  assert.equal(l0.campaign_id, null, 'a direct channel, not a campaign');
+  assert.equal(l0.assigned_to, null);
+  const told = await h.db.query(`SELECT recipient_id FROM notifications WHERE type = 'lead_waiting' AND entity_id = $1`, [r0.body.lead]);
+  assert.ok(told.rows.some((x) => x.recipient_id === c.ids.acc), 'the administrative officer is alerted');
+  // the default rule: one salesman
+  assert.equal((await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'default', mode: 'one', assignees: [c.ids.e1, c.ids.e2] })).status, 400, '«one» = one salesman');
+  assert.equal((await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'default', mode: 'one', assignees: [c.ids.e1] })).status, 200);
   const r = await hook({ type: 'INSERT', table: 'inquiries', schema: 'public', record: { id: 'q1', full_name: 'عميل الموقع', phone: '+20 101 111 2222', message: 'عايز شقة' }, old_record: null });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.ok(r.body.lead);
   const lead = (await h.db.query(`SELECT * FROM leads WHERE id = $1`, [r.body.lead])).rows[0];
   assert.equal(lead.assigned_to, c.ids.e1);
-  assert.equal(lead.campaign_id, campaign);
+  assert.equal(lead.campaign_id, null);
   assert.match(lead.notes, /عايز شقة/);
   const again = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'عميل الموقع', phone: '01011112222' } });
   assert.equal(again.body.duplicate, true);
@@ -77,4 +90,87 @@ test('Meta: the webhook check needs the verify token; no token → leads are ski
   assert.equal(p.body.skipped, 'off', 'no access token yet');
   assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/meta/forms', { campaignId: campaign, formId: '123456789' })).status, 200);
   assert.equal((await h.db.query(`SELECT meta_form_id FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_form_id, '123456789');
+});
+
+const offline = () => h.db.query(`UPDATE sessions SET last_seen_at = '2000-01-01'`);
+const online = (id: string) => h.db.query(`UPDATE sessions SET last_seen_at = $2 WHERE employee_id = $1`, [id, h.now.value]);
+const leadOf = async (id: string) => (await h.db.query(`SELECT * FROM leads WHERE id = $1`, [id])).rows[0];
+
+test('distribution per project / property: one salesman, in turn among those online (else it waits and goes to the first who comes online), in turn among all', async () => {
+  assert.equal((await h.call(c.t.e1, 'PUT', '/integrations/routes', { target: 'project', externalId: 'p9', mode: 'online', assignees: [c.ids.e1] })).status, 403);
+  const pr = await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'project', externalId: 'p9', mode: 'online', assignees: [c.ids.e1, c.ids.e2] });
+  assert.equal(pr.status, 200, JSON.stringify(pr.body));
+  assert.equal((await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'project', externalId: 'nope', mode: 'turn', assignees: [c.ids.e1] })).status, 404);
+
+  // nobody online → it waits for e1 / e2, the managers are told
+  await offline();
+  const w = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'مستني', phone: '01022220001', project_id: 'p9' } });
+  assert.equal(w.status, 200, JSON.stringify(w.body));
+  let l = await leadOf(w.body.lead);
+  assert.equal(l.assigned_to, null);
+  assert.deepEqual([...l.wait_pool].sort(), [c.ids.e1, c.ids.e2].sort());
+  assert.ok(l.project_id, 'the adopted project');
+  assert.ok((await h.db.query(`SELECT 1 FROM notifications WHERE type = 'lead_waiting' AND entity_id = $1 AND recipient_id = $2`, [l.id, c.ids.owner])).rows.length);
+  // still nobody → still waiting; e2 comes online → it is his
+  await h.db.tx((q) => assignWaiting(q, h.now.value));
+  assert.equal((await leadOf(l.id)).assigned_to, null);
+  await online(c.ids.e2);
+  await h.db.tx((q) => assignWaiting(q, h.now.value));
+  l = await leadOf(l.id);
+  assert.equal(l.assigned_to, c.ids.e2);
+  assert.equal(l.wait_since, null);
+
+  // e2 online, e1 not → the next one is e2's too (only those online)
+  const n = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'تاني', phone: '01022220002', project_id: 'p9' } });
+  assert.equal((await leadOf(n.body.lead)).assigned_to, c.ids.e2);
+
+  // a property's own rule beats its project's
+  assert.equal((await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'property', externalId: 'u1', mode: 'one', assignees: [c.ids.e3] })).status, 200);
+  const u = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'وحدة', phone: '01022220003', property_id: 'u1' } });
+  assert.equal((await leadOf(u.body.lead)).assigned_to, c.ids.e3);
+
+  // a waiting lead a manager distributed himself stays with whom he chose
+  await offline();
+  const m = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'المدير وزعه', phone: '01022220004', project_id: 'p9' } });
+  assert.equal((await leadOf(m.body.lead)).assigned_to, null);
+  const as = await h.call(c.t.acc, 'POST', '/leads/assign', { ids: [m.body.lead], to: [c.ids.e3] });
+  assert.equal(as.status, 200, JSON.stringify(as.body));
+  await online(c.ids.e1);
+  await h.db.tx((q) => assignWaiting(q, h.now.value));
+  assert.equal((await leadOf(m.body.lead)).assigned_to, c.ids.e3);
+
+  // «in turn among all»: given even with nobody online
+  await offline();
+  await h.call(c.t.acc, 'PUT', '/integrations/routes', { target: 'project', externalId: 'p9', mode: 'turn', assignees: [c.ids.e1, c.ids.e2] });
+  h.now.value = new Date('2026-11-14T08:10:00Z');
+  const t1 = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'دور 1', phone: '01022220005', project_id: 'p9' } });
+  h.now.value = new Date('2026-11-14T08:11:00Z');
+  const t2 = await hook({ type: 'INSERT', table: 'inquiries', record: { full_name: 'دور 2', phone: '01022220006', project_id: 'p9' } });
+  const got = [(await leadOf(t1.body.lead)).assigned_to, (await leadOf(t2.body.lead)).assigned_to];
+  assert.ok(got.every(Boolean));
+  assert.notEqual(got[0], got[1], 'one each, in turn');
+
+  // the list shows the rules
+  const routes = (await h.call(c.t.acc, 'GET', '/integrations')).body.routes;
+  assert.deepEqual(routes.map((x: any) => x.target).sort(), ['default', 'project', 'property']);
+  const rid = routes.find((x: any) => x.target === 'property').id;
+  assert.equal((await h.call(c.t.acc, 'POST', `/integrations/routes/${rid}/remove`, {})).status, 200);
+});
+
+test('a campaign (Meta form / public form): its salesmen and its mode — online, else it waits', async () => {
+  const f = await h.call(c.t.acc, 'POST', `/leads/campaigns/${campaign}/form`, { enabled: true, assignees: [c.ids.e1] });
+  assert.equal(f.status, 200, JSON.stringify(f.body));
+  const set = await h.call(c.t.acc, 'PATCH', `/integrations/campaigns/${campaign}`, { mode: 'online', assignees: [c.ids.e1, c.ids.e2] });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  const camp = (await h.call(c.t.acc, 'GET', '/integrations')).body.campaigns.find((x: any) => x.id === campaign);
+  assert.equal(camp.mode, 'online');
+  await offline();
+  assert.equal((await h.call(null, 'POST', `/public/leads/${f.body.token}`, { fullName: 'من الفورم', phone: '01033330001' })).status, 201);
+  let l = (await h.db.query(`SELECT * FROM leads WHERE phone_norm LIKE '%1033330001' ORDER BY created_at DESC LIMIT 1`)).rows[0];
+  assert.equal(l.assigned_to, null);
+  assert.equal(l.campaign_id, campaign);
+  await online(c.ids.e1);
+  await h.db.tx((q) => assignWaiting(q, h.now.value));
+  l = await leadOf(l.id);
+  assert.equal(l.assigned_to, c.ids.e1);
 });

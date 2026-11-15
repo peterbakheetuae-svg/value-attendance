@@ -1,4 +1,5 @@
 import { ok, type Module } from '../ctx.ts';
+import { assignWaiting } from './lead_routing.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
@@ -44,6 +45,8 @@ export async function sweep(q: Q, now: Date) {
   // the leads' follow-ups, leads nobody acted on, tasks — every day (holidays too)
   await leadsSweep(q, now);
   await leadsAutoReassign(q, now);
+  // a new lead that found no salesman online → the first chosen one who comes online
+  await assignWaiting(q, now);
   const l = local(now);
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`

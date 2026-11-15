@@ -6,15 +6,17 @@ import { isUuid, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has } from '../auth/context.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
-import { insertLead, phoneNorm, readLead, rotation } from './leads.ts';
+import { assignable, phoneNorm, readLead } from './leads.ts';
+import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode } from './lead_routing.ts';
 import { canSetup, resolveDeveloper } from './exclusive.ts';
 
 /**
  * الربط التلقائي (see db/migrations/062_integrations.sql):
  *  - POST /public/hooks/valueaqar  ← Value Aqar's Supabase database webhooks (header x-value-key):
- *      a new inquiry → a lead on the chosen campaign; a project / unit → «المشاريع الواردة» (+ the adopted ones' units)
- *  - GET/POST /public/hooks/meta    ← Meta lead ads (the page's lead forms) → a lead on the matching campaign
- *  - /integrations…                 ← the settings (leads.config): keys, the campaign, the incoming projects
+ *      a new inquiry → a lead on the «فاليو عقار» channel (a direct channel, no campaign), given by the rule of its
+ *      property / project / the default one (lead_routing.ts); a project / unit → «المشاريع الواردة» (+ the adopted ones' units)
+ *  - GET/POST /public/hooks/meta    ← Meta lead ads (the page's lead forms) → a lead on the matching campaign (its salesmen / mode)
+ *  - /integrations…                 ← the settings (leads.config): keys, the rules, the campaigns' distribution, the incoming projects
  */
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
@@ -49,6 +51,11 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     if (!has(a, 'leads.config')) throw forbidden('الربط لمن عنده إعدادات الليدز');
     return a;
   };
+  /** only salesmen the person setting it may distribute to */
+  const checkPeople = async (a: any, ids: string[]) => {
+    const allowed = new Set((await assignable(db, a)).map((e: any) => e.id));
+    if (ids.some((id) => !allowed.has(id))) throw invalid('اختار سيلز من اللي ينفع توزّع عليهم', { field: 'assignees' });
+  };
   const row = (source: string) => one(db, `SELECT * FROM integrations WHERE source = $1`, [source]);
   const ensure = async (source: string) => {
     await db.query(`INSERT INTO integrations (source) VALUES ($1) ON CONFLICT DO NOTHING`, [source]);
@@ -57,29 +64,26 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   const noteError = (source: string, e: string) =>
     db.query(`UPDATE integrations SET last_error = $2 WHERE source = $1`, [source, e.slice(0, 300)]).catch(() => undefined);
 
-  /** a lead from outside, on a campaign: its project / channel, and its salesmen take turns (like the campaign form) */
+  /** a lead from a campaign (Meta): its project / channel, and its salesmen as the campaign says (one / online / turn) */
   async function addLead(q: Q, c: any, x: ReturnType<typeof readLead>, now: Date, from: string) {
     x.projectId ??= c?.project_id ?? null; x.channelId ??= c?.channel_id ?? null; x.campaignId = c?.id ?? null;
     if (c && await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`,
       [c.id, phoneNorm(x.phone), now])) return null;   // the same number twice on the same day
-    const pool: string[] = c?.form_assignees ?? [];
-    const live = pool.length ? (await q.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND status = 'active'
-        AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه'`, [pool])).rows.map((e) => e.id) : [];
-    const to = live.length ? (await rotation(q, live))[0] : null;
-    const res = await insertLead(q, null, x, to, now, 'form', live);
-    if (res.to) {
-      await notify(q, { to: res.to, type: 'lead_assigned', title: `ليد جديد من ${from}: ${x.fullName}`, body: c?.name ?? from, entity: 'lead',
-        entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:${from}` });
-    }
-    return res.lead;
+    return deliverLead(q, x, (c?.assign_mode ?? 'turn') as RouteMode, c?.form_assignees ?? [], now, from, c?.name ?? '');
   }
   const campaignOf = async (id: string | null) => (id ? one(db, `SELECT * FROM lead_campaigns WHERE id = $1 AND active`, [id]) : null);
 
   // ------------------------------------------------------------------ the settings
   r.get('/integrations', async (req) => {
-    await admin(req);
+    const a = await admin(req);
     const [va, meta] = [await ensure('valueaqar'), await ensure('meta')];
-    const campaigns = await db.query(`SELECT id, name, meta_form_id FROM lead_campaigns WHERE active ORDER BY created_at DESC`);
+    const campaigns = await db.query(`SELECT id, name, meta_form_id, assign_mode, form_assignees, project_id FROM lead_campaigns WHERE active ORDER BY created_at DESC`);
+    const routes = await db.query(`SELECT * FROM lead_routes WHERE source = 'valueaqar' ORDER BY target = 'default' DESC, label`);
+    // Value Aqar's properties that are not inside one of its projects (a rule can be set per property)
+    const properties = await db.query(`
+      SELECT external_id, data FROM partner_units WHERE source = 'valueaqar' AND NOT deleted ORDER BY updated_at DESC LIMIT 500`);
+    const people = await assignable(db, a);
+    const online = new Set(await onlineAmong(db, people.map((e: any) => e.id), clock()));
     const projects = await db.query(`
       SELECT pp.*, p.name AS project_name, p.kind AS project_kind,
              (SELECT count(*) FROM partner_units u WHERE u.source = pp.source AND u.external_project_id = pp.external_id AND NOT u.deleted)::int AS units
@@ -89,7 +93,14 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       hasToken: !!x.access_token, verifyToken: x.source === 'meta' ? x.verify_token : undefined, lastAt: iso(x.last_at), lastError: x.last_error });
     return ok({
       valueaqar: shapeI(va), meta: shapeI(meta),
-      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, metaFormId: c.meta_form_id })),
+      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, metaFormId: c.meta_form_id, mode: c.assign_mode,
+        assignees: c.form_assignees ?? [], hasProject: !!c.project_id })),
+      routes: routes.rows.map((x) => ({ id: x.id, target: x.target, externalId: x.external_id, label: x.label, mode: x.mode,
+        assignees: x.assignees ?? [], updatedAt: iso(x.updated_at) })),
+      properties: properties.rows.map((u) => ({ externalId: u.external_id,
+        name: pick(u.data ?? {}, ['title', 'name', 'property_title', 'listing_title', 'unit_no', 'unit_number']) || `عقار ${u.external_id}`,
+        project: `${(u.data ?? {}).project_id ?? ''}`, location: pick(u.data ?? {}, ['location', 'city', 'area', 'address', 'region']) })),
+      people: people.map((e: any) => ({ id: e.id, name: e.full_name ?? e.name, online: online.has(e.id) })),
       projects: projects.rows.map((x) => ({ id: x.id, externalId: x.external_id, name: x.name, developer: x.developer, location: x.location,
         status: x.status, units: x.units, project: x.project_id ? { id: x.project_id, name: x.project_name, kind: x.project_kind } : null,
         receivedAt: iso(x.received_at), updatedAt: iso(x.updated_at) })),
@@ -113,7 +124,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     await ensure(source);
     const b = obj(req.body);
     const set: Record<string, unknown> = {};
-    if (b.campaignId !== undefined) {
+    if (b.campaignId !== undefined && source === 'meta') {
       if (b.campaignId !== null && (typeof b.campaignId !== 'string' || !isUuid(b.campaignId) || !await campaignOf(b.campaignId))) {
         throw invalid('اختار الحملة', { field: 'campaignId' });
       }
@@ -131,6 +142,65 @@ export const integrationsModule: Module = (r, { db, clock }) => {
                        WHERE source = $1`, [source, ...keys.map((k) => set[k]), a.id, clock()]);
       await audit(db, a.id, 'integration.edit', 'integration', null, undefined, { source, fields: keys });
     }
+    return ok({ ok: true });
+  });
+
+  const readRule = (b: Record<string, unknown>) => {
+    const mode = oneOf(b, 'mode', ROUTE_MODES)!;
+    const raw = Array.isArray(b.assignees) ? b.assignees : [];
+    const ids = [...new Set(raw.filter((x): x is string => typeof x === 'string' && isUuid(x)))];
+    if (!ids.length) throw invalid('اختار السيلز اللي هيستقبلوا الليدز', { field: 'assignees' });
+    if (mode === 'one' && ids.length !== 1) throw invalid('في «سيلز واحد» اختار واحد بس', { field: 'assignees' });
+    return { mode, ids };
+  };
+
+  /** a rule of Value Aqar: the default one, a project's or a property's (who gets its leads and how) */
+  r.put('/integrations/routes', async (req) => {
+    const a = await admin(req);
+    const b = obj(req.body);
+    const target = oneOf(b, 'target', ['default', 'project', 'property'] as const)!;
+    const ext = target === 'default' ? '' : (str(b, 'externalId', { max: 80 }) ?? '').trim();
+    if (target !== 'default' && !ext) throw invalid('اختار المشروع / العقار', { field: 'externalId' });
+    const { mode, ids } = readRule(b);
+    await checkPeople(a, ids);
+    let label = (str(b, 'label', { optional: true, max: 200 }) ?? '').trim();
+    let projectId: string | null = null;
+    if (target === 'project') {
+      const pp = await one(db, `SELECT name, project_id FROM partner_projects WHERE source = 'valueaqar' AND external_id = $1`, [ext]);
+      if (!pp) throw notFound('المشروع ده مش واصل من فاليو عقار');
+      label ||= pp.name; projectId = pp.project_id;
+    } else if (target === 'property') {
+      const u = await one(db, `SELECT data FROM partner_units WHERE source = 'valueaqar' AND external_id = $1`, [ext]);
+      if (!u) throw notFound('العقار ده مش واصل من فاليو عقار');
+      label ||= pick(u.data ?? {}, ['title', 'name', 'property_title', 'listing_title', 'unit_no']) || `عقار ${ext}`;
+    } else label ||= 'كل الاستفسارات';
+    const x = await one(db, `
+      INSERT INTO lead_routes (source, target, external_id, label, mode, assignees, project_id, updated_by, updated_at)
+      VALUES ('valueaqar',$1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (source, target, external_id) DO UPDATE SET label = EXCLUDED.label, mode = EXCLUDED.mode, assignees = EXCLUDED.assignees,
+        project_id = COALESCE(EXCLUDED.project_id, lead_routes.project_id), updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at
+      RETURNING id`, [target, ext, label.slice(0, 200), mode, ids, projectId, a.id, clock()]);
+    await audit(db, a.id, 'integration.route', 'lead_route', x.id, undefined, { target, ext, mode, assignees: ids.length });
+    return ok({ id: x.id });
+  });
+
+  r.post('/integrations/routes/:id/remove', async (req) => {
+    const a = await admin(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await one(db, `DELETE FROM lead_routes WHERE id = $1 RETURNING target, external_id`, [req.params.id]);
+    if (!x) throw notFound();
+    await audit(db, a.id, 'integration.route_removed', 'lead_route', req.params.id, { target: x.target, ext: x.external_id }, undefined);
+    return ok({ ok: true });
+  });
+
+  /** a campaign's distribution (its Meta form / public form leads): which salesmen and how */
+  r.patch('/integrations/campaigns/:id', async (req) => {
+    const a = await admin(req);
+    if (!isUuid(req.params.id) || !await campaignOf(req.params.id)) throw notFound();
+    const { mode, ids } = readRule(obj(req.body));
+    await checkPeople(a, ids);
+    await db.query(`UPDATE lead_campaigns SET assign_mode = $2, form_assignees = $3 WHERE id = $1`, [req.params.id, mode, ids]);
+    await audit(db, a.id, 'integration.campaign_route', 'lead_campaign', req.params.id, undefined, { mode, assignees: ids.length });
     return ok({ ok: true });
   });
 
@@ -250,15 +320,21 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         const notes = [pick(rec, MSG), pname ? `المشروع على فاليو عقار: ${pname}` : '', pick(rec, ['unit', 'unit_no', 'property_title', 'listing_title'])]
           .filter(Boolean).join(' — ').slice(0, 1900);
         const x = readLead({ fullName, phone, email: pick(rec, EMAIL), notes, kind: 'fresh' });
-        // the project: the adopted one it came from, else the campaign's
-        const fromProject = pick(rec, ['project_id', 'compound_id', 'listing_project_id']);
+        // a direct channel: «فاليو عقار» (no campaign); the project: the adopted one it came from, else the rule's
+        const fromProject = pick(rec, ['project_id', 'compound_id', 'listing_project_id']).slice(0, 80);
+        const fromProperty = pick(rec, ['property_id', 'unit_id', 'listing_id', 'ad_id']).slice(0, 80);
         const adopted = fromProject ? await one(db, `SELECT project_id FROM partner_projects WHERE source = 'valueaqar' AND external_id = $1 AND status = 'adopted'`, [fromProject]) : null;
         if (adopted?.project_id) x.projectId = adopted.project_id;
         const ch = await one(db, `SELECT id FROM lead_channels WHERE name = 'فاليو عقار' AND active`);
         if (ch && !x.channelId) x.channelId = ch.id;
-        const c = await campaignOf(it.campaign_id);
-        if (!x.projectId && !c?.project_id) throw invalid('اختار حملة ليها مشروع لاستفسارات فاليو عقار', { field: 'campaignId' });
-        const lead = await db.tx((q) => addLead(q, c, x, now, 'فاليو عقار'));
+        const rule = await valueAqarRoute(db, fromProperty, fromProject);
+        if (!x.projectId && rule?.project_id && await one(db, `SELECT 1 FROM commission_projects WHERE id = $1`, [rule.project_id])) x.projectId = rule.project_id;
+        const lead = await db.tx(async (q) => {
+          // the same number twice on the same day from Value Aqar: once
+          if (await one(q, `SELECT 1 FROM leads WHERE channel_id IS NOT DISTINCT FROM $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`,
+            [x.channelId, phoneNorm(x.phone), now])) return null;
+          return deliverLead(q, x, (rule?.mode ?? 'online') as RouteMode, rule?.assignees ?? [], now, 'فاليو عقار', pname || rule?.label || '');
+        });
         result = { lead: lead ? lead.id : null, duplicate: !lead };
       } else if (/unit|propert|listing|inventory/.test(table)) {
         if (!extId) throw invalid('الوحدة من غير id', { field: 'id' });
