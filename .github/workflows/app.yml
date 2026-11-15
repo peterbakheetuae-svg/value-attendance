@@ -115,7 +115,8 @@ jobs:
       - name: Android build wanted? ([apk] in the commit's first line, or a manual run)
         env: { COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
-          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && W=1
+          # a manual run builds the APK on main only (the tracking-controls branch run is web-only)
+          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" = "refs/heads/main" ] && W=1
           printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && W=1
           echo "BUILD_APK=$W" >> "$GITHUB_ENV"; echo "build APK: $W"
       - name: Build Android APK
@@ -160,8 +161,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: env.BUILD_APK == '1'
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
+      - name: Web only from the tracking-controls branch (no Android update, no release)
+        if: github.ref == 'refs/heads/feature/tracking-controls'
+        run: |
+          (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
+          mkdir -p ../deploy-out && cp value-attendance-web.zip ../deploy-out/web.zip
+          test ! -e ../deploy-out/android/latest.json
+          ls -la ../deploy-out
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/tracking-controls'
         with: { name: deploy-out, path: deploy-out, retention-days: 7 }
 
   # The live app: https://jaurea.com/valunivo/ (+ /android/ for phone updates; the old /value-attendance/ redirects there and keeps its /android/ for phones on older versions). Sent over SSH (encrypted,
@@ -171,7 +179,7 @@ jobs:
   # or HOSTINGER_SSH_PASSWORD. Without it the step is skipped and the build is copied over by hand.
   hostinger:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/tracking-controls'
     runs-on: ubuntu-latest
     env:
       SSH_HOST: 82.198.227.7
