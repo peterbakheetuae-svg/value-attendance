@@ -3,7 +3,7 @@ import { assignWaiting } from './lead_routing.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
-import { audit, authenticate, readableIds, requirePerm } from '../auth/context.ts';
+import { audit, authenticate, can, readableIds, requireCan, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
@@ -263,6 +263,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
   r.get('/tracking/live', async (req) => {
     const a = await authenticate(db, req);
     requirePerm(a, 'attendance.read_all', 'attendance.read_team');
+    const seeLoc = can(a, 'attendance.view_location', ['attendance.read_all', 'attendance.read_team']);
     const now = clock(); const l = local(now);
     await sweep(db, now);
     const ids = await readableIds(db, a, 'attendance');
@@ -291,7 +292,8 @@ export const trackingModule: Module = (r, { db, clock }) => {
         checkIn: x.check_in_at, checkOut: x.check_out_at, lastPingAt: x.last_ping_at, silentMinutes: silent,
         stopped: !x.check_out_at && cfg.tracking_stale_minutes > 0 && (silent === null || silent >= cfg.tracking_stale_minutes),
         inside: x.inside, distanceM: x.distance_m, awayMinutesToday: x.away_minutes + awayNow,
-        position: x.lat === null ? null : { lat: x.lat, lng: x.lng, accuracyM: x.accuracy_m },
+        // the place itself only with «عرض مواقع الموظفين» (inside / outside and minutes away stay)
+        position: x.lat === null || !(seeLoc || x.id === a.id) ? null : { lat: x.lat, lng: x.lng, accuracyM: x.accuracy_m },
       };
     });
     return ok({ date: l.date, trackingEnabled: cfg.tracking_enabled, live });
@@ -303,6 +305,8 @@ export const trackingModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const ids = await readableIds(db, a, 'attendance');
     if (ids && !ids.includes(req.params.id)) throw notFound('Employee not found');
+    // another employee's location points: «عرض مواقع الموظفين»
+    if (req.params.id !== a.id) requireCan(a, 'attendance.view_location', ['attendance.read_all', 'attendance.read_team']);
     const day = req.query.get('date') ?? local(clock()).date;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw invalid('date must be YYYY-MM-DD');
     const pts = await db.query(`

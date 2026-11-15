@@ -85,8 +85,10 @@ export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
  * fine key counts (an individual restriction on it is respected); where it does not yet (the migration has not run), the
  * broad key it was split from decides — exactly today's behaviour.
  */
-export function can(a: Actor, fine: string, broad: string): boolean {
-  return a.known?.has(fine) ? has(a, fine) : has(a, broad);
+export function can(a: Actor, fine: string, broad: string | string[] | null): boolean {
+  if (a.known?.has(fine)) return has(a, fine);
+  if (broad === null) return !a.settled; // had no separate check before
+  return (Array.isArray(broad) ? broad : [broad]).some((b) => has(a, b));
 }
 
 /**
@@ -106,7 +108,7 @@ export function effectivePermissions(a: Actor): string[] {
   if (a.settled) return [];
   for (const p of PERMISSIONS) {
     if (a.known?.has(p.key)) continue;
-    if (p.splitFrom ? has(a, p.splitFrom) : (p.since && a.role === 'owner')) out.add(p.key);
+    if (p.openBefore || (p.splitFrom ? (Array.isArray(p.splitFrom) ? p.splitFrom : [p.splitFrom]).some((b) => has(a, b)) : (p.since && a.role === 'owner'))) out.add(p.key);
   }
   return [...out].sort();
 }
@@ -115,7 +117,7 @@ export function requirePerm(a: Actor, ...anyOf: string[]) {
   if (!anyOf.some((p) => has(a, p))) throw forbidden();
 }
 
-export function requireCan(a: Actor, fine: string, broad: string) {
+export function requireCan(a: Actor, fine: string, broad: string | string[] | null) {
   if (!can(a, fine, broad)) throw forbidden();
 }
 

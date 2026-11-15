@@ -15,8 +15,10 @@ export interface PermDef {
   nameAr: string;
   descAr: string;
   sensitive?: boolean;
-  /** the broad key this one was split from (kept for compatibility until every module uses the fine key) */
-  splitFrom?: string;
+  /** the broad key(s) this one was split from (holding any of them gave it before; kept for compatibility) */
+  splitFrom?: string | string[];
+  /** before this key existed the action had no separate check (everyone who could reach it could do it) */
+  openBefore?: boolean;
   since?: number;
 }
 
@@ -60,6 +62,8 @@ export const PERMISSIONS: PermDef[] = [
   // ---- attendance
   P('attendance', 'attendance.read_all', 'عرض حضور الكل', 'سجل حضور كل الموظفين وخريطة التتبع'),
   P('attendance', 'attendance.read_team', 'عرض حضور فريقه', 'سجل حضور موظفي فرقه بس'),
+  P('attendance', 'attendance.view_location', 'عرض مواقع الموظفين', 'خريطة التتبع ونقاط الموقع ومكان البصمة لغيره (في نطاقه)', { sensitive: true, splitFrom: ['attendance.read_all', 'attendance.read_team'], since: 66 }),
+  P('attendance', 'report.export', 'تصدير تقارير الحضور', 'تنزيل تقرير الحضور الشهري وملخص الرواتب إكسيل (في نطاقه)', { openBefore: true, since: 66 }),
   P('attendance', 'attendance.correct', 'تعديل سجلات الحضور', 'تصحيح البصمة (بيتسجل في سجل التدقيق)', { sensitive: true }),
   P('attendance', 'attendance.config', 'إعدادات الدوام', 'المواعيد والإجازات الرسمية ومواقع العمل'),
   P('attendance', 'report.read_all', 'التقارير الشهرية للكل', 'تقرير الحضور الشهري لكل الشركة'),

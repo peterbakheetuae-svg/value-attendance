@@ -16,8 +16,8 @@ import '../services/jph_bridge.dart';
 /// the admin home or the employees list (the server refuses the data anyway).
 class AppNav {
   /// Managers / HR / owner get the admin home (company or team totals); everyone else the employee home.
-  static bool get adminHome =>
-      JphBridge.session.role == 'owner' || ApiService.can('attendance.read_all') || ApiService.can('attendance.read_team');
+  /// (by permission only: the owner holds attendance.read_all like every other permission)
+  static bool get adminHome => ApiService.can('attendance.read_all') || ApiService.can('attendance.read_team');
 
   /// how many home pages are alive (set by the two home pages) — the home is always the bottom of the stack
   static int homeAlive = 0;
