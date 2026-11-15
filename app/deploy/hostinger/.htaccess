@@ -24,6 +24,7 @@ DirectoryIndex index.html
   AddType font/ttf .ttf
   AddType application/json .json
   AddType application/vnd.android.package-archive .apk
+  AddType application/octet-stream .exe
 </IfModule>
 
 # --- compression (text files; images / audio are already compressed)

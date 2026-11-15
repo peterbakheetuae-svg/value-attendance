@@ -196,7 +196,8 @@ jobs:
               --dart-define=UPDATE_BASE_URL=$E2E_BASE --dart-define=UPDATE_PUBLIC_KEY=$TEST_PUB
             for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do cp "/c/Windows/System32/$d" "$R/"; done
             if [ "$N" = "$((A+2))" ]; then printf 'not an app' > "$R/data/app.so"; echo "1.0.$N: app.so deliberately broken"; fi
-            "$ISCC" /Qp "/DAppVersion=1.0.$N" "/DSourceDir=$(cygpath -w "$PWD/$R")" "/DOutputDir=$(cygpath -w "$E/inst")" windows_installer/valunivo.iss
+            # MSYS_NO_PATHCONV: Git Bash would otherwise turn /D… switches into paths
+            MSYS_NO_PATHCONV=1 "$ISCC" /Qp "/DAppVersion=1.0.$N" "/DSourceDir=$(cygpath -w "$PWD/$R")" "/DOutputDir=$(cygpath -w "$E/inst")" windows_installer/valunivo.iss
           done
           ls -la "$E/inst"
       - name: Signed manifests (good, wrong key, downgrade, broken)
