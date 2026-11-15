@@ -42,3 +42,32 @@ test('employees view: attendance, best employees, KPIs, leave / outings', async 
   assert.equal(r.body.chart.series.present.length, 14);
   assert.equal(r.body.pipeline.rows.length, 5);
 });
+
+test('sales view (لوحة السيلز): new leads, late follow-ups, actions, reservations against the target, stages, most active, waiting leads', async () => {
+  assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/owner?view=sales')).status, 403);
+  const pr = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'مشروع ليدز اللوحة', totalPct: 2, salesPct: 0.3, managerPct: 0.2, companyPct: 1.5 });
+  assert.equal(pr.status, 201, JSON.stringify(pr.body));
+  const projectId = pr.body.project.id;
+  const add = await h.call(c.t.owner, 'POST', '/leads', { fullName: 'عميل اللوحة', phone: '01055550001', projectId, assignees: [c.ids.e1] });
+  assert.equal(add.status, 201, JSON.stringify(add.body));
+  assert.equal((await h.call(c.t.owner, 'POST', '/leads', { fullName: 'عميل مش متوزع', phone: '01055550002', projectId })).status, 201);
+  const act = await h.call(c.t.e1, 'POST', `/leads/${add.body.lead.id}/actions`, { stage: 'following', answered: true, comment: 'كلمته',
+    nextAt: '2026-11-10T10:30:00Z' });
+  assert.ok(act.status === 200 || act.status === 201, JSON.stringify(act.body));
+  h.now.value = new Date('2026-11-10T11:00:00Z');   // its follow-up time passed
+  const r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=sales&range=14');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.view, 'sales');
+  for (const k of CARDS) assert.ok(k in r.body, k);
+  assert.equal(r.body.kpis.length, 4);
+  const kp = Object.fromEntries(r.body.kpis.map((x: any) => [x.label, x]));
+  assert.equal(kp['ليدز جديدة النهارده'].value, 2);
+  assert.equal(kp['أكشنز النهارده'].value, 1);
+  assert.equal(kp['متابعات متأخرة'].value, 1, 'its follow-up time passed');
+  assert.match(kp['متابعات متأخرة'].foot, /1 مش متوزع/);
+  assert.ok(r.body.ranked.rows.some((x: any) => x.value === 1), 'the most active salesman');
+  assert.ok(r.body.latest.rows.some((x: any) => x.status === 'مش متوزع'));
+  assert.ok(r.body.pipeline.rows.length > 0);
+  assert.equal(r.body.chart.series.new.length, 14);
+  assert.ok(r.body.attention.rows.some((x: any) => /مش متوزعين/.test(x.title)));
+});

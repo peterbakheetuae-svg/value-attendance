@@ -6,12 +6,15 @@ import { authenticate } from '../auth/context.ts';
 import { cashSummary, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
+import { LATE as LEAD_LATE, OPEN_SQL } from './leads.ts';
 
 /**
  * The home of المالك / المدير العام — the Ignara overview layout, filled by one of two views:
  *   view=finance   — الخزنة (نقدي / بنك), أمانات الملاك, عمولتي, الوحدات, المصروفات وصافي المكتب, تغطية المصاريف, الطلبات المالية
  *   view=employees — الحضور / الانصراف / التأخير / الغياب, عدد الموظفين, أفضل الموظفين, الـ KPIs, الإجازات والأذونات والزيارات
- * Both return the same card shapes (kpis · chart · pipeline · ranked · latest · wallet · ring · coming · attention · last),
+ *   view=sales     — لوحة السيلز: الليدز الجديدة، المتابعات المتأخرة، الأكشنز، الحجوزات والتعاقدات قدام التارجت، المراحل،
+ *                    أنشط السيلز، أحدث الليدز، الميتنجات الجاية، والليدز اللي مستنية سيلز
+ * All return the same card shapes (kpis · chart · pipeline · ranked · latest · wallet · ring · coming · attention · last),
  * so the app draws one page. Every card carries a `route` key the app maps to its page.
  */
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -402,6 +405,173 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
   };
 }
 
+// ------------------------------------------------------------------ view=sales (the same numbers as لوحة السيلز:
+// reservations = units created this month, contracts = by contract date, actions = lead actions — like its targets)
+const CAIRO_DAY = (col: string) => `(${col} AT TIME ZONE 'Africa/Cairo')::date`;
+const STAGE_TONE: Record<string, string> = { new: 'info', action: 'warn', reserve: 'good', won: 'good', lost: 'muted' };
+
+async function salesView(db: Db, t: string, range: number, from: string, now: Date) {
+  const month = t.slice(0, 8) + '01';
+  const [k, daily, stages, ranked, latest, meetings, tasksSoon, lateBy, online] = await Promise.all([
+    one(db, `SELECT
+        (SELECT count(*) FROM leads l WHERE ${IN_RANGE('l.created_at', '$1', '$1')})::int AS new_today,
+        (SELECT count(*) FROM leads l WHERE ${IN_RANGE('l.created_at', '$2', '$1')})::int AS new_month,
+        (SELECT count(*) FROM leads l WHERE ${OPEN_SQL})::int AS open,
+        (SELECT count(*) FROM leads l WHERE ${OPEN_SQL} AND l.assigned_to IS NULL)::int AS unassigned,
+        (SELECT count(*) FROM leads l WHERE ${OPEN_SQL} AND l.assigned_to IS NULL AND l.wait_since IS NOT NULL)::int AS waiting,
+        (SELECT count(*) FROM leads l WHERE ${OPEN_SQL} AND l.next_at IS NOT NULL AND ${LEAD_LATE('$3::timestamptz')})::int AS late,
+        (SELECT count(*) FROM lead_actions x WHERE x.parent_id IS NULL AND NOT x.auto AND ${IN_RANGE('x.created_at', '$1', '$1')})::int AS actions_today,
+        (SELECT count(*) FROM lead_actions x WHERE x.answered AND NOT x.auto AND ${IN_RANGE('x.created_at', '$1', '$1')})::int AS answered_today,
+        (SELECT count(*) FROM lead_actions x WHERE x.answered = false AND NOT x.auto AND ${IN_RANGE('x.created_at', '$1', '$1')})::int AS no_answer_today,
+        (SELECT count(*) FROM ex_units u WHERE u.status <> 'cancelled' AND ${IN_RANGE('u.created_at', '$2', '$1')})::int AS res_month,
+        (SELECT count(*) FROM ex_units u WHERE ${IN_RANGE('u.contracted_at', '$2', '$1')})::int AS deals_month,
+        (SELECT COALESCE(sum(u.unit_price), 0) FROM ex_units u WHERE ${IN_RANGE('u.contracted_at', '$2', '$1')}) AS deals_value_month,
+        (SELECT COALESCE(sum(reservations), 0) FROM lead_targets WHERE month = $2::date)::int AS t_res,
+        (SELECT COALESCE(sum(deals), 0) FROM lead_targets WHERE month = $2::date)::int AS t_deals,
+        (SELECT count(*) FROM tasks x WHERE x.status IN ('open','doing') AND x.due_at < $3)::int AS tasks_late,
+        (SELECT count(*) FROM deals d WHERE d.stage = 'open')::int AS deals_open,
+        (SELECT round(avg(extract(epoch FROM (fx.at - l.assigned_at)) / 60)) FROM leads l
+           CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.created_at >= l.assigned_at) fx
+          WHERE l.assigned_at >= $3::timestamptz - interval '7 days' AND fx.at IS NOT NULL)::int AS response_min,
+        (SELECT count(DISTINCT e.id) FROM employees e
+           JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key = 'leads.own'
+          WHERE e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه')::int AS sales_people`, [t, month, now]),
+    db.query(`
+      SELECT d::date AS day,
+             (SELECT count(*) FROM leads l WHERE ${CAIRO_DAY('l.created_at')} = d::date)::int AS new,
+             (SELECT count(*) FROM lead_actions x WHERE x.parent_id IS NULL AND NOT x.auto AND ${CAIRO_DAY('x.created_at')} = d::date)::int AS actions,
+             (SELECT count(*) FROM ex_units u WHERE u.status <> 'cancelled' AND ${CAIRO_DAY('u.created_at')} = d::date)::int AS res,
+             (SELECT COALESCE(sum(u.unit_price), 0) FROM ex_units u WHERE ${CAIRO_DAY('u.contracted_at')} = d::date) AS value
+        FROM generate_series($1::date, $2::date, interval '1 day') d ORDER BY 1`, [from, t]),
+    db.query(`SELECT s.key, s.name_ar, s.kind, count(l.id)::int AS n FROM lead_stages s LEFT JOIN leads l ON l.stage = s.key
+               WHERE s.active AND s.kind IN ('new','action') GROUP BY s.key ORDER BY s.sort`),
+    db.query(`
+      SELECT e.full_name, count(x.id)::int AS actions, count(x.id) FILTER (WHERE x.stage IN ('meeting','after_meeting'))::int AS meetings,
+             (SELECT count(*) FROM ex_units u WHERE u.sales_id = e.id AND u.status <> 'cancelled' AND ${IN_RANGE('u.created_at', '$1', '$2')})::int AS res
+        FROM lead_actions x JOIN employees e ON e.id = x.by_id
+       WHERE x.parent_id IS NULL AND NOT x.auto AND ${IN_RANGE('x.created_at', '$1', '$2')}
+       GROUP BY e.id ORDER BY actions DESC LIMIT 5`, [month, t]),
+    db.query(`
+      SELECT l.id, l.full_name, l.created_at, s.name_ar AS stage_name, s.kind, l.assigned_to, e.full_name AS sales, ch.name AS channel, p.name AS project
+        FROM leads l LEFT JOIN lead_stages s ON s.key = l.stage LEFT JOIN employees e ON e.id = l.assigned_to
+        LEFT JOIN lead_channels ch ON ch.id = l.channel_id LEFT JOIN commission_projects p ON p.id = l.project_id
+       ORDER BY l.created_at DESC LIMIT 6`),
+    db.query(`
+      SELECT l.next_at, l.full_name, e.full_name AS sales FROM leads l LEFT JOIN employees e ON e.id = l.assigned_to
+       WHERE l.stage IN ('meeting','reschedule') AND l.next_at >= $1 AND l.next_at < $1::timestamptz + interval '14 days'
+       ORDER BY l.next_at LIMIT 5`, [now]),
+    db.query(`
+      SELECT x.due_at, x.title, e.full_name AS who FROM tasks x JOIN employees e ON e.id = x.assigned_to
+       WHERE x.status IN ('open','doing') AND x.due_at >= $1 AND x.due_at < $1::timestamptz + interval '14 days'
+       ORDER BY x.due_at LIMIT 5`, [now]),
+    db.query(`
+      SELECT e.full_name, count(*)::int AS n FROM leads l JOIN employees e ON e.id = l.assigned_to
+       WHERE ${OPEN_SQL} AND l.next_at IS NOT NULL AND ${LEAD_LATE('$1::timestamptz')} GROUP BY e.id ORDER BY n DESC LIMIT 4`, [now]),
+    one(db, `SELECT count(DISTINCT e.id)::int AS n FROM sessions s JOIN employees e ON e.id = s.employee_id
+               JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key = 'leads.own'
+              WHERE s.revoked_at IS NULL AND s.last_seen_at > $1::timestamptz - interval '10 minutes' AND e.status = 'active'`, [now]),
+  ]);
+  const won = k.res_month + k.deals_month;
+  const target = k.t_res + k.t_deals;
+  const pct = target ? Math.min(1, won / target) : 0;
+  const newSeries = bucket(daily.rows.map((x) => ({ day: ds(x.day), v: n(x.new) })), range);
+  const actSeries = bucket(daily.rows.map((x) => ({ day: ds(x.day), v: n(x.actions) })), range);
+  const resSeries = bucket(daily.rows.map((x) => ({ day: ds(x.day), v: n(x.res) })), range);
+  const totalNew = daily.rows.reduce((s2, x) => s2 + n(x.new), 0);
+  const days = daily.rows.length || 1;
+  const avgNew = r2(totalNew / days);
+  const best = newSeries.reduce((b, x) => (x.value > (b?.value ?? -1) ? x : b), null as any);
+  const maxActions = Math.max(1, ...ranked.rows.map((x) => n(x.actions)));
+  const open = stages.rows.filter((x) => n(x.n) > 0);
+  const coming = [
+    ...meetings.rows.map((x) => ({ day: local(new Date(x.next_at)).date, title: `ميتنج ${x.full_name}`, sub: x.sales ?? 'مش متوزع', tone: 'accent' })),
+    ...tasksSoon.rows.map((x) => ({ day: local(new Date(x.due_at)).date, title: x.title, sub: `مهمة · ${x.who}`, tone: 'info' })),
+  ].sort((x, y) => x.day.localeCompare(y.day)).slice(0, 5);
+  const onlineN = n(online?.n);
+  return {
+    summary: [
+      `${k.new_today} ليد جديد النهارده`,
+      k.late ? `${k.late} متابعة متأخرة` : '',
+      k.unassigned ? `${k.unassigned} مش متوزع` : '',
+      `${onlineN} من السيلز متصل`,
+    ].filter(Boolean),
+    kpis: [
+      { label: 'حجوزات وتعاقدات الشهر', value: won, format: 'count', highlight: true, progress: target ? r2(pct) : null,
+        foot: `${k.res_month} حجز · ${k.deals_month} تعاقد${target ? ` · التارجت ${target}` : ''}`, route: 'sales', icon: 'handshake' },
+      { label: 'ليدز جديدة النهارده', value: k.new_today, format: 'count', foot: `${k.new_month} الشهر ده`, route: 'leads', icon: 'lead' },
+      { label: 'متابعات متأخرة', value: k.late, format: 'count', foot: k.unassigned ? `${k.unassigned} مش متوزع` : 'كله متوزع',
+        route: 'leads', icon: 'late', tone: k.late ? 'warn' : null },
+      { label: 'أكشنز النهارده', value: k.actions_today, format: 'count', foot: `${k.answered_today} رد · ${k.no_answer_today} مردّش`, route: 'leads', icon: 'phone' },
+    ],
+    chart: {
+      title: 'الليدز اليومية', sub: 'الليدز الجديدة كل يوم — الخط المتقطع هو المتوسط', unit: 'count',
+      chips: [{ key: 'new', label: 'ليدز جديدة' }, { key: 'actions', label: 'الأكشنز' }, { key: 'res', label: 'الحجوزات' }],
+      series: { new: newSeries, actions: actSeries, res: resSeries },
+      target: Math.round(avgNew), targetLabel: 'المتوسط',
+      stats: [
+        { label: 'ليدز الفترة', value: totalNew, format: 'count' },
+        { label: 'المتوسط في اليوم', value: avgNew, format: 'count', dashed: true },
+        { label: 'أكشنز الفترة', value: daily.rows.reduce((s2, x) => s2 + n(x.actions), 0), format: 'count' },
+        { label: 'أعلى يوم', value: best?.value ?? 0, format: 'count', day: best?.day ?? null },
+      ],
+      route: 'leads',
+    },
+    pipeline: {
+      title: 'الليدز المفتوحة', sub: `${k.open} ليد حسب المرحلة`, route: 'leads',
+      rows: open.slice(0, 6).map((x, i) => ({ label: x.name_ar, value: n(x.n), tone: i === 0 ? 'accent' : (STAGE_TONE[x.kind] ?? 'info') })),
+      footer: { icon: 'people', strong: `${k.unassigned}`, text: 'ليد مش متوزع على سيلز' },
+      button: 'لوحة السيلز',
+    },
+    ranked: {
+      title: 'أنشط السيلز', sub: 'الشهر ده — عدد الأكشنز', route: 'leads',
+      rows: ranked.rows.map((x) => ({ title: x.full_name, sub: `${x.meetings} ميتنج · ${x.res} حجز`, value: x.actions, format: 'count',
+        progress: r2(n(x.actions) / maxActions) })),
+      empty: 'لسه مفيش أكشنز الشهر ده',
+    },
+    latest: {
+      title: 'أحدث الليدز', sub: 'آخر اللي نزل', route: 'leads',
+      rows: latest.rows.map((x) => ({ kind: 'lead', id: x.id, title: x.full_name, at: x.created_at, amount: null,
+        sub: [x.channel ?? 'من غير قناة', x.project, x.sales ?? 'مش متوزع'].filter(Boolean).join(' · '),
+        status: x.assigned_to ? (x.stage_name ?? '') : 'مش متوزع', tone: x.assigned_to ? (STAGE_TONE[x.kind] ?? 'info') : 'bad' })),
+      empty: 'لسه مفيش ليدز',
+    },
+    wallet: {
+      title: 'المبيعات', label: 'قيمة التعاقدات الشهر ده', value: n(k.deals_value_month), format: 'money',
+      spark: daily.rows.map((x) => n(x.value)),
+      rows: [{ label: 'حجوزات الشهر', value: k.res_month, format: 'count' }, { label: 'صفقات مفتوحة', value: k.deals_open, format: 'count' }],
+      button: { label: 'لوحة السيلز', route: 'leads' },
+      warn: k.waiting > 0 ? { label: `${k.waiting} ليد مستني سيلز متصل`, route: 'leads' } : null,
+      route: 'sales',
+    },
+    ring: {
+      title: 'التارجت', sub: target ? 'الحجوزات والتعاقدات قدام تارجت الشهر' : 'لسه مفيش تارجت متحدد للشهر ده', pct,
+      center: target ? `${Math.round(pct * 100)}٪` : '—', centerSub: 'تحقيق التارجت',
+      stats: [
+        { label: 'الحجوزات', value: k.res_month, format: 'count', of: k.t_res || null, tone: 'good' },
+        { label: 'التعاقدات', value: k.deals_month, format: 'count', of: k.t_deals || null },
+        { label: 'السيلز المتصلين', value: onlineN, format: 'count', of: k.sales_people },
+      ],
+      extra: [
+        { label: 'متوسط سرعة الرد على الليد (دقيقة) — آخر 7 أيام', value: n(k.response_min), format: 'count' },
+        { label: 'ليدز مفتوحة', value: k.open, format: 'count' },
+      ],
+      route: 'leads_targets',
+    },
+    coming: { title: 'الجاي', sub: 'ميتنجات ومهام الأسبوعين الجايين', route: 'leads', rows: coming, empty: 'مفيش ميتنجات ولا مهام جاية' },
+    attention: {
+      title: 'محتاج انتباه', sub: 'السيلز', route: 'leads',
+      rows: [
+        k.waiting ? { icon: 'alert', title: `مستنيين سيلز متصل: ${k.waiting}`, sub: 'محدش من السيلز المختارين فاتح — وزّعهم أو هيروحوا لأول واحد يفتح',
+          button: 'وزّع', route: 'leads' } : null,
+        k.unassigned - k.waiting > 0 ? { icon: 'people', title: `مش متوزعين: ${k.unassigned - k.waiting}`, sub: 'ليدز من غير سيلز', button: 'وزّع', route: 'leads' } : null,
+        k.late ? { icon: 'late', title: `متابعات متأخرة: ${k.late}`, sub: lateBy.rows.map((x) => `${x.full_name} (${x.n})`).join('، '), button: 'متابعة', route: 'leads' } : null,
+        k.tasks_late ? { icon: 'calendar', title: `مهام متأخرة: ${k.tasks_late}`, sub: 'عدّى ميعادها ولسه مفتوحة', button: 'المهام', route: 'leads' } : null,
+      ].filter(Boolean),
+      empty: 'كله تمام في السيلز',
+    },
+  };
+}
+
 function fmt(v: number) { return `${Math.round(v).toLocaleString('en-US')} جنيه`; }
 function short(v: number) {
   const a = Math.abs(v);
@@ -415,13 +585,15 @@ export const ownerDashboardModule: Module = (r, { db, clock }) => {
     if (!canOffice(a)) throw forbidden();
     const t = local(clock()).date;
     const range = [14, 30, 91].includes(Number(req.query.get('range'))) ? Number(req.query.get('range')) : 14;
-    const view = req.query.get('view') === 'employees' ? 'employees' : 'finance';
+    const v = req.query.get('view');
+    const view = v === 'employees' || v === 'sales' ? v : 'finance';
     const from = addDays(t, -(range - 1));
     const [me, last] = await Promise.all([
       one(db, `SELECT full_name FROM employees WHERE id = $1`, [a.id]),
       one(db, `SELECT l.action, l.at, e.full_name AS actor FROM audit_log l LEFT JOIN employees e ON e.id = l.actor_id ORDER BY l.id DESC LIMIT 1`),
     ]);
-    const body: Card = view === 'finance' ? await financeView(db, a, t, range, from) : await employeesView(db, t, range, from);
+    const body: Card = view === 'finance' ? await financeView(db, a, t, range, from)
+      : view === 'sales' ? await salesView(db, t, range, from, clock()) : await employeesView(db, t, range, from);
     return ok({ view, date: t, range, name: me?.full_name ?? '', ...body, last: last ? { action: last.action, at: last.at, actor: last.actor } : null });
   });
 };
