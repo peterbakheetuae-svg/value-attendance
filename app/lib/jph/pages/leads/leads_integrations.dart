@@ -5,9 +5,11 @@ import '../../../core/api.dart' show kApiBaseUrl;
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'leads_routing.dart';
 
-/// إعدادات الليدز / الربط: Value Aqar (its inquiries come in as leads; its projects and units wait here until the office
-/// adopts them as تسويق or حصري) and Meta lead ads (every lead form's answers land on a campaign by themselves).
+/// إعدادات الليدز / الربط: Value Aqar (a direct channel: its inquiries come in as leads, given by the rule of their
+/// property / project / the default one; its projects and units wait here until the office adopts them as تسويق or
+/// حصري) and Meta lead ads (every lead form's answers land on a campaign, given to its salesmen as it says).
 /// Keys and tokens are written here and never shown back (only the last 4 characters of the key).
 class LeadsIntegrationsView extends StatefulWidget {
   final bool isDark;
@@ -250,6 +252,125 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
     if (ok) _load();
   }
 
+  // ------------------------------------------------------------------ توزيع ليدز فاليو عقار
+  List<Map<String, dynamic>> get _people => ll(_d['people']);
+
+  Future<void> _editRoute({Map<String, dynamic>? rule, String target = 'default'}) async {
+    final r = rule ?? const <String, dynamic>{};
+    var t = '${r['target'] ?? target}';
+    String? ext = r['externalId'] == null ? null : '${r['externalId']}';
+    final projects = ll(_d['projects']).where((p) => p['status'] != 'deleted').toList();
+    final props = ll(_d['properties']);
+    final title = t == 'default' ? tr('التوزيع الافتراضي لفاليو عقار') : rule == null ? tr('قاعدة توزيع جديدة') : '${tr('توزيع')}: ${r['label']}';
+    final ok = await editRoute(context, isDark, title, _people,
+        mode: '${r['mode'] ?? 'online'}',
+        selected: [for (final x in (r['assignees'] as List? ?? const [])) '$x'],
+        header: rule != null || t == 'default'
+            ? null
+            : (set) => [
+                  Wrap(spacing: 6, children: [
+                    ChoiceChip(selected: t == 'project', label: Text(tr('مشروع')), onSelected: (_) => set(() { t = 'project'; ext = null; })),
+                    ChoiceChip(selected: t == 'property', label: Text(tr('عقار')), onSelected: (_) => set(() { t = 'property'; ext = null; })),
+                  ]),
+                  refPicker(
+                    context,
+                    isDark,
+                    t == 'project' ? tr('المشروع على فاليو عقار') : tr('العقار على فاليو عقار'),
+                    t == 'project' ? Icons.apartment_rounded : Icons.home_work_rounded,
+                    t == 'project'
+                        ? [for (final p in projects) {'id': '${p['externalId']}', 'name': '${p['name'] ?? p['externalId']}'}]
+                        : [for (final p in props) {'id': '${p['externalId']}', 'name': [p['name'], if ('${p['location'] ?? ''}'.isNotEmpty) p['location']].join(' · ')}],
+                    ext,
+                    (v) => set(() => ext = v),
+                    allowNone: false,
+                  ),
+                  if ((t == 'project' ? projects : props).isEmpty)
+                    Text(t == 'project' ? tr('لسه مفيش مشاريع واصلة من فاليو عقار') : tr('لسه مفيش عقارات واصلة من فاليو عقار'),
+                        style: TextStyle(color: JphUi.sub(isDark))),
+                ],
+        save: (mode, ids) async {
+          if (t != 'default' && (ext == null || ext!.isEmpty)) {
+            JphUi.toast(context, {'success': false, 'message': tr('اختار المشروع / العقار')});
+            return false;
+          }
+          final res = await lpost('/integrations/routes', {'target': t, 'externalId': t == 'default' ? '' : ext, 'mode': mode, 'assignees': ids},
+              method: 'put', ok: tr('اتحفظ ✅'));
+          if (mounted) JphUi.toast(context, res);
+          return res['success'] != false;
+        });
+    if (ok) _load();
+  }
+
+  Future<void> _removeRoute(Map<String, dynamic> r) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('تشيل القاعدة دي؟')),
+        content: Text('${r['label']} — ${tr('ليدزه هتمشي على التوزيع الافتراضي')}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('لأ'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('أيوه'))),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    final res = await lpost('/integrations/routes/${r['id']}/remove', {}, ok: tr('اتشالت'));
+    if (mounted) JphUi.toast(context, res);
+    _load();
+  }
+
+  Widget _routeTile(Map<String, dynamic> r, {bool isDefault = false}) {
+    final ids = [for (final x in (r['assignees'] as List? ?? const [])) '$x'];
+    final t = '${r['target'] ?? 'default'}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: (isDefault ? Ar.accent : JphUi.sub(isDark)).withValues(alpha: isDefault ? 0.6 : 0.25)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(isDefault ? Icons.alt_route_rounded : t == 'project' ? Icons.apartment_rounded : Icons.home_work_rounded, color: Ar.accent),
+        title: Text(isDefault ? tr('التوزيع الافتراضي (أي استفسار ملوش قاعدة)') : '${t == 'project' ? tr('مشروع') : tr('عقار')}: ${r['label']}',
+            style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        subtitle: Text(r.isEmpty ? tr('مش متحدد — الليدز تنزل من غير سيلز والمدير يتنبّه') : routeSummary('${r['mode']}', ids, _people)),
+        trailing: isDefault || r.isEmpty
+            ? const Icon(Icons.edit_rounded, size: 18)
+            : IconButton(tooltip: tr('شيل'), icon: const Icon(Icons.delete_outline_rounded), onPressed: () => _removeRoute(r)),
+        onTap: () => _editRoute(rule: r.isEmpty ? null : r, target: t),
+      ),
+    );
+  }
+
+  List<Widget> _routes() {
+    final rs = ll(_d['routes']);
+    final def = rs.firstWhere((r) => r['target'] == 'default', orElse: () => <String, dynamic>{});
+    final rest = rs.where((r) => r['target'] != 'default').toList();
+    return [
+      Text(tr('توزيع الليدز'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+      Text(tr('حدد لكل مشروع أو عقار السيلز اللي يستقبل ليدزه: سيلز واحد، أو بالدور على المتصلين، أو بالدور على الكل. أي استفسار ملوش قاعدة بيمشي على التوزيع الافتراضي.'),
+          style: TextStyle(color: JphUi.sub(isDark))),
+      const SizedBox(height: 8),
+      _routeTile(def, isDefault: true),
+      for (final r in rest) _routeTile(r),
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: dirBtn(isDark, tr('قاعدة لمشروع / عقار'), Icons.add_rounded, () => _editRoute(target: 'project')),
+      ),
+    ];
+  }
+
+  Future<void> _campaignRoute(Map<String, dynamic> c) async {
+    final ok = await editRoute(context, isDark, '${tr('توزيع ليدز الحملة')}: ${c['name']}', _people,
+        mode: '${c['mode'] ?? 'turn'}',
+        selected: [for (final x in (c['assignees'] as List? ?? const [])) '$x'],
+        save: (mode, ids) async {
+          final res = await lpost('/integrations/campaigns/${c['id']}', {'mode': mode, 'assignees': ids}, method: 'patch', ok: tr('اتحفظ ✅'));
+          if (mounted) JphUi.toast(context, res);
+          return res['success'] != false;
+        });
+    if (ok) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
@@ -269,11 +390,13 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
         _line(tr('رابط الـ Webhook'), '$kApiBaseUrl/public/hooks/valueaqar', copy: true, mono: true),
         _line(tr('الهيدر'), 'x-value-key', copy: true, mono: true),
         _line(tr('المفتاح'), va['hasKey'] == true ? '${va['keyHint']}' : tr('لسه متعملش')),
-        _campaignPicker('valueaqar', va['campaignId']),
+        _line(tr('القناة'), tr('فاليو عقار — قناة مباشرة (من غير حملة)')),
         Wrap(spacing: 8, runSpacing: 8, children: [
           dirBtn(isDark, va['hasKey'] == true ? tr('مفتاح جديد') : tr('اعمل مفتاح'), Icons.key_rounded, _newKey, primary: va['hasKey'] != true),
           dirBtn(isDark, va['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('valueaqar', {'active': va['active'] != true})),
         ]),
+        const Divider(height: 26),
+        ..._routes(),
         const Divider(height: 26),
         Text(tr('المشاريع الواردة'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
         const SizedBox(height: 6),
@@ -298,8 +421,9 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
           dirBtn(isDark, meta['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('meta', {'active': meta['active'] != true})),
         ]),
         const Divider(height: 26),
-        Text(tr('كل حملة وفورم Meta بتاعها'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        Text(tr('الليد بينزل على الحملة اللي فورمها اتربط، وإلا على الحملة الافتراضية فوق.'), style: TextStyle(color: JphUi.sub(isDark))),
+        Text(tr('كل حملة: فورم Meta بتاعها والسيلز اللي بيستقبلوا'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        Text(tr('الليد بينزل على الحملة اللي فورمها اتربط، وإلا على الحملة الافتراضية فوق، ويتوزع على السيلز بتوع الحملة بالطريقة اللي تختارها.'),
+            style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 6),
         for (final c in ll(_d['campaigns']))
           ListTile(
@@ -307,9 +431,16 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.ads_click_rounded),
             title: Text('${c['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text(c['metaFormId'] == null ? tr('مش مربوطة') : 'Form ${c['metaFormId']}'),
-            trailing: const Icon(Icons.edit_rounded, size: 18),
-            onTap: () => _form(c),
+            subtitle: Text([
+              c['metaFormId'] == null ? tr('فورم Meta: مش مربوط') : 'Form ${c['metaFormId']}',
+              routeSummary('${c['mode']}', [for (final x in (c['assignees'] as List? ?? const [])) '$x'], _people),
+            ].join('\n')),
+            isThreeLine: true,
+            trailing: Wrap(children: [
+              IconButton(tooltip: tr('التوزيع على السيلز'), icon: const Icon(Icons.group_rounded, size: 20), onPressed: () => _campaignRoute(c)),
+              IconButton(tooltip: tr('فورم Meta'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _form(c)),
+            ]),
+            onTap: () => _campaignRoute(c),
           ),
       ]),
     ]);
