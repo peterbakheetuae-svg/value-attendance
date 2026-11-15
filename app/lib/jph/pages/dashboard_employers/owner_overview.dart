@@ -11,13 +11,16 @@ import '../cash/cashbox_hub_page.dart';
 import '../employees/employees_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
 import '../finance/finance_dashboard_page.dart';
+import '../leads/leads_dashboard_page.dart';
+import '../leads/leads_targets_page.dart';
 import '../multi_company/kpi_page.dart';
 import 'attendance_today_page.dart';
 
 /// The home of المالك / المدير العام — the Ignara overview, card for card and motion for motion, in the app's
-/// colours: greeting + headline → [المالية | الموظفين] → 4 KPI cards (the first one a gradient with a progress bar) →
+/// colours: greeting + headline → [المالية | الموظفين | سيلز] → 4 KPI cards (the first one a gradient with a progress bar) →
 /// bead chart against a dashed target → pipeline bars → ranked list → latest list → wallet with a sparkline →
-/// segmented dial → coming up → needs attention → last activity. Both views share the same cards (GET /dashboard/owner).
+/// segmented dial → coming up → needs attention → last activity. The three views share the same cards (GET /dashboard/owner);
+/// «سيلز» is filled from لوحة السيلز (leads, follow-ups, actions, reservations against the target).
 class OwnerOverview extends StatefulWidget {
   final bool isDark;
   final Widget header;
@@ -151,6 +154,10 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         page = EmployeesPage(currentUserId: widget.uid, currentUserName: widget.name, currentUserRole: widget.role);
       case 'kpi':
         page = const KpiPage();
+      case 'leads':
+        page = const LeadsDashboardPage();
+      case 'leads_targets':
+        page = const LeadsTargetsPage();
       case 'requests':
         widget.onOpenClassic();
         return;
@@ -237,6 +244,9 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         'payroll' => Icons.payments_outlined,
         'calendar' => Icons.event_outlined,
         'clock' => Icons.access_time_rounded,
+        'lead' => Icons.person_add_alt_1_outlined,
+        'phone' => Icons.call_outlined,
+        'handshake' => Icons.handshake_outlined,
         _ => Icons.circle_outlined,
       };
 
@@ -245,7 +255,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     final h = DateTime.now().hour;
     final first = '${_d?['name'] ?? widget.name}'.split(' ').first;
     final summary = ((_d?['summary'] as List?) ?? const []).map((e) => '$e').join(' · ');
-    final headline = _view == 'finance' ? 'المالية النهارده' : 'الموظفين النهارده';
+    final headline = switch (_view) { 'finance' => 'المالية النهارده', 'sales' => 'السيلز النهارده', _ => 'الموظفين النهارده' };
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -261,7 +271,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     );
   }
 
-  // ---------------------------------------------------------------- 2. the two buttons: المالية | الموظفين
+  // ---------------------------------------------------------------- 2. the three buttons: المالية | الموظفين | سيلز
   Widget _switchButtons() {
     Widget btn(String v, String label, IconData icon) {
       final on = _view == v;
@@ -279,11 +289,15 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               border: on ? null : Border.all(color: p.line),
               boxShadow: on ? [BoxShadow(color: p.accent.withOpacity(0.45), blurRadius: 24, offset: const Offset(0, 10), spreadRadius: -8)] : null,
             ),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(icon, size: 20, color: on ? Colors.white : p.ink),
-              const SizedBox(width: 10),
-              Text(label, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: on ? Colors.white : p.ink)),
-            ]),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(icon, size: 20, color: on ? Colors.white : p.ink),
+                const SizedBox(width: 8),
+                Text(label, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: on ? Colors.white : p.ink)),
+              ]),
+            ),
           ),
         ),
       );
@@ -293,8 +307,10 @@ class _OwnerOverviewState extends State<OwnerOverview> {
       padding: const EdgeInsets.only(bottom: 18),
       child: Row(children: [
         btn('finance', 'المالية', Icons.bar_chart_rounded),
-        const SizedBox(width: 14),
+        const SizedBox(width: 10),
         btn('employees', 'الموظفين', Icons.groups_2_outlined),
+        const SizedBox(width: 10),
+        btn('sales', 'سيلز', Icons.trending_up_rounded),
       ]),
     );
   }
@@ -645,6 +661,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         'owner_payout' || 'expense' => 'cash',
         'contract' || 'cancel' => 'exclusive',
         'request' || 'outing' => 'requests',
+        'lead' => 'leads',
         _ => fallback,
       };
 
