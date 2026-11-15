@@ -462,7 +462,11 @@ export const salesModule: Module = (r, { db, clock }) => {
     const s = req.query.get('q');
     if (s) {
       vals.push(`%${s.trim().toLowerCase()}%`);
-      where.push(`(lower(s.buyer_name) LIKE $${vals.length} OR lower(s.unit_no) LIKE $${vals.length}${canClient(a) ? ` OR s.buyer_phone LIKE $${vals.length}` : ''})`);
+      // by the phone number only where he may see it: with «بيانات العملاء», on all sales (sales.view) or his own — never a team's
+      const n = vals.length;
+      if (canClient(a) && !canView(a)) vals.push(a.id);
+      const byPhone = !canClient(a) ? '' : canView(a) ? ` OR s.buyer_phone LIKE $${n}` : ` OR (s.buyer_phone LIKE $${n} AND s.created_by = $${vals.length})`;
+      where.push(`(lower(s.buyer_name) LIKE $${n} OR lower(s.unit_no) LIKE $${n}${byPhone})`);
     }
     const pid = req.query.get('projectId');
     if (pid && isUuid(pid)) { vals.push(pid); where.push(`s.project_id = $${vals.length}`); }
