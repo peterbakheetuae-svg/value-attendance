@@ -11,7 +11,15 @@ import '../cash/cashbox_hub_page.dart';
 import '../employees/employees_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
 import '../finance/finance_dashboard_page.dart';
+import '../leads/deals_page.dart';
+import '../leads/lead_page.dart';
+import '../leads/leads_calendar_page.dart';
 import '../leads/leads_dashboard_page.dart';
+import '../leads/leads_list_page.dart';
+import '../leads/leads_reports_page.dart';
+import '../leads/tasks_page.dart';
+import '../public_holidays_page.dart';
+import '../sales/sales_page.dart';
 import '../leads/leads_targets_page.dart';
 import '../multi_company/kpi_page.dart';
 import 'attendance_today_page.dart';
@@ -132,32 +140,68 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   }
 
   // ---------------------------------------------------------------- navigation
+  /// Every card — and every line inside it — names its page with its filter: 'leads?stage=new', 'leads?tab=delay',
+  /// 'lead?id=…', 'unit?id=…', 'attendance_today?filter=absent', 'project_trust?id=…&name=…', 'commissions'…
   void _go(String? route) async {
-    if (route == null) return;
+    if (route == null || route.isEmpty || route == 'null') return;
+    final cut = route.indexOf('?');
+    final name = cut < 0 ? route : route.substring(0, cut);
+    final q = cut < 0 ? const <String, String>{} : Uri.splitQueryString(route.substring(cut + 1));
+    String? v(String k) => (q[k] ?? '').isEmpty ? null : q[k];
     Widget? page;
-    switch (route) {
+    switch (name) {
+      // a lead opens as its panel (the page stays under it)
+      case 'lead':
+        if (v('id') != null) await openLead(context, v('id')!);
+        _load(quiet: true);
+        return;
       case 'cash':
         page = CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, initial: 1);
       case 'finance':
         page = const FinanceDashboardPage();
       case 'finance_requests':
-        page = CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role);
+        page = CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role, requestsTab: int.tryParse(v('tab') ?? '') ?? 0);
+      case 'commissions':
+        page = const CommissionsDuePage();
+      case 'expected_commissions':
+        page = const ExpectedCommissionsPage();
+      case 'owners':
+        page = const ProjectsBoxPage();
+      case 'project_trust':
+        page = v('id') == null ? const ProjectsBoxPage() : ProjectTrustPage(project: {'id': v('id'), 'name': v('name') ?? ''});
       case 'exclusive':
         page = const ProjectsPage();
+      case 'units':
       case 'sales':
-        page = const SalesHubPage();
+        page = SalesHubPage(stage: v('stage') ?? 'reservation');
+      case 'unit':
+        page = v('id') == null ? const SalesHubPage() : ExclusiveUnitPage(unitId: v('id')!);
+      case 'installments':
+        page = const SalesPage();
       case 'attendance_today':
-        page = AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role);
+        page = AttendanceTodayPage(uid: widget.uid, name: widget.name, role: widget.role, filter: v('filter') ?? 'present');
       case 'attendance_report':
-        page = AttendanceReportPage(uid: widget.uid, name: widget.name, role: widget.role);
+        page = AttendanceReportPage(uid: widget.uid, name: widget.name, role: widget.role, initialEmployeeId: v('employee'));
       case 'employees':
         page = EmployeesPage(currentUserId: widget.uid, currentUserName: widget.name, currentUserRole: widget.role);
+      case 'holidays':
+        page = PublicHolidaysPage(uid: widget.uid, name: widget.name, role: widget.role);
       case 'kpi':
         page = const KpiPage();
       case 'leads':
+        page = LeadsListPage(tab: v('tab') ?? 'all', stage: v('stage'), person: v('person'));
+      case 'leads_dashboard':
         page = const LeadsDashboardPage();
       case 'leads_targets':
         page = const LeadsTargetsPage();
+      case 'leads_reports':
+        page = const LeadsReportsPage();
+      case 'leads_calendar':
+        page = const LeadsCalendarPage();
+      case 'tasks':
+        page = const TasksPage();
+      case 'deals':
+        page = const DealsPage();
       case 'requests':
         widget.onOpenClassic();
         return;
@@ -165,6 +209,13 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     if (page == null) return;
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page!));
     _load(quiet: true);
+  }
+
+  /// a line inside a card: tappable when it names its page
+  Widget _tap(Map<String, dynamic> row, Widget child) {
+    final r = '${row['route'] ?? ''}';
+    if (r.isEmpty || r == 'null') return child;
+    return _Press(onTap: () => _go(r), child: child);
   }
 
   void _switch(String v) {
@@ -453,7 +504,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     return _card(
       i: i,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _head('${c['title']}', '${c['sub']}'),
+        _head('${c['title']}', '${c['sub']}', route: c['route'] == null ? null : '${c['route']}', arrow: c['route'] != null),
         seg(),
         const SizedBox(height: 18),
         Wrap(children: stats.map(stat).toList()),
@@ -518,7 +569,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _head('${c['title']}', '${c['sub']}', route: '${c['route']}', arrow: true),
         for (var k = 0; k < rows.length; k++)
-          Padding(
+          _tap(rows[k], Padding(
             padding: const EdgeInsets.symmetric(vertical: 11),
             child: Row(children: [
               SizedBox(width: 108, child: Text('${rows[k]['label']}', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: p.ink))),
@@ -534,8 +585,9 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               ),
               SizedBox(width: 56, child: Text('${rows[k]['value']}', textAlign: TextAlign.end,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: p.ink))),
+              if ('${rows[k]['route'] ?? ''}'.isNotEmpty) Icon(Icons.chevron_left_rounded, size: 18, color: p.muted),
             ]),
-          ),
+          )),
         Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1, color: p.line)),
         Row(children: [
           Icon(_icon('${f['icon']}'), size: 19, color: p.accent),
@@ -574,7 +626,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         if (rows.isEmpty) _empty('${c['empty'] ?? ''}'),
         for (var k = 0; k < rows.length; k++) ...[
           if (k > 0) Divider(height: 1, color: p.line),
-          Padding(
+          _tap(rows[k], Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Row(children: [
               SizedBox(width: 22, child: Text('${k + 1}', style: TextStyle(fontSize: 15, color: p.muted))),
@@ -604,7 +656,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               const SizedBox(width: 10),
               CountUpText(fmt(_n(rows[k]['value']), '${rows[k]['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
             ]),
-          ),
+          )),
         ],
       ]),
     );
@@ -625,7 +677,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         for (var k = 0; k < rows.length; k++) ...[
           if (k > 0) Divider(height: 1, color: p.line),
           _Press(
-            onTap: () => _go(_routeOf('${rows[k]['kind']}', '${c['route']}')),
+            onTap: () => _go(rows[k]['route'] != null ? '${rows[k]['route']}' : _routeOf('${rows[k]['kind']}', '${c['route']}')),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -723,11 +775,11 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         Row(children: [
           for (final r in rows)
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              child: _tap(r, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${r['label']}', style: TextStyle(fontSize: 14, color: p.muted)),
                 const SizedBox(height: 4),
                 CountUpText(fmt(_n(r['value']), '${r['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
-              ]),
+              ])),
             ),
         ]),
         const SizedBox(height: 18),
@@ -788,7 +840,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         Row(children: [
           for (var k = 0; k < stats.length; k++)
             Expanded(
-              child: Column(
+              child: _tap(stats[k], Column(
                 crossAxisAlignment: k == 0 ? CrossAxisAlignment.start : k == stats.length - 1 ? CrossAxisAlignment.end : CrossAxisAlignment.center,
                 children: [
                   Text('${stats[k]['label']}', style: TextStyle(fontSize: 14, color: p.muted)),
@@ -799,19 +851,19 @@ class _OwnerOverviewState extends State<OwnerOverview> {
                   if ('${stats[k]['name'] ?? ''}'.isNotEmpty)
                     Text('${stats[k]['name']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: p.muted)),
                 ],
-              ),
+              )),
             ),
         ]),
         if (extra.isNotEmpty) ...[
           Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Divider(height: 1, color: p.line)),
           for (final e in extra)
-            Padding(
+            _tap(e, Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: [
                 Expanded(child: Text('${e['label']}', style: TextStyle(fontSize: 14, color: p.muted))),
                 CountUpText(fmt(_n(e['value']), '${e['format']}'), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: p.ink)),
               ]),
-            ),
+            )),
         ],
       ]),
     );
@@ -827,7 +879,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         _head('${c['title']}', '${c['sub']}', link: 'الكل', route: '${c['route']}'),
         if (rows.isEmpty) _empty('${c['empty'] ?? ''}'),
         for (final r in rows)
-          Padding(
+          _tap(r, Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(children: [
               Container(
@@ -862,7 +914,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
                     child: Text('${r['title']}'.trim().isEmpty ? '' : '${r['title']}'.trim().split(' ').last.characters.first,
                         style: TextStyle(fontWeight: FontWeight.w800, color: p.ink))),
             ]),
-          ),
+          )),
       ]),
     );
   }

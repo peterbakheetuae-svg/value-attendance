@@ -22,14 +22,17 @@ class FinanceRequestsTabs extends StatelessWidget {
   final String role;
   final bool isDark;
   final ValueListenable<DateTime> month;
+  /// 0 سلف · 1 مرتبات · 2 عمولات (opened from the home's cards)
+  final int initial;
   const FinanceRequestsTabs(
-      {super.key, required this.uid, required this.name, required this.role, required this.isDark, required this.month});
+      {super.key, required this.uid, required this.name, required this.role, required this.isDark, required this.month, this.initial = 0});
 
   @override
   Widget build(BuildContext context) {
     return SwipeTabs(
       isDark: isDark,
       swipe: false,
+      initial: initial.clamp(0, 2),
       tabs: const [
         ('سلف', Icons.account_balance_wallet_rounded),
         ('مرتبات', Icons.payments_rounded),

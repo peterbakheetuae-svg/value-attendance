@@ -17,7 +17,9 @@ import 'leads_import.dart';
 class LeadsListPage extends StatefulWidget {
   final String tab;
   final String? stage, rating;
-  const LeadsListPage({super.key, this.tab = 'all', this.stage, this.rating});
+  /// the salesman (opened from the home's «أنشط السيلز»)
+  final String? person;
+  const LeadsListPage({super.key, this.tab = 'all', this.stage, this.rating, this.person});
 
   @override
   State<LeadsListPage> createState() => _LeadsListPageState();
@@ -26,7 +28,8 @@ class LeadsListPage extends StatefulWidget {
 class _LeadsListPageState extends State<LeadsListPage> {
   late String _tab = widget.tab;
   late String? _stage = widget.stage;
-  String? _project, _channel, _person;
+  String? _project, _channel;
+  late String? _person = widget.person;
   late String? _rating = widget.rating;
   final _q = TextEditingController();
   Timer? _debounce;
@@ -80,6 +83,10 @@ class _LeadsListPageState extends State<LeadsListPage> {
       ('all', tr('الكل')), if (manager) ('mine', tr('عملائي')), ('today', tr('اليوم')), ('fresh', tr('جديد')), ('cold', tr('مكالمات باردة')),
       ('delay', tr('متأخر')), ('pending', tr('قيد الانتظار')), if (manager) ('duplicated', tr('مكرر')), if (can['distribute'] == true) ('unassigned', tr('مش متوزع')),
       ('shared', tr('الإحالات')),
+      // opened from the home (لوحة التحكم): these show while they are the chosen one
+      if (_tab == 'created_today') ('created_today', tr('نزلوا النهارده')),
+      if (_tab == 'acted_today') ('acted_today', tr('اتعمل عليهم أكشن النهارده')),
+      if (_tab == 'waiting') ('waiting', tr('مستنيين سيلز متصل')),
     ];
     final delay = (_tabs['delay'] as num?) ?? 0;
     return LeadsShell(

@@ -23,7 +23,9 @@ class CashboxHubPage extends StatefulWidget {
   final String name;
   final String role;
   final int initial;
-  const CashboxHubPage({super.key, required this.uid, required this.name, required this.role, this.initial = 0});
+  /// the tab inside «الطلبات»: 0 سلف · 1 مرتبات · 2 عمولات
+  final int requestsTab;
+  const CashboxHubPage({super.key, required this.uid, required this.name, required this.role, this.initial = 0, this.requestsTab = 0});
 
   static bool get canCash => ApiService.can('cash.hr_view') || ApiService.can('cash.office');
 
@@ -99,7 +101,7 @@ class _CashboxHubPageState extends State<CashboxHubPage> {
                     ],
                     pages: [
                       // الطلبات: سلف | مرتبات | عمولات (صرف ← تم الاستلام ← يتخصم من الخزنة)
-                      FinanceRequestsTabs(uid: widget.uid, name: widget.name, role: widget.role, isDark: isDark, month: _month),
+                      FinanceRequestsTabs(uid: widget.uid, name: widget.name, role: widget.role, isDark: isDark, month: _month, initial: widget.requestsTab),
                       if (cash) CashPage(embedded: true, month: _month, allMonths: _allMonths),
                       if (cash)
                         Center(

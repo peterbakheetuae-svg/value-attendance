@@ -552,25 +552,28 @@ class _KindBar extends StatelessWidget {
 
 // ==================================================================== المبيعات (حجز / تعاقد)
 class SalesHubPage extends StatelessWidget {
-  const SalesHubPage({super.key});
+  /// 'reservation' (حجز) or 'contract' (تعاقد)
+  final String stage;
+  const SalesHubPage({super.key, this.stage = 'reservation'});
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppController>();
-    return _Shell(title: 'المبيعات', child: UnifiedSalesTab(isDark: app.isDark));
+    return _Shell(title: 'المبيعات', child: UnifiedSalesTab(isDark: app.isDark, stage: stage));
   }
 }
 
 class UnifiedSalesTab extends StatefulWidget {
   final bool isDark;
-  const UnifiedSalesTab({super.key, required this.isDark});
+  final String stage;
+  const UnifiedSalesTab({super.key, required this.isDark, this.stage = 'reservation'});
 
   @override
   State<UnifiedSalesTab> createState() => _UnifiedSalesTabState();
 }
 
 class _UnifiedSalesTabState extends State<UnifiedSalesTab> {
-  String _stage = 'reservation';
+  late String _stage = widget.stage == 'contract' ? 'contract' : 'reservation';
   String _kind = '';
   bool _loading = true, _reserve = false;
   List<Map<String, dynamic>> _units = [], _projects = [], _pending = [];
