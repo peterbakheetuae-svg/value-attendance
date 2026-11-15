@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
+import '../../services/jph_bridge.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
@@ -19,6 +20,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../commissions/commission_project_page.dart';
 import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
+import 'unit_files.dart';
 
 part '../projects/projects_hub.dart';
 
@@ -800,6 +802,8 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
   final terms = _Terms();
   DateTime? expected; // التاريخ المتوقع للتعاقد — the expected commission falls in that month
   final rf = _ResForm();
+  // مشروع تسويق: the developer's paper (استمارة الحجز / عقد التعاقد), uploaded once the unit is saved
+  final papers = <PickedUnitFile>[];
   Map<String, dynamic> project() => active.firstWhere((p) => '${p['id']}' == pid, orElse: () => const {});
   // the project's units: picking one fills the unit's details
   List<Map<String, dynamic>> inv = [];
@@ -922,6 +926,8 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
             style: TextStyle(color: JphUi.sub(isDark))),
       ...rf.fields(context, isDark, set, price: price, reservation: !contract),
       JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
+      if (!exclusive && p.isNotEmpty)
+        unitFilesField(context, isDark, set, contract ? 'رفع عقد التعاقد' : 'رفع استمارة الحجز', papers),
     ];
   }, () async {
     if (pid == null) {
@@ -945,6 +951,13 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
         'expectedContractDate': '${expected!.year}-${expected!.month.toString().padLeft(2, '0')}-${expected!.day.toString().padLeft(2, '0')}',
       if (contract) 'contract': exclusive ? terms.body() : {'paymentType': 'cash'},
     }, contract ? 'اتسجل التعاقد ✅' : 'اتسجل الحجز ✅');
+    final uid = '${_m(r['unit'])['id'] ?? ''}';
+    if (r['success'] == true && !exclusive && papers.isNotEmpty && uid.isNotEmpty) {
+      final failed = await uploadUnitFiles(uid, contract ? 'contract' : 'reservation_form', papers);
+      if (failed > 0) {
+        r['message'] = '${r['message']} — بس $failed ${failed == 1 ? 'ملف' : 'ملفات'} ماترفعتش، ارفعها من صفحة الوحدة';
+      }
+    }
     if (context.mounted) JphUi.toast(context, r);
     return r['success'] == true;
   }, saveLabel: contract ? 'تعاقد' : 'حجز');
@@ -1395,6 +1408,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     final marketing = _u['projectKind'] == 'marketing';
     final terms = _Terms();
     String method = 'cash';
+    final papers = <PickedUnitFile>[];
     final ok = await _form(context, isDark, 'تحويل لتعاقد — وحدة ${_u['unitNo']}', (set) => [
           if (marketing)
             Text(_seesKind() ? 'العمولة هتبقى واجبة التحصيل من المطور (${_money(_n(_u['unitPrice']))} سعر الوحدة).'
@@ -1405,10 +1419,15 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
             _cashBankPicker(isDark, method, (v) => set(() => method = v)),
           ],
           JphUi.input(isDark: isDark, label: 'ملاحظة', controller: terms.note, icon: Icons.notes_rounded),
+          if (marketing) unitFilesField(context, isDark, set, 'رفع عقد التعاقد', papers),
         ], () async {
       final r = await _post('/exclusive/units/${widget.unitId}/contract', {
         ...(marketing ? {'paymentType': 'cash', 'note': terms.note.text.trim()} : terms.body()), 'paymentMethod': method,
       }, 'اتسجل التعاقد ✅');
+      if (r['success'] == true && marketing && papers.isNotEmpty) {
+        final failed = await uploadUnitFiles(widget.unitId, 'contract', papers);
+        if (failed > 0) r['message'] = '${r['message']} — بس $failed ${failed == 1 ? 'ملف' : 'ملفات'} ماترفعتش، ارفعها من «المستندات»';
+      }
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     }, saveLabel: 'تعاقد');
@@ -1549,6 +1568,17 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         ],
         if ('${u['cancelReason'] ?? ''}'.isNotEmpty) _kv(isDark, 'سبب الإلغاء', '${u['cancelReason']}', color: Ar.red),
       ]),
+      if (u['projectKind'] == 'marketing' || _l(_d!['files']).isNotEmpty)
+        _section(isDark, 'المستندات', [
+          UnitFilesSection(
+            unitId: widget.unitId,
+            isDark: isDark,
+            files: _l(_d!['files']),
+            canUpload: st != 'cancelled' && (u['salesId'] == JphBridge.myId || ApiService.can('cash.office') || ApiService.can('cash.hr_operate')),
+            contracted: ['contract_pending', 'contracted', 'completed'].contains(st),
+            onChanged: _load,
+          ),
+        ]),
       _section(isDark, 'الفلوس', [
         _kv(isDark, 'اتحصّل', _money(money['collected'])),
         if (_n(money['pending']) > 0) _kv(isDark, 'مستني تأكيد الاستلام', _money(money['pending']), color: Ar.amber),
