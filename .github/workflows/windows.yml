@@ -141,11 +141,17 @@ jobs:
         run: '"$SIGN_TOOL" sign /f "$RUNNER_TEMP/sign.pfx" /p "$PASS" /fd sha256 /tr http://timestamp.digicert.com /td sha256 build/installer/*.exe'
       - name: Installer test (silent install → app runs → silent uninstall)
         if: steps.want.outputs.go == '1'
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $setup = Get-ChildItem build\installer\VALUNIVO-Setup-*.exe | Select-Object -First 1
-          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/TASKS=desktopicon' -Wait -PassThru
+          # WaitForExit, not -Wait: -Wait would also wait for the app the installer opens at the end
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/TASKS=desktopicon' -PassThru
+          if (-not $p.WaitForExit(300000)) { Write-Host "::error::installer did not finish in 5 min"; exit 1 }
           if ($p.ExitCode -ne 0) { Write-Host "::error::install failed ($($p.ExitCode))"; exit 1 }
+          Start-Sleep 10
+          $opened = Get-Process VALUNIVO -ErrorAction SilentlyContinue
+          if ($opened) { Write-Host "installer opened the installed app: pid $($opened.Id) $($opened.Path)" } else { Write-Host "::warning::installer did not open the app" }
           $dir = "$env:LOCALAPPDATA\Programs\VALUNIVO"
           foreach ($f in 'VALUNIVO.exe','flutter_windows.dll','data\app.so','unins000.exe') { if (-not (Test-Path "$dir\$f")) { Write-Host "::error::not installed: $f"; exit 1 } }
           $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'VALUNIVO.lnk'
@@ -155,8 +161,10 @@ jobs:
           $app = Start-Process "$dir\VALUNIVO.exe" -PassThru; Start-Sleep 15
           if ($app.HasExited) { Write-Host "::error::installed app exited ($($app.ExitCode))"; exit 1 }
           Stop-Process -Id $app.Id -Force; Start-Sleep 2
-          $u = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
-          Start-Sleep 3
+          $u = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+          if (-not $u.WaitForExit(300000)) { Write-Host "::error::uninstaller did not finish"; exit 1 }
+          Start-Sleep 8   # the uninstaller finishes from a temp copy of itself
+          if (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'VALUNIVO.lnk') { Write-Host "::error::Start menu shortcut left behind"; exit 1 }
           if (Test-Path "$dir\VALUNIVO.exe") { Write-Host "::error::uninstall left the app behind"; exit 1 }
           Write-Host "install / shortcuts / launch / uninstall: OK"
       - name: Package + update info
