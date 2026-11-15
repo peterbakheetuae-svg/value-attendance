@@ -9,7 +9,8 @@ class SideSheets {
   static const double wideFrom = 1100;
   static final List<double> _open = [];
 
-  static bool wide(BuildContext context) => MediaQuery.of(context).size.width >= wideFrom;
+  // the window's width (inside a panel the page sees only the panel's width, yet a panel opened from it still opens beside it)
+  static bool wide(BuildContext context) => MediaQueryData.fromView(View.of(context)).size.width >= wideFrom;
 
   static Future<T?> show<T>(BuildContext context, {required WidgetBuilder builder, double width = 480, bool page = false}) {
     final screen = MediaQuery.of(context).size.width;
@@ -33,7 +34,14 @@ class SideSheets {
           child: Material(
             type: MaterialType.transparency,
             child: page
-                ? ClipRRect(borderRadius: BorderRadius.circular(18), child: builder(ctx))
+                // a whole page inside the panel: no side bar of its own (SidePanelScope), and it lays itself out by
+                // the panel's width — not the screen's
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: SidePanelScope(
+                      child: MediaQuery(data: MediaQuery.of(ctx).copyWith(size: Size(w, MediaQuery.of(ctx).size.height)), child: Builder(builder: builder)),
+                    ),
+                  )
                 : DecoratedBox(
                     decoration: Glass.sheet(d, r: 18),
                     child: SafeArea(
@@ -63,6 +71,14 @@ class SideSheets {
       if (_open.isNotEmpty) _open.removeLast();
     });
   }
+}
+
+/// Marks a page shown inside a side panel: the app frame (WebFrame) draws no side bar there.
+class SidePanelScope extends InheritedWidget {
+  const SidePanelScope({super.key, required super.child});
+  static bool inPanel(BuildContext context) => context.dependOnInheritedWidgetOfExactType<SidePanelScope>() != null;
+  @override
+  bool updateShouldNotify(SidePanelScope oldWidget) => false;
 }
 
 /// drop-in for showModalBottomSheet: a side panel on the computer, the usual bottom sheet on the phone.

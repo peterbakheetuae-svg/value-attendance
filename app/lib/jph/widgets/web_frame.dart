@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../services/jph_bridge.dart';
 import 'app_menu.dart';
+import 'side_sheet.dart';
 
 /// The website: the page background fills the whole screen (AppBackground), while the page's content arranges itself
 /// by its own width instead of stretching. On a computer (like the «Ardena» site) a glass side bar replaces the
@@ -27,6 +28,8 @@ class WebFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!kIsWeb) return child;
+    // a page opened in a side panel (a project, a unit…): the panel is its frame — no second side bar inside it
+    if (SidePanelScope.inPanel(context)) return child;
     final mq = MediaQuery.of(context);
     final side = _signedIn && AppMenu.wide(context);
     if (!side) {
