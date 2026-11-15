@@ -500,7 +500,74 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       receipts: rc.rows.map((x) => ({ id: x.id, receiptNo: `R-${String(x.ref_no).padStart(6, '0')}`, kind: x.kind, kindAr: KIND_AR[x.kind] ?? x.kind,
         amount: n(x.amount_egp), method: x.payment_method, at: x.occurred_at, installmentId: x.ex_installment_id, byName: x.by_name })),
       pendingPayments: (await db.query(`SELECT * FROM ex_payments WHERE unit_id = $1 AND status = 'pending' ORDER BY created_at`, [u.id])).rows.map(shapePayment),
+      files: (await db.query(`SELECT f.id, f.kind, f.file_name, f.mime, f.size_bytes, f.created_at, f.by_id, e.full_name AS by_name
+                                FROM ex_unit_files f LEFT JOIN employees e ON e.id = f.by_id WHERE f.unit_id = $1 ORDER BY f.kind, f.created_at`, [u.id]))
+        .rows.map((f) => ({ id: f.id, kind: f.kind, fileName: f.file_name, mime: f.mime, size: f.size_bytes, at: f.created_at, byName: f.by_name,
+          canDelete: f.by_id === a.id || canManage(a) })),
     });
+  });
+
+  // ------------------------------------------------------------------ مستندات الوحدة (استمارة الحجز / عقد التعاقد — صورة أو PDF)
+  const FILE_KINDS = ['reservation_form', 'contract'] as const;
+  const MAX_UNIT_FILE = 3_000_000;
+  const MAX_PER_KIND = 10;
+  /** the unit, if this person may see its papers: its salesman, the office, HR */
+  const unitForFiles = async (a: Actor, id: string) => {
+    if (!isUuid(id)) throw notFound();
+    const u = await one(db, `SELECT id, sales_id, unit_no FROM ex_units WHERE id = $1`, [id]);
+    if (!u || (!canSeeAll(a) && u.sales_id !== a.id)) throw notFound();
+    return u;
+  };
+
+  r.post('/exclusive/units/:id/files', async (req) => {
+    const a = await authenticate(db, req);
+    const u = await unitForFiles(a, req.params.id);
+    const b = obj(req.body);
+    const kind = oneOf(b, 'kind', FILE_KINDS)!;
+    const fileName = (str(b, 'fileName', { min: 1, max: 160 }) ?? '').trim() || 'file';
+    const raw = String(b.data ?? '').replace(/^data:[^,]*,/, '');
+    const buf = Buffer.from(raw, 'base64');
+    if (!raw || buf.length < 10) throw invalid('الملف فاضي', { field: 'data' });
+    if (buf.length > MAX_UNIT_FILE) throw invalid('الملف أكبر من 3 ميجا — صغّره وجرّب تاني', { field: 'data' });
+    // only a photo or a PDF, by what the file really is (not by its name)
+    const sig = buf.subarray(0, 12);
+    const mime = sig.subarray(0, 4).toString('latin1') === '%PDF' ? 'application/pdf'
+      : sig[0] === 0xff && sig[1] === 0xd8 ? 'image/jpeg'
+      : sig.subarray(1, 4).toString('latin1') === 'PNG' ? 'image/png'
+      : sig.subarray(0, 4).toString('latin1') === 'RIFF' && sig.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
+    if (!mime) throw invalid('ارفع صورة (JPG / PNG) أو ملف PDF', { field: 'data' });
+    const x = await db.tx(async (q) => {
+      const n = await one(q, `SELECT count(*)::int AS n FROM ex_unit_files WHERE unit_id = $1 AND kind = $2`, [u.id, kind]);
+      if (n.n >= MAX_PER_KIND) throw invalid(`أقصى ${MAX_PER_KIND} ملفات`, { field: 'data' });
+      const f = await one(q, `INSERT INTO ex_unit_files (unit_id, kind, file_name, mime, size_bytes, data, by_id, created_at)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [u.id, kind, fileName, mime, buf.length, buf, a.id, clock()]);
+      await audit(q, a.id, 'exclusive.unit.file', 'ex_unit', u.id, undefined, { kind, fileName, size: buf.length });
+      return f;
+    });
+    return ok({ file: { id: x.id, kind, fileName, mime } }, 201);
+  });
+
+  r.get('/exclusive/units/:id/files/:fid', async (req) => {
+    const a = await authenticate(db, req);
+    const u = await unitForFiles(a, req.params.id);
+    if (!isUuid(req.params.fid)) throw notFound();
+    const f = await one(db, `SELECT * FROM ex_unit_files WHERE id = $1 AND unit_id = $2`, [req.params.fid, u.id]);
+    if (!f) throw notFound();
+    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+  });
+
+  r.post('/exclusive/units/:id/files/:fid/delete', async (req) => {
+    const a = await authenticate(db, req);
+    const u = await unitForFiles(a, req.params.id);
+    if (!isUuid(req.params.fid)) throw notFound();
+    const f = await one(db, `SELECT id, by_id, kind, file_name FROM ex_unit_files WHERE id = $1 AND unit_id = $2`, [req.params.fid, u.id]);
+    if (!f) throw notFound();
+    if (f.by_id !== a.id && !canManage(a)) throw forbidden('بيمسحه اللي رفعه أو المدير');
+    await db.tx(async (q) => {
+      await q.query(`DELETE FROM ex_unit_files WHERE id = $1`, [f.id]);
+      await audit(q, a.id, 'exclusive.unit.file_deleted', 'ex_unit', u.id, { kind: f.kind, fileName: f.file_name }, undefined);
+    });
+    return ok({ ok: true });
   });
 
   /**

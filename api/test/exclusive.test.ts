@@ -334,3 +334,37 @@ test('developers: the company and its owner (accounts show both), its picture an
   assert.equal((await h.call(c.t.owner, 'PUT', '/company/logo', { mime: 'image/png', image: png })).status, 200);
   assert.ok(String((await h.call(c.t.e1, 'GET', '/company/logo')).body.image).startsWith('data:image/png'));
 });
+
+test('a marketing unit: the salesman uploads «استمارة الحجز» and «عقد التعاقد» (a photo or a PDF); colleagues cannot see them', async () => {
+  const pr = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'كمبوند تسويق المستندات', totalPct: 2, salesPct: 0.3, managerPct: 0.2, companyPct: 1.5 });
+  assert.equal(pr.status, 201, JSON.stringify(pr.body));
+  const pid = pr.body.project.id;
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'M-7', clientName: 'عميل تسويق', unitPrice: 2_000_000,
+    expectedContractDate: '2026-12-20' });
+  assert.equal(u.status, 201, JSON.stringify(u.body));
+  const id = u.body.unit.id;
+  const pdf = Buffer.from('%PDF-1.4\n% reservation form\n').toString('base64');
+  const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0]).toString('base64');
+  const up = await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files`, { kind: 'reservation_form', fileName: 'استمارة.pdf', data: pdf });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  assert.equal(up.body.file.mime, 'application/pdf', 'its type comes from the content');
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files`, { kind: 'reservation_form', fileName: 'x.pdf',
+    data: Buffer.from('MZ not a pdf at all').toString('base64') })).status, 400, 'only a photo or a PDF');
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files`, { kind: 'other', fileName: 'x.pdf', data: pdf })).status, 400);
+  assert.equal((await h.call(c.t.e2, 'POST', `/exclusive/units/${id}/files`, { kind: 'contract', fileName: 'x.pdf', data: pdf })).status, 404, 'a colleague');
+  // the contract, with its paper
+  const ct = await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/contract`, { paymentType: 'cash', paymentMethod: 'cash' });
+  assert.equal(ct.status, 200, JSON.stringify(ct.body));
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files`, { kind: 'contract', fileName: 'عقد.jpg', data: jpg })).status, 201);
+  // the unit shows them; the salesman and the office can open them
+  const d = (await h.call(c.t.e1, 'GET', `/exclusive/units/${id}`)).body;
+  assert.deepEqual(d.files.map((f: any) => f.kind).sort(), ['contract', 'reservation_form']);
+  const f = d.files.find((x: any) => x.kind === 'reservation_form');
+  const got = await h.call(c.t.owner, 'GET', `/exclusive/units/${id}/files/${f.id}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.body.data, pdf);
+  assert.equal((await h.call(c.t.e2, 'GET', `/exclusive/units/${id}/files/${f.id}`)).status, 404);
+  // deleted by who uploaded it (or the office)
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files/${f.id}/delete`, {})).status, 200);
+  assert.equal((await h.call(c.t.e1, 'GET', `/exclusive/units/${id}`)).body.files.length, 1);
+});
