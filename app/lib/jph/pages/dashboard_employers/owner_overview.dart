@@ -206,7 +206,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         widget.onOpenClassic();
         return;
     }
-    if (page == null) return;
+    if (page == null || !mounted) return;
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page!));
     _load(quiet: true);
   }
