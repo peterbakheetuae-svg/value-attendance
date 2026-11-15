@@ -309,8 +309,11 @@ jobs:
           $r = Wait-Result 'rolled_back' 600
           if (-not $r -or $r.result -ne 'rolled_back' -or $r.to -ne $C) { Fail "broken update was not rolled back" }
           if ((Build-Of $exe) -ne $B) { Fail "after rollback VALUNIVO.exe is build $(Build-Of $exe), expected $B" }
+          # result.json is written before the previous version is reopened; the helper then waits for its health report
+          $ok = $false
+          for ($i = 0; $i -lt 120 -and -not $ok; $i += 2) { $ok = Select-String -Path $hlog -Pattern 'previous version running and healthy' -Quiet; if (-not $ok) { Start-Sleep 2 } }
+          if (-not $ok) { Fail "previous version did not report healthy" }
           if (-not (Get-Process VALUNIVO -ErrorAction SilentlyContinue)) { Fail "previous version is not running after rollback" }
-          if (-not (Select-String -Path $hlog -Pattern 'previous version running and healthy' -Quiet)) { Fail "previous version did not report healthy" }
           if (-not ((Get-Content "$state\failed-builds.txt") -contains "$C")) { Fail "broken build not recorded" }
           Stop-App; Start-App
           if (-not (Wait-Log "skipping build $C" 90)) { Fail "broken build offered again" }
