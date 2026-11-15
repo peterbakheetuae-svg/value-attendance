@@ -28,6 +28,9 @@ async function dbPermissionKeys(q: Q): Promise<ReadonlySet<string>> {
   return knownKeys.keys;
 }
 
+/** drops the cached key list (the next request reads it again) — for the throwaway test databases */
+export function forgetPermissionKeys() { knownKeys = null; }
+
 /** an employee whose work status is «تم التصفيه» (settled / finished) */
 export const SETTLED = 'تم التصفيه';
 

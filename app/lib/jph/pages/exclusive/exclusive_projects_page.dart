@@ -423,7 +423,10 @@ class _ResForm {
   static const unitTypes = ['تجاري', 'إداري', 'سكني', 'طبي'];
   static const floors = ['بدروم', 'أرضي', 'ميزانين', 'أول علوي', 'ثاني علوي', 'ثالث علوي', 'رابع علوي', 'خامس علوي', 'روف'];
 
-  _ResForm([Map<String, dynamic>? f]) {
+  /// the client's national id / address are shown and sent only to who may see them (the server decides)
+  bool client = true;
+
+  _ResForm([Map<String, dynamic>? f, this.client = true]) {
     if (f == null) return;
     unitType = '${f['unitType'] ?? ''}';
     floor = '${f['floor'] ?? ''}';
@@ -580,14 +583,14 @@ class _ResForm {
         },
       ),
       if (reservation) date('تاريخ سداد دفعة الحجز', paidOn, (d) => paidOn = d),
-      JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
-      JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
+      if (client) JphUi.input(isDark: isDark, label: 'الرقم القومي للعميل', controller: nationalId, icon: Icons.badge_rounded, number: true),
+      if (client) JphUi.input(isDark: isDark, label: 'عنوان العميل', controller: address, icon: Icons.home_rounded),
     ];
   }
 
   Map<String, dynamic> body() => {
         'unitType': unitType, 'floor': floor, 'netAreaM2': _num(netArea), 'areaM2': _num(area), 'meterPrice': _num(meter),
-        'activity': activity.text.trim(), 'clientNationalId': nationalId.text.trim(), 'clientAddress': address.text.trim(),
+        'activity': activity.text.trim(), if (client) 'clientNationalId': nationalId.text.trim(), if (client) 'clientAddress': address.text.trim(),
         'maintenancePct': maintPct ? _num(maintenance) : null, 'maintenanceDeposit': maintPct ? 0 : (_num(maintenance) ?? 0),
         'plannedDownPct': downPct ? _num(plannedDown) : null, 'plannedDownPayment': downPct ? null : _num(plannedDown),
         'downPaymentDue': downDue == null ? null : _iso(downDue), 'plannedInstallments': int.tryParse(plannedInst.text),
@@ -1325,7 +1328,8 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     DateTime? expected = u['expectedContractDate'] != null ? DateTime.tryParse('${u['expectedContractDate']}') : null;
     final mks = contracted ? <Map<String, dynamic>>[] : _l((await _get('/marketing-companies'))['companies'])
         .where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
-    final rf = _ResForm(_m(u['form']));
+    final seeClient = _m(u['can'])['viewClient'] == true;
+    final rf = _ResForm(_m(u['form']), seeClient);
     Map<String, dynamic>? mk;
     for (final m in mks) {
       if (m['id'] == u['marketingCompanyId']) mk = m;
@@ -1334,7 +1338,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     final ok = await _form(context, isDark, contracted ? 'تعديل التعاقد' : 'تعديل الحجز', (set) => [
           if (!contracted) JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
           JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
-          JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
+          if (seeClient) JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
           if (!contracted) ...[
             JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
             if (exclusive && depositPending)
@@ -1356,7 +1360,7 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
           JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
         ], () async {
       final r = await _post('/exclusive/units/${widget.unitId}', {
-        'clientName': client.text.trim(), 'clientPhone': phone.text.trim(), 'notes': notes.text.trim(),
+        'clientName': client.text.trim(), if (seeClient) 'clientPhone': phone.text.trim(), 'notes': notes.text.trim(),
         ...rf.body(),
         if (!contracted) ...{
           'unitNo': unit.text.trim(), 'unitPrice': num.tryParse(price.text.replaceAll(',', '')),

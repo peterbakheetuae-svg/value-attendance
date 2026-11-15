@@ -121,6 +121,8 @@ export const PERMISSIONS: PermDef[] = [
   P('sales', 'sales.approve', 'اعتماد المبيعات', 'اعتماد أو رفض المبيعات (مش بتاعته)', { sensitive: true }),
   P('sales', 'sales.cancel', 'إلغاء بيع', 'إلغاء بيع وحدة مع رد المحصّل', { sensitive: true }),
   P('sales', 'exclusive.reserve', 'حجز وحدة', 'حجز وحدات في المشاريع الحصرية'),
+  P('sales', 'exclusive.view_finance', 'ماليات المشاريع الحصرية', 'المحصّل وأموال المالك والمستحق له، عمولة المكتب والموظفين وشركات التسويق، وكشف حساب المشروع', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  P('sales', 'exclusive.view_client', 'بيانات العملاء', 'موبايل العميل ورقمه القومي وعنوانه في الحجوزات والعقود اللي يشوفها', { sensitive: true, openBefore: true, since: 66 }),
   // ---- leads
   P('leads', 'leads.own', 'العمل على ليدز متسندة له', 'شغل الليدز المتسندة ليه'),
   P('leads', 'leads.team', 'ليدز فريقه', 'رؤية ليدز فريقه وإعادة إسنادها'),

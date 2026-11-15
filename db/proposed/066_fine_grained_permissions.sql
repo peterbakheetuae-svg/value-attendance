@@ -15,6 +15,8 @@
 --   cash.approve / .reverse / .bank_view / .bank_transfer / .owner_funds  ← cash.office
 --   finance.dashboard_view                                   ← cash.hr_view OR cash.office
 --   data.reset, commission.void_approved                     ← the owner role (was checked by role name)
+--   exclusive.view_finance                                   ← cash.office
+--   exclusive.view_client                                    ← everyone (client details had no separate check)
 -- The broad keys are not touched (other modules still use them).
 
 INSERT INTO permissions (key, description) VALUES
@@ -33,7 +35,9 @@ INSERT INTO permissions (key, description) VALUES
   ('cash.owner_funds',         'Owners'' injections, profit draws and shares'),
   ('finance.dashboard_view',   'The finance dashboard and its details (within the cashboxes he may see)'),
   ('data.reset',               'Import old data or wipe company data (was the owner by name)'),
-  ('commission.void_approved', 'Cancel an approved commission (was the owner by name)')
+  ('commission.void_approved', 'Cancel an approved commission (was the owner by name)'),
+  ('exclusive.view_finance',   'Exclusive projects'' money: owner trust / dues, office, staff and marketing commission, project statement'),
+  ('exclusive.view_client',    'Client phone, national id and address on the exclusive units he may see')
   ON CONFLICT (key) DO NOTHING;
 
 -- the split: fine key ← broad key(s); '*' = everyone, 'owner' = the owner role
@@ -48,7 +52,8 @@ INSERT INTO m066 VALUES
   ('cash.approve', 'cash.office'), ('cash.reverse', 'cash.office'), ('cash.bank_view', 'cash.office'),
   ('cash.bank_transfer', 'cash.office'), ('cash.owner_funds', 'cash.office'),
   ('finance.dashboard_view', 'cash.hr_view'), ('finance.dashboard_view', 'cash.office'),
-  ('data.reset', 'owner'), ('commission.void_approved', 'owner');
+  ('data.reset', 'owner'), ('commission.void_approved', 'owner'),
+  ('exclusive.view_finance', 'cash.office'), ('exclusive.view_client', '*');
 
 -- 1. job titles
 INSERT INTO role_permissions (role_key, perm_key)

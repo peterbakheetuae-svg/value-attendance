@@ -277,10 +277,11 @@ test('project units, auto-filled reservation, client lookup, % deposits, picture
   const inv = (await h.call(c.t.e1, 'GET', `/exclusive/projects/${pid}/inventory`)).body.units;
   assert.equal(inv[0].state, 'reserved');
   assert.equal(inv[0].clientName, 'سارة علي');
-  // a known client by phone: his data comes back
-  const lk = await h.call(c.t.e2, 'GET', '/exclusive/clients/lookup?phone=%2B20%201055501234');
+  // a known client by phone: his data comes back — to his own salesperson and the office, never to another salesperson
+  const lk = await h.call(c.t.e1, 'GET', '/exclusive/clients/lookup?phone=%2B20%201055501234');
   assert.deepEqual([lk.body.client.name, lk.body.client.nationalId, lk.body.client.address], ['سارة علي', '29505051234567', 'الدقي']);
-  assert.equal((await h.call(c.t.e2, 'GET', '/exclusive/clients/lookup?phone=0100000000')).body.client, null);
+  assert.equal((await h.call(c.t.e2, 'GET', '/exclusive/clients/lookup?phone=%2B20%201055501234')).body.client, null);
+  assert.equal((await h.call(c.t.e1, 'GET', '/exclusive/clients/lookup?phone=0100000000')).body.client, null);
 
   // the accountant receives the deposit and says it went into the bank
   const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === r.body.unit.id);

@@ -221,7 +221,7 @@ class _UnitFilesSectionState extends State<UnitFilesSection> {
                 color: f['mime'] == 'application/pdf' ? Ar.red : Ar.info),
             title: Text('${f['fileName']}', overflow: TextOverflow.ellipsis, style: TextStyle(color: JphUi.text(isDark))),
             subtitle: Text([if (f['byName'] != null) '${f['byName']}', _size(int.tryParse('${f['size']}') ?? 0)].join(' · ')),
-            onTap: () => _open(f),
+            onTap: f['canOpen'] == false ? null : () => _open(f),
             trailing: f['canDelete'] == true
                 ? IconButton(tooltip: 'مسح', icon: const Icon(Icons.delete_outline_rounded, color: Ar.red), onPressed: () => _delete(f))
                 : const Icon(Icons.open_in_new_rounded, size: 18),
