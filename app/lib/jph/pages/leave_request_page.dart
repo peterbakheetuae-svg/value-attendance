@@ -15,6 +15,7 @@ import '../l10n/app_localizations.dart';
 import 'leave_summary.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
+import '../services/api_service.dart';
 
 class LeaveRequestPage extends StatefulWidget {
   final String uid;
@@ -69,10 +70,19 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
     'إجازة طارئة': Ar.amber,
   };
 
+  /// «تسجيل طلب لموظف»: pick another employee; otherwise the request is his own (the server refuses the rest anyway)
+  bool get _forOthers => ApiService.can('request.create_for_others');
+
   @override
   void initState() {
     super.initState();
-    _loadActiveEmployees();
+    if (_forOthers) {
+      _loadActiveEmployees();
+    } else {
+      _selectedEmployeeId = widget.uid;
+      _selectedEmployeeName = widget.name;
+      _isLoadingEmployees = false;
+    }
   }
 
   Future<void> _loadActiveEmployees() async {
@@ -275,7 +285,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                       ),
 
                                       // زر اختيار الموظف - بنفس شكل تقرير الحضور
-                                      _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
+                                      if (_forOthers) _buildEmployeeDropdown(isDark, textColor, subduedTextColor),
 
                                       const SizedBox(height: 20),
 

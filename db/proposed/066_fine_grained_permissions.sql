@@ -11,6 +11,7 @@
 --   employee.view_contact                                    ← employee.read_all
 --   attendance.view_location                                 ← attendance.read_all OR attendance.read_team
 --   report.export                                            ← everyone (the export had no separate check)
+--   request.create_for_others                                ← request.approve_hr
 --   data.reset, commission.void_approved                     ← the owner role (was checked by role name)
 -- The broad keys are not touched (other modules still use them).
 
@@ -22,6 +23,7 @@ INSERT INTO permissions (key, description) VALUES
   ('employee.view_contact',    'See another employee''s phone, email, address, emergency contact, national id and birth date'),
   ('attendance.view_location', 'See employees'' locations (tracking map, location points, check-in place) within scope'),
   ('report.export',            'Download the monthly attendance report / payroll summary as Excel (within scope)'),
+  ('request.create_for_others', 'Record a leave / permission for another employee (approved on entry)'),
   ('data.reset',               'Import old data or wipe company data (was the owner by name)'),
   ('commission.void_approved', 'Cancel an approved commission (was the owner by name)')
   ON CONFLICT (key) DO NOTHING;
@@ -34,6 +36,7 @@ INSERT INTO m066 VALUES
   ('employee.view_contact', 'employee.read_all'),
   ('attendance.view_location', 'attendance.read_all'), ('attendance.view_location', 'attendance.read_team'),
   ('report.export', '*'),
+  ('request.create_for_others', 'request.approve_hr'),
   ('data.reset', 'owner'), ('commission.void_approved', 'owner');
 
 -- 1. job titles

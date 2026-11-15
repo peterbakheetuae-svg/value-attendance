@@ -73,6 +73,7 @@ export const PERMISSIONS: PermDef[] = [
   P('requests', 'request.read_all', 'عرض كل الطلبات', 'طلبات الإجازات والسلف والإذونات لكل الموظفين'),
   P('requests', 'request.read_team', 'عرض طلبات فريقه', 'طلبات موظفي فرقه'),
   P('requests', 'request.approve_manager', 'موافقة المدير المباشر', 'الموافقة أو الرفض في مرحلة مدير المبيعات (فرقه)'),
+  P('requests', 'request.create_for_others', 'تسجيل طلب لموظف', 'تسجيل إجازة أو إذن باسم موظف تاني (بيتعتمد على طول)', { sensitive: true, splitFrom: 'request.approve_hr', since: 66 }),
   P('requests', 'request.approve_hr', 'موافقة الموارد البشرية', 'الموافقة أو الرفض في مرحلة الموارد البشرية', { sensitive: true }),
   P('requests', 'leave.manage_balances', 'أرصدة الإجازات', 'تعديل أرصدة الإجازات', { sensitive: true }),
   // ---- performance
