@@ -80,25 +80,34 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
   bool _noAttendance = false;
   bool _deviceLock = false;
   bool _selfieRequired = false;
+  bool _workTracking = true;
   bool _savingFlag = false;
 
   /// "phone lock" / "check in with a photo": saved at once (no need to enter edit mode)
-  Future<void> _setFlag({bool? deviceLock, bool? selfieRequired}) async {
+  /// «تتبع أثناء العمل» / «حضور وانصراف» are saved the same way (attendance = the existing attendanceExempt, inverted).
+  Future<void> _setFlag({bool? deviceLock, bool? selfieRequired, bool? workTracking, bool? attendance}) async {
     if (_savingFlag) return;
-    final oldLock = _deviceLock, oldSelfie = _selfieRequired;
+    final oldLock = _deviceLock, oldSelfie = _selfieRequired, oldTrack = _workTracking, oldNoAtt = _noAttendance;
     setState(() {
       _savingFlag = true;
       if (deviceLock != null) _deviceLock = deviceLock;
       if (selfieRequired != null) _selfieRequired = selfieRequired;
+      if (workTracking != null) _workTracking = workTracking;
+      if (attendance != null) _noAttendance = !attendance;
     });
     final r = await ApiService.post({'action': 'set_employee_flags', 'uid': _employeeData['uid'],
-      if (deviceLock != null) 'deviceLock': deviceLock, if (selfieRequired != null) 'selfieRequired': selfieRequired});
+      if (deviceLock != null) 'deviceLock': deviceLock, if (selfieRequired != null) 'selfieRequired': selfieRequired,
+      if (workTracking != null) 'workTracking': workTracking, if (attendance != null) 'attendanceExempt': !attendance});
     if (!mounted) return;
     setState(() {
       _savingFlag = false;
-      if (r['success'] != true) { _deviceLock = oldLock; _selfieRequired = oldSelfie; }
+      if (r['success'] != true) {
+        _deviceLock = oldLock; _selfieRequired = oldSelfie; _workTracking = oldTrack; _noAttendance = oldNoAtt;
+      }
       _employeeData['deviceLock'] = _deviceLock;
       _employeeData['selfieRequired'] = _selfieRequired;
+      _employeeData['workTracking'] = _workTracking;
+      _employeeData['attendanceExempt'] = _noAttendance;
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
@@ -192,6 +201,7 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
     _noAttendance = _employeeData['attendanceExempt'] == true;
     _deviceLock = _employeeData['deviceLock'] == true;
     _selfieRequired = _employeeData['selfieRequired'] == true;
+    _workTracking = _employeeData['workTracking'] != false; // not set before = on
     _workStart = _parseTime(_employeeData['workStart']);
     _workEnd = _parseTime(_employeeData['workEnd']);
     _selectedLeaveDay = _employeeData['leaveDay']?.toString();
@@ -821,19 +831,8 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 isDark: isDark,
                               ),
                             ],
-                            if (ApiService.can('employee.attendance_exempt'))
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                decoration: Glass.tile(isDark, r: 12),
-                                child: SwitchListTile(
-                                  value: _noAttendance,
-                                  onChanged: _isEditing && canToggleEdit ? (v) => setState(() => _noAttendance = v) : null,
-                                  title: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
-                                  subtitle: const Text('مش هيظهر له زرار البصمة ومش هيتحسب غياب أو تأخير'),
-                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Ar.amber : Ar.green),
-                                ),
-                              )
-                            else if (_noAttendance)
+                            // («حضور وانصراف» moved under «ربط الحساب بالجهاز», saved at once)
+                            if (!ApiService.can('employee.attendance_exempt') && _noAttendance)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text('ليس لديه حضور وانصراف', style: TextStyle(fontSize: 15, color: Ar.amber.shade700, fontWeight: FontWeight.w600)),
@@ -873,6 +872,38 @@ class _EmployeeDetailsPageState extends State<EmployeeDetailsPage> {
                                 employeeId: '${_employeeData['id'] ?? ''}',
                                 isDark: isDark,
                                 canManage: ApiService.can('employee.manage'),
+                              ),
+                            // «تتبع أثناء العمل»: the office-exit alarm and the location follow-up during the shift (web + app)
+                            if (ApiService.can('employee.manage') && _employeeData['roleKey'] != 'owner')
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: Glass.tile(isDark, r: 12),
+                                child: SwitchListTile(
+                                  value: _workTracking,
+                                  onChanged: _savingFlag ? null : (v) => _setFlag(workTracking: v),
+                                  title: Text('تتبع أثناء العمل', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: Text(!_workTracking
+                                      ? 'متوقف — مفيش متابعة موقع ولا تنبيه خروج للموظف ده'
+                                      : _noAttendance
+                                          ? 'مفعّل، بس مش هيشتغل لأنه ليس لديه حضور وانصراف'
+                                          : 'متابعة الموقع أثناء الشيفت + جرس لو خرج من المكتب من غير إذن'),
+                                  secondary: Icon(Icons.share_location_rounded, color: _workTracking ? Ar.green : Ar.grey),
+                                ),
+                              ),
+                            // «حضور وانصراف»: the same eligibility the check-in button / absence / payroll already use
+                            if (ApiService.can('employee.attendance_exempt'))
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                decoration: Glass.tile(isDark, r: 12),
+                                child: SwitchListTile(
+                                  value: !_noAttendance,
+                                  onChanged: _savingFlag ? null : (v) => _setFlag(attendance: v),
+                                  title: Text('حضور وانصراف', style: TextStyle(fontSize: 16, color: isDark ? Colors.white : Colors.black)),
+                                  subtitle: Text(_noAttendance
+                                      ? 'ليس لديه حضور وانصراف — مفيش زرار بصمة ومش بيتحسب غياب أو تأخير'
+                                      : 'لديه حضور وانصراف'),
+                                  secondary: Icon(Icons.fingerprint_rounded, color: _noAttendance ? Ar.amber : Ar.green),
+                                ),
                               ),
                             if (ApiService.can('employee.manage') && !_noAttendance)
                               Container(

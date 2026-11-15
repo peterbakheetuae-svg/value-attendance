@@ -486,6 +486,8 @@ class JphRouter {
           await _api.patch('/employees/${await _id(p['uid'])}', {
             if (p['deviceLock'] != null) 'deviceLock': p['deviceLock'] == true,
             if (p['selfieRequired'] != null) 'selfieRequired': p['selfieRequired'] == true,
+            if (p['workTracking'] != null) 'workTracking': p['workTracking'] == true,
+            if (p['attendanceExempt'] != null) 'attendanceExempt': p['attendanceExempt'] == true,
           });
           return _ok({'message': 'تم الحفظ ✅'});
         case 'unbind_device':
@@ -1168,6 +1170,7 @@ class JphRouter {
       'deviceBound': e['device_bound'] == true,
       'deviceLock': e['device_lock'] == true,
       'selfieRequired': e['selfie_required'] == true,
+      'workTracking': e['work_tracking'] != false,
       'deviceLabel': _s(e['device_label'], ''),
     };
   }

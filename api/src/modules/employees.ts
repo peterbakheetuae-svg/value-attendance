@@ -14,6 +14,11 @@ const GENERAL_MANAGER_ROLES = ['manager', 'owner'];
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Salary-like values kept in the original JPH form fields: only salary readers get them. */
 const LEGACY_SALARY_KEYS = ['salary', 'startSalary', 'dailyRate', 'increase'];
+/**
+ * «تتبع أثناء العمل» per employee: kept in legacy_fields.workTracking (no new column); missing = on, so every existing
+ * employee keeps today's behaviour. Only its own field changes it — a profile save never touches it.
+ */
+export const WORK_TRACKING_SQL = (e = 'e') => `(COALESCE(${e}.legacy_fields->>'workTracking', 'true') NOT IN ('false', '0'))`;
 export function scrubSalary<T extends { legacy_fields?: any }>(e: T, canSalary: boolean): T {
   if (canSalary || !e.legacy_fields || typeof e.legacy_fields !== 'object') return e;
   const lf = { ...e.legacy_fields };
@@ -38,7 +43,8 @@ const PROFILE_COLS = `
   (SELECT xd.label FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved' ORDER BY xd.decided_at NULLS LAST LIMIT 1) AS device_label,
   (SELECT min(xd.decided_at) FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS device_bound_at,
   (SELECT count(*)::int FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS devices_approved,
-  (SELECT count(*)::int FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'pending') AS devices_pending, e.legacy_fields`;
+  (SELECT count(*)::int FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'pending') AS devices_pending,
+  ${WORK_TRACKING_SQL('e')} AS work_tracking, e.legacy_fields`;
 const PROFILE_FROM = `
   FROM employees e
   JOIN roles r ON r.key = e.role_key
@@ -301,8 +307,9 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (opt('emergencyContactPhone')) put('emergency_contact_phone', str(b, 'emergencyContactPhone', { optional: true, pattern: PHONE }) ?? null);
     if (opt('notes')) put('notes', str(b, 'notes', { optional: true, max: 2000 }) ?? null);
     if (opt('joiningDate')) put('joining_date', date(b, 'joiningDate'));
+    let lfOut: Record<string, unknown> | null = null;
     if (opt('legacyFields')) {
-      const lf = legacyFields(b.legacyFields);
+      const lf: Record<string, unknown> = legacyFields(b.legacyFields);
       // someone who cannot see salaries never changes (or wipes) the salary values kept in the old form fields
       if (!has(a, 'employee.salary_read')) {
         for (const k of LEGACY_SALARY_KEYS) delete lf[k];
@@ -315,8 +322,16 @@ export const employeesModule: Module = (r, { db, clock }) => {
         const open = await one(db, `SELECT count(*)::int AS n FROM custody_items WHERE employee_id = $1 AND status = 'assigned'`, [req.params.id]);
         if (open.n > 0) throw invalid(`لازم تستلم العهدة اللي مع الموظف الأول (${open.n}) قبل «تم التصفيه»`, { field: 'status', reason: 'open_custody', count: open.n });
       }
-      put('legacy_fields', JSON.stringify(lf));
+      // «تتبع أثناء العمل» is changed only by its own field (workTracking): a profile save keeps what was there
+      const prevLf = (before.legacy_fields ?? {}) as Record<string, unknown>;
+      if ('workTracking' in prevLf) lf.workTracking = prevLf.workTracking; else delete lf.workTracking;
+      lfOut = lf;
     }
+    if (opt('workTracking')) {
+      if (!has(a, 'employee.manage')) throw forbidden('You cannot change the work tracking');
+      lfOut = { ...((lfOut ?? before.legacy_fields ?? {}) as Record<string, unknown>), workTracking: bool(b, 'workTracking', false) };
+    }
+    if (lfOut) put('legacy_fields', JSON.stringify(lfOut));
     const refs: any = {};
     if (opt('departmentId')) { refs.departmentId = uuid(b, 'departmentId', true) ?? null; put('department_id', refs.departmentId); }
     if (opt('teamId')) { refs.teamId = uuid(b, 'teamId', true) ?? null; put('team_id', refs.teamId); }

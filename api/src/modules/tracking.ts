@@ -6,7 +6,9 @@ import { isUuid, num, obj } from '../http/validate.ts';
 import { audit, authenticate, readableIds, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
-import { holdersOf, notify } from './notify.ts';
+import { generalManagerOf, holdersOf, notify } from './notify.ts';
+import { WORK_TRACKING_SQL } from './employees.ts';
+import type { PushResult } from '../lib/fcm.ts';
 import { leadsSweep } from './leads.ts';
 import { leadsAutoReassign } from './leads2.ts';
 import { activeOuting, markReturned } from './outings.ts';
@@ -27,6 +29,46 @@ async function tellWatchers(q: Q, employeeId: string, type: string, title: strin
     await notify(q, { to, type, title, body, entity: 'employee', entityId: employeeId, dedupeKey });
   }
 }
+
+/**
+ * Who hears a confirmed unauthorized exit (besides the employee): his general manager, the administrative officer(s),
+ * and those who already followed him (HR / owner / his sales manager). Resolved from the RBAC data, never by guessing:
+ *  - the general manager = employees.general_manager_id; when none is set, whoever holds the «manager» (المدير) role
+ *    or a position based on it
+ *  - the administrative officer = the «مسؤول إداري» position (key admin_officer, or the position named so)
+ * One person once (several roles → one notification; his phones each get it once: tokens are unique).
+ */
+export async function exitRecipients(q: Q, employeeId: string): Promise<string[]> {
+  const gm = await generalManagerOf(q, employeeId);
+  const roles = await q.query<{ id: string }>(`
+    SELECT e.id FROM employees e JOIN roles r ON r.key = COALESCE(e.position_key, e.role_key)
+     WHERE e.status = 'active' AND e.id <> $1
+       AND ((r.key = 'admin_officer' OR r.name_ar = 'مسؤول إداري')
+            OR ($2::uuid IS NULL AND (r.key = 'manager' OR r.base_key = 'manager')))`, [employeeId, gm]);
+  return [...new Set([...(gm ? [gm] : []), ...roles.rows.map((x) => x.id), ...await watchersOf(q, employeeId)])];
+}
+
+/**
+ * The employee-side conditions of the alarm (the shift, the office and the permission are checked on each ping):
+ * the company follow-up is on, «تتبع أثناء العمل» is on for him, and he has «حضور وانصراف».
+ */
+export async function trackingEligibility(q: Q, employeeId: string): Promise<{ on: boolean; reason: string | null }> {
+  const r = await one(q, `
+    SELECT s.tracking_enabled AS company, ${WORK_TRACKING_SQL('e')} AS employee, NOT e.attendance_exempt AS attendance
+      FROM employees e CROSS JOIN company_settings s WHERE e.id = $1`, [employeeId]);
+  const reason = !r ? 'no_employee' : !r.company ? 'company_off' : !r.employee ? 'employee_off' : !r.attendance ? 'no_attendance' : null;
+  return { on: reason === null, reason };
+}
+
+/** a short, location-free summary of what the pushes did (for the audit log) */
+type PushSum = { fcm: { devices: number; sent: number; failed: number; removed: number }; web: { devices: number; sent: number; failed: number; removed: number }; duplicates: number; fcmOff: boolean };
+const pushSum = (rs: (PushResult | null)[]) => rs.reduce<PushSum>((t, x) => {
+  if (!x) { t.duplicates++; return t; }
+  t.fcm.devices += x.fcm.devices; t.fcm.sent += x.fcm.sent; t.fcm.failed += x.fcm.failed; t.fcm.removed += x.fcm.removed;
+  t.web.devices += x.web.devices; t.web.sent += x.web.sent; t.web.failed += x.web.failed; t.web.removed += x.web.removed;
+  if (x.fcm.off) t.fcmOff = true;
+  return t;
+}, { fcm: { devices: 0, sent: 0, failed: 0, removed: 0 }, web: { devices: 0, sent: 0, failed: 0, removed: 0 }, duplicates: 0, fcmOff: false });
 
 const SWEEP_EVERY_MS = 60 * 1000;
 
@@ -55,7 +97,8 @@ export async function sweep(q: Q, now: Date) {
            EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved'
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
            EXISTS (SELECT 1 FROM attendance_breaks b WHERE b.attendance_id = a.id AND b.ended_at IS NULL) AS on_break,
-           (SELECT max(ts.last_ping_at) FROM tracking_state ts WHERE ts.employee_id = e.id AND ts.work_date = $1) AS last_ping_at
+           (SELECT max(ts.last_ping_at) FROM tracking_state ts WHERE ts.employee_id = e.id AND ts.work_date = $1) AS last_ping_at,
+           ${WORK_TRACKING_SQL('e')} AS work_tracking
       FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
@@ -91,7 +134,7 @@ export async function sweep(q: Q, now: Date) {
         `not_checked_out:${r.id}:${l.date}`);
     }
     const stale = claimed.tracking_stale_minutes;
-    if (claimed.tracking_enabled && stale > 0 && r.att_id && !r.check_out_at) {
+    if (claimed.tracking_enabled && r.work_tracking && stale > 0 && r.att_id && !r.check_out_at) {
       const last = r.last_ping_at ? new Date(r.last_ping_at).getTime() : null;
       const silentMin = last === null ? null : Math.floor((now.getTime() - last) / 60000);
       if (silentMin !== null && silentMin >= stale) {
@@ -112,7 +155,11 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const acc = num(b, 'accuracyM', { optional: true, min: 0, max: 100000 }) ?? null;
     const { at: now, offline } = actionTime(b, clock()); const l = local(now);
     const cfg = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
-    if (!cfg.tracking_enabled) return ok({ tracking: false });
+    // the company follow-up + «تتبع أثناء العمل» + «حضور وانصراف»: otherwise nothing is followed (the app stops)
+    const elig = await trackingEligibility(db, a.id);
+    if (!elig.on) return ok({ tracking: false, reason: elig.reason });
+    // the phone rang by itself (it saw the office left with no permission) — logged, no location kept
+    const localAlarm = b.localAlarm === true;
     const att = await one(db, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
     if (!att || att.check_out_at) throw conflict('Tracking runs only between check-in and check-out');
     const locs = (await db.query(`SELECT * FROM work_locations WHERE active`)).rows;
@@ -145,17 +192,28 @@ export const trackingModule: Module = (r, { db, clock }) => {
       const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       if (inside === false && wasInside !== false) {
         awaySince = now;
+        // stages (location-free): departure detected → eligibility verified (above) → permission checked
+        const stages = { departure: true, eligible: true, permission: authorized ? 'approved' : outing ? 'expired' : 'none', localAlarm, device: deviceLabel };
         if (authorized) {
           // approved permission / visit: expected exit, no violation
-          await audit(q, a.id, 'tracking.authorized_exit', 'outing_request', outing.id, undefined, { at: now });
+          await audit(q, a.id, 'tracking.authorized_exit', 'outing_request', outing.id, undefined, { at: now, ...stages });
         } else {
           const where = `على بُعد ${Math.round(outside!)} متر من المكتب — الساعة ${hhmm(now)}`;
           const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو زيارة معتمدة';
-          await tellWatchers(q, a.id, 'unauthorized_exit', `خروج غير مصرح: ${a.fullName}${onPhone}`, `${why}. ${where}.`,
-            `unauthorized_exit:${a.id}:${deviceKey}:${now.getTime()}`);
-          await notify(q, { to: a.id, type: 'unauthorized_exit_self', title: 'إنت برة المكتب من غير إذن معتمد',
-            body: `لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.${onPhone}`, dedupeKey: `unauthorized_exit_self:${a.id}:${deviceKey}:${now.getTime()}` });
-          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!), device: deviceLabel });
+          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!), ...stages });
+          // the alarm: the employee (all his phones) + his general manager + the administrative officer (+ his watchers)
+          const event = `${a.id}:${deviceKey}:${now.getTime()}`;
+          const to = await exitRecipients(q, a.id);
+          const sent: (PushResult | null)[] = [];
+          for (const r of to) {
+            sent.push(await notify(q, { to: r, type: 'unauthorized_exit', title: `خروج غير مصرح: ${a.fullName}${onPhone}`, body: `${why}. ${where}.`,
+              entity: 'employee', entityId: a.id, dedupeKey: `unauthorized_exit:${event}` }));
+          }
+          const self = await notify(q, { to: a.id, type: 'unauthorized_exit_self', title: 'إنت برة المكتب من غير إذن معتمد',
+            body: `لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.${onPhone}`, dedupeKey: `unauthorized_exit_self:${event}` });
+          // dispatched → what each push service said (accepted ≠ shown ≠ heard: those happen on the phone)
+          await audit(q, a.id, 'tracking.alert_dispatch', 'employee', a.id, undefined,
+            { event, recipients: to.length, employee: pushSum([self]), others: pushSum(sent) });
         }
       } else if (inside === true && wasInside === false && awaySince) {
         const mins = Math.max(0, Math.round((now.getTime() - awaySince.getTime()) / 60000));
@@ -181,17 +239,21 @@ export const trackingModule: Module = (r, { db, clock }) => {
       await q.query(`INSERT INTO tracking_pings (employee_id, at, lat, lng, accuracy_m, inside, offline, device_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [a.id, now, lat, lng, acc, inside, offline, deviceKey]);
       await q.query(`DELETE FROM tracking_pings WHERE at < $1::timestamptz - interval '14 days'`, [now]);
     });
+    // a ring the phone did by itself while it was already known outside (e.g. its own check before the ping)
+    if (localAlarm) await audit(db, a.id, 'tracking.local_alarm', 'employee', a.id, undefined, { at: now, device: deviceLabel, inside });
     await sweep(db, clock());
     return ok({ tracking: true, inside, intervalMinutes: cfg.tracking_interval_minutes });
   });
 
   /** Tracking settings the app needs (any signed-in user). */
   r.get('/tracking/config', async (req) => {
-    await authenticate(db, req);
+    const a = await authenticate(db, req);
     const s = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
+    // this person: the company follow-up + his «تتبع أثناء العمل» + «حضور وانصراف» (reason = why not, for diagnostics)
+    const elig = await trackingEligibility(db, a.id);
     // office areas so the phone can ring by itself when it leaves them, even with no internet
     const locs = (await db.query(`SELECT lat, lng, radius_m FROM work_locations WHERE active`)).rows;
-    return ok({ enabled: s.tracking_enabled, intervalMinutes: s.tracking_interval_minutes,
+    return ok({ enabled: elig.on, reason: elig.reason, intervalMinutes: s.tracking_interval_minutes,
       awayMarginM: s.away_margin_m ?? 0, offices: locs.map((l) => ({ lat: l.lat, lng: l.lng, radiusM: l.radius_m })) });
   });
 

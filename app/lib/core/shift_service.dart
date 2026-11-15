@@ -162,15 +162,23 @@ class _Worker {
     final token = p.getString('token');
     if (p.getBool('bg_tracking_on') != true || token == null || token.isEmpty) return finish();
     api.token = token;
+    final rangBefore = p.getBool('bg_ringed_outside') == true;
     final outside = await _checkOffice(p, pos);
+    // the phone rang just now: tell the server at once (it alerts the managers), not at the next interval
+    final rang = outside == true && !rangBefore && p.getBool('bg_ringed_outside') == true;
     _status(outside);
     final every = Duration(minutes: p.getInt('bg_tracking_interval') ?? 5) - const Duration(seconds: 20);
-    if (_lastSent != null && DateTime.now().difference(_lastSent!) < every) return;
+    if (!rang && _lastSent != null && DateTime.now().difference(_lastSent!) < every) return;
     _lastSent = DateTime.now();
     await _flush(p);
-    final body = {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy};
+    final body = {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true};
     try {
-      await api.post('/tracking/ping', body);
+      final r = await api.post('/tracking/ping', body);
+      // following was turned off for this employee (or the company): the service stops
+      if (r['tracking'] == false) {
+        await p.setBool('tracking_enabled', false);
+        await finish();
+      }
     } on ApiException catch (e) {
       if (e.isNetwork) {
         // no internet: kept with its time and sent later (offline tracking)
