@@ -322,7 +322,7 @@ jobs:
           $SSH "$SSH_USER@$SSH_HOST" 'bash -s' < app/deploy/hostinger/remote-deploy.sh
       - name: Check (WordPress unchanged, the update is served, same file)
         run: |
-          set -euo pipefail
+          set -eu  # no pipefail: grep -q closes the pipe early
           sleep 5
           code() { curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$1"; }
           for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ]; done
