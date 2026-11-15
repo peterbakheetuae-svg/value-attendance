@@ -3,6 +3,7 @@ import { one } from '../db.ts';
 import { AppError, forbidden, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { sha256 } from './password.ts';
+import { isRegistered } from '../lib/permission-registry.ts';
 
 export interface Actor {
   id: string;
@@ -14,6 +15,17 @@ export interface Actor {
   mustChangePassword: boolean;
   /** «تم التصفيه»: the account is closed except reading his own attendance report */
   settled?: boolean;
+  /** permission keys that exist in this database (a fine-grained key added by a migration not run yet is absent) */
+  known?: ReadonlySet<string>;
+}
+
+// the permission keys of this database: read once a minute per instance (they only change with a migration)
+let knownKeys: { at: number; keys: ReadonlySet<string> } | null = null;
+async function dbPermissionKeys(q: Q): Promise<ReadonlySet<string>> {
+  if (knownKeys && Date.now() - knownKeys.at < 60_000) return knownKeys.keys;
+  const r = await q.query<{ key: string }>(`SELECT key FROM permissions`);
+  knownKeys = { at: Date.now(), keys: new Set(r.rows.map((x) => x.key)) };
+  return knownKeys.keys;
 }
 
 /** an employee whose work status is «تم التصفيه» (settled / finished) */
@@ -47,8 +59,11 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   }
   const actor: Actor = {
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
-    // his role's permissions, then his own exceptions (allowed / denied one by one)
-    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p))), sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    // his role's permissions, then his own exceptions (allowed / denied one by one); a key the application does not
+    // register is dropped (deny by default — no row can grant something the code does not know)
+    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p))),
+    sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    known: await dbPermissionKeys(q),
   };
   // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own
   // records (the attendance report) and signing out / changing the password
@@ -63,10 +78,23 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   return actor;
 }
 
-export const has = (a: Actor, p: string) => a.perms.has(p);
+export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
+
+/**
+ * A fine-grained permission split from a broad one (migration 066). Where this database already has the fine key, only the
+ * fine key counts (an individual restriction on it is respected); where it does not yet (the migration has not run), the
+ * broad key it was split from decides — exactly today's behaviour.
+ */
+export function can(a: Actor, fine: string, broad: string): boolean {
+  return a.known?.has(fine) ? has(a, fine) : has(a, broad);
+}
 
 export function requirePerm(a: Actor, ...anyOf: string[]) {
-  if (!anyOf.some((p) => a.perms.has(p))) throw forbidden();
+  if (!anyOf.some((p) => has(a, p))) throw forbidden();
+}
+
+export function requireCan(a: Actor, fine: string, broad: string) {
+  if (!can(a, fine, broad)) throw forbidden();
 }
 
 /**
