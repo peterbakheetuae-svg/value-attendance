@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, canOwnerOnly, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, can, canOwnerOnly, has, type Actor } from '../auth/context.ts';
 import { holdersOf, notify } from './notify.ts';
 import { resolveDeveloper } from './exclusive.ts';
 
@@ -147,8 +147,9 @@ export function parseCommissionRequest(b: Record<string, unknown>, a: Actor): Co
   const area = num(b, 'areaM2', { min: 0.01, max: 1_000_000 })!;
   const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
   let employeeId = a.id;
-  // anyone else's employeeId is ignored (the request is always his own), as before
-  if (has(a, 'sales.manage') && typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id) {
+  // anyone else's employeeId is ignored (the request is always his own) — unless he may file for others
+  // («تسجيل عمولة لموظف تاني»; before 066 that is sales.manage, as before)
+  if (can(a, 'commission.create_for_others', 'sales.manage') && typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id) {
     if (!isUuid(b.employeeId)) throw invalid('Choose the salesperson', { field: 'employeeId' });
     employeeId = b.employeeId;
   }

@@ -212,6 +212,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
    */
   r.get('/finance/dashboard/details', async (req) => {
     const a = await authenticate(db, req);
+    const canClient = can(a, 'exclusive.view_client', null);
     const hr = canHrView(a), office = canOffice(a);
     if ((!hr && !office) || !can(a, 'finance.dashboard_view', ['cash.hr_view', 'cash.office'])) throw forbidden();
     const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
@@ -318,14 +319,15 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         const cond = key === 'installments_week' ? `due_date >= $1 AND due_date <= ($1::date + 7)` : `due_date < $1`;
         rows = (await q(`SELECT * FROM (${INSTALLMENT_LINES}) l WHERE paid < amount_egp AND ${cond} ORDER BY due_date`, [t]))
           .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`,
-            sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone ? ` — ${x.buyer_phone}` : ''}`,
+            // the client's phone: the finance view AND «بيانات العملاء» (without it the reminder comes without the number)
+            sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone && canClient ? ` — ${x.buyer_phone}` : ''}`,
             amount: r2(n(x.amount_egp) - n(x.paid)) }));
         break;
       }
       case 'units_remaining': {
         title = 'الباقي على الوحدات';
         rows = (await q(`SELECT * FROM (${UNITS_LEFT}) x WHERE left_amount > 0 ORDER BY left_amount DESC`, []))
-          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`, sub: x.buyer_phone ?? '', amount: n(x.left_amount) }));
+          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`, sub: canClient ? x.buyer_phone ?? '' : '', amount: n(x.left_amount) }));
         break;
       }
       case 'transfers_open': {

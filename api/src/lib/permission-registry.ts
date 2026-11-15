@@ -114,15 +114,17 @@ export const PERMISSIONS: PermDef[] = [
   P('commissions', 'commission.read_team', 'عرض عمولات فريقه', 'المشاريع والوحدات المباعة لفريقه (من غير أرقام الشركة)'),
   P('commissions', 'commission.approve', 'اعتماد طلبات العمولة', 'اعتماد أو رفض طلبات العمولة وتحديد شهر الصرف', { sensitive: true }),
   P('commissions', 'commission.project_manage', 'إدارة مشاريع العمولات', 'إنشاء وتعديل المشاريع وتقسيم العمولة'),
+  P('commissions', 'commission.create_for_others', 'تسجيل عمولة لموظف تاني', 'طلب عمولة باسم سيلز تاني (البيعة اللي عملها هو)', { sensitive: true, splitFrom: 'sales.manage', since: 66 }),
   P('commissions', 'commission.company_view', 'عرض أرباح الشركة', 'نصيب الشركة والإيراد والربح', { sensitive: true }),
   // ---- sales
   P('sales', 'sales.view', 'عرض مبيعات الوحدات', 'المبيعات وصفحة الأقساط المستحقة'),
+  P('sales', 'sales.read_team', 'مبيعات فريقه', 'بيعات موظفي فرقه (من غير بيانات تواصل العميل ولا التحصيلات ولا العمولة)', { splitFrom: 'commission.read_team', since: 66 }),
   P('sales', 'sales.manage', 'تسجيل المبيعات والتحصيل', 'تسجيل بيع وحدة وتحصيل المقدمات والأقساط', { sensitive: true }),
   P('sales', 'sales.approve', 'اعتماد المبيعات', 'اعتماد أو رفض المبيعات (مش بتاعته)', { sensitive: true }),
   P('sales', 'sales.cancel', 'إلغاء بيع', 'إلغاء بيع وحدة مع رد المحصّل', { sensitive: true }),
   P('sales', 'exclusive.reserve', 'حجز وحدة', 'حجز وحدات في المشاريع الحصرية'),
   P('sales', 'exclusive.view_finance', 'ماليات المشاريع الحصرية', 'المحصّل وأموال المالك والمستحق له، عمولة المكتب والموظفين وشركات التسويق، وكشف حساب المشروع', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
-  P('sales', 'exclusive.view_client', 'بيانات العملاء', 'موبايل العميل ورقمه القومي وعنوانه في الحجوزات والعقود اللي يشوفها', { sensitive: true, openBefore: true, since: 66 }),
+  P('sales', 'exclusive.view_client', 'بيانات العملاء', 'موبايل العميل ورقمه القومي وعنوانه ووسيلة التواصل — في الحجوزات والتعاقدات والمبيعات والأقساط اللي يشوفها', { sensitive: true, openBefore: true, since: 66 }),
   // ---- leads
   P('leads', 'leads.own', 'العمل على ليدز متسندة له', 'شغل الليدز المتسندة ليه'),
   P('leads', 'leads.team', 'ليدز فريقه', 'رؤية ليدز فريقه وإعادة إسنادها'),

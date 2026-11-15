@@ -17,6 +17,8 @@
 --   data.reset, commission.void_approved                     ← the owner role (was checked by role name)
 --   exclusive.view_finance                                   ← cash.office
 --   exclusive.view_client                                    ← everyone (client details had no separate check)
+--   sales.read_team                                          ← commission.read_team (a team's sales, the record only)
+--   commission.create_for_others                             ← sales.manage
 -- The broad keys are not touched (other modules still use them).
 
 INSERT INTO permissions (key, description) VALUES
@@ -37,7 +39,9 @@ INSERT INTO permissions (key, description) VALUES
   ('data.reset',               'Import old data or wipe company data (was the owner by name)'),
   ('commission.void_approved', 'Cancel an approved commission (was the owner by name)'),
   ('exclusive.view_finance',   'Exclusive projects'' money: owner trust / dues, office, staff and marketing commission, project statement'),
-  ('exclusive.view_client',    'Client phone, national id and address on the exclusive units he may see')
+  ('exclusive.view_client',    'Client phone, national id, address and contact on the units / sales / installments he may see'),
+  ('sales.read_team',          'The sales registered by the members of his teams (no client contact, collections or commission)'),
+  ('commission.create_for_others', 'File a commission request for another salesperson')
   ON CONFLICT (key) DO NOTHING;
 
 -- the split: fine key ← broad key(s); '*' = everyone, 'owner' = the owner role
@@ -53,7 +57,8 @@ INSERT INTO m066 VALUES
   ('cash.bank_transfer', 'cash.office'), ('cash.owner_funds', 'cash.office'),
   ('finance.dashboard_view', 'cash.hr_view'), ('finance.dashboard_view', 'cash.office'),
   ('data.reset', 'owner'), ('commission.void_approved', 'owner'),
-  ('exclusive.view_finance', 'cash.office'), ('exclusive.view_client', '*');
+  ('exclusive.view_finance', 'cash.office'), ('exclusive.view_client', '*'),
+  ('sales.read_team', 'commission.read_team'), ('commission.create_for_others', 'sales.manage');
 
 -- 1. job titles
 INSERT INTO role_permissions (role_key, perm_key)

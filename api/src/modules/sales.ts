@@ -3,10 +3,11 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { createHash } from 'node:crypto';
+import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../auth/context.ts';
 import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
-import { notify } from './notify.ts';
+import { holdersOf, notify } from './notify.ts';
 
 /**
  * Financial system, phase 2 — unit sales: reservation → down payment → installments.
@@ -27,6 +28,23 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const canView = (a: Actor) => has(a, 'sales.view');
 const canManage = (a: Actor) => has(a, 'sales.manage');
 const canApprove = (a: Actor) => has(a, 'sales.approve');
+/** his team's sales (the record only — no client contact, collections or commission); before 066: commission.read_team */
+const canTeam = (a: Actor) => can(a, 'sales.read_team', 'commission.read_team');
+/** the buyer's phone / contact (one «بيانات العملاء» permission for every project's clients; open before 066) */
+const canClient = (a: Actor) => can(a, 'exclusive.view_client', null);
+/**
+ * How much of a sale this person sees: all (sales.view), own (he registered it), team (a member of a team he manages,
+ * with sales.read_team) — or null (none). Decided on the server for every request; ids sent by the app are never trusted.
+ */
+type Level = 'all' | 'own' | 'team';
+async function levelOf(q: Q, a: Actor, createdBy: string): Promise<Level | null> {
+  if (canView(a)) return 'all';
+  if (createdBy === a.id) return 'own';
+  if (canTeam(a) && (await teamMemberIds(q, a.id)).includes(createdBy)) return 'team';
+  return null;
+}
+/** a client's key for the الأقساط pages: opaque (it never carries the phone number) */
+const opaque = (raw: string) => `c:${createHash('sha256').update(`sales-client:${raw}`).digest('hex').slice(0, 24)}`;
 
 function dateParam(b: Record<string, unknown>, field: string, optional = false): string | null {
   const v = b[field];
@@ -95,7 +113,18 @@ const SALE_SELECT = `SELECT s.*, p.name AS project_name, e.full_name AS created_
   FROM unit_sales s JOIN commission_projects p ON p.id = s.project_id JOIN employees e ON e.id = s.created_by
   LEFT JOIN commission_requests cr ON cr.id = s.commission_request_id`;
 
-function shapeSale(s: any) {
+function shapeSale(s: any, a: Actor, level: Level) {
+  const x = shapeSaleFull(s);
+  // the buyer's contact: with «بيانات العملاء», and never on a team member's sale (the record only)
+  if (!canClient(a) || level === 'team') { x.buyerPhone = null; x.buyerContact = null; }
+  if (level === 'team') {
+    for (const k of ['collected', 'remaining', 'refunded', 'downPaid', 'refundDue', 'commission'] as const) (x as any)[k] = undefined;
+    x.stage = ['cancelled', 'pending', 'rejected'].includes(s.status) ? s.status : 'active';
+  }
+  return x;
+}
+
+function shapeSaleFull(s: any): any {
   const collected = Number(s.collected), total = Number(s.total_price), down = Number(s.down_payment);
   const downPaid = Number(s.down_paid ?? 0);
   return {
@@ -156,10 +185,10 @@ export const salesModule: Module = (r, { db, clock }) => {
         FROM ex_installments i WHERE i.unit_id = ANY($1::uuid[]) ORDER BY i.due_date, i.seq`, [unitIds])).rows;
   }
   const dealAr = (st: string) => (st === 'contracted' ? 'متعاقد' : st === 'cancelled' ? 'ملغي' : 'حاجز');
-  const shapeDeal = (u: any) => {
+  const shapeDeal = (u: any, a: Actor) => {
     const total = Number(u.unit_price), collected = Number(u.collected), live = u.status === 'contracted';
     return { id: null, unitId: u.id, refNo: Number(u.ref_no), projectId: u.project_id, projectName: u.project_name, unitNo: u.unit_no,
-      buyerName: u.client_name, buyerPhone: u.client_phone, totalPrice: total, saleDate: String((u.contracted_at ?? u.created_at)?.toISOString?.() ?? u.created_at).slice(0, 10),
+      buyerName: u.client_name, buyerPhone: canClient(a) ? u.client_phone : null, totalPrice: total, saleDate: String((u.contracted_at ?? u.created_at)?.toISOString?.() ?? u.created_at).slice(0, 10),
       paymentMethod: Number(u.lines) > 0 ? 'installments' : 'cash', status: u.status, statusAr: dealAr(u.status),
       collected: r2(collected), remaining: live ? r2(Math.max(0, total - collected)) : 0 };
   };
@@ -186,7 +215,7 @@ export const salesModule: Module = (r, { db, clock }) => {
     }
     const by = new Map<string, any>();
     for (const x of sales) {
-      const sh = shapeSale(x);
+      const sh = shapeSale(x, a, 'all');
       const k = clientKey(x.buyer_name, x.buyer_phone);
       const c = by.get(k) ?? { key: k, name: sh.buyerName, phone: sh.buyerPhone, units: [] as string[], salesCount: 0,
         total: 0, collected: 0, remaining: 0, overdue: 0, installments: false, lastSale: '' };
@@ -212,7 +241,7 @@ export const salesModule: Module = (r, { db, clock }) => {
     }
     const rank: Record<string, number> = { none: 0, reserved: 1, contracted: 2 };
     for (const u of deals) {
-      const sh = shapeDeal(u);
+      const sh = shapeDeal(u, a);
       const k = clientKey(u.client_name, u.client_phone);
       const c = by.get(k) ?? { key: k, name: sh.buyerName, phone: sh.buyerPhone, units: [] as string[], salesCount: 0,
         total: 0, collected: 0, remaining: 0, overdue: 0, installments: false, lastSale: '', state: 'none' };
@@ -229,10 +258,11 @@ export const salesModule: Module = (r, { db, clock }) => {
       c.lastSale = sh.saleDate > c.lastSale ? sh.saleDate : c.lastSale;
       by.set(k, c);
     }
-    let list = [...by.values()].map((c) => ({ ...c, total: r2(c.total), collected: r2(c.collected), remaining: r2(c.remaining),
+    let list = [...by.values()].map((c) => ({ ...c, key: opaque(c.key), phone: canClient(a) ? c.phone : null, total: r2(c.total), collected: r2(c.collected), remaining: r2(c.remaining),
       overdue: r2(c.overdue), paymentMethod: c.installments ? 'installments' : 'cash',
       stateAr: c.state === 'contracted' ? 'متعاقد' : c.state === 'reserved' ? 'حاجز' : 'فاضي' }));
-    if (q) list = list.filter((c) => c.name.toLowerCase().includes(q) || String(c.phone).includes(q) || c.units.some((u: string) => u.toLowerCase().includes(q)));
+    // searching by the phone number only for who may see it (no probing numbers)
+    if (q) list = list.filter((c) => c.name.toLowerCase().includes(q) || (canClient(a) && String(c.phone ?? '').includes(q)) || c.units.some((u: string) => u.toLowerCase().includes(q)));
     list.sort((x, y) => (y.overdue - x.overdue) || (y.remaining - x.remaining) || x.name.localeCompare(y.name, 'ar'));
     return ok({ currency: 'EGP', clients: list });
   });
@@ -246,12 +276,12 @@ export const salesModule: Module = (r, { db, clock }) => {
     if (!canView(a)) throw forbidden();
     const key = req.query.get('key') ?? '';
     const t = today();
-    const sales = (await clientSales(db)).filter((x) => clientKey(x.buyer_name, x.buyer_phone) === key);
-    const deals = (await exDeals(db)).filter((u) => clientKey(u.client_name, u.client_phone) === key);
+    const sales = (await clientSales(db)).filter((x) => opaque(clientKey(x.buyer_name, x.buyer_phone)) === key);
+    const deals = (await exDeals(db)).filter((u) => opaque(clientKey(u.client_name, u.client_phone)) === key);
     if (!sales.length && !deals.length) throw notFound('Client not found');
     const active = sales.filter((x) => x.status === 'active');
     const lines = await clientLines(db, active.map((x) => x.id));
-    const saleBy = new Map(active.map((x) => [x.id, shapeSale(x)]));
+    const saleBy = new Map(active.map((x) => [x.id, shapeSale(x, a, 'all')]));
     const schedule = lines.map((l) => {
       const sh = saleBy.get(l.sale_id)!;
       const amount = Number(l.amount_egp), paid = Number(l.paid), due = String(l.due_date).slice(0, 10);
@@ -259,7 +289,7 @@ export const salesModule: Module = (r, { db, clock }) => {
         remaining: r2(Math.max(0, amount - paid)), status: lineStatus('active', amount, paid, due, t) };
     }).filter((l) => l.amount > 0);
     const live = deals.filter((u) => u.status === 'contracted');
-    const dealBy = new Map(deals.map((u) => [u.id, shapeDeal(u)]));
+    const dealBy = new Map(deals.map((u) => [u.id, shapeDeal(u, a)]));
     for (const l of await exLines(db, live.map((u) => u.id))) {
       const sh = dealBy.get(l.unit_id)!;
       const amount = Number(l.amount_egp), paid = Number(l.paid), due = String(l.due_date instanceof Date ? l.due_date.toISOString() : l.due_date).slice(0, 10);
@@ -268,10 +298,10 @@ export const salesModule: Module = (r, { db, clock }) => {
     }
     schedule.sort((x, y) => x.dueDate.localeCompare(y.dueDate));
     const inst = schedule.filter((l) => l.seq > 0);
-    const shaped = [...sales.map(shapeSale), ...[...dealBy.values()]] as any[];
+    const shaped = [...sales.map((x) => shapeSale(x, a, 'all')), ...[...dealBy.values()]] as any[];
     const total = r2(active.reduce((s, x) => s + Number(x.total_price), 0) + live.reduce((s, u) => s + Number(u.unit_price), 0));
     const collected = r2([...saleBy.values()].reduce((s, x) => s + x.collected, 0) + live.reduce((s, u) => s + dealBy.get(u.id)!.collected, 0));
-    return ok({ currency: 'EGP', client: { key, name: shaped[0].buyerName, phone: shaped.find((x) => x.buyerPhone)?.buyerPhone ?? '' },
+    return ok({ currency: 'EGP', client: { key, name: shaped[0].buyerName, phone: canClient(a) ? shaped.find((x) => x.buyerPhone)?.buyerPhone ?? '' : null },
       counts: { installments: inst.length, paid: inst.filter((l) => l.status === 'paid').length,
         remaining: inst.filter((l) => l.status !== 'paid').length, overdue: inst.filter((l) => l.status === 'overdue').length },
       amounts: { paid: collected, remaining: r2(Math.max(0, total - collected)), total },
@@ -347,7 +377,9 @@ export const salesModule: Module = (r, { db, clock }) => {
     const lines = buildSchedule({ total, down, downDue, frequency, count, installmentAmount: instAmount, firstDue });
     const commission = b.withCommission === true ? parseCommissionRequest({ ...b, projectId, unitNo, note: b.commissionNote ?? '' }, a) : null;
     const id = await db.tx(async (q) => {
-      const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1 AND kind = 'marketing'`, [projectId]);
+      // the project row is locked: two submissions for the same unit at once cannot both pass the check below
+      // (a waiting sale is not covered by the database's one-active-sale index)
+      const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1 AND kind = 'marketing' FOR UPDATE`, [projectId]);
       if (!p) throw invalid('Choose the project', { field: 'projectId' });
       const live = await one(q, `SELECT ref_no FROM unit_sales WHERE project_id = $1 AND lower(trim(unit_no)) = lower(trim($2)) AND status IN ('active','pending')`,
         [projectId, unitNo]);
@@ -365,11 +397,9 @@ export const salesModule: Module = (r, { db, clock }) => {
       await audit(q, a.id, 'sales.create', 'unit_sale', s.id, undefined,
         { projectId, unitNo, buyerName, total, down, frequency, installments: lines.length - 1, status: direct ? 'active' : 'pending' });
       if (!direct) {
-        const approvers = await q.query(`
-          SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-           WHERE rp.perm_key = 'sales.approve' AND e.status = 'active' AND e.id <> $1`, [a.id]);
-        for (const ap of approvers.rows) {
-          await notify(q, { to: ap.id, type: 'sale_awaiting', title: `بيعة جديدة من ${a.fullName} مستنية الاعتماد`,
+        // the approvers by the same permission resolution as everywhere (individual grants / restrictions count)
+        for (const apId of await holdersOf(q, 'sales.approve', [a.id])) {
+          await notify(q, { to: apId, type: 'sale_awaiting', title: `بيعة جديدة من ${a.fullName} مستنية الاعتماد`,
             body: `وحدة ${unitNo} — ${buyerName}`, entity: 'unit_sale', entityId: s.id, dedupeKey: `sale:${s.id}:awaiting` });
         }
       }
@@ -381,6 +411,8 @@ export const salesModule: Module = (r, { db, clock }) => {
   async function saleDetails(q: Q, id: string, a: Actor) {
     const s = await one(q, `${SALE_SELECT} WHERE s.id = $1`, [id]);
     if (!s) throw notFound();
+    // whoever acted on it (approver / collector) without seeing sales gets the record only
+    const level: Level = (await levelOf(q, a, s.created_by)) ?? 'team';
     const lines = await q.query(`
       SELECT i.*, COALESCE(sum(r.amount_egp) FILTER (WHERE r.status = 'posted'), 0) AS paid
         FROM sale_installments i LEFT JOIN cash_receipts r ON r.installment_id = i.id
@@ -391,14 +423,16 @@ export const salesModule: Module = (r, { db, clock }) => {
     const refunds = await q.query(`SELECT id, ref_no, amount_egp, cashbox, occurred_at, reason, status FROM cash_expenses WHERE sale_id = $1 ORDER BY occurred_at`, [id]);
     return {
       currency: 'EGP',
-      sale: shapeSale(s),
-      schedule: lines.rows.map((l) => {
+      level, // all / own / team — the app shows only what came (the team view has no money, schedule or receipts)
+      sale: shapeSale(s, a, level),
+      // a team member's sale: the record only — no schedule, receipts or refunds
+      schedule: level === 'team' ? [] : lines.rows.map((l) => {
         const amount = Number(l.amount_egp), paid = Number(l.paid);
         return { id: l.id, seq: l.seq, kind: l.seq === 0 ? 'down_payment' : 'installment', dueDate: String(l.due_date).slice(0, 10),
           amount, paid: r2(paid), remaining: r2(Math.max(0, amount - paid)), status: lineStatus(s.status, amount, paid, String(l.due_date).slice(0, 10), t) };
       }),
-      receipts: receipts.rows.map(shapeReceipt),
-      refunds: refunds.rows.map((x) => ({ id: x.id, refNo: Number(x.ref_no), amount: Number(x.amount_egp), cashbox: x.cashbox,
+      receipts: level === 'team' ? [] : receipts.rows.map(shapeReceipt).map((x) => (canClient(a) ? x : { ...x, payerPhone: null })),
+      refunds: level === 'team' ? [] : refunds.rows.map((x) => ({ id: x.id, refNo: Number(x.ref_no), amount: Number(x.amount_egp), cashbox: x.cashbox,
         at: x.occurred_at, reason: x.reason, status: x.status })),
       can: { collect: canManage(a) && s.status === 'active', cancel: has(a, 'sales.cancel') && s.status === 'active',
         decide: canApprove(a) && s.status === 'pending' && s.created_by !== a.id,
@@ -409,16 +443,27 @@ export const salesModule: Module = (r, { db, clock }) => {
   r.get('/sales/:id', async (req) => {
     const a = await authenticate(db, req);
     const s = await loadSale(db, req.params.id);
-    if (!canView(a) && s.created_by !== a.id) throw forbidden(); // the salesperson sees his own submissions
+    // all (sales.view) / his own submissions / his team's (sales.read_team) — nothing else, whatever id is sent
+    if (!(await levelOf(db, a, s.created_by))) throw forbidden();
     return ok(await saleDetails(db, req.params.id, a));
   });
 
   r.get('/sales', async (req) => {
     const a = await authenticate(db, req);
     const vals: unknown[] = []; const where: string[] = [];
-    if (!canView(a) || req.query.get('mine') === '1') { vals.push(a.id); where.push(`s.created_by = $${vals.length}`); }
+    // scope on the server: mine=1 → his own; team=1 → his teams' members (sales.read_team); otherwise everything he may see
+    const team = canTeam(a) ? await teamMemberIds(db, a.id) : [];
+    let ids: string[] | null = null; // null: no filter (sales.view)
+    if (req.query.get('mine') === '1') ids = [a.id];
+    else if (req.query.get('team') === '1') ids = team;
+    else if (!canView(a)) ids = [a.id, ...team];
+    if (ids && !ids.length) where.push('false');
+    else if (ids) { vals.push(ids); where.push(`s.created_by = ANY($${vals.length}::uuid[])`); }
     const s = req.query.get('q');
-    if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(s.buyer_name) LIKE $${vals.length} OR lower(s.unit_no) LIKE $${vals.length} OR s.buyer_phone LIKE $${vals.length})`); }
+    if (s) {
+      vals.push(`%${s.trim().toLowerCase()}%`);
+      where.push(`(lower(s.buyer_name) LIKE $${vals.length} OR lower(s.unit_no) LIKE $${vals.length}${canClient(a) ? ` OR s.buyer_phone LIKE $${vals.length}` : ''})`);
+    }
     const pid = req.query.get('projectId');
     if (pid && isUuid(pid)) { vals.push(pid); where.push(`s.project_id = $${vals.length}`); }
     const st = req.query.get('status');
@@ -427,8 +472,11 @@ export const salesModule: Module = (r, { db, clock }) => {
       ${SALE_SELECT.replace('FROM unit_sales s', `, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r JOIN sale_installments i ON i.id = r.installment_id
           WHERE i.sale_id = s.id AND i.seq = 0 AND r.status = 'posted'), 0) AS down_paid FROM unit_sales s`)}
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY s.created_at DESC LIMIT 500`, vals);
-    return ok({ currency: 'EGP', sales: rows.rows.map(shapeSale),
-      can: { manage: canManage(a), approve: canApprove(a), view: canView(a) } });
+    const teamSet = new Set(team);
+    return ok({ currency: 'EGP',
+      sales: rows.rows.map((x) => shapeSale(x, a, canView(a) ? 'all' : x.created_by === a.id ? 'own' : teamSet.has(x.created_by) ? 'team' : 'own')),
+      can: { manage: canManage(a), approve: canApprove(a), view: canView(a), team: canTeam(a),
+        onBehalf: can(a, 'commission.create_for_others', 'sales.manage') } });
   });
 
   /** Management decision on a salesperson's sale: approve (collections can start) or reject (with a reason). */
@@ -503,14 +551,14 @@ export const salesModule: Module = (r, { db, clock }) => {
     const exList = exRows.rows.map((x) => {
       const amount = Number(x.amount_egp), paid = Number(x.paid), due = String(x.due_date instanceof Date ? x.due_date.toISOString() : x.due_date).slice(0, 10);
       return { id: x.id, saleId: null, unitId: x.unit_id, seq: x.seq, kind: 'installment', projectName: x.project_name,
-        unitNo: x.unit_no, buyerName: x.client_name, buyerPhone: x.client_phone, dueDate: due, amount, paid: r2(paid),
+        unitNo: x.unit_no, buyerName: x.client_name, buyerPhone: canClient(a) ? x.client_phone : null, dueDate: due, amount, paid: r2(paid),
         remaining: r2(Math.max(0, amount - paid)), saleRemaining: r2(Number(x.unit_price) - Number(x.unit_collected)),
         status: lineStatus('active', amount, paid, due, t) };
     });
     let list: any[] = rows.rows.map((x) => {
       const amount = Number(x.amount_egp), paid = Number(x.paid), due = String(x.due_date).slice(0, 10);
       return { id: x.id, saleId: x.sale_id, seq: x.seq, kind: x.seq === 0 ? 'down_payment' : 'installment', projectName: x.project_name,
-        unitNo: x.unit_no, buyerName: x.buyer_name, buyerPhone: x.buyer_phone, dueDate: due, amount, paid: r2(paid),
+        unitNo: x.unit_no, buyerName: x.buyer_name, buyerPhone: canClient(a) ? x.buyer_phone : null, dueDate: due, amount, paid: r2(paid),
         remaining: r2(Math.max(0, amount - paid)), saleRemaining: x.sale_status === 'cancelled' ? 0 : r2(Number(x.total_price) - Number(x.sale_collected)),
         status: lineStatus(x.sale_status, amount, paid, due, t) };
     });
