@@ -35,7 +35,9 @@ test('signed media: unsigned, forged or expired links are 404; a fresh link work
   await h.db.query(`UPDATE employees SET photo = '\\xffd8ffd9', photo_mime = 'image/jpeg' WHERE id = $1`, [c.ids.e1]);
   assert.equal((await h.call(null, 'GET', `/media/photo/${c.ids.e1}`)).status, 404);
   assert.equal((await h.call(null, 'GET', `/media/photo/${c.ids.e1}?exp=9999999999&sig=AAAA`)).status, 404);
-  const links = await h.call(c.t.e2, 'POST', '/media/links', { photos: [c.ids.e1] });
+  // a colleague gets no link for someone outside his scope; his team manager does
+  assert.equal((await h.call(c.t.e2, 'POST', '/media/links', { photos: [c.ids.e1] })).body.links[`photo:${c.ids.e1}`], undefined);
+  const links = await h.call(c.t.sm1, 'POST', '/media/links', { photos: [c.ids.e1] });
   const url = links.body.links[`photo:${c.ids.e1}`];
   assert.ok(url);
   const r = await h.call(null, 'GET', url);

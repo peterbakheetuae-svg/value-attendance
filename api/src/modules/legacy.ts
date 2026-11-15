@@ -2,7 +2,8 @@ import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
-import { audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
+import { actorById, audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
+import { photoScope, selfieScope } from '../auth/media-scope.ts';
 import { daysBetween, local } from '../lib/time.ts';
 import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
 import { pushTo } from '../lib/fcm.ts';
@@ -298,14 +299,26 @@ export const legacyModule: Module = (r, { db, clock }) => {
   });
 
   // ------------------------------------------------------------------ signed media (no auth header needed)
+  // A link is bound to the employee it was issued to and re-checked when opened: if his account is closed or the photo /
+  // selfie is no longer in his scope, it answers 404 — even before it expires.
   r.get('/media/:kind/:id', async (req) => {
     const { kind, id } = req.params;
-    if (!isUuid(id) || !['photo', 'selfie', 'advance'].includes(kind)) throw notFound();
-    if (!(await verifyMedia(db, kind, id, req.query.get('exp'), req.query.get('sig'), clock()))) throw notFound();
-    const row = kind === 'photo' ? await one(db, `SELECT photo AS data, photo_mime AS mime FROM employees WHERE id = $1`, [id])
-      : kind === 'selfie' ? await one(db, `SELECT image AS data, mime FROM attendance_selfies WHERE attendance_id = $1`, [id])
-      : await one(db, `SELECT attachment AS data, 'image/jpeg' AS mime FROM advance_requests WHERE id = $1`, [id]);
+    if (!isUuid(id) || !['photo', 'selfie'].includes(kind)) throw notFound();
+    const viewer = await verifyMedia(db, kind, id, req.query.get('exp'), req.query.get('v'), req.query.get('sig'), clock());
+    if (!viewer || !isUuid(viewer)) throw notFound();
+    const a = await actorById(db, viewer);
+    if (!a) throw notFound();
+    if (kind === 'photo') {
+      const scope = await photoScope(db, a);
+      if (scope && !scope.has(id)) throw notFound();
+      const row = await one(db, `SELECT photo AS data, photo_mime AS mime FROM employees WHERE id = $1`, [id]);
+      if (!row?.data) throw notFound();
+      return { binary: row.data, contentType: row.mime ?? 'image/jpeg' };
+    }
+    const row = await one(db, `SELECT employee_id, image AS data, mime FROM attendance_selfies WHERE attendance_id = $1`, [id]);
     if (!row?.data) throw notFound();
+    const scope = await selfieScope(db, a);
+    if (scope && !scope.has(row.employee_id)) throw notFound();
     return { binary: row.data, contentType: row.mime ?? 'image/jpeg' };
   });
 
@@ -317,14 +330,19 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const out: Record<string, string> = {};
     const photoIds = Array.isArray(b.photos) ? b.photos.filter((x): x is string => typeof x === 'string' && isUuid(x)).slice(0, 500) : [];
     if (photoIds.length) {
-      const rows = await db.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND photo IS NOT NULL`, [photoIds]);
-      for (const x of rows.rows) out[`photo:${x.id}`] = await signedMediaPath(db, 'photo', x.id, now);
+      // only employees in his scope: another id in the request is simply left out (no link, no error to probe with)
+      const scope = await photoScope(db, a);
+      const allowed = scope ? photoIds.filter((x) => scope.has(x)) : photoIds;
+      if (allowed.length) {
+        const rows = await db.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND photo IS NOT NULL`, [allowed]);
+        for (const x of rows.rows) out[`photo:${x.id}`] = await signedMediaPath(db, 'photo', x.id, a.id, now);
+      }
     }
     const selfieIds = Array.isArray(b.selfies) ? b.selfies.filter((x): x is string => typeof x === 'string' && isUuid(x)).slice(0, 500) : [];
     if (selfieIds.length) {
-      const ids = await readableIds(db, a, 'attendance');
+      const scope = await selfieScope(db, a);
       const rows = await db.query(`SELECT attendance_id, employee_id FROM attendance_selfies WHERE attendance_id = ANY($1::uuid[])`, [selfieIds]);
-      for (const x of rows.rows) if (!ids || ids.includes(x.employee_id)) out[`selfie:${x.attendance_id}`] = await signedMediaPath(db, 'selfie', x.attendance_id, now);
+      for (const x of rows.rows) if (!scope || scope.has(x.employee_id)) out[`selfie:${x.attendance_id}`] = await signedMediaPath(db, 'selfie', x.attendance_id, a.id, now);
     }
     return ok({ links: out });
   });

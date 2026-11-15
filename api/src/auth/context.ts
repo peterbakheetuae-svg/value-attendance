@@ -78,6 +78,26 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   return actor;
 }
 
+/**
+ * The same permission resolution as sign-in, for an employee who is not making this request (e.g. checking that a media
+ * link's viewer still may see it). null = no such active account.
+ */
+export async function actorById(q: Q, id: string): Promise<Actor | null> {
+  const row = await one(q, `
+    SELECT e.id, e.code, e.full_name, e.role_key, e.status, e.legacy_fields->>'status' AS work_status,
+           COALESCE((SELECT array_agg(rp.perm_key) FROM role_permissions rp WHERE rp.role_key = COALESCE(e.position_key, e.role_key)), '{}') AS perms,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS plus,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE NOT x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS minus
+      FROM employees e WHERE e.id = $1`, [id]);
+  if (!row || row.status !== 'active') return null;
+  const settled = row.work_status === SETTLED;
+  return {
+    id: row.id, code: row.code, fullName: row.full_name, role: row.role_key, sessionId: '', mustChangePassword: false, settled,
+    perms: settled ? new Set() : new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p))),
+    known: await dbPermissionKeys(q),
+  };
+}
+
 export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
 
 /**
