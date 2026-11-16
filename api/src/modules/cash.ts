@@ -371,11 +371,6 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
 /** the signed receipts' photos and the printed receipt: permissions of their own (open before 066, as today) */
 export const canAttachmentView = (a: Actor) => can(a, 'cash.attachment_view', null);
 export const canAttachmentUpload = (a: Actor) => can(a, 'cash.attachment_upload', null);
-/** a receipt as this person may see it: the payer's phone with «بيانات العملاء» only */
-export const receiptFor = (a: Actor) => (x: any) => {
-  const r = shapeReceipt(x);
-  return can(a, 'exclusive.view_client', null) ? r : { ...r, payerPhone: null };
-};
 
 export function shapeReceipt(x: any) {
   return {
@@ -697,7 +692,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
     const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
-    return ok({ receipt: receiptFor(a)(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
+    return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
   });
 
   r.get('/cash/receipts', async (req) => {
@@ -713,7 +708,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(r.payer_name) LIKE $${vals.length} OR lower(r.purpose) LIKE $${vals.length} OR r.ref_no::text LIKE $${vals.length})`); }
     const rows = await db.query(`${RECEIPT_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
-    return ok({ currency: 'EGP', receipts: rows.rows.map(receiptFor(a)) });
+    return ok({ currency: 'EGP', receipts: rows.rows.map(shapeReceipt) });
   });
 
   r.post('/cash/receipts/:id/reverse', async (req) => {

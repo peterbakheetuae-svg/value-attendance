@@ -23,6 +23,9 @@ export interface PermDef {
   /** held ONLY by owner accounts (role `owner`): never granted, delegated, inherited through a job title or an individual
    *  exception — the permission screens refuse it and a non-owner never holds it even if a row says so */
   ownerOnly?: boolean;
+  /** once the key exists (after its migration) it counts only together with ALL of these keys — an intersection, never
+   *  an OR fallback (before the migration the splitFrom fallback applies unchanged) */
+  requiresAll?: string[];
 }
 
 export const MODULES: { key: string; nameAr: string }[] = [
@@ -116,7 +119,9 @@ export const PERMISSIONS: PermDef[] = [
   P('cash', 'cash.receipt_print', 'طباعة الإيصالات', 'طباعة إيصال الصرف / الاستلام للحركات اللي يشوفها', { openBefore: true, since: 66 }),
   P('cash', 'cash.attachment_view', 'عرض صور الإيصالات', 'صورة الإيصال الموقّع للتحصيلات والمصروفات والتحويلات والصرف اللي يشوفها', { sensitive: true, openBefore: true, since: 66 }),
   P('cash', 'cash.attachment_upload', 'رفع صور الإيصالات', 'إضافة أو تغيير صورة الإيصال الموقّع (في الخزن اللي بيشغّلها)', { sensitive: true, openBefore: true, since: 66 }),
-  P('finance', 'finance.company_income', 'دخل وربح المكتب', 'عمولة المكتب في الشهر، تقسيم العمولة، وصافي / ربح المكتب في اللوحات', { sensitive: true, splitFrom: 'cash.office', since: 66 }),
+  // owner decision (16 Nov 2026): after 066 it needs BOTH «الخزنة الرئيسية» (cash.office) and «عرض أرباح الشركة»
+  // (commission.company_view) — neither alone gives it; before 066 exactly as today (cash.office)
+  P('finance', 'finance.company_income', 'دخل وربح المكتب', 'عمولة المكتب في الشهر، تقسيم العمولة، وصافي / ربح المكتب في اللوحات (محتاجة كمان الخزنة الرئيسية وعرض أرباح الشركة)', { sensitive: true, splitFrom: 'cash.office', since: 66, requiresAll: ['cash.office', 'commission.company_view'] }),
   P('cash', 'cash.settings', 'إعدادات الخزن', 'حد اعتماد المصروفات والأرصدة الافتتاحية', { sensitive: true }),
   // ---- commissions
   P('commissions', 'commission.read_all', 'عرض كل العمولات', 'كل العمولات المعتمدة واستحقاقات الموظفين', { sensitive: true }),

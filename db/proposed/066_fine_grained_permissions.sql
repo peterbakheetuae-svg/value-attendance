@@ -4,7 +4,7 @@
 --   1. each fine key goes to every job title that holds one of the broad keys it is split from (same as the code's
 --      fallback before this migration: auth/context.ts can());
 --   2. then, for each employee, the effective value of the fine key BEFORE (resolved from his broad keys, with his
---      individual grants / restrictions) is compared with AFTER (his job title's grant of the fine key); wherever they
+--      individual grants / restrictions; for an 'all' key: every one of them) is compared with AFTER (his job title's grant of the fine key); wherever they
 --      differ an individual exception is written so the result is identical — and each one is recorded in audit_log.
 --
 --   employee.create / .edit / .deactivate / .reset_password  ← employee.manage
@@ -20,7 +20,9 @@
 --   sales.read_team                                          ← commission.read_team (a team's sales, the record only)
 --   commission.create_for_others                             ← sales.manage
 --   cash.receipt_print, cash.attachment_view / _upload       ← everyone (no separate check before; the cashbox checks stay)
---   finance.company_income                                   ← cash.office
+--   finance.company_income                                   ← cash.office AND commission.company_view (owner decision,
+--        16 Nov 2026: an approved access separation — whoever runs the office cashbox without «عرض أرباح الشركة» stops
+--        seeing the office's income / split / net; the code also requires both keys with it: permission-registry requiresAll)
 --   advance.create_for_others                                ← finance.manage OR employee.manage
 --   advance.approve_all                                      ← the owner role (was checked by role name)
 -- The broad keys are not touched (other modules still use them).
@@ -54,9 +56,10 @@ INSERT INTO permissions (key, description) VALUES
   ('advance.approve_all',      'Approve advances / work expenses instead of / when there is no general manager (was the owner by name)')
   ON CONFLICT (key) DO NOTHING;
 
--- the split: fine key ← broad key(s); '*' = everyone, 'owner' = the owner role
-CREATE TEMP TABLE m066 (fine text NOT NULL, broad text NOT NULL) ON COMMIT DROP;
-INSERT INTO m066 VALUES
+-- the split: fine key ← broad key(s); '*' = everyone, 'owner' = the owner role;
+-- need 'any' = holding one of its broad keys gave it, 'all' = it needs every one of its broad keys (an intersection)
+CREATE TEMP TABLE m066 (fine text NOT NULL, broad text NOT NULL, need text NOT NULL DEFAULT 'any') ON COMMIT DROP;
+INSERT INTO m066 (fine, broad) VALUES
   ('employee.create', 'employee.manage'), ('employee.edit', 'employee.manage'), ('employee.deactivate', 'employee.manage'),
   ('employee.reset_password', 'employee.manage'),
   ('employee.view_contact', 'employee.read_all'),
@@ -70,13 +73,19 @@ INSERT INTO m066 VALUES
   ('exclusive.view_finance', 'cash.office'), ('exclusive.view_client', '*'),
   ('sales.read_team', 'commission.read_team'), ('commission.create_for_others', 'sales.manage'),
   ('cash.receipt_print', '*'), ('cash.attachment_view', '*'), ('cash.attachment_upload', '*'),
-  ('finance.company_income', 'cash.office'),
   ('advance.create_for_others', 'finance.manage'), ('advance.create_for_others', 'employee.manage'),
   ('advance.approve_all', 'owner');
+INSERT INTO m066 (fine, broad, need) VALUES
+  ('finance.company_income', 'cash.office', 'all'), ('finance.company_income', 'commission.company_view', 'all');
 
 -- 1. job titles
 INSERT INTO role_permissions (role_key, perm_key)
-  SELECT DISTINCT rp.role_key, m.fine FROM role_permissions rp JOIN m066 m ON m.broad = rp.perm_key
+  SELECT DISTINCT rp.role_key, m.fine FROM role_permissions rp JOIN m066 m ON m.broad = rp.perm_key AND m.need = 'any'
+  ON CONFLICT DO NOTHING;
+INSERT INTO role_permissions (role_key, perm_key)
+  SELECT rp.role_key, m.fine FROM role_permissions rp JOIN m066 m ON m.broad = rp.perm_key AND m.need = 'all'
+   GROUP BY rp.role_key, m.fine
+  HAVING count(DISTINCT m.broad) = (SELECT count(*) FROM m066 x WHERE x.fine = m.fine)
   ON CONFLICT DO NOTHING;
 INSERT INTO role_permissions (role_key, perm_key)
   SELECT r.key, m.fine FROM roles r JOIN m066 m ON m.broad = '*'
@@ -87,8 +96,8 @@ INSERT INTO role_permissions (role_key, perm_key)
 
 -- 2. employees: keep each one's effective value exactly
 CREATE TEMP TABLE x066 ON COMMIT DROP AS
-WITH pre AS (
-  SELECT e.id, m.fine, bool_or(CASE
+WITH each_broad AS (
+  SELECT e.id, m.fine, m.need, (CASE
            WHEN m.broad = '*' THEN true
            WHEN m.broad = 'owner' THEN e.role_key = 'owner'
            ELSE (EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key = m.broad)
@@ -96,7 +105,9 @@ WITH pre AS (
                 OR EXISTS (SELECT 1 FROM employee_permissions ep WHERE ep.employee_id = e.id AND ep.perm_key = m.broad AND ep.allow)
          END) AS v
     FROM employees e CROSS JOIN m066 m
-   GROUP BY e.id, m.fine
+), pre AS (
+  SELECT id, fine, CASE WHEN bool_and(need = 'all') THEN bool_and(v) ELSE bool_or(v) END AS v
+    FROM each_broad GROUP BY id, fine
 ), post AS (
   SELECT p.id, p.fine, p.v,
          EXISTS (SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)

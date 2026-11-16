@@ -5,7 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { createHash } from 'node:crypto';
 import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../auth/context.ts';
-import { canHrOperate, canOffice, parseReceipt, receiptFor, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
 import { holdersOf, notify } from './notify.ts';
 
@@ -604,7 +604,7 @@ export const salesModule: Module = (r, { db, clock }) => {
       return recordReceipt(q, a, { ...input, saleId: s.id, installmentId: line.id });
     });
     const receipt = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [res.id]);
-    return ok({ receipt: receiptFor(a)(receipt), duplicate: res.duplicate, ...(await saleDetails(db, req.params.id, a)) }, res.duplicate ? 200 : 201);
+    return ok({ receipt: shapeReceipt(receipt), duplicate: res.duplicate, ...(await saleDetails(db, req.params.id, a)) }, res.duplicate ? 200 : 201);
   });
 
   /** Cancel a sale (approved policy: full refund). Collections stay recorded; the remaining lines stop. */

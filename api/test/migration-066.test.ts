@@ -6,7 +6,8 @@ import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 /**
  * The PROPOSED migration 066 (db/proposed/, not applied anywhere) on a throw-away database at the current schema:
- * effective access identical before / after, a second run changes nothing, the rollback restores the exact rows.
+ * effective access identical before / after (except the approved finance.company_income separation), a second run
+ * changes nothing, the rollback restores the exact rows.
  */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 const file = (n: string) => readFileSync(new URL(`../../db/proposed/${n}`, import.meta.url), 'utf8');
@@ -29,7 +30,8 @@ before(async () => {
   h = await harness('2026-11-10T13:00:00Z'); c = await cast(h);
   // individual exceptions on broad keys (066 must carry them over to the fine keys)
   await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow) VALUES
-    ($1, 'employee.manage', true), ($2, 'cash.office', false), ($3, 'attendance.read_team', false)`, [c.ids.sm1, c.ids.acc, c.ids.sm2]);
+    ($1, 'employee.manage', true), ($2, 'cash.office', false), ($3, 'attendance.read_team', false), ($4, 'cash.office', true)`,
+    [c.ids.sm1, c.ids.acc, c.ids.sm2, c.ids.hr]);
   forgetPermissionKeys();
 });
 after(async () => { await h.close(); });
@@ -40,9 +42,16 @@ test('066: every account keeps exactly its effective permissions; a second run c
   await run(file('066_fine_grained_permissions.sql'));
   const rows1 = await snapshot();
   assert.notEqual(rows1.permissions, rows0.permissions, '066 added keys');
-  assert.deepEqual(await effective(), eff0, 'effective access identical for every account after 066');
+  // identical, except the one approved separation (owner decision): the office's income needs cash.office AND
+  // commission.company_view after 066 — HR here runs the office cashbox (individual grant) without «عرض أرباح الشركة»
+  const expected = Object.fromEntries(Object.entries(eff0).map(([k, p]) =>
+    [k, p.filter((x) => x !== 'finance.company_income' || (p.includes('cash.office') && p.includes('commission.company_view')))]));
+  assert.ok(eff0.hr.includes('finance.company_income') && !expected.hr.includes('finance.company_income'), 'the fixture exercises the separation');
+  assert.ok(expected.owner.includes('finance.company_income'), 'the owner keeps it');
+  assert.deepEqual(await effective(), expected, 'effective access identical for every account after 066, but finance.company_income');
   await run(file('066_fine_grained_permissions.sql'));
   assert.deepEqual(await snapshot(), rows1, 'second run: no change');
+  assert.deepEqual(await effective(), expected, 'second run: same effective access');
   const audit = (await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE after->>'source' = 'migration_066'`)).rows[0].n;
   await run(file('066_rollback.sql'));
   assert.deepEqual(await snapshot(), rows0, 'rollback: permissions, job titles and individual exceptions exactly as before');

@@ -39,6 +39,16 @@ test('before 066: receipts, photos, printing and the office\'s figures exactly a
   const od = (await h.call(tGm, 'GET', '/dashboard/owner?view=finance')).body;
   assert.ok(od.ring && od.kpis.some((k: any) => k.icon === 'profit'));
   assert.notEqual((await h.call(tGm, 'GET', '/finance/dashboard')).body.operating.officeCommission, null);
+  // owner decision: before 066 the office's income stays exactly as today — cash.office alone still shows it
+  await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow) VALUES ($1, 'commission.company_view', false)`, [gmId]);
+  const ovNoCv = (await h.call(tGm, 'GET', '/cash/overview')).body;
+  assert.ok(ovNoCv.result && ovNoCv.commissionSplit, 'before 066: cash.office alone, unchanged');
+  assert.ok((await h.call(tGm, 'GET', '/me')).body.permissions.includes('finance.company_income'));
+  await h.db.query(`DELETE FROM employee_permissions WHERE employee_id = $1`, [gmId]);
+  // the payer's phone on cash / sales receipts: unchanged (deferred by the owner) — the receipt as recorded
+  const own = await h.call(c.t.hr, 'POST', '/cash/receipts', { recipient: 'hr', kind: 'installment', amount: 10, payerName: 'عميل ٢', payerPhone: '01055500022',
+    purpose: 'قسط', clientRef: randomUUID() });
+  assert.equal(own.body.receipt.payerPhone, '01055500022');
 });
 
 test('advances for others: HR / finance only; the owner approves when there is no general manager (as before)', async () => {
@@ -90,10 +100,30 @@ test('after 066: each of them is a permission of its own', async () => {
   await deny(c.ids.hr, 'cash.receipt_print');
   assert.equal((await h.call(c.t.hr, 'GET', '/cash/summary')).body.can.print, false);
   await clear(c.ids.hr);
-  // the payer's phone: «بيانات العملاء»
+  // the payer's phone on cash receipts: NOT tied to «بيانات العملاء» (owner decision: unchanged, deferred for later review)
   await deny(c.ids.hr, 'exclusive.view_client');
   const rc = (await h.call(c.t.hr, 'GET', '/cash/receipts')).body.receipts;
-  assert.ok(rc.length && rc.every((x: any) => x.payerPhone === null));
+  assert.ok(rc.length && rc.some((x: any) => x.payerPhone === '01055500011'));
+  await clear(c.ids.hr);
+  // the office's income after 066: finance.company_income AND cash.office AND commission.company_view — neither alone
+  await deny(gmId, 'commission.company_view');
+  const ovI = (await h.call(tGm, 'GET', '/cash/overview')).body;
+  assert.ok(!ovI.result && !ovI.commissionSplit && ovI.income.commissions === undefined, 'company_income + cash.office without commission.company_view: no income');
+  assert.ok(!(await h.call(tGm, 'GET', '/me')).body.permissions.includes('finance.company_income'));
+  assert.equal((await h.call(tGm, 'GET', '/finance/dashboard')).body.operating.officeCommission, null);
+  assert.equal((await h.call(tGm, 'GET', '/finance/dashboard/details?key=op_cover')).status, 403);
+  await clear(gmId);
+  // commission.company_view + cash.office without the key itself: no income either (no OR fallback once the key exists)
+  await allow(c.ids.acc, 'cash.office'); await allow(c.ids.acc, 'commission.company_view');
+  const accMe = (await h.call(c.t.acc, 'GET', '/me')).body.permissions as string[];
+  assert.ok(accMe.includes('cash.office') && accMe.includes('commission.company_view') && !accMe.includes('finance.company_income'));
+  assert.ok(!(await h.call(c.t.acc, 'GET', '/cash/overview')).body.result);
+  await allow(c.ids.acc, 'finance.company_income');
+  assert.ok((await h.call(c.t.acc, 'GET', '/cash/overview')).body.result, 'all three: the income shows');
+  await clear(c.ids.acc);
+  // the key with only one of the two: nothing
+  await allow(c.ids.hr, 'finance.company_income'); await allow(c.ids.hr, 'commission.company_view');
+  assert.ok(!(await h.call(c.t.hr, 'GET', '/me')).body.permissions.includes('finance.company_income'), 'no cash.office');
   await clear(c.ids.hr);
   // the office's income / net and the owners' trust: separate from running the office cashbox
   await deny(gmId, 'finance.company_income');

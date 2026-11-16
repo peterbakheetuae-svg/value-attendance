@@ -9,6 +9,15 @@ before(async () => { h = await harness(); c = await cast(h); });
 after(async () => { await h.close(); });
 const me = async (t: string) => (await h.call(t, 'GET', '/me')).body.permissions as string[];
 
+test('registry: every key required with another one (requiresAll) is a registered, already-migrated key', () => {
+  const reg = new Map(PERMISSIONS.map((p) => [p.key, p]));
+  for (const p of PERMISSIONS) for (const k of p.requiresAll ?? []) {
+    assert.ok(reg.has(k), `${p.key} requires unregistered ${k}`);
+    assert.ok(!reg.get(k)!.since, `${p.key} requires ${k}, itself pending a migration`);
+  }
+  assert.deepEqual(reg.get('finance.company_income')?.requiresAll, ['cash.office', 'commission.company_view']);
+});
+
 test('the registry matches the database: every database key is registered; only not-yet-migrated keys are missing', async () => {
   const db = new Set((await h.db.query(`SELECT key FROM permissions`)).rows.map((x) => x.key));
   const reg = new Set(PERMISSIONS.map((p) => p.key));
