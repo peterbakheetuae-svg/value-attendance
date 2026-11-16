@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../core/platform_info.dart';
 import 'package:flutter/material.dart';
 
 import '../services/jph_bridge.dart';
@@ -27,7 +27,7 @@ class WebFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!kIsWeb) return child;
+    if (!PlatformInfo.isComputer) return child;
     // a page opened in a side panel (a project, a unit…): the panel is its frame — no second side bar inside it
     if (SidePanelScope.inPanel(context)) return child;
     final mq = MediaQuery.of(context);

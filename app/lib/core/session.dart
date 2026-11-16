@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'device_id.dart';
 import 'shift_tracker.dart';
+import 'token_store.dart';
 
 /// Signed-in user, permissions and the API client. Permissions only shape the UI —
 /// the server enforces every one of them independently.
@@ -60,7 +61,7 @@ class Session extends ChangeNotifier {
     }
     try {
       final p = await SharedPreferences.getInstance();
-      final tok = p.getString('token');
+      final tok = await TokenStore.read();
       if (tok != null) {
         api.token = tok;
         // open instantly from the last known profile; refresh from the server in the background
@@ -90,7 +91,7 @@ class Session extends ChangeNotifier {
     final r = await api.post('/auth/login', {'identifier': identifier, 'password': password,
       if (device != null) 'deviceId': device, 'deviceLabel': label});
     api.token = r['token'] as String;
-    try { (await SharedPreferences.getInstance()).setString('token', api.token!); } catch (_) {}
+    try { await TokenStore.write(api.token!); } catch (_) {}
     await refreshMe();
   }
 
@@ -128,8 +129,8 @@ class Session extends ChangeNotifier {
     me = null;
     permissions = {};
     try {
+      await TokenStore.clear();
       final p = await SharedPreferences.getInstance();
-      await p.remove('token');
       await p.remove('me_cache');
     } catch (_) {}
     notifyListeners();
