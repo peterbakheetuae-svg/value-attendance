@@ -37,7 +37,8 @@ export const authModule: Module = (r, { db }) => {
     if (!emp) {
       // not an employee: a marketing company's own sign-in (e-mail or mobile + password, 075)
       const digits = identifier.replace(/\D/g, '');
-      const co = await one(db, `SELECT id, password_hash, status = 'active' AS active, failed_logins, locked_until, must_change_password FROM marketing_companies
+      const co = await one(db, `SELECT id, password_hash, status = 'active' AND login_active AS active, failed_logins, locked_until, must_change_password,
+                                        device_lock, device_id FROM marketing_companies
                                  WHERE password_hash IS NOT NULL AND (lower(login_email) = lower(trim($1)) OR (length($2) >= 10 AND right(login_phone_norm, 10) = right($2, 10)))
                                  LIMIT 1`, [identifier.trim(), digits]);
       if (co) {
@@ -52,9 +53,19 @@ export const authModule: Module = (r, { db }) => {
           throw new AppError('unauthenticated', 'Wrong employee ID or password');
         }
         if (!co.active) throw new AppError('forbidden', 'This account is deactivated');
+        // «ربط الحساب بالجهاز»: the first device is its device; another one is refused until the administration frees it
+        if (co.device_lock) {
+          if (!deviceId) throw new AppError('forbidden', 'This device could not be identified', { reason: 'device_required' });
+          if (co.device_id && co.device_id !== deviceId) {
+            throw new AppError('forbidden', 'This account is linked to another device. Ask the administration', { reason: 'device_rejected' });
+          }
+        }
         const { token, hash } = newToken();
         await db.tx(async (q) => {
-          await q.query(`UPDATE marketing_companies SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [co.id]);
+          await q.query(`UPDATE marketing_companies SET failed_logins = 0, locked_until = NULL,
+                           device_id = CASE WHEN device_lock AND device_id IS NULL THEN $2 ELSE device_id END,
+                           device_label = CASE WHEN device_lock AND device_id IS NULL THEN $3 ELSE device_label END WHERE id = $1`,
+            [co.id, deviceId, deviceLabel]);
           await q.query(`INSERT INTO partner_sessions (token_hash, company_id, expires_at, user_agent)
                          VALUES ($1,$2, now() + make_interval(hours => $3), $4)`,
             [hash, co.id, SESSION_TTL_HOURS, String(req.headers['user-agent'] ?? '').slice(0, 200)]);

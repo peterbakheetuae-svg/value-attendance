@@ -52,9 +52,9 @@ test('the office: an existing marketing company gets its own sign-in (not an emp
 });
 
 test('the company signs in (e-mail or mobile), must change the password, and is refused everywhere else', async () => {
-  const bad = await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'nope-nope' });
+  const bad = await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'nope-nope', deviceId: 'device-main-0000000000000' });
   assert.equal(bad.status, 401);
-  const lg = await h.call(null, 'POST', '/auth/login', { identifier: '+20 123 456 7890', password: 'Start#2026x' });
+  const lg = await h.call(null, 'POST', '/auth/login', { identifier: '+20 123 456 7890', password: 'Start#2026x', deviceId: 'device-main-0000000000000' });
   assert.equal(lg.status, 200, JSON.stringify(lg.body));
   assert.equal(lg.body.partner, true);
   assert.equal(lg.body.mustChangePassword, true);
@@ -71,7 +71,7 @@ test('the company signs in (e-mail or mobile), must change the password, and is 
     const x = await h.call(pt, m, p, m === 'POST' ? { fullName: 'x', phone: '01000000000' } : undefined);
     assert.equal(x.status, 403, `${m} ${p}`);
   }
-  const relog = await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy' });
+  const relog = await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy', deviceId: 'device-main-0000000000000' });
   assert.equal(relog.status, 200);
   pt = relog.body.token;
 });
@@ -144,7 +144,7 @@ test('Meta: only the chosen Meta campaigns come in; others are counted to be lin
 test('stopping the company or a new password signs it out', async () => {
   assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${companyId}`, { status: 'inactive' })).status, 200);
   assert.equal((await h.call(pt, 'GET', '/partner/dashboard')).status, 401);
-  assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy' })).status, 403);
+  assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy', deviceId: 'device-main-0000000000000' })).status, 403);
 });
 
 test('the company\'s file: general / direct manager (an «مسؤول إداري»), contract date, campaigns, its three documents', async () => {
@@ -172,4 +172,23 @@ test('the company\'s file: general / direct manager (an «مسؤول إداري�
   assert.deepEqual(Object.keys(f1.files).sort(), ['contract', 'execution_vision', 'financial_plan']);
   const g = await h.call(c.t.owner, 'GET', `/marketing-companies/${id}/files/contract`);
   assert.equal(Buffer.from(g.body.data, 'base64').toString(), '%PDF-1.4 test');
+});
+
+test('«ربط الحساب بالجهاز» and «حالة تسجيل الدخول» for a company', async () => {
+  const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الجهاز', kind: 'commission', defaultPct: 1 });
+  const id = mk.body.company.id;
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/leads/partners/${id}/login`, { phone: '01200000777', password: 'Start#2026x' })).status, 200);
+  const dev = (x: string) => `device-${x}-0000000000000`;
+  const login = (d?: string) => h.call(null, 'POST', '/auth/login', { identifier: '01200000777', password: 'Start#2026x', ...(d ? { deviceId: d } : {}) });
+  assert.equal((await login()).status, 403, 'a device id is needed');
+  assert.equal((await login(dev('a'))).status, 200, 'the first device is its device');
+  assert.equal((await login(dev('b'))).status, 403, 'another device is refused');
+  assert.equal((await login(dev('a'))).status, 200);
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { resetDevice: true })).status, 200);
+  assert.equal((await login(dev('b'))).status, 200, 'freed: the next device becomes its device');
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { loginActive: false })).status, 200);
+  assert.equal((await login(dev('b'))).status, 403, 'login off');
+  const f = (await h.call(c.t.owner, 'GET', `/marketing-companies/${id}`)).body.company;
+  assert.equal(f.loginActive, false);
+  assert.equal(f.deviceLock, true);
 });

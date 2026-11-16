@@ -180,6 +180,7 @@ export const partnersModule: Module = (r, { db, clock }) => {
         generalManager: c.general_manager_id ? { id: c.general_manager_id, name: c.gm_name } : null,
         manager: c.manager_id ? { id: c.manager_id, name: c.manager_name } : null,
         contractDate: c.contract_date ? new Date(c.contract_date).toISOString().slice(0, 10) : null,
+        deviceLock: c.device_lock, deviceLabel: c.device_id ? (c.device_label ?? 'جهاز') : null, loginActive: c.login_active,
         campaignIds: options.campaigns.filter((x) => x.companyId === c.id).map((x) => x.id),
         files: Object.fromEntries(files.rows.map((f) => [f.kind, { fileName: f.file_name, mime: f.mime, bytes: Number(f.bytes), uploadedAt: iso(f.uploaded_at) }])),
       },
@@ -215,8 +216,15 @@ export const partnersModule: Module = (r, { db, clock }) => {
       if (gm !== undefined) set.general_manager_id = gm;
       if (mgr !== undefined) set.manager_id = mgr;
       if (b.contractDate !== undefined) set.contract_date = contract ?? null;
+      if (typeof b.deviceLock === 'boolean') set.device_lock = b.deviceLock;
+      if (b.resetDevice === true || b.deviceLock === false) { set.device_id = null; set.device_label = null; }
+      if (typeof b.loginActive === 'boolean') set.login_active = b.loginActive;
       const keys = Object.keys(set);
       if (keys.length) await q.query(`UPDATE marketing_companies SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [before.id, ...keys.map((k) => set[k])]);
+      // login turned off / its device freed: every device signs out
+      if (set.login_active === false || set.device_id === null && before.device_id) {
+        await q.query(`UPDATE partner_sessions SET revoked_at = now() WHERE company_id = $1 AND revoked_at IS NULL`, [before.id]);
+      }
       if (campaigns) {
         // its campaigns = exactly these (a campaign belongs to one company: one taken from another company moves here)
         await q.query(`UPDATE lead_campaigns SET marketing_company_id = NULL WHERE marketing_company_id = $1 AND NOT id = ANY($2::uuid[])`, [before.id, campaigns]);

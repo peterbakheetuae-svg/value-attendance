@@ -30,7 +30,7 @@ export async function partnerOf(q: Q, req: Req): Promise<Partner | null> {
   if (!token) return null;
   const row = await one(q, `
     SELECT s.id AS session_id, (s.last_seen_at IS NULL OR s.last_seen_at < now() - interval '5 minutes') AS stale,
-           c.id, c.name, c.status = 'active' AS active, c.must_change_password
+           c.id, c.name, c.status = 'active' AND c.login_active AS active, c.must_change_password
       FROM partner_sessions s JOIN marketing_companies c ON c.id = s.company_id
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`, [sha256(token)]);
   if (!row) return null;
