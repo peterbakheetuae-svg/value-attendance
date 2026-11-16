@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { forbidden, invalid } from '../http/errors.ts';
 import { obj } from '../http/validate.ts';
-import { audit, authenticate } from '../auth/context.ts';
+import { audit, authenticate, canOwnerOnly } from '../auth/context.ts';
 import { cairoInstant } from '../lib/time.ts';
 import { scheduleFor } from './attendance.ts';
 
@@ -54,7 +54,7 @@ export const dataResetModule: Module = (r, { db }) => {
    */
   r.post('/admin/import-permissions', async (req) => {
     const a = await authenticate(db, req);
-    if (a.role !== 'owner') throw forbidden('Only the owner can import');
+    if (!canOwnerOnly(a, 'data.reset')) throw forbidden('Only the owner can import');  // «استيراد ومسح البيانات» (the owner until 066)
     const b = obj(req.body);
     const dryRun = b.dryRun !== false;
     const people = Array.isArray(b.employees) ? b.employees.map((x) => obj(x)) : [];
@@ -100,7 +100,7 @@ export const dataResetModule: Module = (r, { db }) => {
    */
   r.post('/admin/opening-advance', async (req) => {
     const a = await authenticate(db, req);
-    if (a.role !== 'owner') throw forbidden('Only the owner can add it');
+    if (!canOwnerOnly(a, 'data.reset')) throw forbidden('Only the owner can add it');
     const b = obj(req.body);
     const employeeId = typeof b.employeeId === 'string' ? b.employeeId : '';
     const amount = Number(b.amount);
@@ -124,7 +124,7 @@ export const dataResetModule: Module = (r, { db }) => {
 
   r.post('/admin/data-reset', async (req) => {
     const a = await authenticate(db, req);
-    if (a.role !== 'owner') throw forbidden('Only the owner can reset the data');
+    if (!canOwnerOnly(a, 'data.reset')) throw forbidden('Only the owner can reset the data');
     const b = obj(req.body);
     const dryRun = b.dryRun !== false;
     const people = Array.isArray(b.employees) ? b.employees.map((x) => obj(x)) : [];

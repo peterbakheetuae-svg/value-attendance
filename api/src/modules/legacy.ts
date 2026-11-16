@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
-import { actorById, audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
+import { actorById, audit, authenticate, can, canOwnerOnly, has, readableIds, requirePerm } from '../auth/context.ts';
 import { photoScope, selfieScope } from '../auth/media-scope.ts';
 import { daysBetween, local } from '../lib/time.ts';
 import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
@@ -30,7 +30,8 @@ export const legacyModule: Module = (r, { db, clock }) => {
    * that approval is final. HR sees the request but has no approval step: once approved, HR pays it (صرف) and
    * the employee confirms "تم الاستلام" — only then it leaves the HR cashbox. Nobody decides on their own request.
    */
-  const isOwner = (a: any) => a.role === 'owner';
+  /** «اعتماد أي طلب مالي» — instead of / when there is no general manager (the owner until 066, by permission after) */
+  const isOwner = (a: any) => canOwnerOnly(a, 'advance.approve_all');
   const gmStageBy = (a: any, x: any) => x.gm_id ? (x.gm_id === a.id || isOwner(a)) : isOwner(a);
   const stageOf = (a: any, x: any): 'gm' | null => {
     if (x.status !== 'pending' || x.employee_id === a.id) return null;
@@ -68,8 +69,9 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const employeeId = typeof b.employeeId === 'string' && b.employeeId ? b.employeeId : a.id;
     if (!isUuid(employeeId)) throw invalid('employeeId is invalid', { field: 'employeeId' });
     const onBehalf = employeeId !== a.id;
-    // HR / finance may record one for someone else; it still needs the general manager (or the owner)
-    if (onBehalf && !has(a, 'finance.manage') && !has(a, 'employee.manage')) throw forbidden();
+    // HR / finance may record one for someone else («تسجيل سلفة لموظف تاني»; before 066 finance.manage / employee.manage);
+    // it still needs the general manager (or the owner)
+    if (onBehalf && !can(a, 'advance.create_for_others', ['finance.manage', 'employee.manage'])) throw forbidden();
     if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1 AND status = 'active'`, [employeeId]))) throw notFound('Employee not found');
     let attachment: Buffer | null = null;
     if (typeof b.attachment === 'string' && b.attachment.length) {

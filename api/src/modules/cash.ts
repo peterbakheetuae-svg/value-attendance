@@ -105,7 +105,8 @@ export async function cashSummary(q: Q, a: Actor) {
     // each financial action on its own permission (the endpoints check the same)
     approve: can(a, 'cash.approve', 'cash.office'), reverse: can(a, 'cash.reverse', 'cash.office'),
     bankView: canOffice(a) && can(a, 'cash.bank_view', 'cash.office'), bankTransfer: canOffice(a) && can(a, 'cash.bank_transfer', 'cash.office'),
-    ownerFunds: can(a, 'cash.owner_funds', 'cash.office') };
+    ownerFunds: can(a, 'cash.owner_funds', 'cash.office'),
+    print: can(a, 'cash.receipt_print', null), attachmentView: canAttachmentView(a), attachmentUpload: canAttachmentUpload(a) };
   return out;
 }
 
@@ -229,6 +230,9 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     Object.assign(out, await salesMoneyOverview(q, from, to));
     const commissions = (out.income as any).commissions;
     out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
+    // the owners' trust is the exclusive projects' money; the office's commission income / split / net its own permission
+    if (!can(a, 'exclusive.view_finance', 'cash.office')) delete (out.income as any).trust;
+    if (!can(a, 'finance.company_income', 'cash.office')) { delete (out.income as any).commissions; delete out.commissionSplit; delete out.result; }
   }
   return out;
 }
@@ -313,6 +317,7 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
   const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
   const ref = clientRef(b);
   const att = attachment(b);
+  if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
   const occurred = when(b, 'occurredAt', now);
   let box: Box, recipientId: string;
   if (recipient === 'hr') {
@@ -362,6 +367,15 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   }
   return { id: row.id, duplicate: false };
 }
+
+/** the signed receipts' photos and the printed receipt: permissions of their own (open before 066, as today) */
+export const canAttachmentView = (a: Actor) => can(a, 'cash.attachment_view', null);
+export const canAttachmentUpload = (a: Actor) => can(a, 'cash.attachment_upload', null);
+/** a receipt as this person may see it: the payer's phone with «بيانات العملاء» only */
+export const receiptFor = (a: Actor) => (x: any) => {
+  const r = shapeReceipt(x);
+  return can(a, 'exclusive.view_client', null) ? r : { ...r, payerPhone: null };
+};
 
 export function shapeReceipt(x: any) {
   return {
@@ -683,7 +697,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
     const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
-    return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
+    return ok({ receipt: receiptFor(a)(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
   });
 
   r.get('/cash/receipts', async (req) => {
@@ -699,7 +713,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(r.payer_name) LIKE $${vals.length} OR lower(r.purpose) LIKE $${vals.length} OR r.ref_no::text LIKE $${vals.length})`); }
     const rows = await db.query(`${RECEIPT_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
-    return ok({ currency: 'EGP', receipts: rows.rows.map(shapeReceipt) });
+    return ok({ currency: 'EGP', receipts: rows.rows.map(receiptFor(a)) });
   });
 
   r.post('/cash/receipts/:id/reverse', async (req) => {
@@ -732,6 +746,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
     const ref = clientRef(b);
     const att = attachment(b);
+    if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
     const occurred = when(b, 'occurredAt', clock());
     const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
@@ -891,7 +906,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const x = await one(q, `SELECT id, cashbox, recorded_by, attachment IS NOT NULL AS has FROM cash_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
-      if (!canBox(a, x.cashbox)) throw forbidden();
+      if (!canBox(a, x.cashbox) || !canAttachmentUpload(a)) throw forbidden();
       await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
       await audit(q, a.id, 'cash.expense.attachment', 'cash_expense', x.id, undefined, { replaced: x.has });
     });
@@ -903,7 +918,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const x = await one(db, `SELECT cashbox, attachment FROM cash_expenses WHERE id = $1`, [req.params.id]);
     if (!x || !x.attachment) throw notFound();
-    if (!canSee(a, x.cashbox)) throw forbidden();
+    if (!canSee(a, x.cashbox) || !canAttachmentView(a)) throw forbidden();
     return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
   });
 
@@ -1004,23 +1019,27 @@ export const cashModule: Module = (r, { db, clock }) => {
     const t = req.params.kind === 'receipt' ? 'cash_receipts' : 'cash_expenses';
     const x = await one(db, `SELECT cashbox, recorded_by, attachment FROM ${t} WHERE id = $1`, [req.params.id]);
     if (!x || !x.attachment) throw notFound();
-    if (!canSee(a, x.cashbox) && x.recorded_by !== a.id) throw forbidden();
+    // the one who recorded it, or who sees that cashbox and its receipts' photos
+    if (x.recorded_by !== a.id && !(canSee(a, x.cashbox) && canAttachmentView(a))) throw forbidden();
     return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
   });
 
   // ------------------------------------------------------------------ صورة الإيصال الموقّع: transfers and payouts
   async function attachmentAccess(a: Actor, entity: string, id: string, write: boolean) {
     if (!['transfer', 'payout'].includes(entity) || !isUuid(id)) throw notFound();
+    const photo = write ? canAttachmentUpload(a) : canAttachmentView(a);
     if (entity === 'transfer') {
       if (!(await one(db, `SELECT 1 FROM cash_transfers WHERE id = $1`, [id]))) throw notFound();
       if (!canHrView(a) && !canOffice(a)) throw forbidden();
       if (write && !canHrOperate(a) && !canOffice(a)) throw forbidden();
+      if (!photo) throw forbidden();
       return;
     }
     const p = await one(db, `SELECT employee_id, created_by FROM payouts WHERE id = $1`, [id]);
     if (!p) throw notFound();
     const staff = canHrOperate(a) || canOffice(a) || has(a, 'finance.disburse');
-    if (!staff && !(p.employee_id === a.id && !write)) throw forbidden();
+    // the employee always sees the receipt of what he was paid; the staff with the receipts' photos permission
+    if (!(staff && photo) && !(p.employee_id === a.id && !write)) throw forbidden();
   }
   r.get('/cash/attachments/:entity/:id', async (req) => {
     const a = await authenticate(db, req);

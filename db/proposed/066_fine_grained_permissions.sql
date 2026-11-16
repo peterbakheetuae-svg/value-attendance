@@ -19,6 +19,10 @@
 --   exclusive.view_client                                    ← everyone (client details had no separate check)
 --   sales.read_team                                          ← commission.read_team (a team's sales, the record only)
 --   commission.create_for_others                             ← sales.manage
+--   cash.receipt_print, cash.attachment_view / _upload       ← everyone (no separate check before; the cashbox checks stay)
+--   finance.company_income                                   ← cash.office
+--   advance.create_for_others                                ← finance.manage OR employee.manage
+--   advance.approve_all                                      ← the owner role (was checked by role name)
 -- The broad keys are not touched (other modules still use them).
 
 INSERT INTO permissions (key, description) VALUES
@@ -41,7 +45,13 @@ INSERT INTO permissions (key, description) VALUES
   ('exclusive.view_finance',   'Exclusive projects'' money: owner trust / dues, office, staff and marketing commission, project statement'),
   ('exclusive.view_client',    'Client phone, national id, address and contact on the units / sales / installments he may see'),
   ('sales.read_team',          'The sales registered by the members of his teams (no client contact, collections or commission)'),
-  ('commission.create_for_others', 'File a commission request for another salesperson')
+  ('commission.create_for_others', 'File a commission request for another salesperson'),
+  ('cash.receipt_print',       'Print the payment / receipt voucher of the moves he sees'),
+  ('cash.attachment_view',     'See the signed receipt photo of receipts, expenses, transfers and payouts he sees'),
+  ('cash.attachment_upload',   'Add or replace the signed receipt photo (in the cashboxes he operates)'),
+  ('finance.company_income',   'The office''s commission income, the commission split and the office''s net / profit on the dashboards'),
+  ('advance.create_for_others', 'Record an advance / work-expense request for another employee (still needs the general manager)'),
+  ('advance.approve_all',      'Approve advances / work expenses instead of / when there is no general manager (was the owner by name)')
   ON CONFLICT (key) DO NOTHING;
 
 -- the split: fine key ← broad key(s); '*' = everyone, 'owner' = the owner role
@@ -58,7 +68,11 @@ INSERT INTO m066 VALUES
   ('finance.dashboard_view', 'cash.hr_view'), ('finance.dashboard_view', 'cash.office'),
   ('data.reset', 'owner'), ('commission.void_approved', 'owner'),
   ('exclusive.view_finance', 'cash.office'), ('exclusive.view_client', '*'),
-  ('sales.read_team', 'commission.read_team'), ('commission.create_for_others', 'sales.manage');
+  ('sales.read_team', 'commission.read_team'), ('commission.create_for_others', 'sales.manage'),
+  ('cash.receipt_print', '*'), ('cash.attachment_view', '*'), ('cash.attachment_upload', '*'),
+  ('finance.company_income', 'cash.office'),
+  ('advance.create_for_others', 'finance.manage'), ('advance.create_for_others', 'employee.manage'),
+  ('advance.approve_all', 'owner');
 
 -- 1. job titles
 INSERT INTO role_permissions (role_key, perm_key)
