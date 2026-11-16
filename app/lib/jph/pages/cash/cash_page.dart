@@ -1110,19 +1110,26 @@ Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x
           ]),
         ),
       );
+  // printing, the photo and adding / changing it: each on its own permission (the server checks the photo itself too)
+  final print = ApiService.can('cash.receipt_print'), view = hasPhoto && ApiService.can('cash.attachment_view'),
+      upload = ApiService.can('cash.attachment_upload');
+  if (!print && !view && !upload) return const SizedBox.shrink();
   return Padding(
     padding: const EdgeInsets.only(top: 6),
     child: Row(children: [
-      btn(Icons.print_rounded, 'طباعة إيصال',
-          () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: voucher ?? x)))),
-      if (hasPhoto) ...[
-        const SizedBox(width: 6),
+      if (print)
+        btn(Icons.print_rounded, 'طباعة إيصال',
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: voucher ?? x)))),
+      if (view) ...[
+        if (print) const SizedBox(width: 6),
         btn(Icons.image_rounded, 'صورة الإيصال', () => _viewReceiptPhoto(context, path), color: Ar.green),
       ],
-      const SizedBox(width: 6),
-      btn(Icons.add_a_photo_rounded, hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال', () async {
-        if (await _uploadReceiptPhoto(context, path)) await reload();
-      }),
+      if (upload) ...[
+        if (print || view) const SizedBox(width: 6),
+        btn(Icons.add_a_photo_rounded, hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال', () async {
+          if (await _uploadReceiptPhoto(context, path)) await reload();
+        }),
+      ],
     ]),
   );
 }
@@ -1323,7 +1330,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
       await _load();
       await widget.onChanged();
       final e = r['expense'];
-      if (e is Map && mounted) {
+      if (e is Map && mounted && ApiService.can('cash.receipt_print')) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: e.cast<String, dynamic>())));
       }
     }

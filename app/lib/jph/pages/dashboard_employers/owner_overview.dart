@@ -765,6 +765,8 @@ class _OwnerOverviewState extends State<OwnerOverview> {
 
   // ---------------------------------------------------------------- 9. dial
   Widget _ring(int i) {
+    // the office's income / net: only when the server sent it (its own permission)
+    if (_d!['ring'] == null) return const SizedBox.shrink();
     final c = _m(_d!['ring']);
     final stats = _l(c['stats']);
     final extra = _l(c['extra']);

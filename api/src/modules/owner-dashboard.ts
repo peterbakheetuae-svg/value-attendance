@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Db } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
-import { authenticate } from '../auth/context.ts';
+import { authenticate, can, type Actor } from '../auth/context.ts';
 import { cashSummary, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
@@ -46,6 +46,26 @@ async function payrollMonth(db: Db, month: string, t: string) {
   let due = 0, paid = 0;
   for (const p of pays as any[]) { if (p?.net == null) continue; due += n(p.net); paid += n(p.salaryPaid); }
   return { due: r2(due), paid: r2(paid) };
+}
+
+/**
+ * The finance view's money of others, each on its own permission (both cash.office before 066, so unchanged until then):
+ * the exclusive projects' commission / owners' trust → exclusive.view_finance; the office's income and net → finance.company_income.
+ */
+function redactFinance(body: any, a: Actor) {
+  const ex = can(a, 'exclusive.view_finance', 'cash.office'), income = can(a, 'finance.company_income', 'cash.office');
+  if (!ex) {
+    body.kpis = (body.kpis ?? []).filter((k: any) => !['percent', 'owner'].includes(k.icon));
+    body.summary = (body.summary ?? []).filter((x: string) => !x.includes('للملاك') && !x.includes('عمولة'));
+    if (body.ranked) body.ranked = { ...body.ranked, rows: [], empty: 'مش متاح' };
+    if (body.attention) body.attention = { ...body.attention, rows: body.attention.rows.filter((r: any) => !['percent', 'home'].includes(r.icon)) };
+    if (body.ring) body.ring = { ...body.ring, extra: [] };
+  }
+  if (!income) {
+    body.kpis = (body.kpis ?? []).filter((k: any) => k.icon !== 'profit');
+    body.ring = null;
+  }
+  return body;
 }
 
 async function financeView(db: Db, a: any, t: string, range: number, from: string) {
@@ -592,7 +612,7 @@ export const ownerDashboardModule: Module = (r, { db, clock }) => {
       one(db, `SELECT full_name FROM employees WHERE id = $1`, [a.id]),
       one(db, `SELECT l.action, l.at, e.full_name AS actor FROM audit_log l LEFT JOIN employees e ON e.id = l.actor_id ORDER BY l.id DESC LIMIT 1`),
     ]);
-    const body: Card = view === 'finance' ? await financeView(db, a, t, range, from)
+    const body: Card = view === 'finance' ? redactFinance(await financeView(db, a, t, range, from), a)
       : view === 'sales' ? await salesView(db, t, range, from, clock()) : await employeesView(db, t, range, from);
     return ok({ view, date: t, range, name: me?.full_name ?? '', ...body, last: last ? { action: last.action, at: last.at, actor: last.actor } : null });
   });
