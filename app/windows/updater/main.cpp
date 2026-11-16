@@ -355,3 +355,5 @@ int APIENTRY wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ wchar_t*, _In_ in
   Log("done");
   return 0;
 }
+
+#error "deliberately broken for the release rehearsal: a failed Windows build must stop the release"
