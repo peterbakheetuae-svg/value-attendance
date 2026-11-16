@@ -30,6 +30,9 @@ if find "$STAGE/web" -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'k
   echo "secret file in build"; exit 1
 fi
 
+# valunivo/windows/ belongs to the Windows update (remote-deploy-windows.sh): a web build must never write into it
+if [ -e "$STAGE/web/windows" ]; then echo "web build contains windows/ — refused (owned by the Windows update)"; exit 1; fi
+
 # everything except the two entry files first (the running app keeps working), then the entry files
 (cd "$STAGE/web" && tar cf - --exclude=./index.html --exclude=./flutter_bootstrap.js .) | (cd "$APP" && tar xf -)
 cp "$STAGE/web/flutter_bootstrap.js" "$STAGE/web/index.html" "$APP/"

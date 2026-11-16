@@ -68,6 +68,29 @@ if bash "$WEBDEPLOY" > "$FAKE/log" 2>&1; then
        cp "$FAKE/keep-latest.json" "$APP/windows/latest.json" 2>/dev/null || echo '{"format":1,"manifest":"{\"version\":\"1.0.5\"}","sig":"x"}' > "$APP/windows/latest.json"; fi
 else pass "W2 web.zip containing windows/ refused: $(tail -1 "$FAKE/log")"; fi
 
+# W3 — broken / malicious web packages are refused before anything changes
+bad_web() {  # $1 label, $2 a function that damages an unpacked copy of the web build
+  local T; T=$(mktemp -d); (cd "$T" && unzip -q "$WEBZIP"); (cd "$T" && "$2"); rm -f "$FAKE/bad.zip"; (cd "$T" && zip -qr "$FAKE/bad.zip" .); rm -rf "$T"
+  local before; before=$(tree_hash "$ROOT"); stage_web "$FAKE/bad.zip" 1
+  if bash "$WEBDEPLOY" > "$FAKE/log" 2>&1; then fail "W3 $1 was deployed"
+  elif [ "$(tree_hash "$ROOT")" = "$before" ]; then pass "W3 $1 refused, nothing changed ($(tail -1 "$FAKE/log"))"
+  else fail "W3 $1 refused but files changed"; fi
+}
+incomplete() { rm -f main.dart.js; }
+wrongbase() { sed -i 's#<base href="/valunivo/">#<base href="/">#' index.html; }
+secret() { echo 'storePassword=x' > key.properties; }
+windowsdir() { mkdir -p windows && echo '{}' > windows/latest.json; }
+bad_web "an incomplete web build (no main.dart.js)" incomplete
+bad_web "a web build for another address (base href)" wrongbase
+bad_web "a web build containing a secret file" secret
+bad_web "a web build containing windows/" windowsdir
+
+# W4 — a web-only deploy (no Android update) leaves Android and Windows untouched
+AND0=$(tree_hash "$APP/android"); OLD0=$(tree_hash "$ROOT/value-attendance/android"); WIN2=$(tree_hash "$APP/windows")
+stage_web "$WEBZIP" 0
+bash "$WEBDEPLOY" > "$FAKE/log" 2>&1 && [ "$(tree_hash "$APP/android")" = "$AND0" ] && [ "$(tree_hash "$ROOT/value-attendance/android")" = "$OLD0" ] && [ "$(tree_hash "$APP/windows")" = "$WIN2" ] \
+  && pass "W4 web-only deploy: Android (both addresses) and Windows untouched" || fail "W4 web-only deploy disturbed Android / Windows"
+
 # X1 — Windows deploy touches nothing outside valunivo/windows/
 OUT0=$(outside_windows); WEBV=$(cat "$APP/version.json")
 stage_win 1.0.6
