@@ -1,13 +1,14 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
-import { isUuid, obj, str } from '../http/validate.ts';
+import { date, isUuid, obj, str } from '../http/validate.ts';
 import { audit, authenticate, has } from '../auth/context.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
 import { hashPassword, passwordPolicyError } from '../auth/password.ts';
 import type { Req } from '../http/router.ts';
 import { phoneNorm, readLead, stageShape, stagesOf } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
+import { canOffice } from './cash.ts';
 
 /**
  * شركات التسويق (db/migrations/075_marketing_partners.sql).
@@ -24,9 +25,10 @@ const META_ID = /^[0-9]{3,30}$/;
 const SEES = (n: number) => `(cp.marketing_company_id = $${n} OR l.partner_company_id = $${n})`;
 
 export const partnersModule: Module = (r, { db, clock }) => {
+  // the company's file is kept by whoever manages the marketing companies (المالك / المدير العام — cash.office) or the leads settings
   const admin = async (req: Req) => {
     const a = await authenticate(db, req);
-    if (!has(a, 'leads.config')) throw forbidden('شركات التسويق لمن عنده إعدادات الليدز');
+    if (!has(a, 'leads.config') && !canOffice(a)) throw forbidden('شركات التسويق للمالك / المدير العام / إعدادات الليدز');
     return a;
   };
 
@@ -138,6 +140,135 @@ export const partnersModule: Module = (r, { db, clock }) => {
       return after;
     });
     return ok({ campaign: { id: row.id, name: row.name, companyId: row.marketing_company_id, metaCampaignIds: row.meta_campaign_ids } });
+  });
+
+  // ------------------------------------------------------------------ the company's file (076)
+  const FILE_KINDS = ['contract', 'financial_plan', 'execution_vision', 'logo'] as const;
+  const FILE_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+  /** the choices of a company's file: المدير العام (a general manager / the owner), المدير المباشر (an «مسؤول إداري»), the campaigns */
+  async function companyOptions() {
+    const campaigns = await db.query(`SELECT id, name, active, marketing_company_id FROM lead_campaigns ORDER BY active DESC, created_at DESC`);
+    const people = await db.query(`SELECT id, full_name, role_key, position_key FROM employees
+                                    WHERE status = 'active' AND (legacy_fields->>'status') IS DISTINCT FROM 'تم التصفيه' ORDER BY full_name`);
+    return {
+      generalManagers: people.rows.filter((e) => ['manager', 'owner'].includes(e.role_key)).map((e) => ({ id: e.id, name: e.full_name })),
+      managers: people.rows.filter((e) => e.position_key === 'admin_officer').map((e) => ({ id: e.id, name: e.full_name })),
+      campaigns: campaigns.rows.map((x) => ({ id: x.id, name: x.name, active: x.active, companyId: x.marketing_company_id })),
+    };
+  }
+
+  r.get('/marketing-companies/options', async (req) => {
+    await admin(req);
+    return ok({ options: await companyOptions() });
+  });
+
+  r.get('/marketing-companies/:id', async (req) => {
+    await admin(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const c = await one(db, `
+      SELECT c.*, g.full_name AS gm_name, m.full_name AS manager_name
+        FROM marketing_companies c LEFT JOIN employees g ON g.id = c.general_manager_id LEFT JOIN employees m ON m.id = c.manager_id
+       WHERE c.id = $1`, [req.params.id]);
+    if (!c) throw notFound();
+    const files = await db.query(`SELECT kind, file_name, mime, uploaded_at, octet_length(data) AS bytes FROM marketing_company_files WHERE company_id = $1`, [c.id]);
+    const options = await companyOptions();
+    return ok({
+      company: {
+        id: c.id, name: c.name, kind: c.kind, defaultPct: Number(c.default_pct), monthlyFee: Number(c.monthly_fee), phone: c.phone, status: c.status,
+        loginEmail: c.login_email, loginPhone: c.login_phone, hasLogin: !!c.password_hash, mustChangePassword: c.must_change_password,
+        generalManager: c.general_manager_id ? { id: c.general_manager_id, name: c.gm_name } : null,
+        manager: c.manager_id ? { id: c.manager_id, name: c.manager_name } : null,
+        contractDate: c.contract_date ? new Date(c.contract_date).toISOString().slice(0, 10) : null,
+        campaignIds: options.campaigns.filter((x) => x.companyId === c.id).map((x) => x.id),
+        files: Object.fromEntries(files.rows.map((f) => [f.kind, { fileName: f.file_name, mime: f.mime, bytes: Number(f.bytes), uploadedAt: iso(f.uploaded_at) }])),
+      },
+      options,
+    });
+  });
+
+  /** المدير العام / المدير المباشر / تاريخ التعاقد / its campaigns */
+  r.patch('/marketing-companies/:id/profile', async (req) => {
+    const a = await admin(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    const person = async (k: string, ok: (e: any) => boolean, msg: string) => {
+      if (b[k] === undefined) return undefined;
+      if (b[k] === null || b[k] === '') return null;
+      const id = String(b[k]);
+      const e = isUuid(id) ? await one(db, `SELECT id, role_key, position_key FROM employees WHERE id = $1 AND status = 'active'`, [id]) : null;
+      if (!e || !ok(e)) throw invalid(msg, { field: k });
+      return id;
+    };
+    const gm = await person('generalManagerId', (e) => ['manager', 'owner'].includes(e.role_key), 'المدير العام لازم يكون مدير عام أو المالك');
+    const mgr = await person('managerId', (e) => e.position_key === 'admin_officer', 'المدير المباشر لازم يكون مسؤول إداري');
+    const contract = b.contractDate === null || b.contractDate === '' ? null : date(b, 'contractDate', true);
+    let campaigns: string[] | undefined;
+    if (b.campaignIds !== undefined) {
+      if (!Array.isArray(b.campaignIds) || b.campaignIds.length > 200 || b.campaignIds.some((x) => !isUuid(String(x)))) throw invalid('الحملات مش صحيحة', { field: 'campaignIds' });
+      campaigns = [...new Set(b.campaignIds.map(String))];
+    }
+    await db.tx(async (q) => {
+      const before = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!before) throw notFound();
+      const set: Record<string, unknown> = {};
+      if (gm !== undefined) set.general_manager_id = gm;
+      if (mgr !== undefined) set.manager_id = mgr;
+      if (b.contractDate !== undefined) set.contract_date = contract ?? null;
+      const keys = Object.keys(set);
+      if (keys.length) await q.query(`UPDATE marketing_companies SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [before.id, ...keys.map((k) => set[k])]);
+      if (campaigns) {
+        // its campaigns = exactly these (a campaign belongs to one company: one taken from another company moves here)
+        await q.query(`UPDATE lead_campaigns SET marketing_company_id = NULL WHERE marketing_company_id = $1 AND NOT id = ANY($2::uuid[])`, [before.id, campaigns]);
+        await q.query(`UPDATE lead_campaigns SET marketing_company_id = $1 WHERE id = ANY($2::uuid[])`, [before.id, campaigns]);
+      }
+      await audit(q, a.id, 'marketing_company.profile', 'marketing_company', before.id,
+        { gm: before.general_manager_id, manager: before.manager_id, contract: before.contract_date }, { ...set, campaigns });
+    });
+    return ok({ ok: true });
+  });
+
+  r.put('/marketing-companies/:id/files/:kind', async (req) => {
+    const a = await admin(req);
+    const kind = req.params.kind as (typeof FILE_KINDS)[number];
+    if (!isUuid(req.params.id) || !FILE_KINDS.includes(kind)) throw notFound();
+    const b = obj(req.body);
+    const name = str(b, 'fileName', { min: 1, max: 200 })!.trim();
+    const mime = String(b.mime ?? '');
+    if (!FILE_MIMES.includes(mime) || (kind === 'logo' ? mime === 'application/pdf' : mime !== 'application/pdf')) {
+      throw invalid(kind === 'logo' ? 'اللوجو لازم يكون صورة' : 'المستند لازم يكون ملف PDF', { field: 'mime' });
+    }
+    const data = Buffer.from(String(b.data ?? ''), 'base64');
+    if (!data.length || data.length > 3 * 1024 * 1024) throw invalid('الملف فاضي أو أكبر من 3 ميجا', { field: 'data' });
+    // the content must be what it says (a PDF starts with %PDF, an image with its own signature)
+    const magic = data.subarray(0, 12).toString('latin1');
+    const okMagic = mime === 'application/pdf' ? magic.startsWith('%PDF') : mime === 'image/png' ? magic.startsWith('\x89PNG')
+      : mime === 'image/jpeg' ? data[0] === 0xff && data[1] === 0xd8 : magic.startsWith('RIFF') && magic.slice(8, 12) === 'WEBP';
+    if (!okMagic) throw invalid('محتوى الملف مش مطابق لنوعه', { field: 'data' });
+    await db.tx(async (q) => {
+      if (!(await one(q, `SELECT 1 FROM marketing_companies WHERE id = $1`, [req.params.id]))) throw notFound();
+      await q.query(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6)
+                     ON CONFLICT (company_id, kind) DO UPDATE SET file_name = EXCLUDED.file_name, mime = EXCLUDED.mime, data = EXCLUDED.data,
+                       uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`, [req.params.id, kind, name, mime, data, a.id]);
+      await audit(q, a.id, 'marketing_company.file', 'marketing_company', req.params.id, undefined, { kind, name, bytes: data.length });
+    });
+    return ok({ ok: true });
+  });
+
+  r.get('/marketing-companies/:id/files/:kind', async (req) => {
+    await admin(req);
+    if (!isUuid(req.params.id) || !FILE_KINDS.includes(req.params.kind as any)) throw notFound();
+    const f = await one(db, `SELECT file_name, mime, data FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
+    if (!f) throw notFound('مفيش ملف');
+    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+  });
+
+  r.delete('/marketing-companies/:id/files/:kind', async (req) => {
+    const a = await admin(req);
+    if (!isUuid(req.params.id) || !FILE_KINDS.includes(req.params.kind as any)) throw notFound();
+    await db.query(`DELETE FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
+    await audit(db, a.id, 'marketing_company.file_delete', 'marketing_company', req.params.id, undefined, { kind: req.params.kind });
+    return ok({ ok: true });
   });
 
   // ================================================================== the company's own pages

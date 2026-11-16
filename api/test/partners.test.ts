@@ -146,3 +146,30 @@ test('stopping the company or a new password signs it out', async () => {
   assert.equal((await h.call(pt, 'GET', '/partner/dashboard')).status, 401);
   assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy' })).status, 403);
 });
+
+test('the company\'s file: general / direct manager (an «مسؤول إداري»), contract date, campaigns, its three documents', async () => {
+  const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الملف', kind: 'fixed', monthlyFee: 5000 });
+  assert.equal(mk.status, 201);
+  const id = mk.body.company.id;
+  assert.equal((await h.call(c.t.e1, 'GET', `/marketing-companies/${id}`)).status, 403);
+  const f0 = await h.call(c.t.owner, 'GET', `/marketing-companies/${id}`);
+  assert.equal(f0.status, 200, JSON.stringify(f0.body));
+  assert.ok(f0.body.options.managers.some((x: any) => x.id === c.ids.acc), 'the administrative officers to choose from');
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { managerId: c.ids.e1 })).status, 400, 'the direct manager is an «مسؤول إداري»');
+  const p = await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { managerId: c.ids.acc, generalManagerId: c.ids.owner, contractDate: '2026-11-01', campaignIds: [other] });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  const pdf = Buffer.from('%PDF-1.4 test').toString('base64');
+  assert.equal((await h.call(c.t.owner, 'PUT', `/marketing-companies/${id}/files/contract`, { fileName: 'x.pdf', mime: 'application/pdf', data: Buffer.from('not a pdf').toString('base64') })).status, 400);
+  assert.equal((await h.call(c.t.owner, 'PUT', `/marketing-companies/${id}/files/passport`, { fileName: 'x.pdf', mime: 'application/pdf', data: pdf })).status, 404);
+  for (const k of ['contract', 'financial_plan', 'execution_vision']) {
+    const u = await h.call(c.t.owner, 'PUT', `/marketing-companies/${id}/files/${k}`, { fileName: `${k}.pdf`, mime: 'application/pdf', data: pdf });
+    assert.equal(u.status, 200, JSON.stringify(u.body));
+  }
+  const f1 = (await h.call(c.t.owner, 'GET', `/marketing-companies/${id}`)).body.company;
+  assert.equal(f1.manager.id, c.ids.acc);
+  assert.equal(f1.contractDate, '2026-11-01');
+  assert.deepEqual(f1.campaignIds, [other]);
+  assert.deepEqual(Object.keys(f1.files).sort(), ['contract', 'execution_vision', 'financial_plan']);
+  const g = await h.call(c.t.owner, 'GET', `/marketing-companies/${id}/files/contract`);
+  assert.equal(Buffer.from(g.body.data, 'base64').toString(), '%PDF-1.4 test');
+});

@@ -1,4 +1,3 @@
-import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_ui.dart';
+import 'marketing_company_form_page.dart';
 
 /// شركات التسويق: one paid a fixed monthly fee (recorded as an office expense «شركة تسويق»), one paid a commission on
 /// the sales it brings (picked on the reservation; its % comes out of the office share of that unit).
@@ -42,81 +42,9 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
     });
   }
 
+  /// the company's file — like an employee's (marketing_company_form_page.dart)
   Future<void> _edit(bool isDark, [Map<String, dynamic>? c]) async {
-    String kind = '${c?['kind'] ?? 'commission'}';
-    String status = '${c?['status'] ?? 'active'}';
-    final name = TextEditingController(text: '${c?['name'] ?? ''}'), phone = TextEditingController(text: '${c?['phone'] ?? ''}'),
-        pct = TextEditingController(text: '${c?['defaultPct'] ?? ''}'), fee = TextEditingController(text: '${c?['monthlyFee'] ?? ''}');
-    await showAppSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Directionality(
-        textDirection: ui.TextDirection.rtl,
-        child: StatefulBuilder(builder: (ctx, set) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-            child: Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.all(18),
-              decoration: Glass.sheet(isDark, r: 24),
-              child: SingleChildScrollView(
-                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Text(c == null ? 'شركة تسويق جديدة' : '${c['name']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                  const SizedBox(height: 12),
-                  if (c == null)
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'commission', label: Text('عمولة على المبيعات')),
-                        ButtonSegment(value: 'fixed', label: Text('راتب ثابت')),
-                      ],
-                      selected: {kind},
-                      onSelectionChanged: (s) => set(() => kind = s.first),
-                    ),
-                  const SizedBox(height: 12),
-                  JphUi.input(isDark: isDark, label: 'اسم الشركة', controller: name, icon: Icons.campaign_rounded),
-                  const SizedBox(height: 10),
-                  JphUi.input(isDark: isDark, label: 'التليفون', controller: phone, icon: Icons.phone_rounded, number: true),
-                  const SizedBox(height: 10),
-                  if (kind == 'commission')
-                    JphUi.input(isDark: isDark, label: 'نسبتها ٪ من سعر الوحدة (بتتخصم من نصيب المكتب)', controller: pct, number: true, icon: Icons.percent_rounded)
-                  else
-                    JphUi.input(isDark: isDark, label: 'الراتب الشهري', controller: fee, number: true, suffix: 'جنيه', icon: Icons.payments_rounded),
-                  if (c != null) ...[
-                    const SizedBox(height: 10),
-                    SwitchListTile(
-                      value: status == 'active',
-                      onChanged: (v) => set(() => status = v ? 'active' : 'inactive'),
-                      title: const Text('شغالة معانا'),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 50,
-                    child: FilledButton.icon(
-                      onPressed: () async {
-                        final body = {
-                          'name': name.text.trim(), 'phone': phone.text.trim(), 'kind': kind,
-                          if (kind == 'commission') 'defaultPct': num.tryParse(pct.text) ?? 0,
-                          if (kind == 'fixed') 'monthlyFee': num.tryParse(fee.text.replaceAll(',', '')) ?? 0,
-                          if (c != null) 'status': status,
-                        };
-                        final r = await ApiService.post({'action': 'cash_post', 'path': c == null ? '/marketing-companies' : '/marketing-companies/${c['id']}',
-                          'body': body, 'ok': 'اتحفظ ✅', if (c != null) 'method': 'patch'});
-                        if (ctx.mounted) JphUi.toast(ctx, r);
-                        if (r['success'] == true && ctx.mounted) Navigator.pop(ctx);
-                      },
-                      icon: const Icon(Icons.check_rounded),
-                      label: const Text('حفظ', style: TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                ]),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => MarketingCompanyFormPage(id: c?['id']?.toString())));
     _load();
   }
 
@@ -195,11 +123,11 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${c['name']}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                  Text(commission ? 'عمولة ${JphUi.pct(c['defaultPct'])} على المبيعات' : 'راتب ثابت ${JphUi.money(c['monthlyFee'])} في الشهر',
+                  Text(commission ? 'بالعمولة ${JphUi.pct(c['defaultPct'])} على المبيعات' : 'مبلغ ثابت ${JphUi.money(c['monthlyFee'])} في الشهر',
                       style: TextStyle(fontSize: 13, color: JphUi.sub(isDark))),
                 ]),
               ),
-              if (c['status'] != 'active') JphUi.chip('موقوفة', Ar.grey),
+              JphUi.chip(c['status'] == 'active' ? 'متعاقد' : 'تم فسخ التعاقد', c['status'] == 'active' ? Ar.green : Ar.grey),
             ]),
             if (t.isNotEmpty) ...[
               const SizedBox(height: 8),
