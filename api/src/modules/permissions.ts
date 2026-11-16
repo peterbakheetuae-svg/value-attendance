@@ -154,7 +154,8 @@ export const permissionsModule: Module = (r, { db }) => {
     if (e.role_key === OWNER_ROLE) throw forbidden('حساب المالك عنده كل الصلاحيات دايمًا (مسار الاسترداد)');
     const ov = (await db.query(`SELECT perm_key, allow FROM employee_permissions WHERE employee_id = $1`, [e.id])).rows;
     const keys = ov.map((x) => x.perm_key as string);
-    assertDelegable(a, keys.filter((k) => PERM_BY_KEY.has(k)));
+    // removing a stray owner-only row (data.reset) is always allowed: it only takes it away
+    assertDelegable(a, keys.filter((k) => PERM_BY_KEY.has(k) && !PERM_BY_KEY.get(k)?.ownerOnly));
     assertConfirmed(keys, bool(obj(req.body), 'confirm') === true);
     await db.tx(async (q) => {
       for (const o of ov) {

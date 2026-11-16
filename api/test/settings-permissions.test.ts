@@ -119,9 +119,11 @@ test('after 066: each of them is a permission of its own', async () => {
   await allow(c.ids.acc, 'advance.approve_all');
   assert.equal((await h.call(c.t.acc, 'POST', `/advances/${x.body.advance.id}/decision`, { decision: 'reject' })).body.status, 'rejected');
   await clear(c.ids.acc);
-  // data import / reset: by permission, never by job title
+  // data import / reset: strictly owner accounts — an individual «allow» row gives a non-owner nothing (never delegable;
+  // see data-reset-owner-only.test.ts)
   await allow(gmId, 'data.reset');
-  assert.equal((await h.call(tGm, 'POST', '/admin/import-permissions', { employees: [] })).status, 200);
+  assert.equal((await h.call(tGm, 'POST', '/admin/import-permissions', { employees: [] })).status, 403);
   await clear(gmId);
   assert.equal((await h.call(tGm, 'POST', '/admin/import-permissions', { employees: [] })).status, 403);
+  assert.equal((await h.call(c.t.owner, 'POST', '/admin/import-permissions', { employees: [] })).status, 200);
 });

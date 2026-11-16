@@ -2,13 +2,14 @@ import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { AppError, forbidden, invalid } from '../http/errors.ts';
 import { has, SETTLED, type Actor } from './context.ts';
-import { OWNER_ROLE, PERM_BY_KEY, isRegistered } from '../lib/permission-registry.ts';
+import { OWNER_ROLE, PERM_BY_KEY, isOwnerOnly, isRegistered } from '../lib/permission-registry.ts';
 
 /**
  * The rules every permission change goes through (the «الصلاحيات» page and the older role / leads screens alike):
  *  - only `roles.manage` holders change permissions;
  *  - nobody changes their own permissions (not their own job-title profile, not their own exceptions);
  *  - you can only grant / take away a permission you hold yourself (delegation);
+ *  - owner-only keys (data.reset) are never granted or taken away by anyone — they belong to owner accounts only;
  *  - only registered keys that exist in this database;
  *  - the owner profile and owner accounts are never restricted (the documented recovery path);
  *  - sensitive permissions need an explicit confirmation;
@@ -34,8 +35,10 @@ export function assertKnown(a: Actor, keys: string[]) {
   }
 }
 
-/** delegation: only what you hold yourself */
+/** delegation: only what you hold yourself — and never an owner-only key (not even by an owner) */
 export function assertDelegable(a: Actor, keys: string[]) {
+  const ownerOnly = keys.filter((k) => isOwnerOnly(k));
+  if (ownerOnly.length) throw forbidden(`الصلاحية دي للمالك بس ومش بتتدّى لحد: ${ownerOnly.join('، ')}`);
   const missing = keys.filter((k) => !has(a, k));
   if (missing.length) throw forbidden(`مش ممكن تدّي أو تشيل صلاحية مش معاك: ${missing.join('، ')}`);
 }

@@ -3,7 +3,7 @@ import { mailEnabled, passwordResetMail, sendMail } from '../lib/mail.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, can, has, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, can, has, isOwner, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
@@ -57,6 +57,14 @@ const PROFILE_FROM = `
 
 function assertAssignableRole(a: Actor, role: string) {
   if (PRIVILEGED.has(role) && !has(a, 'roles.manage')) throw forbidden('Only the owner can assign this role');
+  // an owner account holds everything (data.reset included): only an owner makes another one
+  if (role === 'owner' && !isOwner(a)) throw forbidden('Only an owner can make someone an owner');
+}
+
+/** An owner account is changed only by an owner (or itself): another administrator could otherwise take it over — a new
+ *  email + «نسيت كلمة السر», a reset password, a changed role / status — and with it data.reset and every owner power. */
+function assertOwnerTarget(a: Actor, target: { id: string; role_key: string }) {
+  if (target.role_key === 'owner' && target.id !== a.id && !isOwner(a)) throw forbidden('Only an owner can change an owner account');
 }
 
 /** Resolve a job position (built-in role or custom position) to its system role + stored position key. */
@@ -299,6 +307,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     }
     const before = await one(db, `SELECT * FROM employees WHERE id = $1`, [req.params.id]);
     if (!before) throw notFound();
+    assertOwnerTarget(a, before);
     const sets: string[] = []; const vals: unknown[] = [req.params.id];
     const put = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
     const opt = (k: string) => k in b;
@@ -400,6 +409,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const e = await one(q, `SELECT id, role_key, status FROM employees WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!e) throw notFound();
+      assertOwnerTarget(a, e);
       if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can change this account');
       if (status === 'inactive' && e.role_key === 'owner') await assertOwnerRemains(q, e.id);
       await q.query(`UPDATE employees SET status = $2, updated_at = now() WHERE id = $1`, [e.id, status]);
@@ -415,6 +425,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id) || req.params.id === a.id) throw forbidden('Use change password for your own account');
     const e = await one(db, `SELECT id, role_key, email, full_name, code FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
+    assertOwnerTarget(a, e);
     if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage')) throw forbidden('Only the owner can reset this account');
     const usePin = await pinFor(db, obj(req.body ?? {}).kind, e.role_key);
     const pw = usePin ? tempPin() : tempPassword();
@@ -445,6 +456,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [req.params.id]);
     if (!e) throw notFound();
+    assertOwnerTarget(a, e);
     if (PRIVILEGED.has(e.role_key) && !has(a, 'roles.manage') && e.id !== a.id) throw forbidden('Only the owner can unlink this account');
     await db.tx(async (q) => {
       // every linked phone is unlinked: the next phone he signs in from becomes the first one again

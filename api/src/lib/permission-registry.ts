@@ -20,6 +20,9 @@ export interface PermDef {
   /** before this key existed the action had no separate check (everyone who could reach it could do it) */
   openBefore?: boolean;
   since?: number;
+  /** held ONLY by owner accounts (role `owner`): never granted, delegated, inherited through a job title or an individual
+   *  exception — the permission screens refuse it and a non-owner never holds it even if a row says so */
+  ownerOnly?: boolean;
 }
 
 export const MODULES: { key: string; nameAr: string }[] = [
@@ -157,12 +160,14 @@ export const PERMISSIONS: PermDef[] = [
   P('settings', 'settings.manage', 'إعدادات الشركة', 'تعديل إعدادات الشركة (منها التتبع)', { sensitive: true }),
   P('settings', 'roles.manage', 'إدارة الصلاحيات', 'صفحة الصلاحيات: المسميات والاستثناءات الفردية وسجلها', { sensitive: true }),
   P('settings', 'audit.read', 'سجل التدقيق', 'قراءة سجل التدقيق', { sensitive: true }),
-  P('settings', 'data.reset', 'استيراد / مسح البيانات', 'استيراد بيانات قديمة أو مسح بيانات الشركة (كانت للمالك بالاسم)', { sensitive: true, since: 66 }),
+  P('settings', 'data.reset', 'استيراد / مسح البيانات', 'استيراد بيانات قديمة أو مسح بيانات الشركة (كانت للمالك بالاسم)', { sensitive: true, since: 66, ownerOnly: true }),
   P('commissions', 'commission.void_approved', 'إلغاء عمولة معتمدة', 'إلغاء عمولة بعد اعتمادها (كانت للمالك بالاسم)', { sensitive: true, since: 66 }),
 ];
 
 export const PERM_BY_KEY: ReadonlyMap<string, PermDef> = new Map(PERMISSIONS.map((p) => [p.key, p]));
 export const isRegistered = (key: string) => PERM_BY_KEY.has(key);
+/** keys only owner accounts hold (data.reset): never grantable, never delegable */
+export const isOwnerOnly = (key: string) => PERM_BY_KEY.get(key)?.ownerOnly === true;
 
 /**
  * The owner recovery path, documented on purpose: the built-in `owner` role (المالك) always holds every registered

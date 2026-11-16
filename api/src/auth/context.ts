@@ -3,7 +3,7 @@ import { one } from '../db.ts';
 import { AppError, forbidden, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { sha256 } from './password.ts';
-import { PERMISSIONS, isRegistered } from '../lib/permission-registry.ts';
+import { OWNER_ROLE, PERMISSIONS, isOwnerOnly, isRegistered } from '../lib/permission-registry.ts';
 
 export interface Actor {
   id: string;
@@ -64,7 +64,9 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
     // his role's permissions, then his own exceptions (allowed / denied one by one); a key the application does not
     // register is dropped (deny by default — no row can grant something the code does not know)
-    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p))),
+    // an owner-only key (data.reset) is never held by a non-owner, whatever a row says
+    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
+      && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
     sessionId: row.session_id, mustChangePassword: row.must_change_password,
     known: await dbPermissionKeys(q),
   };
@@ -96,12 +98,16 @@ export async function actorById(q: Q, id: string): Promise<Actor | null> {
   const settled = row.work_status === SETTLED;
   return {
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key, sessionId: '', mustChangePassword: false, settled,
-    perms: settled ? new Set() : new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p))),
+    perms: settled ? new Set() : new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
+      && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
     known: await dbPermissionKeys(q),
   };
 }
 
 export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
+
+/** An owner account (role `owner`) that is not settled — the only kind of account that may wipe / import company data. */
+export const isOwner = (a: Actor) => a.role === OWNER_ROLE && !a.settled;
 
 /**
  * A fine-grained permission split from a broad one (migration 066). Where this database already has the fine key, only the
