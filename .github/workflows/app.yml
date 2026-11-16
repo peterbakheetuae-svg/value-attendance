@@ -394,8 +394,9 @@ jobs:
           cat out/android/latest.json
           test -s out/web.zip
           # the web sent along must be the web that is live now — otherwise this would roll the web back
-          LIVEV=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)")
-          SENDV=$(unzip -p out/web.zip version.json)
+          # (version.json + the build's unique flutter_bootstrap.js — older builds all say version 0.1.0)
+          LIVEV="$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)") $(curl -fsS --max-time 30 "https://jaurea.com/valunivo/flutter_bootstrap.js?t=$(date +%s)" | sha256sum | cut -d' ' -f1)"
+          SENDV="$(unzip -p out/web.zip version.json) $(unzip -p out/web.zip flutter_bootstrap.js | sha256sum | cut -d' ' -f1)"
           echo "live web: $LIVEV"; echo "web to send: $SENDV"
           [ "$LIVEV" = "$SENDV" ] || { echo "::error::web_from_run is not the web that is live now — refusing (it would replace the live web)"; exit 1; }
           ls -la out out/android

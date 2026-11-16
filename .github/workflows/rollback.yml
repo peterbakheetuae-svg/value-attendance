@@ -41,7 +41,9 @@ jobs:
           gh release download "v$V" -R "${{ github.repository }}" -D rel -p 'value-attendance-web.zip' -p 'VALUNIVO-Setup-*.exe' \
             || { echo "::error::release v$V not found"; exit 1; }
           cp rel/value-attendance-web.zip out/web.zip
-          LIVE=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)"); TARGET=$(unzip -p out/web.zip version.json)
+          # version.json + the build's unique flutter_bootstrap.js (older builds all say version 0.1.0)
+          LIVE="$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)") $(curl -fsS --max-time 30 "https://jaurea.com/valunivo/flutter_bootstrap.js?t=$(date +%s)" | sha256sum | cut -d' ' -f1)"
+          TARGET="$(unzip -p out/web.zip version.json) $(unzip -p out/web.zip flutter_bootstrap.js | sha256sum | cut -d' ' -f1)"
           echo "live web: $LIVE"; echo "rollback web: $TARGET"
           [ "$LIVE" != "$TARGET" ] || { echo "::error::$V is already the live web — nothing to roll back"; exit 1; }
           if [ -s "rel/VALUNIVO-Setup-$V.exe" ]; then
