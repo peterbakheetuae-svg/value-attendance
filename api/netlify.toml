@@ -1,9 +1,10 @@
 # Netlify (free Starter plan, no payment card). Base directory on Netlify: api
 [build]
   publish = "public"
-  # Applies pending DB migrations, then creates the OWNER account only on an empty database
-  # (its one-time temporary password is printed once in this build's log).
-  command = "npm run migrate && npm run seed:dev -- --if-empty"
+  # Production builds of main only (scripts/migrate-if-production.mjs): applies pending DB migrations, then creates the
+  # OWNER account only on an empty database (its one-time temporary password is printed once in this build's log).
+  # Deploy previews / branch deploys never touch the database.
+  command = "node scripts/migrate-if-production.mjs"
 
 [functions]
   directory = "netlify/functions"
