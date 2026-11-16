@@ -1,0 +1,5 @@
+# Public half of the Windows update signing key — PINNED: every Windows build trusts exactly the key(s) listed here.
+# Raw Ed25519 public key, base64 (44 characters), one per line. Not a secret. A second line = planned key rotation
+# (ship builds trusting both, then sign with the new one, then remove the old line).
+# Get it from the private key you created (Git Bash):  bash app/tool/release/public_key.sh valunivo-update-key.pem
+# A release refuses to build until this file holds a key AND the WINDOWS_UPDATE_SIGNING_KEY secret matches one of them.

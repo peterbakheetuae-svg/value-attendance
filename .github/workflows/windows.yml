@@ -1,0 +1,365 @@
+name: Windows desktop app — VALUNIVO.exe + installer
+# The real Flutter Windows app, built from the same app/ source as Web and Android (same screens, same API).
+#  - Called by app.yml for every release (same version as Web + Android). Publishing happens ONLY there.
+#  - feature/windows-desktop push / manual run: builds + tests the app and installer, then runs the real
+#    in-app update end-to-end test (three versions, local HTTPS server, throw-away signing key). Never publishes.
+on:
+  push:
+    branches: [feature/windows-desktop]
+    paths: ['app/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      build_number: { type: string, required: true }
+      release: { type: boolean, required: false, default: false }
+    outputs:
+      version: { value: '${{ jobs.build.outputs.version }}' }
+      public_key: { value: '${{ jobs.build.outputs.public_key }}' }
+permissions:
+  contents: read
+concurrency: { group: 'windows-${{ github.workflow }}-${{ github.ref }}', cancel-in-progress: false }
+env:
+  FLUTTER_VERSION: '3.38.10'
+  API_BASE_URL: ${{ vars.API_BASE_URL }}
+  API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
+  # firebase_core's Windows C++ SDK (pulled in for Android push; unused on Windows) still declares
+  # cmake_minimum_required < 3.5, which CMake 4 refuses — CMake's documented way to configure it anyway
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+jobs:
+  build:
+    # Visual Studio 2022 (the toolchain Flutter 3.38 supports); windows-latest has VS 2026, whose MSVC 14.51
+    # rejects the C++/WinRT coroutines used by audioplayers_windows and flutter_local_notifications_windows
+    runs-on: windows-2022
+    defaults: { run: { working-directory: app, shell: bash } }
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      public_key: ${{ steps.key.outputs.public_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - name: Version (the release's shared number when called by app.yml)
+        id: v
+        run: |
+          N="${{ inputs.build_number }}"; [ -n "$N" ] || N="${{ github.run_number }}"
+          echo "N=$N" >> "$GITHUB_ENV"; echo "V=1.0.$N" >> "$GITHUB_ENV"; echo "version=1.0.$N" >> "$GITHUB_OUTPUT"
+          [ -n "$API_BASE_URL" ] || echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
+          echo "version 1.0.$N"
+      - name: Update public key — pinned in the repository (tool/release/windows_update_public_keys.txt)
+        id: key
+        env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/k.pem"' EXIT   # the key file never outlives this step, even on failure
+          KEYS=$(grep -vE '^[[:space:]]*(#|$)' tool/release/windows_update_public_keys.txt | tr -d '\r ' | paste -sd, - || true)
+          for k in ${KEYS//,/ }; do
+            [ ${#k} -eq 44 ] && [ "$(printf '%s' "$k" | base64 -d 2>/dev/null | wc -c)" -eq 32 ] || { echo "::error::pinned key '$k' is not a raw Ed25519 public key (base64, 44 chars)"; exit 1; }
+          done
+          if [ "${{ inputs.release }}" = "true" ]; then
+            [ -n "$KEYS" ] || { echo "::error::no pinned update public key in tool/release/windows_update_public_keys.txt — a release cannot ship without update signing"; exit 1; }
+            [ -n "$SIGNING_KEY" ] || { echo "::error::WINDOWS_UPDATE_SIGNING_KEY secret missing"; exit 1; }
+            # the secret must be the private half of a pinned key (only the public half is derived; nothing is printed)
+            umask 077; printf '%s\n' "$SIGNING_KEY" | tr -d '\r' > "$RUNNER_TEMP/k.pem"
+            PUB=$(bash tool/release/public_key.sh "$RUNNER_TEMP/k.pem" || true); rm -f "$RUNNER_TEMP/k.pem"
+            case ",$KEYS," in *",$PUB,"*) ;; *) echo "::error::WINDOWS_UPDATE_SIGNING_KEY is not the private key of a pinned public key"; exit 1;; esac
+          fi
+          if [ -z "$KEYS" ]; then echo "::notice::no pinned update key yet — this build has automatic updates switched off"; exit 0; fi
+          echo "UPDATE_PUBLIC_KEY=$KEYS" >> "$GITHUB_ENV"; echo "public_key=$KEYS" >> "$GITHUB_OUTPUT"; echo "trusted update key(s): $KEYS"
+      - run: flutter config --enable-windows-desktop && flutter pub get
+      - run: flutter test
+      - name: Windows smoke test inside the app (DPAPI token storage, API reachable, server rejects no / forged token, login screen)
+        run: flutter test integration_test/windows_smoke_test.dart -d windows --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+      - name: Build Windows (Release)
+        run: |
+          flutter build windows --release --build-name=$V --build-number=$N \
+            --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS \
+            --dart-define=UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY
+      - name: Add the Visual C++ runtime next to the app (so it runs on a clean PC)
+        run: |
+          R=build/windows/x64/runner/Release
+          for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do cp "/c/Windows/System32/$d" "$R/"; done
+          rm -f "$R"/*.exp "$R"/*.lib   # linker leftovers, not needed to run
+      - name: Optional code signing (only if WINDOWS_CERT_PFX_B64 / WINDOWS_CERT_PASS secrets exist)
+        env: { PFX: '${{ secrets.WINDOWS_CERT_PFX_B64 }}', PASS: '${{ secrets.WINDOWS_CERT_PASS }}' }
+        run: |
+          if [ -z "$PFX" ] || [ -z "$PASS" ]; then echo "::notice::not code-signed (no certificate secrets) — Windows SmartScreen will show 'unknown publisher'"; exit 0; fi
+          printf '%s' "$PFX" | base64 -d > "$RUNNER_TEMP/sign.pfx"
+          ST=$(ls /c/Program\ Files\ \(x86\)/Windows\ Kits/10/bin/*/x64/signtool.exe | sort | tail -1)
+          for f in VALUNIVO.exe VALUNIVO-Updater.exe; do
+            "$ST" sign /f "$RUNNER_TEMP/sign.pfx" /p "$PASS" /fd sha256 /tr http://timestamp.digicert.com /td sha256 "build/windows/x64/runner/Release/$f"
+          done
+          echo "SIGN_TOOL=$ST" >> "$GITHUB_ENV"; echo "SIGNED=1" >> "$GITHUB_ENV"
+      - name: Check the package is complete (exe, update helper, engine, every plugin DLL, assets, runtime, versions)
+        run: |
+          R=build/windows/x64/runner/Release
+          for f in VALUNIVO.exe VALUNIVO-Updater.exe flutter_windows.dll msvcp140.dll vcruntime140.dll vcruntime140_1.dll data/app.so data/icudtl.dat \
+                   data/flutter_assets/AssetManifest.bin data/flutter_assets/assets/fonts/Cairo-Regular.ttf data/flutter_assets/assets/bg/dark_bg.webp; do
+            test -s "$R/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          if find "$R" -name '*.env' -o -name '*.p12' -o -name '*.pfx' -o -name '*.jks' -o -name '*.pem' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in package"; exit 1; fi
+          for f in VALUNIVO.exe VALUNIVO-Updater.exe; do
+            got=$(powershell -NoProfile -Command "(Get-Item '$R/$f').VersionInfo.FileBuildPart")
+            echo "$f build $got"; [ "$(echo $got | tr -d '\r')" = "$N" ] || { echo "::error::$f is build $got, expected $N"; exit 1; }
+          done
+          du -sh "$R"; ls -la "$R"
+      - name: Launch test (the exe starts on its own and stays up) + screenshot
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build\windows\x64\runner\Release\VALUNIVO.exe" -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { Write-Host "::error::VALUNIVO.exe exited after start (code $($p.ExitCode))"; exit 1 }
+          $p.Refresh()
+          Write-Host "running: pid $($p.Id), $([math]::Round($p.WorkingSet64/1MB)) MB, window title: '$($p.MainWindowTitle)'"
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          New-Item -ItemType Directory -Force ..\win-shots | Out-Null
+          $bmp.Save("..\win-shots\valunivo-windows-start.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          Stop-Process -Id $p.Id -Force
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $env:PATH = "${env:ProgramFiles(x86)}\Inno Setup 6;$env:PATH"
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress | Out-Null }
+          $src = (Resolve-Path "build\windows\x64\runner\Release").Path
+          New-Item -ItemType Directory -Force build\installer | Out-Null
+          $out = (Resolve-Path "build\installer").Path
+          iscc /Qp "/DAppVersion=$env:V" "/DSourceDir=$src" "/DOutputDir=$out" windows_installer\valunivo.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem build\installer
+      - name: Sign the installer (optional)
+        if: env.SIGNED == '1'
+        env: { PASS: '${{ secrets.WINDOWS_CERT_PASS }}' }
+        run: '"$SIGN_TOOL" sign /f "$RUNNER_TEMP/sign.pfx" /p "$PASS" /fd sha256 /tr http://timestamp.digicert.com /td sha256 build/installer/*.exe'
+      - name: Installer test (silent install → shortcuts → app runs → silent uninstall)
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $setup = Get-ChildItem build\installer\VALUNIVO-Setup-*.exe | Select-Object -First 1
+          if ($setup.VersionInfo.FileBuildPart -ne [int]$env:N) { Write-Host "::error::installer is build $($setup.VersionInfo.FileBuildPart), expected $env:N"; exit 1 }
+          # WaitForExit, not -Wait: -Wait would also wait for anything the installer starts
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/TASKS=desktopicon' -PassThru
+          if (-not $p.WaitForExit(300000)) { Write-Host "::error::installer did not finish in 5 min"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Host "::error::install failed ($($p.ExitCode))"; exit 1 }
+          $dir = "$env:LOCALAPPDATA\Programs\VALUNIVO"
+          foreach ($f in 'VALUNIVO.exe','VALUNIVO-Updater.exe','flutter_windows.dll','data\app.so','unins000.exe') { if (-not (Test-Path "$dir\$f")) { Write-Host "::error::not installed: $f"; exit 1 } }
+          if (-not (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'VALUNIVO.lnk')) { Write-Host "::error::no Start menu shortcut"; exit 1 }
+          if (-not (Test-Path "$([Environment]::GetFolderPath('Desktop'))\VALUNIVO.lnk")) { Write-Host "::error::no desktop shortcut"; exit 1 }
+          $app = Start-Process "$dir\VALUNIVO.exe" -PassThru; Start-Sleep 15
+          if ($app.HasExited) { Write-Host "::error::installed app exited ($($app.ExitCode))"; exit 1 }
+          Stop-Process -Id $app.Id -Force; Start-Sleep 2
+          $u = Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+          if (-not $u.WaitForExit(300000)) { Write-Host "::error::uninstaller did not finish"; exit 1 }
+          Start-Sleep 8   # the uninstaller finishes from a temp copy of itself
+          if (Test-Path "$dir\VALUNIVO.exe") { Write-Host "::error::uninstall left the app behind"; exit 1 }
+          if (Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'VALUNIVO.lnk') { Write-Host "::error::Start menu shortcut left behind"; exit 1 }
+          Write-Host "install / shortcuts / launch / uninstall: OK"
+      - name: Package
+        run: |
+          mkdir -p ../windows-out
+          cp build/installer/VALUNIVO-Setup-$V.exe ../windows-out/
+          (cd build/windows/x64/runner/Release && 7z a -tzip -bso0 ../../../../../../windows-out/VALUNIVO-$V-windows-x64.zip .)
+          (cd ../windows-out && sha256sum *) ; ls -la ../windows-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: VALUNIVO-windows-screenshot, path: win-shots, if-no-files-found: ignore, retention-days: 30 }
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-out, path: windows-out, retention-days: 30 }
+
+  # Real in-app update test (feature branch only — never part of a release run): three builds 1.0.A, 1.0.A+1 and a
+  # deliberately broken 1.0.A+2, a throw-away signing key, and a local HTTPS server standing in for jaurea.com.
+  update-e2e:
+    if: inputs.build_number == ''
+    runs-on: windows-2022
+    timeout-minutes: 100
+    defaults: { run: { working-directory: app, shell: bash } }
+    env: { E2E_BASE: 'https://localhost:8443/' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - name: Throw-away keys + test HTTPS certificate (test only, discarded with the runner)
+        run: |
+          [ -n "$API_BASE_URL" ] || echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
+          E=$(cygpath -m "$GITHUB_WORKSPACE")/e2e; mkdir -p "$E/served" "$E/inst"; echo "E=$E" >> "$GITHUB_ENV"
+          openssl genpkey -algorithm ed25519 -out "$E/test.pem"
+          openssl genpkey -algorithm ed25519 -out "$E/wrong.pem"
+          echo "TEST_PUB=$(bash tool/release/public_key.sh "$E/test.pem")" >> "$GITHUB_ENV"
+          A=$(( 30000 + (${{ github.run_number }} % 9000) * 3 )); echo "A=$A" >> "$GITHUB_ENV"; echo "versions 1.0.$A → 1.0.$((A+1)) → broken 1.0.$((A+2))"
+          MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" \
+            -keyout "$E/tls.key" -out "$E/tls.pem" 2>/dev/null
+          openssl x509 -in "$E/tls.pem" -outform der -out "$E/tls.cer"
+      - name: Trust the test certificate (this runner only)
+        shell: pwsh
+        run: Import-Certificate -FilePath "$env:E\tls.cer" -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+      - run: flutter config --enable-windows-desktop && flutter pub get
+      - name: Build 1.0.A, 1.0.A+1, a broken 1.0.A+2 and 1.0.A+3 (+ installers)
+        run: |
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"; [ -x "$ISCC" ] || { choco install innosetup -y --no-progress >/dev/null; }
+          R=build/windows/x64/runner/Release
+          for N in $A $((A+1)) $((A+2)) $((A+3)); do
+            flutter build windows --release --build-name=1.0.$N --build-number=$N \
+              --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS \
+              --dart-define=UPDATE_BASE_URL=$E2E_BASE --dart-define=UPDATE_PUBLIC_KEY=$TEST_PUB
+            for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do cp "/c/Windows/System32/$d" "$R/"; done
+            if [ "$N" = "$((A+2))" ]; then printf 'not an app' > "$R/data/app.so"; echo "1.0.$N: app.so deliberately broken"; fi
+            # MSYS_NO_PATHCONV: Git Bash would otherwise turn /D… switches into paths
+            MSYS_NO_PATHCONV=1 "$ISCC" /Qp "/DAppVersion=1.0.$N" "/DSourceDir=$(cygpath -w "$PWD/$R")" "/DOutputDir=$(cygpath -w "$E/inst")" windows_installer/valunivo.iss
+          done
+          ls -la "$E/inst"
+      - name: Signed manifests (good, wrong key, downgrade, broken)
+        run: |
+          S=tool/release/sign_windows_manifest.sh; I="$E/inst"
+          bash $S "$E/wrong.pem" "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" 1.0.$((A+1)) $((A+1)) "$E/m-wrongkey.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" 1.0.$((A+1)) $((A+1)) "$E/m-next-early.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" 1.0.$((A+1)) $((A+1)) "$E/m-next.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$A.exe"       1.0.$A       $A       "$E/m-downgrade.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+2)).exe" 1.0.$((A+2)) $((A+2)) "$E/m-broken.json"; sleep 2
+          bash $S "$E/test.pem"  "$I/VALUNIVO-Setup-1.0.$((A+3)).exe" 1.0.$((A+3)) $((A+3)) "$E/m-close.json"
+          # a corrupted copy of the good installer: same size, one byte changed
+          python - "$I/VALUNIVO-Setup-1.0.$((A+1)).exe" "$E/corrupt.exe" <<'PY'
+          import sys
+          b = bytearray(open(sys.argv[1], 'rb').read()); b[len(b) // 2] ^= 0xFF
+          open(sys.argv[2], 'wb').write(b)
+          PY
+      - name: In-app update end-to-end
+        shell: pwsh
+        timeout-minutes: 60
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $A = [int]$env:A; $B = $A + 1; $C = $A + 2; $D = $A + 3
+          $E = $env:E; $served = "$E\served"; $inst = "$E\inst"
+          $state = "$env:LOCALAPPDATA\VALUNIVO\updates"; $appDir = "$env:LOCALAPPDATA\Programs\VALUNIVO"; $exe = "$appDir\VALUNIVO.exe"
+          $log = "$state\updater-app.log"; $hlog = "$state\updater.log"
+          function Fail($m) { Write-Host "::error::$m"; Show-Logs; exit 1 }
+          function Show-Logs { foreach ($f in $log, $hlog) { if (Test-Path $f) { Write-Host "----- $f"; Get-Content $f | Select-Object -Last 60 } } }
+          function Build-Of($f) { (Get-Item $f).VersionInfo.FileBuildPart }
+          function Serve($manifest, $file, $name) {
+            Copy-Item $manifest "$served\latest.json" -Force
+            Get-ChildItem $served -Filter *.exe | Remove-Item -Force
+            if ($file) { Copy-Item $file "$served\$name" -Force }
+          }
+          function Wait-Log($pattern, $sec) { for ($i = 0; $i -lt $sec; $i += 2) { if ((Test-Path $log) -and (Select-String -Path $log -Pattern $pattern -Quiet)) { return $true }; Start-Sleep 2 }; return $false }
+          function Wait-Result($want, $sec) {
+            # the reopened app renames result.json → result-seen.json when it reads it at start
+            for ($i = 0; $i -lt $sec; $i += 3) {
+              foreach ($f in "$state\result.json", "$state\result-seen.json") {
+                if (Test-Path $f) { $r = Get-Content $f -Raw | ConvertFrom-Json; Write-Host "result: $($r | ConvertTo-Json -Compress)"; return $r }
+              }
+              Start-Sleep 3 }
+            return $null
+          }
+          function Stop-App { Get-Process VALUNIVO -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2 }
+          function Start-App { Start-Process $exe -WorkingDirectory $appDir | Out-Null }
+
+          # local "jaurea.com/valunivo/windows/" over HTTPS
+          $srv = Start-Process python -ArgumentList "tool\release\e2e_https_server.py", $served, "$E\tls.pem", "$E\tls.key", "8443" -PassThru -NoNewWindow
+          Start-Sleep 3
+
+          # 0. install 1.0.A; settings that must survive updates (device id → device approval)
+          $p = Start-Process "$inst\VALUNIVO-Setup-1.0.$A.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER' -PassThru
+          if (-not $p.WaitForExit(300000) -or $p.ExitCode -ne 0) { Fail "install 1.0.$A failed" }
+          if ((Build-Of $exe) -ne $A) { Fail "installed build is not $A" }
+          $prefsDir = "$env:APPDATA\Value Group\VALUNIVO"; New-Item -ItemType Directory -Force $prefsDir | Out-Null
+          $deviceId = "ci-device-$env:GITHUB_RUN_ID"
+          Set-Content "$prefsDir\shared_preferences.json" ('{"flutter.device_id":"' + $deviceId + '"}') -NoNewline
+          Write-Host "== 0. installed 1.0.$A"
+
+          # 1. manifest signed by another key → rejected
+          Serve "$E\m-wrongkey.json" "$inst\VALUNIVO-Setup-1.0.$B.exe" "VALUNIVO-Setup-1.0.$B.exe"
+          Start-App
+          if (-not (Wait-Log 'rejected: signature invalid' 90)) { Fail "manifest signed by the wrong key was not rejected" }
+          Stop-App; Write-Host "== 1. wrong-key manifest rejected"
+
+          # 2. correctly signed manifest, corrupted package (same size, one byte changed) → rejected, nothing installed
+          Serve "$E\m-next-early.json" "$E\corrupt.exe" "VALUNIVO-Setup-1.0.$B.exe"
+          Start-App
+          if (-not (Wait-Log 'SHA-256 mismatch' 180)) { Fail "corrupted package was not rejected" }
+          Stop-App
+          if ((Build-Of $exe) -ne $A) { Fail "app changed after a rejected download" }
+          if (Get-ChildItem $state -Filter "VALUNIVO-Setup-*.exe*" -ErrorAction SilentlyContinue) { Fail "rejected download was kept" }
+          Write-Host "== 2. corrupted package rejected and deleted"
+
+          # 3. real update 1.0.A → 1.0.A+1: background download, automatic restart when idle & signed out, helper installs, reopens
+          Serve "$E\m-next.json" "$inst\VALUNIVO-Setup-1.0.$B.exe" "VALUNIVO-Setup-1.0.$B.exe"
+          Start-App
+          if (-not (Wait-Log 'downloaded and verified' 180)) { Fail "update was not downloaded" }
+          $r = Wait-Result 'updated' 420
+          if (-not $r -or $r.result -ne 'updated' -or $r.to -ne $B) { Fail "update to 1.0.$B did not complete" }
+          if ((Build-Of $exe) -ne $B) { Fail "installed VALUNIVO.exe is not build $B" }
+          if ((Build-Of "$appDir\VALUNIVO-Updater.exe") -ne $B) { Fail "helper was not updated" }
+          $running = Get-Process VALUNIVO -ErrorAction SilentlyContinue
+          if (-not $running) { Fail "updated app is not running" }
+          $prefs = Get-Content "$prefsDir\shared_preferences.json" -Raw
+          if ($prefs -notmatch [regex]::Escape($deviceId)) { Fail "settings / device id lost in the update" }
+          if ($prefs -notmatch 'win_update_issued') { Fail "the app did not use the same settings file" }
+          $reg = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -eq 'VALUNIVO'
+          Write-Host "== 3. updated to 1.0.$B (running pid $($running.Id); Apps & features shows $($reg.DisplayVersion)); settings + device id kept"
+
+          # 4. older signed manifest (downgrade) → ignored; replayed older manifest → refused
+          foreach ($f in "$state\result.json", "$state\result-seen.json") { if (Test-Path $f) { Move-Item $f "$state\result-3.json" -Force } }
+          Stop-App
+          Serve "$E\m-downgrade.json" "$inst\VALUNIVO-Setup-1.0.$A.exe" "VALUNIVO-Setup-1.0.$A.exe"
+          Start-App
+          if (-not (Wait-Log "manifest build $A is older than installed $B" 90)) { Fail "downgrade was not refused" }
+          Stop-App
+          Serve "$E\m-next-early.json" "$inst\VALUNIVO-Setup-1.0.$B.exe" "VALUNIVO-Setup-1.0.$B.exe"
+          Start-App
+          if (-not (Wait-Log 'replayed older manifest' 90)) { Fail "replayed older manifest was not refused" }
+          Stop-App
+          if ((Build-Of $exe) -ne $B) { Fail "app changed after a refused manifest" }
+          Write-Host "== 4. downgrade and replay refused"
+
+          # 5. broken update 1.0.A+2 (installs, but cannot start) → automatic rollback to 1.0.A+1, not offered again
+          Serve "$E\m-broken.json" "$inst\VALUNIVO-Setup-1.0.$C.exe" "VALUNIVO-Setup-1.0.$C.exe"
+          Start-App
+          if (-not (Wait-Log "update available: 1.0.$C" 120)) { Fail "broken update not seen" }
+          $r = Wait-Result 'rolled_back' 600
+          if (-not $r -or $r.result -ne 'rolled_back' -or $r.to -ne $C) { Fail "broken update was not rolled back" }
+          if ((Build-Of $exe) -ne $B) { Fail "after rollback VALUNIVO.exe is build $(Build-Of $exe), expected $B" }
+          # result.json is written before the previous version is reopened; the helper then waits for its health report
+          $ok = $false
+          for ($i = 0; $i -lt 120 -and -not $ok; $i += 2) { $ok = Select-String -Path $hlog -Pattern 'previous version running and healthy' -Quiet; if (-not $ok) { Start-Sleep 2 } }
+          if (-not $ok) { Fail "previous version did not report healthy" }
+          if (-not (Get-Process VALUNIVO -ErrorAction SilentlyContinue)) { Fail "previous version is not running after rollback" }
+          if (-not ((Get-Content "$state\failed-builds.txt") -contains "$C")) { Fail "broken build not recorded" }
+          Stop-App; Start-App
+          if (-not (Wait-Log "skipping build $C" 90)) { Fail "broken build offered again" }
+          Stop-App
+          Write-Host "== 5. broken 1.0.$C rolled back to 1.0.$B automatically; not offered again"
+
+          # 6. update waiting when the person closes VALUNIVO normally (window close) → installed on close, not reopened
+          foreach ($f in "$state\result.json", "$state\result-seen.json") { if (Test-Path $f) { Move-Item $f "$state\result-5.json" -Force } }
+          Serve "$E\m-close.json" "$inst\VALUNIVO-Setup-1.0.$D.exe" "VALUNIVO-Setup-1.0.$D.exe"
+          Start-App
+          if (-not (Wait-Log "downloaded and verified .*1\.0\.$D" 120)) { Fail "1.0.$D was not downloaded" }
+          $w = Get-Process VALUNIVO
+          if (-not $w.CloseMainWindow()) { Fail "could not close the window" }   # like the user clicking X (before the 60 s idle restart)
+          if (-not $w.WaitForExit(30000)) { Fail "VALUNIVO did not close" }
+          $r = Wait-Result 'updated_on_close' 300
+          if (-not $r -or $r.result -ne 'updated_on_close' -or $r.to -ne $D) { Fail "update on close did not complete" }
+          if ((Build-Of $exe) -ne $D) { Fail "after close-update VALUNIVO.exe is build $(Build-Of $exe), expected $D" }
+          if (Get-Process VALUNIVO -ErrorAction SilentlyContinue) { Fail "the app was reopened after the person closed it" }
+          Remove-Item "$state\healthy-$D" -ErrorAction SilentlyContinue
+          Start-App
+          for ($i = 0; $i -lt 60 -and -not (Test-Path "$state\healthy-$D"); $i += 2) { Start-Sleep 2 }
+          if (-not (Test-Path "$state\healthy-$D")) { Fail "1.0.$D does not start after the close-update" }
+          if ((Get-Content "$prefsDir\shared_preferences.json" -Raw) -notmatch [regex]::Escape($deviceId)) { Fail "settings / device id lost" }
+          Stop-App
+          Write-Host "== 6. update installed when VALUNIVO was closed; 1.0.$D starts normally; settings kept"
+
+          Show-Logs
+          Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "IN-APP UPDATE END-TO-END: ALL PASSED"
+      - name: Logs
+        if: always()
+        shell: pwsh
+        run: |
+          $s = "$env:LOCALAPPDATA\VALUNIVO\updates"
+          New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE\e2e-logs" | Out-Null
+          Get-ChildItem $s -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
+          Get-ChildItem $s -Filter *.json -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
+          Get-ChildItem $s -Filter *.txt -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: update-e2e-logs, path: e2e-logs, if-no-files-found: ignore, retention-days: 30 }

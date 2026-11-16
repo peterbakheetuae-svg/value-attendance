@@ -34,6 +34,11 @@ class DeviceId {
         final brand = a.brand.isEmpty ? '' : '${a.brand[0].toUpperCase()}${a.brand.substring(1)} ';
         return '$brand${a.model}'.trim();
       }
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        // «كمبيوتر DESKTOP-AB12 (Windows)» in the linked devices list
+        final w = await info.windowsInfo;
+        return 'كمبيوتر ${w.computerName} (Windows)';
+      }
       if (defaultTargetPlatform == TargetPlatform.iOS) {
         final i = await info.iosInfo;
         return i.utsname.machine;
@@ -47,6 +52,7 @@ class DeviceId {
     switch (defaultTargetPlatform) {
       case TargetPlatform.android: return 'Android';
       case TargetPlatform.iOS: return 'iPhone';
+      case TargetPlatform.windows: return 'Windows PC';
       default: return defaultTargetPlatform.name;
     }
   }

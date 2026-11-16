@@ -1,0 +1,120 @@
+name: Roll back to an earlier release (Web + Windows)
+# Manual only (Actions → this workflow → Run, on main). Puts an earlier release back from its permanent GitHub release:
+#  - Web: that release's web build goes live again.
+#  - Windows: a NEW signed manifest marked "rollback" points at that release's installer — installed apps go back to it
+#    (the app refuses any downgrade unless the manifest is signed AND marked rollback).
+#  - Android: phones can never install a lower version (Android refuses it). To undo an Android change, revert the
+#    change on main and release again (a higher version).
+# Safeguards: refuses a release without its Windows installer (would leave Web and Windows on different versions) unless
+# web_only is ticked; refuses the version that is already live and a Windows build that is not older than the live one.
+# rehearsal (off main): every check + a deploy into a throw-away server copy on the runner; nothing is published.
+on:
+  workflow_dispatch:
+    inputs:
+      version: { description: 'Release to go back to, e.g. 1.0.130', required: true }
+      confirm: { description: 'Type ROLLBACK to confirm', required: true }
+      web_only: { description: 'Allowed to roll back the web only (that release has no Windows installer)', type: boolean, default: false }
+      rehearsal: { description: 'Rehearse only (no publishing; any branch except main)', type: boolean, default: false }
+permissions:
+  contents: read
+concurrency: { group: app-build, cancel-in-progress: false }
+jobs:
+  rollback:
+    if: inputs.confirm == 'ROLLBACK' && (github.ref == 'refs/heads/main' || inputs.rehearsal)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      V: ${{ inputs.version }}
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: app }
+      - name: Files of release ${{ inputs.version }} + safeguards
+        run: |
+          [[ "$V" =~ ^1\.0\.([0-9]+)$ ]] || { echo "::error::version must look like 1.0.N"; exit 1; }
+          N=${BASH_REMATCH[1]}
+          mkdir -p out/windows rel
+          gh release download "v$V" -R "${{ github.repository }}" -D rel -p 'value-attendance-web.zip' -p 'VALUNIVO-Setup-*.exe' \
+            || { echo "::error::release v$V not found"; exit 1; }
+          cp rel/value-attendance-web.zip out/web.zip
+          LIVE=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)"); TARGET=$(unzip -p out/web.zip version.json)
+          echo "live web: $LIVE"; echo "rollback web: $TARGET"
+          [ "$LIVE" != "$TARGET" ] || { echo "::error::$V is already the live web — nothing to roll back"; exit 1; }
+          if [ -s "rel/VALUNIVO-Setup-$V.exe" ]; then
+            cp "rel/VALUNIVO-Setup-$V.exe" out/windows/
+            LB=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/windows/latest.json?t=$(date +%s)" \
+                  | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["manifest"])["build"])' 2>/dev/null || echo 0)
+            echo "live Windows build: $LB"
+            [ "$LB" = 0 ] || [ "$N" -lt "$LB" ] || { echo "::error::Windows $V is not older than the live build $LB"; exit 1; }
+          elif [ "${{ inputs.web_only }}" = "true" ]; then
+            echo "::warning::release $V has no Windows installer — web only (allowed by web_only); Windows stays on its version"
+            rmdir out/windows
+          else
+            echo "::error::release $V has no Windows installer — refusing a web-only rollback (Web and Windows would differ). Tick web_only to allow it."; exit 1
+          fi
+          ls -laR out
+      - name: Signed rollback manifest (Windows)
+        if: hashFiles('out/windows/*.exe') != ''
+        env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/k.pem"' EXIT   # the key file never outlives this step, even on failure
+          N="${V##*.}"; umask 077
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ inputs.rehearsal }}" != "true" ]; then
+            [ -n "$SIGNING_KEY" ] || { echo "::error::WINDOWS_UPDATE_SIGNING_KEY missing"; exit 1; }
+            printf '%s\n' "$SIGNING_KEY" | tr -d '\r' > "$RUNNER_TEMP/k.pem"
+            PUB=$(bash app/tool/release/public_key.sh "$RUNNER_TEMP/k.pem")
+            KEYS=$(grep -vE '^[[:space:]]*(#|$)' app/tool/release/windows_update_public_keys.txt | tr -d '\r ' | paste -sd, - || true)
+            case ",$KEYS," in *",$PUB,"*) ;; *) rm -f "$RUNNER_TEMP/k.pem"; echo "::error::signing key is not a pinned key"; exit 1;; esac
+          else
+            openssl genpkey -algorithm ed25519 -out "$RUNNER_TEMP/k.pem"; echo "::notice::rehearsal: throw-away signing key"
+          fi
+          bash app/tool/release/public_key.sh "$RUNNER_TEMP/k.pem" > keys.txt
+          bash app/tool/release/sign_windows_manifest.sh "$RUNNER_TEMP/k.pem" "out/windows/VALUNIVO-Setup-$V.exe" "$V" "$N" out/windows/latest.json rollback
+          rm -f "$RUNNER_TEMP/k.pem"
+          echo "VALUNIVO-Setup-$V.exe $(sha256sum out/windows/VALUNIVO-Setup-$V.exe | cut -d' ' -f1)" > out/windows/release.txt
+      - name: Rehearsal — deploy into a throw-away server copy and check it (nothing published)
+        if: inputs.rehearsal && github.ref != 'refs/heads/main'
+        run: |
+          FAKE=$(mktemp -d); ROOT="$FAKE/domains/jaurea.com/public_html"; mkdir -p "$ROOT/valunivo/android" "$ROOT/valunivo/windows"
+          echo wp > "$ROOT/index.php"; echo '{"version":"1.0.999"}' > "$ROOT/valunivo/android/latest.json"
+          mkdir -p "$FAKE/va-staging/android" "$FAKE/va-staging/windows"; cp out/web.zip "$FAKE/va-staging/"
+          [ -d out/windows ] && cp out/windows/* "$FAKE/va-staging/windows/"
+          HOME="$FAKE" bash app/deploy/hostinger/remote-deploy.sh
+          cmp <(unzip -p out/web.zip version.json) "$ROOT/valunivo/version.json" && echo "PASS: web of $V live"
+          grep -q '"version":"1.0.999"' "$ROOT/valunivo/android/latest.json" && echo "PASS: Android untouched"
+          if [ -d out/windows ]; then grep -q 'rollback\\":true' "$ROOT/valunivo/windows/latest.json" && echo "PASS: Windows rollback manifest live"; fi
+      - name: Deploy (same checks as a release; WordPress fingerprinted before / after)
+        if: github.ref == 'refs/heads/main' && !inputs.rehearsal
+        run: |
+          [ -n "$SSH_KEY" ] || [ -n "$SSH_PASS" ] || { echo "::error::Hostinger secret missing"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat > ~/.ssh/known_hosts <<'KH'
+          [82.198.227.7]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINIEVbKu9K7AVrGNwujYEUbrw0wvECMboXFOKfpiiw3h
+          [82.198.227.7]:65002 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCHeIP4sUl5WiCE5CU68sEpg0WFGfq/jyVGW0RqVzi3v56HYIJhINFOZvD3XxttLN/k7t2ZEjA52H73cegg6QGY=
+          KH
+          sed -i 's/^ *//' ~/.ssh/known_hosts
+          O="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+            SCP="scp $O -P $SSH_PORT -i $HOME/.ssh/deploy"; SSH="ssh $O -p $SSH_PORT -i $HOME/.ssh/deploy"
+          else
+            sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y sshpass >/dev/null; export SSHPASS="$SSH_PASS"
+            SCP="sshpass -e scp $O -P $SSH_PORT"; SSH="sshpass -e ssh $O -p $SSH_PORT"
+          fi
+          $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging && mkdir -p ~/va-staging/android ~/va-staging/windows'
+          $SCP out/web.zip "$SSH_USER@$SSH_HOST:va-staging/web.zip"
+          if [ -s out/windows/latest.json ]; then $SCP out/windows/* "$SSH_USER@$SSH_HOST:va-staging/windows/"; fi
+          $SSH "$SSH_USER@$SSH_HOST" 'bash -s' < app/deploy/hostinger/remote-deploy.sh
+      - name: Check
+        if: github.ref == 'refs/heads/main' && !inputs.rehearsal
+        run: |
+          sleep 5
+          curl -s --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)" | tee /dev/stderr | grep -q "\"version\":\"$V\"" || echo "::warning::web version.json does not say $V (releases before the unified pipeline had no version in it)"
+          if [ -s out/windows/latest.json ]; then
+            curl -s --max-time 30 "https://jaurea.com/valunivo/windows/latest.json?t=$(date +%s)" | grep -q "$(sha256sum out/windows/VALUNIVO-Setup-$V.exe | cut -d' ' -f1)" || { echo "::error::windows rollback manifest not live"; exit 1; }
+          fi
+          echo "rolled back to $V"
