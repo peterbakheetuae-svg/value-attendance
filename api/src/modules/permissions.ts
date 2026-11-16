@@ -25,7 +25,8 @@ export const permissionsModule: Module = (r, { db }) => {
     const a = await authenticate(db, req); await assertCanAdminister(a);
     return ok({
       modules: MODULES,
-      permissions: PERMISSIONS.map((p) => ({ ...p, available: !!a.known?.has(p.key), delegable: has(a, p.key) })),
+      // owner-only keys (data.reset) are never delegable: the page shows them locked
+      permissions: PERMISSIONS.map((p) => ({ ...p, available: !!a.known?.has(p.key), delegable: has(a, p.key) && !p.ownerOnly })),
     });
   });
 

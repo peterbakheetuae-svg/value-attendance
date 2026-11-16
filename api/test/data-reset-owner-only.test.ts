@@ -36,6 +36,9 @@ test('after migration 066 (run on this test database): still owner-only; never g
   assert.equal((await h.call(c.t.owner, 'POST', '/admin/data-reset', reset)).status, 200);
   assert.ok(!(await me(c.t.hr)).includes('data.reset'));
 
+  // the permissions page shows it locked (not delegable), even to the owner who holds it
+  const reg = (await h.call(c.t.owner, 'GET', '/permissions/registry')).body.permissions.find((p: any) => p.key === 'data.reset');
+  assert.equal(reg.available, true); assert.equal(reg.delegable, false); assert.equal(reg.ownerOnly, true);
   // nobody can give it — not the HR administrator, not even the owner
   for (const t of [c.t.hr, c.t.owner]) {
     assert.equal((await h.call(t, 'PUT', '/permissions/roles/accountant', { grant: ['data.reset'], confirm: true })).status, 403);
