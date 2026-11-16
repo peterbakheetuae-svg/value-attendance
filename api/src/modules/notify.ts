@@ -1,10 +1,11 @@
 import type { Q } from '../db.ts';
-import { pushTo } from '../lib/fcm.ts';
+import { effectiveSql } from '../auth/permission-admin.ts';
+import { pushTo, type PushResult } from '../lib/fcm.ts';
 
-/** Insert a notification exactly once per (recipient, dedupeKey). */
+/** Insert a notification exactly once per (recipient, dedupeKey). Returns what the push did (null: a duplicate). */
 export async function notify(q: Q, n: {
   to: string; type: string; title: string; body?: string; entity?: string; entityId?: string; dedupeKey: string;
-}) {
+}): Promise<PushResult | null> {
   const r = await q.query<{ id: string }>(`
     INSERT INTO notifications (recipient_id, type, title, body, entity, entity_id, dedupe_key)
     SELECT $1,$2,$3,$4,$5,$6,$7
@@ -12,14 +13,16 @@ export async function notify(q: Q, n: {
     ON CONFLICT (recipient_id, dedupe_key) DO NOTHING RETURNING id`,
     [n.to, n.type, n.title, n.body ?? '', n.entity ?? null, n.entityId ?? null, n.dedupeKey]);
   // new notification → phone push (rings even when the app is closed); a duplicate never re-rings
-  if (r.rows[0]) await pushTo(q, n.to, { id: r.rows[0].id, type: n.type, title: n.title, body: n.body ?? '', entityId: n.entityId });
+  if (!r.rows[0]) return null;
+  return pushTo(q, n.to, { id: r.rows[0].id, type: n.type, title: n.title, body: n.body ?? '', entityId: n.entityId });
 }
 
 /** Active holders of a permission (e.g. every HR approver). */
 export async function holdersOf(q: Q, perm: string, exclude: string[] = []): Promise<string[]> {
+  // the same resolution as sign-in: his job title's grant unless individually denied, or an individual grant
   const r = await q.query<{ id: string }>(`
-    SELECT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = $1 AND e.status = 'active' AND NOT (e.id = ANY($2::uuid[]))`, [perm, exclude]);
+    SELECT e.id FROM employees e
+     WHERE e.status = 'active' AND NOT (e.id = ANY($2::uuid[])) AND ${effectiveSql('e', '$1')}`, [perm, exclude]);
   return r.rows.map((x) => x.id);
 }
 

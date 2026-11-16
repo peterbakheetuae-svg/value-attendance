@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'platform_info.dart';
+import 'windows_updater.dart';
 import '../jph/widgets/glass_dialog.dart';
 
 /// App update (Android): every Android build is published on the app's own site —
@@ -30,7 +32,9 @@ class AppUpdater with WidgetsBindingObserver {
 
   static bool get supported => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  void start(GlobalKey<NavigatorState> nav) {
+  /// [signedIn] is only used by the Windows updater (it restarts on its own only when nobody is signed in).
+  void start(GlobalKey<NavigatorState> nav, {bool Function()? signedIn}) {
+    if (PlatformInfo.isWindows) return WindowsUpdater.instance.start(nav, signedIn: signedIn ?? () => true);
     if (!supported) return; // the web version is always current
     _nav = nav;
     WidgetsBinding.instance.addObserver(this);
@@ -52,6 +56,10 @@ class AppUpdater with WidgetsBindingObserver {
 
   /// Looks for a newer build. [manual] = the person pressed the button: always answers (up to date / failed).
   Future<void> check({BuildContext? context, bool manual = false}) async {
+    if (PlatformInfo.isWindows) {
+      if (context != null) await WindowsUpdater.instance.checkNow(context);
+      return;
+    }
     if (!supported) {
       if (manual && context != null) _say(context, 'نسخة الويب بتتحدث لوحدها — اعمل تحديث للصفحة لو لسه شايف القديمة.');
       return;

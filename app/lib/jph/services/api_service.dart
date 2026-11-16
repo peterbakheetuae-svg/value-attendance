@@ -407,12 +407,12 @@ class JphRouter {
           return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo', '/leads', '/tasks', '/deals', '/integrations'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo', '/leads', '/tasks', '/deals', '/integrations', '/permissions/'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':
           final cp = '${p['path'] ?? ''}';
-          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody', '/exclusive/', '/marketing-companies', '/commissions/projects', '/company/logo', '/leads', '/tasks', '/deals', '/integrations'].any(cp.startsWith)) return _fail('bad path');
+          if (!const ['/cash/', '/sales', '/payroll-batches', '/advances/', '/payouts/', '/forms/', '/finance/adjustments', '/custody', '/exclusive/', '/marketing-companies', '/commissions/projects', '/company/logo', '/leads', '/tasks', '/deals', '/integrations', '/permissions/'].any(cp.startsWith)) return _fail('bad path');
           final cr2 = p['method'] == 'delete' && cp.startsWith('/forms/')
               ? await _api.delete(cp)
               : p['method'] == 'patch'
@@ -486,6 +486,8 @@ class JphRouter {
           await _api.patch('/employees/${await _id(p['uid'])}', {
             if (p['deviceLock'] != null) 'deviceLock': p['deviceLock'] == true,
             if (p['selfieRequired'] != null) 'selfieRequired': p['selfieRequired'] == true,
+            if (p['workTracking'] != null) 'workTracking': p['workTracking'] == true,
+            if (p['attendanceExempt'] != null) 'attendanceExempt': p['attendanceExempt'] == true,
           });
           return _ok({'message': 'تم الحفظ ✅'});
         case 'unbind_device':
@@ -693,7 +695,7 @@ class JphRouter {
       'uid': me['code'],
       'name': me['full_name'],
       'role': roleAr[role] ?? role,
-      'validity': role == 'owner' || _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
+      'validity': _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
       'photo': photo,
       'companyId': 'VALUE',
       'companyName': JphBridge.session.company?['company_name_ar'] ?? '',
@@ -762,7 +764,7 @@ class JphRouter {
       'level': _s(lf['level'], '0%'),
       'employeeStatus': _s(lf['status'], e['status'] == 'active' ? 'على رأس العمل' : 'موقوف'),
       'status': e['status'] == 'active' ? 'نشط' : 'موقوف',
-      'validity': role == 'owner' || _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
+      'validity': _has('attendance.read_all') || _has('attendance.read_team') ? 'admin' : 'موظف',
       'companyName': _s(company?['company_name_ar']),
       'createdAt': _date(e['created_at']),
       'lastModifiedDate': _date(e['updated_at']),
@@ -1168,6 +1170,7 @@ class JphRouter {
       'deviceBound': e['device_bound'] == true,
       'deviceLock': e['device_lock'] == true,
       'selfieRequired': e['selfie_required'] == true,
+      'workTracking': e['work_tracking'] != false,
       'deviceLabel': _s(e['device_label'], ''),
     };
   }
@@ -1209,8 +1212,8 @@ class JphRouter {
       if (p.containsKey('salesManagerId')) 'salesManagerId': idOrNull(p['salesManagerId']),
       if (p.containsKey('generalManagerId')) 'generalManagerId': idOrNull(p['generalManagerId']),
       if (p.containsKey('attendanceExempt') && _has('employee.attendance_exempt')) 'attendanceExempt': p['attendanceExempt'] == true,
-      if (p.containsKey('deviceLock') && _has('employee.manage')) 'deviceLock': p['deviceLock'] == true,
-      if (p.containsKey('selfieRequired') && _has('employee.manage')) 'selfieRequired': p['selfieRequired'] == true,
+      if (p.containsKey('deviceLock') && _has('employee.edit')) 'deviceLock': p['deviceLock'] == true,
+      if (p.containsKey('selfieRequired') && _has('employee.edit')) 'selfieRequired': p['selfieRequired'] == true,
       if (p.containsKey('workStart'))
         ...((p['workStart'] ?? '').toString().isEmpty || (p['workEnd'] ?? '').toString().isEmpty
             ? {'workStart': null, 'workEnd': null}

@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { date, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, has, readableIds, requirePerm } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, can, has, readableIds, requirePerm } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
@@ -258,8 +258,11 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       if (!outBy.has(k)) outBy.set(k, []);
       outBy.get(k)!.push({ kind: o.kind, from: o.from_at, expectedReturn: o.expected_return_at, returnedAt: o.returned_at });
     }
+    const seeLoc = employeeId === a.id || can(a, 'attendance.view_location', ['attendance.read_all', 'attendance.read_team']);
     return ok({ days: rows.rows.map((x) => ({
-      ...shape(x, today), checkInLat: x.check_in_lat, checkInLng: x.check_in_lng, checkOutLat: x.check_out_lat, checkOutLng: x.check_out_lng,
+      // where he checked in / out: his own, or with «عرض مواقع الموظفين»
+      ...shape(x, today), ...(seeLoc ? { checkInLat: x.check_in_lat, checkInLng: x.check_in_lng, checkOutLat: x.check_out_lat, checkOutLng: x.check_out_lng }
+        : { checkInLat: null, checkInLng: null, checkOutLat: null, checkOutLng: null }),
       breakStart: x.break_start, breakEnd: x.break_end, hasSelfie: x.has_selfie, outings: outBy.get(String(x.work_date)) ?? [],
       correctedByName: x.corrected_by_name ?? null,
     })) });
@@ -281,6 +284,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     const b = obj(req.body);
     const employeeId = uuid(b, 'employeeId')!;
     if (employeeId === a.id) throw forbidden('Nobody can correct their own attendance');
+    // only an employee in his reading scope (all / own teams)
+    if (!isUuid(employeeId)) throw notFound();
+    await assertCanRead(db, a, employeeId, 'attendance');
     const workDate = date(b, 'workDate')!;
     if (workDate > local(clock()).date) throw invalid('Cannot correct a future day', { field: 'workDate' });
     const emp = await one(db, `SELECT id FROM employees WHERE id = $1`, [employeeId]);

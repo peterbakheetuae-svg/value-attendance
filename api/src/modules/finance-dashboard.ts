@@ -3,7 +3,7 @@ import { one } from '../db.ts';
 import { forbidden, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam } from '../http/validate.ts';
-import { authenticate, has } from '../auth/context.ts';
+import { authenticate, has, can } from '../auth/context.ts';
 import { cashSummary, canHrView, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 
@@ -77,7 +77,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
    *  تم دفعه = what left the boxes this month for them: salaries (no commissions), advances, work expenses, expenses, marketing companies
    *  المطلوب للشهر = المرتبات + المصروفات الشهرية · متبقي = المطلوب − تم دفعه · التغطية = عمولة المكتب في الشهر − المطلوب
    */
-  async function operating(period: string, office: boolean) {
+  async function operating(period: string, office: boolean, income: boolean) {
     const sal = await salaries(period);
     const mk = (await db.query(`SELECT id, name, monthly_fee FROM marketing_companies WHERE status = 'active' AND kind = 'fixed' AND monthly_fee > 0
                                  ORDER BY name`)).rows;
@@ -118,7 +118,8 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const remaining = r2(Math.max(required - paid, 0));
     // عمولة المكتب في الشهر: developers' commissions received + the exclusive projects' commission moved to the office
     let commissionItems: It[] = [];
-    if (office) {
+    // the office's commission income: «دخل وربح المكتب» (cash.office before 066) — decided by the caller
+    if (office && income) {
       commissionItems = [
         ...(await db.query(`SELECT r.amount_egp, r.occurred_at, COALESCE(p.name, '') AS project, r.payer_name FROM cash_receipts r
             LEFT JOIN commission_projects p ON p.id = r.project_id WHERE r.status = 'posted' AND r.kind = 'commission' AND ${IN_MONTH('r.occurred_at')}`,
@@ -129,7 +130,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     }
     const commissions = sum(commissionItems);
     const summary = { salaries: salariesT, expenses: expensesT, total: required, required, paid, remaining,
-      officeCommission: office ? commissions : null, cover: office ? r2(commissions - required) : null,
+      officeCommission: office && income ? commissions : null, cover: office && income ? r2(commissions - required) : null,
       // kept for older apps
       fixed: r2(fixed.reduce((t, f) => t + n(f.amount_egp), 0)) };
     return { summary, salaryItems, expenseItems, paidItems, commissionItems };
@@ -138,7 +139,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
   r.get('/finance/dashboard', async (req) => {
     const a = await authenticate(db, req);
     const hr = canHrView(a), office = canOffice(a);
-    if (!hr && !office) throw forbidden();
+    if ((!hr && !office) || !can(a, 'finance.dashboard_view', ['cash.hr_view', 'cash.office'])) throw forbidden();
     const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
     const t = today();
     const cash = await cashSummary(db, a);
@@ -180,7 +181,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         FROM lines`, [t]);
     const left = await one(db, `SELECT COALESCE(sum(left_amount), 0) AS s FROM (${UNITS_LEFT}) x`, []);
     const sal = await salaries(period);
-    const op = await operating(period, office);
+    const op = await operating(period, office, can(a, 'finance.company_income', 'cash.office'));
     const operating_ = op.summary;
     const out: Record<string, unknown> = {
       currency: 'EGP', month: period.slice(0, 7), cash, operating: operating_,
@@ -212,8 +213,9 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
    */
   r.get('/finance/dashboard/details', async (req) => {
     const a = await authenticate(db, req);
+    const canClient = can(a, 'exclusive.view_client', null);
     const hr = canHrView(a), office = canOffice(a);
-    if (!hr && !office) throw forbidden();
+    if ((!hr && !office) || !can(a, 'finance.dashboard_view', ['cash.hr_view', 'cash.office'])) throw forbidden();
     const period = monthParam(req.query.get('month') ?? today().slice(0, 7));
     const key = req.query.get('key') ?? '';
     const boxes = office ? ['hr', 'office'] : ['hr'];
@@ -251,7 +253,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         break;
       }
       case 'op_salaries': case 'op_expenses': case 'op_paid': case 'op_remaining': case 'op_required': case 'op_cover': {
-        const o = await operating(period, office);
+        const o = await operating(period, office, can(a, 'finance.company_income', 'cash.office'));
         const S = o.summary;
         const total = (label: string, amount: number, tag?: string): Row => ({ title: label, sub: '', amount, tag });
         switch (key) {
@@ -268,7 +270,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
             rows = [...o.salaryItems, ...o.expenseItems, total('= الإجمالي', S.required, 'الإجمالي')];
             break;
           default:
-            if (!office) throw forbidden();
+            if (!office || !can(a, 'finance.company_income', 'cash.office')) throw forbidden();
             title = 'فائض / عجز التغطية';
             rows = [...o.commissionItems, total('إجمالي عمولة المكتب', S.officeCommission ?? 0), total('− المبلغ المطلوب للشهر', -S.required),
               total(`= ${(S.cover ?? 0) >= 0 ? 'فائض' : 'عجز'}`, S.cover ?? 0, (S.cover ?? 0) >= 0 ? 'فائض' : 'عجز')];
@@ -318,14 +320,15 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
         const cond = key === 'installments_week' ? `due_date >= $1 AND due_date <= ($1::date + 7)` : `due_date < $1`;
         rows = (await q(`SELECT * FROM (${INSTALLMENT_LINES}) l WHERE paid < amount_egp AND ${cond} ORDER BY due_date`, [t]))
           .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`,
-            sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone ? ` — ${x.buyer_phone}` : ''}`,
+            // the client's phone: the finance view AND «بيانات العملاء» (without it the reminder comes without the number)
+            sub: `${Number(x.seq) === 0 ? 'المقدم' : `قسط ${x.seq}`} — ${ds(x.due_date).slice(0, 10)}${x.buyer_phone && canClient ? ` — ${x.buyer_phone}` : ''}`,
             amount: r2(n(x.amount_egp) - n(x.paid)) }));
         break;
       }
       case 'units_remaining': {
         title = 'الباقي على الوحدات';
         rows = (await q(`SELECT * FROM (${UNITS_LEFT}) x WHERE left_amount > 0 ORDER BY left_amount DESC`, []))
-          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`, sub: x.buyer_phone ?? '', amount: n(x.left_amount) }));
+          .map((x) => ({ title: `${x.buyer_name} — ${x.project} ${x.unit_no}`, sub: canClient ? x.buyer_phone ?? '' : '', amount: n(x.left_amount) }));
         break;
       }
       case 'transfers_open': {

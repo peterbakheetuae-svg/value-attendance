@@ -77,11 +77,13 @@ export function encryptPayload(payload: Buffer, uaPublic: Buffer, authSecret: Bu
 
 /** Send to every web subscription of an employee; dead ones are removed. Never throws. */
 export async function webPushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null; ring?: boolean }) {
-  if (!vapidKeys()) return;
+  const out = { devices: 0, sent: 0, failed: 0, removed: 0 } as { devices: number; sent: number; failed: number; removed: number; off?: boolean };
+  if (!vapidKeys()) return { ...out, off: true };
   try {
     const subs = await q.query<{ id: string; endpoint: string; p256dh: string; auth: string }>(`
       SELECT w.id, w.endpoint, w.p256dh, w.auth FROM web_push_subscriptions w JOIN sessions s ON s.id = w.session_id
        WHERE w.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`, [employeeId]);
+    out.devices = subs.rows.length;
     await Promise.all(subs.rows.map(async (s) => {
       try {
         const payload = Buffer.from(JSON.stringify({ id: m.id, type: m.type, title: m.title, body: m.body, entityId: m.entityId ?? '', ring: m.ring === true }));
@@ -92,8 +94,10 @@ export async function webPushTo(q: Q, employeeId: string, m: { id: string; type:
           body: encryptPayload(payload, Buffer.from(s.p256dh, 'base64url'), Buffer.from(s.auth, 'base64url')),
           signal: AbortSignal.timeout(5000),
         });
-        if (r.status === 404 || r.status === 410) await q.query(`DELETE FROM web_push_subscriptions WHERE id = $1`, [s.id]);
-      } catch { /* one browser unreachable: the others still get it */ }
+        if (r.ok) out.sent++; else out.failed++;
+        if (r.status === 404 || r.status === 410) { await q.query(`DELETE FROM web_push_subscriptions WHERE id = $1`, [s.id]); out.removed++; }
+      } catch { out.failed++; /* one browser unreachable: the others still get it */ }
     }));
   } catch { /* best-effort */ }
+  return out;
 }

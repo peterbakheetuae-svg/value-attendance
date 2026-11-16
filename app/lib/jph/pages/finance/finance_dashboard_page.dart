@@ -22,7 +22,9 @@ class FinanceDashboardPage extends StatefulWidget {
 String _ym(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
 class _FinanceDashboardPageState extends State<FinanceDashboardPage> {
-  String _tab = 'dashboard';
+  /// «لوحة المالية» and «مؤشرات الموظفين» each on its own permission (the server checks the same)
+  bool get _canDash => ApiService.can('finance.dashboard_view');
+  late String _tab = _canDash ? 'dashboard' : 'insights';
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
 
   bool get _canInsights => ApiService.can('cash.office') || ApiService.can('report.read_all');
@@ -49,7 +51,7 @@ class _FinanceDashboardPageState extends State<FinanceDashboardPage> {
                       icon: Icon(Icons.event_rounded, color: JphUi.primary(isDark), size: 18),
                       label: Text(JphUi.monthAr(_ym(_month)), style: TextStyle(color: JphUi.primary(isDark), fontWeight: FontWeight.w800)),
                     )),
-                if (_canInsights)
+                if (_canInsights && _canDash)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: cashSegmented(isDark, {'dashboard': 'الأرقام', 'insights': 'مؤشرات الموظفين'}, _tab, (v) => setState(() => _tab = v)),
@@ -59,7 +61,9 @@ class _FinanceDashboardPageState extends State<FinanceDashboardPage> {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1000),
-                      child: _tab == 'dashboard' || !_canInsights
+                      child: !_canDash && !_canInsights
+                          ? const Center(child: Text('مش متاح لحسابك'))
+                          : (_tab == 'dashboard' && _canDash) || !_canInsights
                           ? _DashboardTab(key: ValueKey('d${_ym(_month)}'), isDark: isDark, month: _ym(_month))
                           : _InsightsTab(key: ValueKey('i${_ym(_month)}'), isDark: isDark, month: _ym(_month)),
                     ),

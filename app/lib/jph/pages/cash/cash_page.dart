@@ -93,7 +93,7 @@ class _CashPageState extends State<CashPage> {
       final tabs = <(String, String, IconData)>[
         ('summary', 'الأرصدة', Icons.account_balance_wallet_rounded),
         // ضخ أموال: المالك / المدير العام only
-        if (_can['office'] == true) ('injections', 'ضخ أموال', Icons.add_card_rounded),
+        if (_can['ownerFunds'] == true) ('injections', 'ضخ أموال', Icons.add_card_rounded),
         if (!widget.embedded) ('ledger', 'الحركات', Icons.receipt_long_rounded),
         ('transfers', 'التحويلات', Icons.swap_horiz_rounded),
         ('expenses', 'المصروفات', Icons.shopping_bag_rounded),
@@ -704,7 +704,7 @@ class _TransfersTabState extends State<_TransfersTab> {
 
   Future<void> _load() async {
     final r = await _get('/cash/transfers');
-    final m = widget.can['office'] == true ? await _get('/cash/bank-moves') : const <String, dynamic>{};
+    final m = widget.can['bankView'] == true ? await _get('/cash/bank-moves') : const <String, dynamic>{};
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -746,7 +746,7 @@ class _TransfersTabState extends State<_TransfersTab> {
               ),
             ],
           ]),
-        if (widget.can['office'] == true) ...[
+        if (widget.can['bankTransfer'] == true) ...[
           const SizedBox(height: 10),
           SizedBox(
             height: 54,
@@ -1070,17 +1070,17 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                 if ('${x['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${x['rejectReason']}', Ar.red),
                 if ('${x['reverseReason'] ?? ''}'.isNotEmpty) JphUi.chip('عكس: ${x['reverseReason']}', Ar.grey),
               ]),
-              if (office)
+              if (office || widget.can['approve'] == true || widget.can['reverse'] == true)
                 Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
-                  if (x['status'] == 'pending_approval') ...[
+                  if (x['status'] == 'pending_approval' && widget.can['approve'] == true) ...[
                     TextButton(onPressed: () => _withReason('سبب الرفض', '/cash/expenses/${x['id']}/decision', {'decision': 'reject'}, 'اترفض'),
                         child: const Text('رفض', style: TextStyle(color: Ar.red))),
                     ElevatedButton(onPressed: () => _act('/cash/expenses/${x['id']}/decision', {'decision': 'approve'}, 'اتوافق ✅'),
                         style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white), child: const Text('موافقة')),
                   ],
-                  if (x['status'] == 'posted' && x['reviewedAt'] == null)
+                  if (x['status'] == 'posted' && x['reviewedAt'] == null && widget.can['approve'] == true)
                     TextButton(onPressed: () => _act('/cash/expenses/${x['id']}/review', {}, 'اتراجع ✅'), child: const Text('تمت المراجعة')),
-                  if (x['status'] == 'posted')
+                  if (x['status'] == 'posted' && widget.can['reverse'] == true)
                     TextButton(onPressed: () => _withReason('عكس المصروف', '/cash/expenses/${x['id']}/reverse', {}, 'اتعكس'),
                         child: const Text('عكس', style: TextStyle(color: Ar.red))),
                 ]),
@@ -1110,19 +1110,26 @@ Widget _receiptActions(BuildContext context, bool isDark, Map<String, dynamic> x
           ]),
         ),
       );
+  // printing, the photo and adding / changing it: each on its own permission (the server checks the photo itself too)
+  final print = ApiService.can('cash.receipt_print'), view = hasPhoto && ApiService.can('cash.attachment_view'),
+      upload = ApiService.can('cash.attachment_upload');
+  if (!print && !view && !upload) return const SizedBox.shrink();
   return Padding(
     padding: const EdgeInsets.only(top: 6),
     child: Row(children: [
-      btn(Icons.print_rounded, 'طباعة إيصال',
-          () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: voucher ?? x)))),
-      if (hasPhoto) ...[
-        const SizedBox(width: 6),
+      if (print)
+        btn(Icons.print_rounded, 'طباعة إيصال',
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: voucher ?? x)))),
+      if (view) ...[
+        if (print) const SizedBox(width: 6),
         btn(Icons.image_rounded, 'صورة الإيصال', () => _viewReceiptPhoto(context, path), color: Ar.green),
       ],
-      const SizedBox(width: 6),
-      btn(Icons.add_a_photo_rounded, hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال', () async {
-        if (await _uploadReceiptPhoto(context, path)) await reload();
-      }),
+      if (upload) ...[
+        if (print || view) const SizedBox(width: 6),
+        btn(Icons.add_a_photo_rounded, hasPhoto ? 'تغيير الصورة' : 'إضافة صورة الإيصال', () async {
+          if (await _uploadReceiptPhoto(context, path)) await reload();
+        }),
+      ],
     ]),
   );
 }
@@ -1323,7 +1330,7 @@ class _FixedExpensesState extends State<_FixedExpenses> {
       await _load();
       await widget.onChanged();
       final e = r['expense'];
-      if (e is Map && mounted) {
+      if (e is Map && mounted && ApiService.can('cash.receipt_print')) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentVoucherPage(expense: e.cast<String, dynamic>())));
       }
     }
@@ -1604,7 +1611,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
               ]),
               if (x['status'] == 'reversed')
                 Padding(padding: const EdgeInsets.only(top: 6), child: JphUi.chip('اتعكس: ${x['reverseReason'] ?? ''}', Ar.grey)),
-              if (widget.can['office'] == true && x['status'] == 'posted')
+              if (widget.can['reverse'] == true && x['status'] == 'posted')
                 Align(
                   alignment: AlignmentDirectional.centerEnd,
                   child: TextButton(

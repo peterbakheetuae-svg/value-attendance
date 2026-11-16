@@ -50,19 +50,28 @@ export const RING_TYPES = new Set([
   'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self',
 ]);
 
-/** Push one notification to every live device of an employee. Never throws (push is best-effort). */
-export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }) {
-  await Promise.all([fcmTo(q, employeeId, m), webPushTo(q, employeeId, { ...m, ring: RING_TYPES.has(m.type) })]);
+/** What a push did, device by device (diagnostics: dispatch ≠ delivery ≠ sound). */
+export interface PushResult {
+  fcm: { devices: number; sent: number; failed: number; removed: number; off?: boolean; error?: string };
+  web: { devices: number; sent: number; failed: number; removed: number; off?: boolean };
 }
 
-async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }) {
+/** Push one notification to every live device of an employee. Never throws (push is best-effort). */
+export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }): Promise<PushResult> {
+  const [fcm, web] = await Promise.all([fcmTo(q, employeeId, m), webPushTo(q, employeeId, { ...m, ring: RING_TYPES.has(m.type) })]);
+  return { fcm, web };
+}
+
+async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }): Promise<PushResult['fcm']> {
+  const out: PushResult['fcm'] = { devices: 0, sent: 0, failed: 0, removed: 0 };
   const a = sa();
-  if (!a) return;
+  if (!a) return { ...out, off: true };
   try {
     const rows = await q.query<{ token: string }>(`
       SELECT p.token FROM push_tokens p JOIN sessions s ON s.id = p.session_id
        WHERE p.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`, [employeeId]);
-    if (!rows.rows.length) return;
+    out.devices = rows.rows.length;
+    if (!rows.rows.length) return out;
     const bearer = await accessToken(a);
     await Promise.all(rows.rows.map(async ({ token }) => {
       const r = await fetch(`https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`, {
@@ -76,13 +85,21 @@ async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; ti
               data: { id: m.id, type: m.type, entityId: m.entityId ?? '' },
               android: { priority: 'HIGH', notification: { channel_id: 'general_channel', default_sound: true, default_vibrate_timings: true } } } }),
         signal: AbortSignal.timeout(5000),
-      });
-      if (r.status === 404 || r.status === 400) {
+      }).catch(() => null);
+      if (r?.ok) { out.sent++; return; }
+      out.failed++;
+      if (r && (r.status === 404 || r.status === 400)) {
         const t = await r.text();
-        if (/UNREGISTERED|INVALID_ARGUMENT/.test(t)) await q.query(`DELETE FROM push_tokens WHERE token = $1`, [token]);
+        // only a token Firebase says is dead goes (a bad message must never cost a working phone)
+        if (/UNREGISTERED/.test(t) || (r.status === 400 && /registration token is not a valid FCM registration token/i.test(t))) {
+          await q.query(`DELETE FROM push_tokens WHERE token = $1`, [token]);
+          out.removed++;
+        }
       }
     }));
-  } catch {
+  } catch (e) {
     // network / auth problem: the in-app alert still shows on the next poll
+    out.error = e instanceof Error ? e.message.slice(0, 80) : 'error';
   }
+  return out;
 }

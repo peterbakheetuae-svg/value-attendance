@@ -801,6 +801,8 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
       final can = ((_r['can'] as Map?) ?? const {});
       final schedule = cashList(_r, 'schedule');
       final receipts = cashList(_r, 'receipts');
+      // a team member's sale: the record only (the server sends no money, schedule or receipts)
+      final money = _r['level'] != 'team';
       final refunds = cashList(_r, 'refunds');
       return AppBackground(
         child: Directionality(
@@ -831,7 +833,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                           Expanded(
                                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                               Text('${sale['projectName']} — ${sale['unitNo']}', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                                              Text('${sale['buyerName']} • ${sale['buyerPhone']} • بيع #${sale['refNo']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                                              Text([sale['buyerName'], if ('${sale['buyerPhone'] ?? ''}'.isNotEmpty) sale['buyerPhone'], 'بيع #${sale['refNo']}'].join(' • '), style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                                             ]),
                                           ),
                                           JphUi.chip((_stageAr[sale['stage']] ?? ('${sale['stage']}', Ar.grey)).$1, (_stageAr[sale['stage']] ?? ('', Ar.grey)).$2),
@@ -839,10 +841,10 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                         const SizedBox(height: 12),
                                         Wrap(spacing: 10, runSpacing: 10, children: [
                                           SizedBox(width: 150, child: JphUi.stat(isDark, 'السعر', JphUi.money(sale['totalPrice']), Icons.sell_rounded, Ar.accent)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المقدم المدفوع', '${JphUi.money(sale['downPaid'])} / ${JphUi.money(sale['downPayment'])}', Icons.payments_rounded, Ar.green)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'المحصّل', JphUi.money(sale['collected']), Icons.check_circle_rounded, Ar.green)),
-                                          SizedBox(width: 150, child: JphUi.stat(isDark, 'الباقي', JphUi.money(sale['remaining']), Icons.hourglass_bottom_rounded, Ar.amber)),
-                                          if (sale['status'] == 'cancelled')
+                                          if (money) SizedBox(width: 150, child: JphUi.stat(isDark, 'المقدم المدفوع', '${JphUi.money(sale['downPaid'])} / ${JphUi.money(sale['downPayment'])}', Icons.payments_rounded, Ar.green)),
+                                          if (money) SizedBox(width: 150, child: JphUi.stat(isDark, 'المحصّل', JphUi.money(sale['collected']), Icons.check_circle_rounded, Ar.green)),
+                                          if (money) SizedBox(width: 150, child: JphUi.stat(isDark, 'الباقي', JphUi.money(sale['remaining']), Icons.hourglass_bottom_rounded, Ar.amber)),
+                                          if (money && sale['status'] == 'cancelled')
                                             SizedBox(width: 150, child: JphUi.stat(isDark, 'مستحق استرداد', JphUi.money(sale['refundDue']), Icons.undo_rounded, Ar.red)),
                                         ]),
                                         if (sale['status'] == 'cancelled')
@@ -871,6 +873,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                         ]),
                                       ]),
                                     ),
+                                    if (money) ...[
                                     const SizedBox(height: 16),
                                     Text('جدول السداد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                                     const SizedBox(height: 8),
@@ -914,6 +917,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                       Text('الاسترداد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                                       for (final x in refunds)
                                         ListTile(title: Text('#${x['refNo']} • ${JphUi.date(x['at'])}'), trailing: CountUpText(JphUi.money(x['amount']), style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w900))),
+                                    ],
                                     ],
                                   ]),
                                 ),

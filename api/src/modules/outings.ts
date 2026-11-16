@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, readableIds, type Actor } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { geofence } from './attendance.ts';
@@ -137,10 +137,16 @@ export const outingsModule: Module = (r, { db, clock }) => {
     const now = clock();
     const vals: unknown[] = []; const where: string[] = [];
     const mine = req.query.get('scope') === 'mine';
-    if (mine || (!has(a, 'request.approve_hr') && !has(a, 'request.read_all') && !has(a, 'request.approve_manager'))) {
-      vals.push(a.id); where.push(`o.employee_id = $${vals.length}`);
-    } else if (!has(a, 'request.approve_hr') && !has(a, 'request.read_all')) {
-      vals.push(a.id); where.push(`(o.manager_id = $${vals.length} OR o.employee_id = $${vals.length})`);
+    // who may see whose outings: his own; the request reading scope (request.read_all / read_team); the ones routed to
+    // him as the direct manager; and, for HR approvers, the ones waiting for a decision (to decide on them) — approving
+    // does not open anyone's history
+    if (mine) { vals.push(a.id); where.push(`o.employee_id = $${vals.length}`); }
+    else {
+      const ids = await readableIds(db, a, 'request');
+      if (ids) {
+        vals.push(ids); const pi = vals.length; vals.push(a.id); const pa = vals.length;
+        where.push(`(o.employee_id = ANY($${pi}::uuid[]) OR o.manager_id = $${pa}${has(a, 'request.approve_hr') ? ` OR o.status = 'pending'` : ''})`);
+      }
     }
     const st = req.query.get('status');
     if (st === 'awaiting') { where.push(`o.status = 'pending'`); vals.push(a.id); where.push(`o.employee_id <> $${vals.length}`); }

@@ -4,7 +4,7 @@ import { local } from '../lib/time.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, type Actor, can } from '../auth/context.ts';
 import { notify } from './notify.ts';
 
 /**
@@ -101,7 +101,12 @@ export async function cashSummary(q: Q, a: Actor) {
   }
   const s = await one(q, `SELECT expense_approval_threshold FROM company_settings LIMIT 1`);
   out.expenseApprovalThreshold = Number(s?.expense_approval_threshold ?? 1000);
-  out.can = { office: canOffice(a), hrView: canHrView(a), hrOperate: canHrOperate(a), hrDesk: hrDesk(a), settings: has(a, 'cash.settings') };
+  out.can = { office: canOffice(a), hrView: canHrView(a), hrOperate: canHrOperate(a), hrDesk: hrDesk(a), settings: has(a, 'cash.settings'),
+    // each financial action on its own permission (the endpoints check the same)
+    approve: can(a, 'cash.approve', 'cash.office'), reverse: can(a, 'cash.reverse', 'cash.office'),
+    bankView: canOffice(a) && can(a, 'cash.bank_view', 'cash.office'), bankTransfer: canOffice(a) && can(a, 'cash.bank_transfer', 'cash.office'),
+    ownerFunds: can(a, 'cash.owner_funds', 'cash.office'),
+    print: can(a, 'cash.receipt_print', null), attachmentView: canAttachmentView(a), attachmentUpload: canAttachmentUpload(a) };
   return out;
 }
 
@@ -225,6 +230,9 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     Object.assign(out, await salesMoneyOverview(q, from, to));
     const commissions = (out.income as any).commissions;
     out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
+    // the owners' trust is the exclusive projects' money; the office's commission income / split / net its own permission
+    if (!can(a, 'exclusive.view_finance', 'cash.office')) delete (out.income as any).trust;
+    if (!can(a, 'finance.company_income', 'cash.office')) { delete (out.income as any).commissions; delete out.commissionSplit; delete out.result; }
   }
   return out;
 }
@@ -309,6 +317,7 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
   const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
   const ref = clientRef(b);
   const att = attachment(b);
+  if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
   const occurred = when(b, 'occurredAt', now);
   let box: Box, recipientId: string;
   if (recipient === 'hr') {
@@ -358,6 +367,15 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   }
   return { id: row.id, duplicate: false };
 }
+
+/** the signed receipts' photos and the printed receipt: permissions of their own (open before 066, as today) */
+export const canAttachmentView = (a: Actor) => can(a, 'cash.attachment_view', null);
+export const canAttachmentUpload = (a: Actor) => can(a, 'cash.attachment_upload', null);
+/** a receipt as this person may see it: the payer's phone with «بيانات العملاء» only */
+export const receiptFor = (a: Actor) => (x: any) => {
+  const r = shapeReceipt(x);
+  return can(a, 'exclusive.view_client', null) ? r : { ...r, payerPhone: null };
+};
 
 export function shapeReceipt(x: any) {
   return {
@@ -410,7 +428,7 @@ function shapeTransfer(x: any, a: Actor, desk: boolean) {
     flow: incoming ? 'in' : 'out',
     // what this person can do next
     can: {
-      decide: toHr && x.status === 'requested' && office && x.requested_by !== a.id,
+      decide: toHr && x.status === 'requested' && office && can(a, 'cash.approve', 'cash.office') && x.requested_by !== a.id,
       execute: (toHr && x.status === 'approved' && office) || (!toHr && x.status === 'requested' && (hrDesk(a) || (!desk && canHrOperate(a)))),
       // only the side the money goes TO confirms it, never the one who handed it over
       receive: x.status === 'executed' && x.executed_by !== a.id && (toHr ? hrSide && !(office && desk) : office),
@@ -444,7 +462,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   /** ضخ أموال: every injection + each owner's share (نسبة الملكية), what he injected and his part of the net profit. */
   r.get('/cash/injections', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('صفحة الضخ للمالك / المدير العام بس');
+    if (!can(a, 'cash.owner_funds', 'cash.office')) throw forbidden('صفحة الضخ للمالك / المدير العام بس');
     const ok1 = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
     const from = ok1(req.query.get('from')), to = ok1(req.query.get('to'));
     const vals: unknown[] = [];
@@ -495,7 +513,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   /** مسحوبات الملاك: he asks, another owner approves (/cash/expenses/:id/decision), the office cashbox pays. */
   r.post('/cash/owner-draws', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.owner_funds', 'cash.office')) throw forbidden();
     const b = obj(req.body);
     const amount = money(b);
     const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
@@ -532,7 +550,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   /** نسبة الملكية of each owner (out of 100). */
   r.put('/cash/owners', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.owner_funds', 'cash.office')) throw forbidden();
     const b = obj(req.body);
     const list = Array.isArray(b.owners) ? b.owners : [];
     const parsed = list.map((x: any) => ({ id: String(x?.employeeId ?? ''), pct: Number(x?.pct) }));
@@ -552,7 +570,7 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.post('/cash/injections', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('الضخ للمالك / المدير العام بس');
+    if (!can(a, 'cash.owner_funds', 'cash.office')) throw forbidden('الضخ للمالك / المدير العام بس');
     const b = obj(req.body);
     const target = oneOf(b, 'target', ['office', 'bank'] as const)! as 'office' | 'hr' | 'bank';
     const amount = money(b);
@@ -679,7 +697,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
     const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
-    return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
+    return ok({ receipt: receiptFor(a)(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
   });
 
   r.get('/cash/receipts', async (req) => {
@@ -695,17 +713,18 @@ export const cashModule: Module = (r, { db, clock }) => {
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(r.payer_name) LIKE $${vals.length} OR lower(r.purpose) LIKE $${vals.length} OR r.ref_no::text LIKE $${vals.length})`); }
     const rows = await db.query(`${RECEIPT_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
-    return ok({ currency: 'EGP', receipts: rows.rows.map(shapeReceipt) });
+    return ok({ currency: 'EGP', receipts: rows.rows.map(receiptFor(a)) });
   });
 
   r.post('/cash/receipts/:id/reverse', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('Only the manager or the owner can reverse a receipt');
+    if (!can(a, 'cash.reverse', 'cash.office')) throw forbidden('Only the manager or the owner can reverse a receipt');
     if (!isUuid(req.params.id)) throw notFound();
     const reason = str(obj(req.body), 'reason', { min: 3, max: 500 })!;
     await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM cash_receipts WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
+      if (!canSee(a, x.cashbox)) throw notFound(); // only a receipt of a box he may see
       if (x.status !== 'posted') throw conflict('Already reversed');
       await q.query(`UPDATE cash_receipts SET status = 'reversed', reversed_by = $2, reversed_at = now(), reverse_reason = $3 WHERE id = $1`,
         [x.id, a.id, reason]);
@@ -727,6 +746,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
     const ref = clientRef(b);
     const att = attachment(b);
+    if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
     const occurred = when(b, 'occurredAt', clock());
     const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
@@ -886,7 +906,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const x = await one(q, `SELECT id, cashbox, recorded_by, attachment IS NOT NULL AS has FROM cash_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
-      if (!canBox(a, x.cashbox)) throw forbidden();
+      if (!canBox(a, x.cashbox) || !canAttachmentUpload(a)) throw forbidden();
       await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
       await audit(q, a.id, 'cash.expense.attachment', 'cash_expense', x.id, undefined, { replaced: x.has });
     });
@@ -898,14 +918,14 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const x = await one(db, `SELECT cashbox, attachment FROM cash_expenses WHERE id = $1`, [req.params.id]);
     if (!x || !x.attachment) throw notFound();
-    if (!canSee(a, x.cashbox)) throw forbidden();
+    if (!canSee(a, x.cashbox) || !canAttachmentView(a)) throw forbidden();
     return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
   });
 
   // ------------------------------------------------------------------ نقل من البنك إلى خزنة المكتب
   r.get('/cash/bank-moves', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.bank_view', 'cash.office') || !canOffice(a)) throw forbidden();
     const rows = await db.query(`SELECT m.*, e.full_name AS by_name FROM cash_bank_moves m JOIN employees e ON e.id = m.created_by
                                   ORDER BY m.created_at DESC LIMIT 200`);
     return ok({ moves: rows.rows.map((m) => ({ id: m.id, refNo: Number(m.ref_no), cashbox: m.cashbox, direction: m.direction,
@@ -915,7 +935,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   /** بين البنك والنقدي في خزنة المكتب: نقل من البنك للخزنة، أو توريد كاش للبنك — the box's total stays the same. */
   r.post('/cash/bank-moves', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('نقل الفلوس بين البنك والخزنة للمالك / المدير العام');
+    if (!can(a, 'cash.bank_transfer', 'cash.office') || !canOffice(a)) throw forbidden('نقل الفلوس بين البنك والخزنة للمالك / المدير العام');
     const b = obj(req.body);
     const direction = oneOf(b, 'direction', ['bank_to_cash', 'cash_to_bank'] as const, true) ?? 'bank_to_cash';
     const amount = money(b);
@@ -949,7 +969,7 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.post('/cash/expenses/:id/decision', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.approve', 'cash.office')) throw forbidden();
     const b = obj(req.body);
     const decision = oneOf(b, 'decision', ['approve', 'reject'] as const)!;
     const reason = decision === 'reject' ? str(b, 'reason', { min: 3, max: 500 })! : null;
@@ -972,7 +992,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   /** The manager / owner marks an expense as looked at (review after payment). */
   r.post('/cash/expenses/:id/review', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.approve', 'cash.office')) throw forbidden();
     await expenseStep(req.params.id, a, async (q, x) => {
       if (x.reviewed_at) return;
       await q.query(`UPDATE cash_expenses SET reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [x.id, a.id]);
@@ -983,7 +1003,7 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.post('/cash/expenses/:id/reverse', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden('Only the manager or the owner can reverse an expense');
+    if (!can(a, 'cash.reverse', 'cash.office')) throw forbidden('Only the manager or the owner can reverse an expense');
     const reason = str(obj(req.body), 'reason', { min: 3, max: 500 })!;
     await expenseStep(req.params.id, a, async (q, x) => {
       if (x.status !== 'posted') throw conflict('Only a posted expense can be reversed');
@@ -999,23 +1019,27 @@ export const cashModule: Module = (r, { db, clock }) => {
     const t = req.params.kind === 'receipt' ? 'cash_receipts' : 'cash_expenses';
     const x = await one(db, `SELECT cashbox, recorded_by, attachment FROM ${t} WHERE id = $1`, [req.params.id]);
     if (!x || !x.attachment) throw notFound();
-    if (!canSee(a, x.cashbox) && x.recorded_by !== a.id) throw forbidden();
+    // the one who recorded it, or who sees that cashbox and its receipts' photos
+    if (x.recorded_by !== a.id && !(canSee(a, x.cashbox) && canAttachmentView(a))) throw forbidden();
     return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
   });
 
   // ------------------------------------------------------------------ صورة الإيصال الموقّع: transfers and payouts
   async function attachmentAccess(a: Actor, entity: string, id: string, write: boolean) {
     if (!['transfer', 'payout'].includes(entity) || !isUuid(id)) throw notFound();
+    const photo = write ? canAttachmentUpload(a) : canAttachmentView(a);
     if (entity === 'transfer') {
       if (!(await one(db, `SELECT 1 FROM cash_transfers WHERE id = $1`, [id]))) throw notFound();
       if (!canHrView(a) && !canOffice(a)) throw forbidden();
       if (write && !canHrOperate(a) && !canOffice(a)) throw forbidden();
+      if (!photo) throw forbidden();
       return;
     }
     const p = await one(db, `SELECT employee_id, created_by FROM payouts WHERE id = $1`, [id]);
     if (!p) throw notFound();
     const staff = canHrOperate(a) || canOffice(a) || has(a, 'finance.disburse');
-    if (!staff && !(p.employee_id === a.id && !write)) throw forbidden();
+    // the employee always sees the receipt of what he was paid; the staff with the receipts' photos permission
+    if (!(staff && photo) && !(p.employee_id === a.id && !write)) throw forbidden();
   }
   r.get('/cash/attachments/:entity/:id', async (req) => {
     const a = await authenticate(db, req);
@@ -1102,7 +1126,7 @@ export const cashModule: Module = (r, { db, clock }) => {
 
   r.post('/cash/transfers/:id/decision', async (req) => {
     const a = await authenticate(db, req);
-    if (!canOffice(a)) throw forbidden();
+    if (!can(a, 'cash.approve', 'cash.office') || !canOffice(a)) throw forbidden();
     const b = obj(req.body);
     const decision = oneOf(b, 'decision', ['approve', 'reject'] as const)!;
     const reason = decision === 'reject' ? str(b, 'reason', { min: 3, max: 500 })! : null;
@@ -1180,7 +1204,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   r.post('/cash/transfers/:id/cancel', async (req) => {
     const a = await authenticate(db, req);
     await transferStep(req.params.id, async (q, x) => {
-      if (x.requested_by !== a.id) throw forbidden();
+      if (x.requested_by !== a.id || (!canHrOperate(a) && !canOffice(a))) throw forbidden();
       if (!['requested', 'approved'].includes(x.status)) throw conflict('This transfer can no longer be cancelled');
       await q.query(`UPDATE cash_transfers SET status = 'cancelled' WHERE id = $1`, [x.id]);
       await audit(q, a.id, 'cash.transfer.cancel', 'cash_transfer', x.id, { status: x.status }, { status: 'cancelled' });

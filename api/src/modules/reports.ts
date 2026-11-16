@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound } from '../http/errors.ts';
 import { monthParam, isUuid } from '../http/validate.ts';
-import { assertCanRead, authenticate, has, readableIds, teamMemberIds, type Actor } from '../auth/context.ts';
+import { assertCanRead, authenticate, has, readableIds, requireCan, teamMemberIds, type Actor } from '../auth/context.ts';
 import { addMonths, local } from '../lib/time.ts';
 import { workbook, XLSX_MIME, type Cell } from '../lib/xlsx.ts';
 import { arrearsBefore, computePayroll, loadRules } from './payroll-calc.ts';
@@ -213,6 +213,7 @@ export const reportsModule: Module = (r, { db, clock }) => {
 
   r.get('/reports/monthly.xlsx', async (req) => {
     const a = await authenticate(db, req);
+    requireCan(a, 'report.export', null);
     const period = monthParam(req.query.get('month'));
     const { ids, mode } = await reportScope(db, a);
     if (mode === 'payroll') throw forbidden('Use the payroll export');
@@ -246,6 +247,7 @@ export const reportsModule: Module = (r, { db, clock }) => {
 
   r.get('/reports/payroll.xlsx', async (req) => {
     const a = await authenticate(db, req);
+    requireCan(a, 'report.export', null);
     if (!has(a, 'report.payroll') && !has(a, 'report.read_all')) throw forbidden();
     const period = monthParam(req.query.get('month'));
     const list = await filteredEmployees(db, a, req.query, null);

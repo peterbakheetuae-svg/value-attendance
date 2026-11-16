@@ -96,7 +96,7 @@ class _NewFormState extends State<_NewForm> {
   final Set<String> _types = {};
   bool _saving = false;
   // HR / the management may pick the sales person; an employee is always the sales person himself
-  bool get _canPick => ApiService.can('documents.manage') || ApiService.can('employee.manage');
+  bool get _canPick => ApiService.can('documents.manage') || ApiService.can('employee.edit');
   List<Map<String, dynamic>> _employees = [];
   String? _salesId;
   String _salesName = JphBridge.session.name;

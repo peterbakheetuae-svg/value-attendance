@@ -2,6 +2,13 @@ name: App — test, Web + Android, deploy to Hostinger (jaurea.com/valunivo)
 on:
   push: { branches: [main], paths: ['app/**', '.github/workflows/app.yml'] }
   workflow_dispatch:
+    inputs:
+      # Publish an APK that was ALREADY built and signed by an earlier run of this workflow (no rebuild):
+      # the phones' update file (android/latest.json) then names it. Empty = a normal build.
+      apk_from_run: { description: 'run id whose value-attendance-apk artifact to publish (empty = normal build)', required: false, default: '' }
+      apk_version: { description: 'that APK version, e.g. 1.0.118', required: false, default: '' }
+      apk_sha256: { description: 'expected SHA-256 of that APK', required: false, default: '' }
+      web_from_run: { description: 'run id whose deploy-out (web.zip, the web that is live now) goes with it', required: false, default: '' }
 permissions:
   contents: write   # keeps a copy of each build as a release (backup); the live app and its updates are on Hostinger
 concurrency: { group: app-build, cancel-in-progress: true }
@@ -20,6 +27,7 @@ env:
     --dart-define=FIREBASE_PROJECT_ID=bustling-syntax-480805-k4
 jobs:
   build:
+    if: ${{ !inputs.apk_from_run }}
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: app } }
     steps:
@@ -115,7 +123,8 @@ jobs:
       - name: Android build wanted? ([apk] in the commit's first line, or a manual run)
         env: { COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
-          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && W=1
+          # a manual run builds the APK on main only (the tracking-controls branch run is web-only)
+          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" = "refs/heads/main" ] && W=1
           printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && W=1
           echo "BUILD_APK=$W" >> "$GITHUB_ENV"; echo "build APK: $W"
       - name: Build Android APK
@@ -160,8 +169,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: env.BUILD_APK == '1'
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
+      - name: Web only from the tracking-controls branch (no Android update, no release)
+        if: github.ref == 'refs/heads/feature/tracking-controls'
+        run: |
+          (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
+          mkdir -p ../deploy-out && cp value-attendance-web.zip ../deploy-out/web.zip
+          test ! -e ../deploy-out/android/latest.json
+          ls -la ../deploy-out
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/tracking-controls'
         with: { name: deploy-out, path: deploy-out, retention-days: 7 }
 
   # The live app: https://jaurea.com/valunivo/ (+ /android/ for phone updates; the old /value-attendance/ redirects there and keeps its /android/ for phones on older versions). Sent over SSH (encrypted,
@@ -171,7 +187,7 @@ jobs:
   # or HOSTINGER_SSH_PASSWORD. Without it the step is skipped and the build is copied over by hand.
   hostinger:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/tracking-controls'
     runs-on: ubuntu-latest
     env:
       SSH_HOST: 82.198.227.7
@@ -233,3 +249,92 @@ jobs:
               curl -s --max-time 30 "https://jaurea.com/$d/android/latest.json" | tee /dev/stderr | grep -q "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' out/android/latest.json)" || { echo "::error::$d/android/latest.json not updated"; exit 1; }
             done
           fi
+
+  # Android update from an APK built earlier (no rebuild): checked (SHA-256, version, the same signing certificate as the
+  # APK phones have now), then sent with the web that is already live through the same SSH + remote-deploy.sh as above.
+  android-publish:
+    if: ${{ inputs.apk_from_run && github.ref == 'refs/heads/feature/tracking-controls' }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read, actions: read }
+    env:
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+      V: ${{ inputs.apk_version }}
+      WANT_SHA: ${{ inputs.apk_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: app/deploy/hostinger }
+      - uses: actions/download-artifact@v4
+        with: { name: value-attendance-apk, path: apk, run-id: '${{ inputs.apk_from_run }}', github-token: '${{ github.token }}' }
+      - uses: actions/download-artifact@v4
+        with: { name: deploy-out, path: out, run-id: '${{ inputs.web_from_run }}', github-token: '${{ github.token }}' }
+      - name: Check the APK (SHA-256, version, package, signing certificate = the published one)
+        run: |
+          set -euo pipefail
+          [[ "$V" =~ ^1\.0\.([0-9]+)$ ]] || { echo "::error::bad version $V"; exit 1; }
+          B=${BASH_REMATCH[1]}
+          SHA=$(sha256sum apk/app-release.apk | cut -d' ' -f1); echo "sha256 $SHA"
+          [ "$SHA" = "$WANT_SHA" ] || { echo "::error::SHA-256 differs"; exit 1; }
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging apk/app-release.apk | head -1 | tee badging.txt
+          grep -q "name='com.jph.valueattendance" badging.txt || grep -q "package: name='" badging.txt
+          grep -q "versionCode='$B'" badging.txt || { echo "::error::versionCode is not $B"; exit 1; }
+          grep -q "versionName='$V'" badging.txt || { echo "::error::versionName is not $V"; exit 1; }
+          PUB=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/android/latest.json?t=$(date +%s)")
+          echo "published now: $PUB"
+          OLDAPK=$(printf '%s' "$PUB" | sed -n 's/.*"apk" *: *"\([^"]*\)".*/\1/p'); OLDB=$(printf '%s' "$PUB" | sed -n 's/.*"build" *: *\([0-9]*\).*/\1/p')
+          [ "$B" -gt "$OLDB" ] || { echo "::error::$B is not newer than the published $OLDB"; exit 1; }
+          curl -fsS --max-time 120 -o old.apk "https://jaurea.com/valunivo/android/$OLDAPK"
+          "$BT/apksigner" verify --print-certs apk/app-release.apk | grep 'SHA-256 digest' | tee new.cert
+          "$BT/apksigner" verify --print-certs old.apk | grep 'SHA-256 digest' | tee old.cert
+          [ -s new.cert ] && cmp new.cert old.cert || { echo "::error::signing certificate differs from the published APK"; exit 1; }
+          mkdir -p out/android
+          cp apk/app-release.apk "out/android/value-attendance-$V.apk"
+          SIZE=$(stat -c%s apk/app-release.apk)
+          printf '{"version":"%s","build":%s,"apk":"value-attendance-%s.apk","size":%s,"sha256":"%s"}\n' "$V" "$B" "$V" "$SIZE" "$SHA" > out/android/latest.json
+          cat out/android/latest.json
+          test -s out/web.zip
+          ls -la out out/android
+      - name: Copy to the server and deploy (same as the hostinger job)
+        run: |
+          [ -n "$SSH_KEY" ] || [ -n "$SSH_PASS" ] || { echo "::error::no Hostinger secret"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat > ~/.ssh/known_hosts <<'KH'
+          [82.198.227.7]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINIEVbKu9K7AVrGNwujYEUbrw0wvECMboXFOKfpiiw3h
+          [82.198.227.7]:65002 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCHeIP4sUl5WiCE5CU68sEpg0WFGfq/jyVGW0RqVzi3v56HYIJhINFOZvD3XxttLN/k7t2ZEjA52H73cegg6QGY=
+          KH
+          sed -i 's/^ *//' ~/.ssh/known_hosts
+          OPTS="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -P $SSH_PORT"
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+            SCP="scp $OPTS -i $HOME/.ssh/deploy"; SSH="ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT -i $HOME/.ssh/deploy"
+          else
+            sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y sshpass >/dev/null
+            export SSHPASS="$SSH_PASS"
+            SCP="sshpass -e scp $OPTS"; SSH="sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT"
+          fi
+          $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging && mkdir -p ~/va-staging/android'
+          $SCP out/web.zip "$SSH_USER@$SSH_HOST:va-staging/web.zip"
+          $SCP out/android/* "$SSH_USER@$SSH_HOST:va-staging/android/"
+          $SSH "$SSH_USER@$SSH_HOST" 'bash -s' < app/deploy/hostinger/remote-deploy.sh
+      - name: Check (WordPress unchanged, the update is served, same file)
+        run: |
+          set -eu  # no pipefail: grep -q closes the pipe early
+          sleep 5
+          code() { curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$1"; }
+          for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ]; done
+          curl -sL --max-time 30 https://jaurea.com/ | grep -q 'wp-content'
+          curl -s --max-time 30 https://jaurea.com/valunivo/ | grep -q '<base href="/valunivo/">'
+          for d in valunivo value-attendance; do
+            J=$(curl -fsS --max-time 30 "https://jaurea.com/$d/android/latest.json?t=$(date +%s)"); echo "$d: $J"
+            printf '%s' "$J" | grep -q "\"version\":\"$V\""
+            curl -fsS --max-time 180 -o got.apk "https://jaurea.com/$d/android/value-attendance-$V.apk"
+            [ "$(sha256sum got.apk | cut -d' ' -f1)" = "$WANT_SHA" ] || { echo "::error::$d APK differs"; exit 1; }
+            curl -sI --max-time 30 "https://jaurea.com/$d/android/value-attendance-$V.apk" | grep -i 'content-type\|content-length'
+          done
+          curl -fsS --max-time 180 -o fixed.apk https://jaurea.com/valunivo/android/value-attendance.apk
+          [ "$(sha256sum fixed.apk | cut -d' ' -f1)" = "$WANT_SHA" ]
+          echo "update served: $V"

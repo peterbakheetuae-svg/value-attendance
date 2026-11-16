@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, obj, oneOf, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, has, readableIds, type Actor } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, has, readableIds, type Actor, can } from '../auth/context.ts';
 import { daysBetween, isoDow, local, timeToMinutes } from '../lib/time.ts';
 import { applyCorrection } from './attendance.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
@@ -72,13 +72,18 @@ export const requestsModule: Module = (r, { db, clock }) => {
     // HR may record a request for an employee (original JPH "submit by manager"): it is approved on entry.
     const forId = typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id ? b.employeeId : null;
     if (forId) {
-      if (!has(a, 'request.approve_hr')) throw forbidden('Only HR can record a request for another employee');
+      if (!can(a, 'request.create_for_others', 'request.approve_hr')) throw forbidden('Only HR can record a request for another employee');
       if (!isUuid(forId) || !(await one(db, `SELECT 1 FROM employees WHERE id = $1 AND status = 'active'`, [forId]))) throw notFound('Employee not found');
     }
     const subjectId = forId ?? a.id;
     const type = oneOf(b, 'type', REQUEST_TYPES)!;
     const reason = reqStr(b, 'reason', { min: 3, max: 1000 });
     const attachmentId = uuid(b, 'attachmentId', true) ?? null;
+    // the attachment must be a document of the employee the request is for (another employee's file is never attachable:
+    // approvers open request attachments through the request)
+    if (attachmentId && !(await one(db, `SELECT 1 FROM employee_documents WHERE id = $1 AND employee_id = $2`, [attachmentId, subjectId]))) {
+      throw invalid('The attachment was not found', { field: 'attachmentId' });
+    }
     const today = local(clock()).date;
     const settings = await one(db, `SELECT request_backdate_days FROM company_settings`);
     const oldest = new Date(Date.parse(today + 'T00:00:00Z') - settings.request_backdate_days * 86400000).toISOString().slice(0, 10);

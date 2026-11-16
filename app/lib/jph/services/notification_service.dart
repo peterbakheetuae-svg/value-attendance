@@ -70,9 +70,18 @@ class NotificationService {
         defaultPresentSound: true,
       );
 
+      // Windows app: toast notifications under the app's own name (the installer's Start-menu shortcut
+      // carries the same AppUserModelID, so Windows shows them as VALUNIVO).
+      const WindowsInitializationSettings windowsSettings = WindowsInitializationSettings(
+        appName: 'VALUNIVO',
+        appUserModelId: 'ValueGroup.VALUNIVO',
+        guid: '6f1d6c2e-4b8a-4f0e-9d5b-2a7c3e9b1f40',
+      );
+
       const InitializationSettings initializationSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
+        windows: windowsSettings,
       );
 
       await _flutterLocalNotificationsPlugin.initialize(

@@ -3,8 +3,8 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
-import { notify } from './notify.ts';
+import { audit, authenticate, can, canOwnerOnly, has, type Actor } from '../auth/context.ts';
+import { holdersOf, notify } from './notify.ts';
 import { resolveDeveloper } from './exclusive.ts';
 
 /**
@@ -147,8 +147,9 @@ export function parseCommissionRequest(b: Record<string, unknown>, a: Actor): Co
   const area = num(b, 'areaM2', { min: 0.01, max: 1_000_000 })!;
   const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
   let employeeId = a.id;
-  // anyone else's employeeId is ignored (the request is always his own), as before
-  if (has(a, 'sales.manage') && typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id) {
+  // anyone else's employeeId is ignored (the request is always his own) — unless he may file for others
+  // («تسجيل عمولة لموظف تاني»; before 066 that is sales.manage, as before)
+  if (can(a, 'commission.create_for_others', 'sales.manage') && typeof b.employeeId === 'string' && b.employeeId && b.employeeId !== a.id) {
     if (!isUuid(b.employeeId)) throw invalid('Choose the salesperson', { field: 'employeeId' });
     employeeId = b.employeeId;
   }
@@ -180,12 +181,9 @@ export async function createCommissionRequest(q: Q, a: Actor, x0: CommissionRequ
     RETURNING id`, [projectId, employeeId, me.sales_manager_id ?? null, unitNo, String(price), String(area), note]);
   await audit(q, a.id, 'commission.request.create', 'commission_request', x.id, undefined,
     { projectId, unitNo, pricePerM2: price, areaM2: area, ...(employeeId !== a.id ? { employeeId, filedBy: a.id } : {}) });
-  // ring the approvers (المدير / owner)
-  const approvers = await q.query(`
-    SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = 'commission.approve' AND e.status = 'active' AND e.id <> $1`, [employeeId]);
-  for (const ap of approvers.rows) {
-    await notify(q, { to: ap.id, type: 'commission_awaiting', title: `طلب عمولة صفقة من ${me.full_name}`,
+  // ring the approvers (المدير / owner) — the same permission resolution as everywhere (individual exceptions count)
+  for (const apId of await holdersOf(q, 'commission.approve', [employeeId])) {
+    await notify(q, { to: apId, type: 'commission_awaiting', title: `طلب عمولة صفقة من ${me.full_name}`,
       body: `${p.name} — وحدة ${unitNo}`, entity: 'commission_request', entityId: x.id, dedupeKey: `commission:${x.id}:awaiting` });
   }
   return x.id;
@@ -220,7 +218,8 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     return ok({
       currency: 'EGP',
       projects: rows.rows.map((p) => shapeProject(p, a, seeAll ? p : undefined)),
-      can: { manage, companyView: canCompany(a), approve: has(a, 'commission.approve'), readAll: canAll(a), readTeam: canTeam(a) },
+      can: { manage, companyView: canCompany(a), approve: has(a, 'commission.approve'), readAll: canAll(a), readTeam: canTeam(a),
+        void: canOwnerOnly(a, 'commission.void_approved') },
     });
   });
 
@@ -451,16 +450,20 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     return ok({ request: shapeRequest(row, a) });
   });
 
-  /** Owner-only correction of an approved deal (e.g. the sale fell through): the record stays, its unpaid entitlements stop. */
+  /**
+   * Correction of an approved deal (e.g. the sale fell through): the record stays, its unpaid entitlements stop.
+   * «إلغاء عمولة معتمدة» (commission.void_approved); until migration 066 adds the key, the owner as before.
+   */
   r.post('/commissions/requests/:id/void', async (req) => {
     const a = await authenticate(db, req);
-    if (a.role !== 'owner') throw forbidden('Only the owner can cancel an approved commission');
+    if (!canOwnerOnly(a, 'commission.void_approved')) throw forbidden('Only the owner can cancel an approved commission');
     if (!isUuid(req.params.id)) throw notFound();
     const reason = str(obj(req.body), 'reason', { min: 3, max: 500 })!;
     await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM commission_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
       if (x.status !== 'approved') throw conflict('Only an approved commission can be cancelled');
+      if (x.employee_id === a.id || x.sales_manager_id === a.id) throw forbidden('You cannot cancel a commission you earn from');
       const paid = await one(q, `SELECT 1 FROM commission_entitlements ce JOIN payouts po ON po.commission_entitlement_id = ce.id
                                   WHERE ce.request_id = $1 AND po.status <> 'cancelled'`, [x.id]);
       if (paid) throw new AppError('conflict', 'This commission was already paid out — cancel the payout first', { reason: 'already_paid' });

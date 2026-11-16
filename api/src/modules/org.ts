@@ -4,6 +4,8 @@ import { one } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, date, num, obj, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, requirePerm } from '../auth/context.ts';
+import { assertDelegable, assertNoLockout, assertNotOwnProfile } from '../auth/permission-admin.ts';
+import { isRegistered } from '../lib/permission-registry.ts';
 
 function dayDivisor(b: Record<string, unknown>) {
   if (b.dayDivisor === undefined) return undefined;
@@ -313,15 +315,20 @@ export const orgModule: Module = (r, { db }) => {
     const list = b.permissions;
     if (!Array.isArray(list) || list.some((p) => typeof p !== 'string')) throw invalid('permissions must be a list', { field: 'permissions' });
     const known = new Set((await db.query(`SELECT key FROM permissions`)).rows.map((x) => x.key));
-    for (const p of list) if (!known.has(p)) throw invalid(`Unknown permission ${p}`, { field: 'permissions' });
+    for (const p of list) if (!known.has(p) || !isRegistered(p)) throw invalid(`Unknown permission ${p}`, { field: 'permissions' });
     if (req.params.key === 'sales_employee' && list.length) throw invalid('Sales employees are self-service only');
+    await assertNotOwnProfile(db, a, req.params.key);
     await db.tx(async (q) => {
       const role = await one(q, `SELECT key FROM roles WHERE key = $1`, [req.params.key]);
       if (!role) throw notFound();
       const before = (await q.query(`SELECT perm_key FROM role_permissions WHERE role_key = $1 ORDER BY 1`, [role.key])).rows.map((x) => x.perm_key);
+      // delegation: only what the administrator holds can be added or taken away
+      const next = new Set(list as string[]);
+      assertDelegable(a, [...[...next].filter((p) => !before.includes(p)), ...before.filter((p: string) => !next.has(p))]);
       await q.query(`DELETE FROM role_permissions WHERE role_key = $1`, [role.key]);
       for (const p of new Set(list as string[])) await q.query(`INSERT INTO role_permissions VALUES ($1,$2)`, [role.key, p]);
       await audit(q, a.id, 'role.permissions', 'role', role.key, before, [...new Set(list)].sort());
+      await assertNoLockout(q);
     });
     return ok({ ok: true });
   });

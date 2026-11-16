@@ -221,6 +221,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const x = await one(q, `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x || x.created_by !== a.id) throw notFound();
+      // only while he still may pay (a revoked cashier can no longer move money back)
+      if (!has(a, 'finance.disburse') && !has(a, 'finance.fund')) throw forbidden();
       // a disputed payment may be cancelled by whoever paid it (the money is back in the HR cashbox)
       if (x.status !== 'pending' && x.status !== 'disputed') throw conflict('Only a payout that was not received yet can be cancelled');
       await q.query(`UPDATE payouts SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [x.id]);

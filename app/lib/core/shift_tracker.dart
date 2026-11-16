@@ -52,20 +52,33 @@ class ShiftTracker {
     }
   }
 
-  Future<void> _checkOffice(Position pos) async {
-    if (_offices.isEmpty || pos.accuracy > 200) return; // weak GPS never counts as leaving
+  /// true when the phone just rang for leaving the office (the server is told at once, not at the next interval).
+  Future<bool> _checkOffice(Position pos) async {
+    if (_offices.isEmpty || pos.accuracy > 200) return false; // weak GPS never counts as leaving
     final outside = _offices.every((o) =>
         _dist(pos.latitude, pos.longitude, (o['lat'] as num).toDouble(), (o['lng'] as num).toDouble()) >
         (o['radiusM'] as num).toDouble() + _marginM);
     if (!outside) {
       _ringedOutside = false;
-      return;
+      return false;
     }
-    if (_ringedOutside || await _allowedOut()) return;
+    if (_ringedOutside || await _allowedOut()) return false;
+    // «تتبع أثناء العمل» / «حضور وانصراف» switched off since the shift started: no ring, stop
+    // (asked at the moment of leaving; with no internet the phone rings on its last known settings)
+    try {
+      final c = await _api?.get('/tracking/config');
+      if (c != null && c['enabled'] != true) {
+        final p = await SharedPreferences.getInstance();
+        await p.setBool('tracking_enabled', false);
+        await stop();
+        return false;
+      }
+    } catch (_) {}
     _ringedOutside = true;
     await RingAlert.init();
     await RingAlert.show(id: 7001, title: 'إنت برّه نطاق المكتب ⚠️',
         body: 'ارجع المكتب، أو اطلب إذن / زيارة من التطبيق.', payload: 'unauthorized_exit_self');
+    return true;
   }
 
   Future<void> _loadOffices(Map<String, dynamic>? cfg) async {
@@ -144,15 +157,24 @@ class ShiftTracker {
   }
 
   Future<void> _send(Position pos) async {
-    await _checkOffice(pos);
+    final rang = await _checkOffice(pos);
+    if (!running) return; // switched off for this employee: stopped, nothing sent
     final now = DateTime.now();
-    if (_lastSent != null && now.difference(_lastSent!) < Duration(minutes: _intervalMin) - const Duration(seconds: 20)) return;
+    // a departure the phone just saw goes to the server right away (it alerts the managers), not at the next interval
+    if (!rang && _lastSent != null && now.difference(_lastSent!) < Duration(minutes: _intervalMin) - const Duration(seconds: 20)) return;
     _lastSent = now;
     try {
       // send anything recorded offline first (e.g. the check-in) so the order is kept
       await _api?.flushQueue();
       // no internet: the point is kept with its time and sent later (offline tracking)
-      await _api?.postOrQueue('/tracking/ping', {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy}, label: 'موقع');
+      final r = await _api?.postOrQueue('/tracking/ping',
+          {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true}, label: 'موقع');
+      // following was turned off for this employee (or the company): stop
+      if (r != null && r['tracking'] == false) {
+        final p = await SharedPreferences.getInstance();
+        await p.setBool('tracking_enabled', false);
+        await stop();
+      }
     } on ApiException catch (e) {
       // 409 = not in a shift any more (checked out) → stop
       if (e.status == 409 && ApiClient.pending.value == 0) await stop();

@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { date, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, type Actor, can } from '../auth/context.ts';
 import { canHrOperate, canOffice, hrDesk, hrOperators } from './cash.ts';
 import { holdersOf, notify } from './notify.ts';
 import { leadForReservation, leadFromUnit } from './leads.ts';
@@ -31,6 +31,12 @@ const fmt = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits:
 const canManage = (a: Actor) => canOffice(a);                       // المالك / المدير العام
 const canReserve = (a: Actor) => has(a, 'exclusive.reserve') || canManage(a);
 const canSeeAll = (a: Actor) => canManage(a) || canHrOperate(a);
+/** the projects' money (owner's trust and dues, office / staff / marketing commission, statement) — on its own permission */
+const canFinance = (a: Actor) => canManage(a) && can(a, 'exclusive.view_finance', 'cash.office');
+/** the client's contact / identity details on the units he may see — on its own permission (was open before 066) */
+const canClient = (a: Actor) => can(a, 'exclusive.view_client', null);
+/** a salesperson works on his own units only while he still may reserve */
+const ownUnit = (a: Actor, u: { sales_id: string }) => u.sales_id === a.id && canReserve(a);
 // the projects' setup — a project's kind (حصري / تسويق), its developer: المالك / المدير العام and the accountant only
 export const canSetup = (a: Actor) => canManage(a) || hrDesk(a);
 
@@ -128,14 +134,14 @@ function shapeUnit(u: any, a: Actor) {
     expectedContractDate: u.expected_contract_date ? String(u.expected_contract_date instanceof Date ? u.expected_contract_date.toISOString() : u.expected_contract_date).slice(0, 10) : null,
     depositMethod: u.deposit_method ?? null,
     form: { unitType: u.unit_type, floor: u.floor, areaM2: u.area_m2 == null ? null : n(u.area_m2), activity: u.activity,
-      maintenanceDeposit: n(u.maintenance_deposit), clientNationalId: u.client_national_id, clientAddress: u.client_address,
+      maintenanceDeposit: n(u.maintenance_deposit), clientNationalId: canClient(a) ? u.client_national_id : null, clientAddress: canClient(a) ? u.client_address : null,
       plannedDownPayment: u.planned_down_payment == null ? null : n(u.planned_down_payment), downPaymentDue: isoDay(u.down_payment_due),
       plannedInstallments: u.planned_installments, plannedEveryMonths: u.planned_every_months ?? null, depositPaidOn: isoDay(u.deposit_paid_on), reservedOn: isoDay(u.created_at),
       netAreaM2: u.net_area_m2 == null ? null : n(u.net_area_m2), meterPrice: u.meter_price == null ? null : n(u.meter_price),
       maintenancePct: u.maintenance_pct == null ? null : n(u.maintenance_pct), plannedDownPct: u.planned_down_pct == null ? null : n(u.planned_down_pct),
       inventoryId: u.inventory_id ?? null },
     developerId: u.developer_id ?? null, developerName: u.developer_name ?? null, developerLogoAt: u.developer_logo_at ?? null,
-    clientName: u.client_name, clientPhone: u.client_phone, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
+    clientName: u.client_name, clientPhone: canClient(a) ? u.client_phone : null, unitPrice: n(u.unit_price), depositAmount: n(u.deposit_amount),
     salesId: u.sales_id, salesName: u.sales_name, status, statusAr: STATUS_AR[status], notes: u.notes,
     ...(canSeeAll(a) ? { totalPct: n(u.total_pct), contractPct: n(u.contract_pct), managerPct: n(u.manager_pct) } : {}),
     salesPct: n(u.sales_pct),
@@ -152,21 +158,22 @@ function shapeUnit(u: any, a: Actor) {
     installments: { total: u.inst_total, paid: u.inst_paid, nextDue: u.next_due ? ds(u.next_due) : null },
     // the commission figures are المالك / المدير العام's view
     // potential (محتملة) at the reservation → receivable (واجبة التحصيل) at the contract → collected (تم التحصيل)
-    commission: canManage(a) ? { earned: u.earned, upcoming: u.upcoming, potential: u.potential, staff: u.staff,
+    commission: canFinance(a) ? { earned: u.earned, upcoming: u.upcoming, potential: u.potential, staff: u.staff,
       marketing: u.marketing, office: u.office, collected: u.commissionCollected, receivable: u.receivable } : undefined,
     myCommission: mine ? { amount: r2(n(u.unit_price) * n(u.sales_pct) / 100),
       state: u.status === 'contracted' ? 'earned' : u.status === 'cancelled' ? 'cancelled' : 'potential' } : undefined,
     createdAt: u.created_at,
     can: {
+      viewClient: canClient(a),
       collect: (hrDesk(a) || canOffice(a)) && u.project_kind === 'exclusive' && u.status === 'contracted' && u.payment_type === 'installments',
       receive: (hrDesk(a) || canOffice(a)) && n(u.pending_money) > 0,
-      requestContract: (mine || canManage(a)) && u.status === 'reserved',
-      collectCommission: canManage(a) && u.status === 'contracted' && u.receivable > 0,
+      requestContract: (ownUnit(a, u) || canManage(a)) && u.status === 'reserved',
+      collectCommission: canFinance(a) && u.status === 'contracted' && u.receivable > 0,
       decideContract: canManage(a) && u.status === 'contract_pending' && !mine,
-      requestCancel: (mine || canManage(a)) && ['reserving', 'reserved', 'contract_pending'].includes(u.status),
+      requestCancel: (ownUnit(a, u) || canManage(a)) && ['reserving', 'reserved', 'contract_pending'].includes(u.status),
       decideCancel: canManage(a) && u.status === 'cancel_pending',
       // السيلز (or the management) edits the reservation / the contract's client details
-      edit: (mine || canManage(a)) && ['reserving', 'reserved', 'contracted'].includes(u.status),
+      edit: (ownUnit(a, u) || canManage(a)) && ['reserving', 'reserved', 'contracted'].includes(u.status),
       refund: hrDesk(a) && u.status === 'cancelled' && n(u.collected) - n(u.refunded) > 0,
     },
   };
@@ -319,7 +326,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
                                   LEFT JOIN project_images pi ON pi.project_id = p.id
                                   WHERE ${kindSql.replace(/\bkind\b/g, 'p.kind')}
                                   ${canManage(a) ? '' : `AND p.status = 'active'`} ORDER BY p.status = 'active' DESC, p.created_at DESC`);
-    const st = canManage(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
+    const st = canFinance(a) ? (await projectStats(db, rows.rows.map((p) => p.id))).stats : {};
     return ok({ projects: rows.rows.map((p) => shapeProject(p, st[p.id], a)), canManage: canManage(a), canSetup: canSetup(a), canReserve: canReserve(a),
       canCollect: hrDesk(a) });
   });
@@ -397,7 +404,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const { stats, units } = await projectStats(db, [p.id]);
     const visible = canSeeAll(a) ? units : units.filter((u) => u.sales_id === a.id);
     let statement: unknown[] | undefined;
-    if (canManage(a)) {
+    if (canFinance(a)) {
       const st = await db.query(`
         SELECT * FROM (
           SELECT r.occurred_at AS at, 'in' AS dir, r.kind AS type, r.amount_egp AS amount, u.unit_no, r.payer_name AS who, r.payment_method AS method, r.ref_no
@@ -414,14 +421,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       statement = st.rows.map((x) => ({ at: x.at, dir: x.dir, type: x.type, typeAr: TYPE_AR[x.type] ?? x.type, amount: n(x.amount),
         unitNo: x.unit_no, who: x.who, method: x.method, refNo: Number(x.ref_no) }));
     }
-    return ok({ project: shapeProject(p, canManage(a) ? stats[p.id] : undefined, a), units: visible.map((u) => shapeUnit(u, a)), statement,
-      can: { manage: canManage(a), reserve: canReserve(a) && p.status === 'active', collect: hrDesk(a) } });
+    return ok({ project: shapeProject(p, canFinance(a) ? stats[p.id] : undefined, a), units: visible.map((u) => shapeUnit(u, a)), statement,
+      can: { manage: canManage(a), finance: canFinance(a), client: canClient(a), reserve: canReserve(a) && p.status === 'active', collect: hrDesk(a) } });
   });
 
   /** تحويل عمولة: the earned commission leaves the owner's money (up to what was earned and not yet moved). */
   r.post('/exclusive/projects/:id/commission-transfer', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canFinance(a)) throw forbidden();  // moves the owner's money — who sees it
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     const amount = num(b, 'amount', { min: 0.01, max: 100_000_000 })!;
@@ -442,7 +449,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   /** إذن صرف للمالك: from the office cashbox, approved by the other المالك / المدير العام. */
   r.post('/exclusive/projects/:id/owner-payout', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canFinance(a)) throw forbidden();  // moves the owner's money — who sees it
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     const amount = num(b, 'amount', { min: 0.01, max: 100_000_000 })!;
@@ -487,7 +494,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
     const [u] = await loadUnits(db, 'u.id = $1', [req.params.id]);
-    if (!u || (!canSeeAll(a) && u.sales_id !== a.id)) throw notFound();
+    if (!u || (!canSeeAll(a) && !ownUnit(a, u))) throw notFound();
     const inst = await db.query(`SELECT i.*, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.ex_installment_id = i.id AND r.status = 'posted'), 0) AS paid
                                    FROM ex_installments i WHERE i.unit_id = $1 ORDER BY i.seq`, [u.id]);
     const rc = await db.query(`SELECT r.id, r.ref_no, r.kind, r.amount_egp, r.payment_method, r.occurred_at, r.ex_installment_id, rb.full_name AS by_name
@@ -503,7 +510,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       files: (await db.query(`SELECT f.id, f.kind, f.file_name, f.mime, f.size_bytes, f.created_at, f.by_id, e.full_name AS by_name
                                 FROM ex_unit_files f LEFT JOIN employees e ON e.id = f.by_id WHERE f.unit_id = $1 ORDER BY f.kind, f.created_at`, [u.id]))
         .rows.map((f) => ({ id: f.id, kind: f.kind, fileName: f.file_name, mime: f.mime, size: f.size_bytes, at: f.created_at, byName: f.by_name,
-          canDelete: f.by_id === a.id || canManage(a) })),
+          canDelete: f.by_id === a.id || canManage(a), canOpen: canClient(a) })),
     });
   });
 
@@ -515,7 +522,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   const unitForFiles = async (a: Actor, id: string) => {
     if (!isUuid(id)) throw notFound();
     const u = await one(db, `SELECT id, sales_id, unit_no FROM ex_units WHERE id = $1`, [id]);
-    if (!u || (!canSeeAll(a) && u.sales_id !== a.id)) throw notFound();
+    if (!u || (!canSeeAll(a) && !ownUnit(a, u))) throw notFound();
     return u;
   };
 
@@ -551,6 +558,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const u = await unitForFiles(a, req.params.id);
     if (!isUuid(req.params.fid)) throw notFound();
+    // the reservation form / contract carry the client's identity — with the client's details permission
+    if (!canClient(a)) throw forbidden('مستندات العميل محتاجة صلاحية «بيانات العملاء»');
     const f = await one(db, `SELECT * FROM ex_unit_files WHERE id = $1 AND unit_id = $2`, [req.params.fid, u.id]);
     if (!f) throw notFound();
     return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
@@ -594,7 +603,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
    * receivable; the staff commission is a request المالك / المدير العام approves (at once when he made the contract).
    */
   async function makeContract(q: Q, a: Actor, u: any, p: any, b: Record<string, unknown>) {
-    if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
+    if (!ownUnit(a, u) && !canManage(a)) throw forbidden();
     if (u.status === 'reserving') throw conflict('العربون لسه مستني تأكيد الاستلام من المحاسب / المدير');
     if (!['reserved', 'contract_pending'].includes(u.status)) throw conflict('الوحدة دي مش في مرحلة الحجز');
     const now = clock();
@@ -832,10 +841,12 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
+    // who may not see the client's contact / identity details can't overwrite them either (the screen sends them blank)
+    if (!canClient(a)) { delete b.clientPhone; delete b.clientNationalId; delete b.clientAddress; }
     await db.tx(async (q) => {
       const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!u) throw notFound();
-      if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
+      if (!ownUnit(a, u) && !canManage(a)) throw forbidden();
       if (!['reserving', 'reserved', 'contracted'].includes(u.status)) throw conflict('الوحدة دي مش بتتعدّل دلوقتي');
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1`, [u.project_id]);
       const clientName = (str(b, 'clientName', { optional: true, min: 2, max: 120 }) ?? u.client_name).trim();
@@ -904,7 +915,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
    */
   r.post('/exclusive/units/:id/commission-collected', async (req) => {
     const a = await authenticate(db, req);
-    if (!canManage(a)) throw forbidden();
+    if (!canFinance(a)) throw forbidden();  // the company's commission income — who sees it
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
     const out = await db.tx(async (q) => {
@@ -1017,7 +1028,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!u) throw notFound();
-      if (u.sales_id !== a.id && !canManage(a)) throw forbidden();
+      if (!ownUnit(a, u) && !canManage(a)) throw forbidden();
       if (!['reserving', 'reserved', 'contract_pending'].includes(u.status)) throw conflict('الإلغاء للحجز بس');
       await q.query(`UPDATE ex_units SET status = 'cancel_pending', previous_status = status, cancel_reason = $2, cancel_requested_by = $3 WHERE id = $1`,
         [u.id, reason, a.id]);
@@ -1321,15 +1332,15 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     };
     for (const u of units) {
       const status = u.completed ? 'completed' : u.status;
-      put(u.client_name, u.client_phone, { id: u.id, source: 'unit', projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
+      put(u.client_name, canClient(a) ? u.client_phone : '', { id: u.id, source: 'unit', projectName: u.project_name, projectKind: u.project_kind, unitNo: u.unit_no,
         price: n(u.unit_price), paid: r2(n(u.collected) - n(u.refunded)), status, statusAr: STATUS_AR[status], salesId: u.sales_id, salesName: u.sales_name,
         projectId: u.project_id, at: u.created_at });
     }
     for (const s of legacy) {
-      put(s.buyer_name, s.buyer_phone, { id: s.id, source: 'sale', projectName: s.project_name, projectKind: s.kind, unitNo: s.unit_no,
+      put(s.buyer_name, canClient(a) ? s.buyer_phone : '', { id: s.id, source: 'sale', projectName: s.project_name, projectKind: s.kind, unitNo: s.unit_no,
         price: n(s.total_price), paid: n(s.paid), status: 'contracted', statusAr: 'متعاقد', projectId: s.project_id, at: s.created_at });
     }
-    return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total), seesAll: canSeeAll(a) });
+    return ok({ clients: [...clients.values()].sort((x, y) => y.total - x.total), seesAll: canSeeAll(a), canClient: canClient(a) });
   });
 
   // ------------------------------------------------------------------ عميل مسجل: بياناته بتتملا لوحدها
@@ -1337,12 +1348,16 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   r.get('/exclusive/clients/lookup', async (req) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
+    if (!canClient(a)) return ok({ client: null });
+    // a salesperson only gets back clients of his own deals — never another salesperson's (or the office's) buyers
+    const own = canSeeAll(a) ? '' : 'AND sales_id = $2';
+    const ownArgs = canSeeAll(a) ? [] : [a.id];
     const digits = String(req.query.get('phone') ?? '').replace(/\D/g, '');
     if (digits.length < 8) return ok({ client: null });
     const last = digits.slice(-10);
     const u = await one(db, `SELECT client_name, client_phone, client_national_id, client_address FROM ex_units
-                               WHERE right(regexp_replace(client_phone, '\\D', '', 'g'), 10) = $1 ORDER BY created_at DESC LIMIT 1`, [last]);
-    const s = u ? null : await one(db, `SELECT buyer_name, buyer_phone FROM unit_sales
+                               WHERE right(regexp_replace(client_phone, '\\D', '', 'g'), 10) = $1 ${own} ORDER BY created_at DESC LIMIT 1`, [last, ...ownArgs]);
+    const s = u || !canSeeAll(a) ? null : await one(db, `SELECT buyer_name, buyer_phone FROM unit_sales
                                WHERE right(regexp_replace(buyer_phone, '\\D', '', 'g'), 10) = $1 ORDER BY created_at DESC LIMIT 1`, [last]);
     if (!u && !s) return ok({ client: null });
     return ok({ client: u ? { name: u.client_name, phone: u.client_phone, nationalId: u.client_national_id, address: u.client_address }
@@ -1350,16 +1365,18 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
   });
 
   // ------------------------------------------------------------------ وحدات المشروع (المخزون)
-  const shapeInv = (x: any) => ({ id: x.id, projectId: x.project_id, unitNo: x.unit_no, unitType: x.unit_type, floor: x.floor,
+  /** the client on a unit (and the deal's id) only to who may see that deal: the office / HR, or its own salesperson */
+  const shapeInv = (x: any, a?: Actor) => ({ id: x.id, projectId: x.project_id, unitNo: x.unit_no, unitType: x.unit_type, floor: x.floor,
     netAreaM2: x.net_area_m2 == null ? null : n(x.net_area_m2), areaM2: x.area_m2 == null ? null : n(x.area_m2),
     meterPrice: x.meter_price == null ? null : n(x.meter_price), unitPrice: x.unit_price == null ? null : n(x.unit_price),
     activity: x.activity, notes: x.notes, active: x.active,
     // فاضية / محجوزة / متعاقد عليها — from the deal on it (not cancelled)
     state: x.deal_status == null ? 'free' : x.deal_status === 'contracted' ? 'contracted' : 'reserved',
     stateAr: x.deal_status == null ? 'فاضية' : x.deal_status === 'contracted' ? 'متعاقد عليها' : 'محجوزة',
-    clientName: x.deal_client ?? null, dealId: x.deal_id ?? null });
-  const invSelect = `SELECT i.*, d.status AS deal_status, d.client_name AS deal_client, d.id AS deal_id FROM ex_inventory i
-      LEFT JOIN LATERAL (SELECT u.id, u.status, u.client_name FROM ex_units u WHERE u.project_id = i.project_id AND u.status <> 'cancelled'
+    ...(!a || canSeeAll(a) || (x.deal_sales === a.id && canReserve(a))
+      ? { clientName: x.deal_client ?? null, dealId: x.deal_id ?? null } : { clientName: null, dealId: null }) });
+  const invSelect = `SELECT i.*, d.status AS deal_status, d.client_name AS deal_client, d.id AS deal_id, d.sales_id AS deal_sales FROM ex_inventory i
+      LEFT JOIN LATERAL (SELECT u.id, u.status, u.client_name, u.sales_id FROM ex_units u WHERE u.project_id = i.project_id AND u.status <> 'cancelled'
                            AND lower(trim(u.unit_no)) = lower(trim(i.unit_no)) ORDER BY u.created_at DESC LIMIT 1) d ON true`;
   function invBody(b: Record<string, unknown>) {
     const s0 = (k: string, max: number) => (str(b, k, { optional: true, max }) ?? '').trim();
@@ -1377,7 +1394,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const rows = await db.query(`${invSelect} WHERE i.project_id = $1 AND (i.active OR $2) ORDER BY lower(i.unit_no)`,
       [req.params.id, canSetup(a)]);
-    return ok({ units: rows.rows.map(shapeInv), canEdit: canSetup(a) });
+    return ok({ units: rows.rows.map((x) => shapeInv(x, a)), canEdit: canSetup(a) });
   });
 
   r.post('/exclusive/projects/:id/inventory', async (req) => {
@@ -1456,7 +1473,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     const rows = await db.query(`SELECT * FROM marketing_companies ${canManage(a) ? '' : `WHERE status = 'active'`} ORDER BY status, name`);
     let totals: Record<string, any> = {};
-    if (canManage(a)) {
+    if (canFinance(a)) {
       const t = await db.query(`
         SELECT m.id,
           COALESCE((SELECT sum(u.unit_price * u.mk_pct / 100) FROM ex_units u WHERE u.mk_company_id = m.id AND u.status = 'contracted'), 0) AS earned,

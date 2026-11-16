@@ -4,6 +4,7 @@ import { one, type Q } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
+import { assertDelegable, assertNotOwnProfile } from '../auth/permission-admin.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 import { deliverLead, onlineAmong } from './lead_routing.ts';
@@ -314,6 +315,8 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     const role = await one(db, `SELECT key FROM roles WHERE key = $1`, [str(b, 'role', { min: 1, max: 60 })]);
     if (!role) throw notFound('الدور مش موجود');
     if (role.key === 'owner') throw forbidden('المالك عنده كل الصلاحيات دايمًا');
+    await assertNotOwnProfile(db, a, role.key);
+    assertDelegable(a, [perm]);
     if (on) await db.query(`INSERT INTO role_permissions (role_key, perm_key) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [role.key, perm]);
     else await db.query(`DELETE FROM role_permissions WHERE role_key = $1 AND perm_key = $2`, [role.key, perm]);
     await audit(db, a.id, 'leads.role_permission', 'role', role.key, undefined, { perm, on });
@@ -330,6 +333,8 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     const e = await one(db, `SELECT id, role_key FROM employees WHERE id = $1`, [id]);
     if (!e) throw notFound('الموظف مش موجود');
     if (e.role_key === 'owner') throw forbidden('المالك عنده كل الصلاحيات دايمًا');
+    if (e.id === a.id) throw forbidden('مش ممكن تعدّل صلاحياتك بنفسك');
+    assertDelegable(a, [perm]);
     if (value === 'inherit') await db.query(`DELETE FROM employee_permissions WHERE employee_id = $1 AND perm_key = $2`, [id, perm]);
     else await db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow, by_id, updated_at) VALUES ($1,$2,$3,$4,$5)
                            ON CONFLICT (employee_id, perm_key) DO UPDATE SET allow = EXCLUDED.allow, by_id = EXCLUDED.by_id, updated_at = EXCLUDED.updated_at`,

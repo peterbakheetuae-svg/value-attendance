@@ -2,6 +2,8 @@ import 'dart:async';
 import 'owner_overview.dart';
 import '../exclusive/exclusive_projects_page.dart' show PendingSalesMoneyCard;
 import '../../../core/web_push.dart';
+import '../../../core/shift_tracker.dart';
+import '../../services/jph_bridge.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -275,6 +277,16 @@ class _DashboardPageState extends State<DashboardPage>
     _restoreTimerStates();
   }
 
+  void _syncTracker() {
+    if (checkedIn && !dayFinished) {
+      ShiftTracker.instance.start(JphBridge.api,
+          notifTitle: 'فاليو نيفو — الحضور شغال',
+          notifText: 'بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف');
+    } else {
+      ShiftTracker.instance.stop();
+    }
+  }
+
   Future<void> loadToday() async {
     _loadOuting();
     try {
@@ -312,6 +324,9 @@ class _DashboardPageState extends State<DashboardPage>
         }
 
         _initializeLocalTimers();
+        // location follow-up during the shift, for every role on this dashboard too (the server decides who is
+        // followed: the company switch + the employee's «تتبع أثناء العمل» + «حضور وانصراف»)
+        _syncTracker();
         _loadingAnimationController.stop();
       } else {
         setState(() {

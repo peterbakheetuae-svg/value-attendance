@@ -45,6 +45,8 @@ class _SalesTabState extends State<SalesTab> {
   Map<String, dynamic> _can = {};
   List<Map<String, dynamic>> _mine = [];
   List<Map<String, dynamic>> _pending = [];
+  /// his teams' sales (the record only) — when the server says he may see them
+  List<Map<String, dynamic>> _team = [];
 
   final _unit = TextEditingController();
   final _price = TextEditingController();
@@ -56,6 +58,8 @@ class _SalesTabState extends State<SalesTab> {
   final _notes = TextEditingController();
 
   bool get _manage => _can['manage'] == true;
+  /// a commission request for another salesperson — its own permission on the server
+  bool get _onBehalf => _can['onBehalf'] == true;
 
   @override
   void initState() {
@@ -77,8 +81,10 @@ class _SalesTabState extends State<SalesTab> {
     final can = ((mine['can'] as Map?) ?? const {}).cast<String, dynamic>();
     Map<String, dynamic> pend = {};
     if (can['approve'] == true) pend = await cashGet('/sales', {'status': 'pending'});
+    Map<String, dynamic> team = {};
+    if (can['team'] == true) team = await cashGet('/sales', {'team': '1'});
     List<Map<String, dynamic>> people = [];
-    if (can['manage'] == true) {
+    if (can['onBehalf'] == true) {
       final r = await ApiService.post({'action': 'getActiveEmployees'});
       people = ((r['employees'] as List?) ?? const []).whereType<Map>()
           .map((m) => <String, dynamic>{'id': '${m['id']}', 'name': '${m['name']}'}).toList();
@@ -91,6 +97,7 @@ class _SalesTabState extends State<SalesTab> {
       _can = can;
       _mine = cashList(mine, 'sales');
       _pending = cashList(pend, 'sales');
+      _team = cashList(team, 'sales');
       _people = people;
     });
   }
@@ -149,7 +156,7 @@ class _SalesTabState extends State<SalesTab> {
       if (_installments) ...{'frequency': _freq, 'installmentsCount': _n(_count)!.toInt(), 'firstDueDate': _iso(_firstDue)},
       'notes': _notes.text.trim(),
       'withCommission': _withCommission,
-      if (_withCommission) ...{'pricePerM2': _n(_price), 'areaM2': _n(_area), if (_manage && _seller != null) 'employeeId': _seller},
+      if (_withCommission) ...{'pricePerM2': _n(_price), 'areaM2': _n(_area), if (_onBehalf && _seller != null) 'employeeId': _seller},
     }, ok: _manage ? 'اتسجلت البيعة ✅' : 'اتبعتت البيعة للإدارة تعتمدها ✅');
     if (!mounted) return;
     setState(() => _saving = false);
@@ -187,7 +194,7 @@ class _SalesTabState extends State<SalesTab> {
     _load();
   }
 
-  Widget _saleCard(Map<String, dynamic> s, {bool decide = false}) {
+  Widget _saleCard(Map<String, dynamic> s, {bool decide = false, bool byName = false}) {
     final isDark = widget.isDark;
     final st = saleStatusAr('${s['status']}');
     final com = s['commission'] as Map?;
@@ -207,8 +214,8 @@ class _SalesTabState extends State<SalesTab> {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('${s['projectName']} — وحدة ${s['unitNo']}', style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-                Text('${s['buyerName']}  •  ${s['buyerPhone'] ?? ''}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
-                if (decide) Text('سجلها: ${s['createdByName']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                Text(s['buyerPhone'] == null || '${s['buyerPhone']}'.isEmpty ? '${s['buyerName']}' : '${s['buyerName']}  •  ${s['buyerPhone']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                if (decide || byName) Text('سجلها: ${s['createdByName']}', style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
               ]),
             ),
             JphUi.chip(st.$1, st.$2),
@@ -343,7 +350,7 @@ class _SalesTabState extends State<SalesTab> {
                 style: TextStyle(color: JphUi.sub(isDark))),
           ),
         ),
-        if (_withCommission && _manage) ...[
+        if (_withCommission && _onBehalf) ...[
           const SizedBox(height: 14),
           JphUi.picker(
             isDark: isDark, icon: Icons.badge_rounded, iconColor: Ar.green, label: 'العمولة لمين', value: sellerName,
@@ -391,6 +398,12 @@ class _SalesTabState extends State<SalesTab> {
         const SizedBox(height: 8),
         if (_mine.isEmpty) Text('لسه مفيش', style: TextStyle(color: JphUi.sub(isDark))),
         for (final s in _mine) _saleCard(s),
+        if (_team.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text('مبيعات فريقي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          const SizedBox(height: 8),
+          for (final s in _team) _saleCard(s, byName: true),
+        ],
       ]),
     );
   }

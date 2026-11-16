@@ -12,6 +12,7 @@ import { financeModule } from './modules/finance.ts';
 import { dashboardModule } from './modules/dashboard.ts';
 import { notificationsModule } from './modules/notifications.ts';
 import { trackingModule } from './modules/tracking.ts';
+import { permissionsModule } from './modules/permissions.ts';
 import { legacyModule } from './modules/legacy.ts';
 import { outingsModule } from './modules/outings.ts';
 import { companyModule } from './modules/company.ts';
@@ -67,6 +68,6 @@ export function buildRouter(ctx: Ctx): Router {
     }
   });
   for (const m of [authModule, devicesModule, employeesModule, orgModule, attendanceModule, requestsModule, kpiModule,
-    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule, financeDashboardModule, formsModule, dataResetModule, ownerDashboardModule, exclusiveModule, integrationsModule, leadsStagesDealsModule, leadsExtraModule, leadsModule]) m(r, ctx);
+    evaluationsModule, reportsModule, financeModule, dashboardModule, notificationsModule, trackingModule, legacyModule, outingsModule, companyModule, custodyModule, backupModule, payoutsModule, commissionsModule, cashModule, salesModule, payrollBatchesModule, financeDashboardModule, formsModule, dataResetModule, ownerDashboardModule, exclusiveModule, integrationsModule, leadsStagesDealsModule, leadsExtraModule, leadsModule, permissionsModule]) m(r, ctx);
   return r;
 }

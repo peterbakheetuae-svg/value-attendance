@@ -3,6 +3,7 @@ import { one } from '../db.ts';
 import { AppError, forbidden, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { sha256 } from './password.ts';
+import { OWNER_ROLE, PERMISSIONS, isOwnerOnly, isRegistered } from '../lib/permission-registry.ts';
 
 export interface Actor {
   id: string;
@@ -14,7 +15,21 @@ export interface Actor {
   mustChangePassword: boolean;
   /** «تم التصفيه»: the account is closed except reading his own attendance report */
   settled?: boolean;
+  /** permission keys that exist in this database (a fine-grained key added by a migration not run yet is absent) */
+  known?: ReadonlySet<string>;
 }
+
+// the permission keys of this database: read once a minute per instance (they only change with a migration)
+let knownKeys: { at: number; keys: ReadonlySet<string> } | null = null;
+async function dbPermissionKeys(q: Q): Promise<ReadonlySet<string>> {
+  if (knownKeys && Date.now() - knownKeys.at < 60_000) return knownKeys.keys;
+  const r = await q.query<{ key: string }>(`SELECT key FROM permissions`);
+  knownKeys = { at: Date.now(), keys: new Set(r.rows.map((x) => x.key)) };
+  return knownKeys.keys;
+}
+
+/** drops the cached key list (the next request reads it again) — for the throwaway test databases */
+export function forgetPermissionKeys() { knownKeys = null; }
 
 /** an employee whose work status is «تم التصفيه» (settled / finished) */
 export const SETTLED = 'تم التصفيه';
@@ -47,8 +62,13 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   }
   const actor: Actor = {
     id: row.id, code: row.code, fullName: row.full_name, role: row.role_key,
-    // his role's permissions, then his own exceptions (allowed / denied one by one)
-    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p))), sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    // his role's permissions, then his own exceptions (allowed / denied one by one); a key the application does not
+    // register is dropped (deny by default — no row can grant something the code does not know)
+    // an owner-only key (data.reset) is never held by a non-owner, whatever a row says
+    perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
+      && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
+    sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    known: await dbPermissionKeys(q),
   };
   // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own
   // records (the attendance report) and signing out / changing the password
@@ -63,10 +83,71 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   return actor;
 }
 
-export const has = (a: Actor, p: string) => a.perms.has(p);
+/**
+ * The same permission resolution as sign-in, for an employee who is not making this request (e.g. checking that a media
+ * link's viewer still may see it). null = no such active account.
+ */
+export async function actorById(q: Q, id: string): Promise<Actor | null> {
+  const row = await one(q, `
+    SELECT e.id, e.code, e.full_name, e.role_key, e.status, e.legacy_fields->>'status' AS work_status,
+           COALESCE((SELECT array_agg(rp.perm_key) FROM role_permissions rp WHERE rp.role_key = COALESCE(e.position_key, e.role_key)), '{}') AS perms,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS plus,
+           (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE NOT x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS minus
+      FROM employees e WHERE e.id = $1`, [id]);
+  if (!row || row.status !== 'active') return null;
+  const settled = row.work_status === SETTLED;
+  return {
+    id: row.id, code: row.code, fullName: row.full_name, role: row.role_key, sessionId: '', mustChangePassword: false, settled,
+    perms: settled ? new Set() : new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
+      && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
+    known: await dbPermissionKeys(q),
+  };
+}
+
+export const has = (a: Actor, p: string) => isRegistered(p) && a.perms.has(p);
+
+/** An owner account (role `owner`) that is not settled — the only kind of account that may wipe / import company data. */
+export const isOwner = (a: Actor) => a.role === OWNER_ROLE && !a.settled;
+
+/**
+ * A fine-grained permission split from a broad one (migration 066). Where this database already has the fine key, only the
+ * fine key counts (an individual restriction on it is respected); where it does not yet (the migration has not run), the
+ * broad key it was split from decides — exactly today's behaviour.
+ */
+export function can(a: Actor, fine: string, broad: string | string[] | null): boolean {
+  if (a.known?.has(fine)) return has(a, fine);
+  if (broad === null) return !a.settled; // had no separate check before
+  return (Array.isArray(broad) ? broad : [broad]).some((b) => has(a, b));
+}
+
+/**
+ * A permission that replaces a check on the owner's role name (migration 066: data.reset, commission.void_approved).
+ * Once the key exists only the permission counts; until then the previous rule (the owner) applies unchanged.
+ */
+export function canOwnerOnly(a: Actor, key: string): boolean {
+  return a.known?.has(key) ? has(a, key) : (a.role === 'owner' && !a.settled);
+}
+
+/**
+ * What the app is told (GET /me): the permissions in force, with every fine-grained key resolved the way the server
+ * resolves it — so the app asks only for the fine keys, before and after migration 066 alike.
+ */
+export function effectivePermissions(a: Actor): string[] {
+  const out = new Set(a.perms);
+  if (a.settled) return [];
+  for (const p of PERMISSIONS) {
+    if (a.known?.has(p.key)) continue;
+    if (p.openBefore || (p.splitFrom ? (Array.isArray(p.splitFrom) ? p.splitFrom : [p.splitFrom]).some((b) => has(a, b)) : (p.since && a.role === 'owner'))) out.add(p.key);
+  }
+  return [...out].sort();
+}
 
 export function requirePerm(a: Actor, ...anyOf: string[]) {
-  if (!anyOf.some((p) => a.perms.has(p))) throw forbidden();
+  if (!anyOf.some((p) => has(a, p))) throw forbidden();
+}
+
+export function requireCan(a: Actor, fine: string, broad: string | string[] | null) {
+  if (!can(a, fine, broad)) throw forbidden();
 }
 
 /**
