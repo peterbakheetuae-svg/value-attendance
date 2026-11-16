@@ -1,6 +1,6 @@
-# Integration — permissions + Windows (local branch `integration/final`)
+# Integration — permissions + Windows (`integration/final` → `main`)
 
-Built locally only. Nothing pushed, merged into `main`, deployed, or run against Neon.
+Merged into `main` with the owner's authorization (16 Nov 2026). No migration is applied by this merge (see below).
 
 ## Source commits (pinned by hash)
 | Source | Commit | Status |
@@ -10,7 +10,8 @@ Built locally only. Nothing pushed, merged into `main`, deployed, or run against
 | `main` | `ae83622989…` | 6 commits **behind** production (tracking controls, Vercel migrate guard, web deploy) |
 | Permissions | `86cc97bc7f10370c743d73379d54e86b9ad058d6` | **provisional** — the Permissions Agent has not confirmed a final hash |
 | Windows-only | `529d34da893626e5e01cd9ab71170c790e4cf04e` | final (Windows agent) |
-| Security baseline `f7a280b` + recovery bundle | — | **not found** on GitHub, in this workspace or in the shared folders of the user's PC |
+| Security baseline `f7a280b` + recovery bundle | — | **inaccessible**: never pushed to GitHub (full push history since 14 Nov checked), not in this workspace, no git repo visible on the owner's PC. Everything that reached GitHub or production is contained here |
+| `feature/dashboard-links` (`7111deb`, 3 commits) | — | **not included**: only ever on the waiting branch (analysis, never built / deployed / approved); tracking-controls was started from `main` without it. Merges cleanly later (checked); branch kept |
 
 Lineage: `main` → +6 → **production `0f0709c`** → +2 (`app.yml` APK republish) → `feature/tracking-controls` → +13 → permissions `86cc97b`.
 The permissions branch contains all of production. Windows-only branches from `main`.
@@ -47,8 +48,13 @@ anything else only with `VA_ALLOW_MIGRATE=production`. Before: the root `vercel.
 Reviewed: 26 keys; SQL / registry / rollback lists identical; every table + column exists; the runner applies a file in one
 transaction (the `ON COMMIT DROP` temp tables are safe). Tested on a throw-away database: effective permissions of every
 account identical before / after, second run changes nothing, rollback restores the exact rows (audit rows stay).
-**Numbering is unresolved**: no migration ≥ 066 exists in any branch's history; "071" can only come from the database.
-Read-only check for the database owner (Neon SQL editor, read-only):
+**Neon state (from Vercel's production build log, `main` @ `ae83622`, deployment `dpl_62AARyJ9qo95FsiTB31uu6pkw5uV`)**:
+`database: neondb` · `applied: 065_unit_files.sql` · `seed skipped: "neondb" already has 9 employees`. Since then production
+was only built from `feature/tracking-controls` (migrations never run there) and no branch has a migration ≥ 066 — so
+`066` is free. `db/migrations/` in this integration is identical to `main`: merging applies **no** migration (the runner on
+the production build finds nothing pending). 066 stays in `db/proposed/` until the owner approves running it; the API
+behaves exactly as before 066 until then (fine keys fall back to the broad ones / the owner).
+Optional read-only cross-check (Neon SQL editor):
 ```sql
 SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 10;
 SELECT key FROM permissions WHERE key IN ('data.reset','attendance.view_location','employee.create','cash.approve') ORDER BY key;
@@ -57,7 +63,7 @@ If the newest applied name is `065_unit_files.sql` and none of those keys exists
 If anything ≥ 066 is applied, its content must be known before 066 is renumbered (e.g. to 071).
 
 ## Not verifiable here
-- Windows build / installer / update on this exact commit: Windows needs GitHub's Windows runners (push not authorized).
-  The Windows code is byte-identical to `8185fdb`, whose Windows CI run (43838718730) passed build, installer and all six
-  update scenarios.
+- Production-signed APK of this exact commit: only `main` builds an APK in CI, and a manual run there publishes it to phones.
+  Instead: signing code identical to the release that built the live 1.0.118 (`CN=Value Attendance`), and the release path
+  rehearsed on this code with a throw-away key (release-signed, v2).
 - Live login / device approval with a real account (no credentials, no test accounts).
