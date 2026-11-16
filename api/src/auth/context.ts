@@ -53,6 +53,11 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
       LEFT JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
      GROUP BY s.id, e.id`, [sha256(token)]);
+  if (!row) {
+    // a marketing company's token (075): it is signed in, just not as an employee — refused, never signed out
+    const { isPartnerToken } = await import('./partner.ts');
+    if (await isPartnerToken(q, token)) throw new AppError('forbidden', 'Marketing company accounts see only their own pages', { reason: 'partner_account' });
+  }
   if (!row || row.status !== 'active') throw new AppError('unauthenticated', 'Session expired, sign in again');
   // sliding expiry, bounded by the TTL from last activity — written at most every 5 minutes (one less database
   // round trip on almost every request)

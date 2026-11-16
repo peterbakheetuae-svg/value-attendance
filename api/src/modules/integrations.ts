@@ -9,6 +9,7 @@ import { notify } from './notify.ts';
 import { assignable, phoneNorm, readLead } from './leads.ts';
 import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode } from './lead_routing.ts';
 import { canSetup, resolveDeveloper } from './exclusive.ts';
+import { seeMetaCampaign } from './partners.ts';
 
 /**
  * الربط التلقائي (see db/migrations/062_integrations.sql):
@@ -77,7 +78,10 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   r.get('/integrations', async (req) => {
     const a = await admin(req);
     const [va, meta] = [await ensure('valueaqar'), await ensure('meta')];
-    const campaigns = await db.query(`SELECT id, name, meta_form_id, assign_mode, form_assignees, project_id FROM lead_campaigns WHERE active ORDER BY created_at DESC`);
+    const campaigns = await db.query(`SELECT id, name, meta_form_id, assign_mode, form_assignees, project_id, meta_campaign_ids, marketing_company_id
+                                        FROM lead_campaigns WHERE active ORDER BY created_at DESC`);
+    const seen = await db.query(`SELECT * FROM meta_seen_campaigns ORDER BY last_at DESC LIMIT 200`);
+    const companies = await db.query(`SELECT id, name, status = 'active' AS active FROM marketing_companies ORDER BY status, name`);
     const routes = await db.query(`SELECT * FROM lead_routes WHERE source = 'valueaqar' ORDER BY target = 'default' DESC, label`);
     // Value Aqar's properties that are not inside one of its projects (a rule can be set per property)
     const properties = await db.query(`
@@ -94,7 +98,9 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     return ok({
       valueaqar: shapeI(va), meta: shapeI(meta),
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, metaFormId: c.meta_form_id, mode: c.assign_mode,
-        assignees: c.form_assignees ?? [], hasProject: !!c.project_id })),
+        assignees: c.form_assignees ?? [], hasProject: !!c.project_id, metaCampaignIds: c.meta_campaign_ids ?? [], companyId: c.marketing_company_id })),
+      metaSeen: seen.rows.map((x) => ({ id: x.campaign_id, name: x.name, leads: x.leads, skipped: x.skipped, lastAt: iso(x.last_at) })),
+      companies: companies.rows.map((x) => ({ id: x.id, name: x.name, active: x.active })),
       routes: routes.rows.map((x) => ({ id: x.id, target: x.target, externalId: x.external_id, label: x.label, mode: x.mode,
         assignees: x.assignees ?? [], updatedAt: iso(x.updated_at) })),
       properties: properties.rows.map((u) => ({ externalId: u.external_id,
@@ -105,6 +111,28 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         status: x.status, units: x.units, project: x.project_id ? { id: x.project_id, name: x.project_name, kind: x.project_kind } : null,
         receivedAt: iso(x.received_at), updatedAt: iso(x.updated_at) })),
     });
+  });
+
+  /** the Meta campaigns the saved token reaches (its ad accounts) — to pick which ones come in */
+  r.get('/integrations/meta/campaigns', async (req) => {
+    await admin(req);
+    const it = await row('meta');
+    if (!it?.access_token) return ok({ campaigns: [], error: 'حط توكن Meta الأول' });
+    try {
+      const res = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(it.access_token)}`);
+      const g: any = await res.json();
+      if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+      const out: any[] = [];
+      for (const acc of Array.isArray(g.data) ? g.data : []) {
+        for (const c of Array.isArray(acc?.campaigns?.data) ? acc.campaigns.data : []) {
+          if (/^[0-9]{3,30}$/.test(String(c.id))) out.push({ id: String(c.id), name: String(c.name ?? ''), status: String(c.effective_status ?? ''), account: String(acc.name ?? '') });
+        }
+      }
+      return ok({ campaigns: out });
+    } catch (e: any) {
+      // a page token cannot list ad campaigns: the ones leads already came from are still offered (metaSeen)
+      return ok({ campaigns: [], error: String(e?.message ?? e).slice(0, 300) });
+    }
   });
 
   /** a new key for Value Aqar — shown this once; the old one stops */
@@ -396,7 +424,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         if (!leadgen) continue;
         try {
           // the lead itself is read back from Meta with the office's token (a forged id just fails here)
-          const res = await fetch(`https://graph.facebook.com/v21.0/${leadgen}?fields=field_data,form_id,ad_name,campaign_name,created_time&access_token=${encodeURIComponent(it.access_token)}`);
+          const res = await fetch(`https://graph.facebook.com/v21.0/${leadgen}?fields=field_data,form_id,ad_name,campaign_id,campaign_name,created_time&access_token=${encodeURIComponent(it.access_token)}`);
           const g: any = await res.json();
           if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
           const f: Record<string, string> = {};
@@ -408,9 +436,14 @@ export const integrationsModule: Module = (r, { db, clock }) => {
             .map(([k, v]) => `${k}: ${v}`);
           const notes = [g.campaign_name ? `حملة: ${g.campaign_name}` : '', g.ad_name ? `إعلان: ${g.ad_name}` : '', ...extra].filter(Boolean).join(' — ').slice(0, 1900);
           const x = readLead({ fullName, phone, email: f.email ?? '', notes, kind: 'fresh' });
-          const c = (g.form_id ? await one(db, `SELECT * FROM lead_campaigns WHERE meta_form_id = $1 AND active`, [String(g.form_id)]) : null)
-            ?? await campaignOf(it.campaign_id);
-          if (!c?.project_id) throw new Error('no campaign with a project for this form');
+          // only the chosen Meta campaigns come in (075): the one of ours its Meta campaign — or its lead form — is linked to.
+          // A lead from any other Meta campaign is not added; the campaign is counted so the settings can offer to link it.
+          const metaCampaign = String(g.campaign_id ?? '').replace(/\D/g, '');
+          const c = (metaCampaign ? await one(db, `SELECT * FROM lead_campaigns WHERE $1 = ANY(meta_campaign_ids) AND active`, [metaCampaign]) : null)
+            ?? (g.form_id ? await one(db, `SELECT * FROM lead_campaigns WHERE meta_form_id = $1 AND active`, [String(g.form_id)]) : null);
+          if (metaCampaign) await seeMetaCampaign(db, metaCampaign, String(g.campaign_name ?? ''), !c);
+          if (!c) continue;
+          if (!c.project_id) throw new Error(`the campaign «${c.name}» has no project`);
           const lead = await db.tx((q) => addLead(q, c, x, now, 'فيسبوك'));
           if (lead) added++;
         } catch (e: any) {

@@ -371,6 +371,91 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
     if (ok) _load();
   }
 
+  // ------------------------------------------------------------------ Meta campaigns → our campaigns
+  List<Map<String, dynamic>> _metaList = [];
+  String? _metaErr;
+
+  String _metaName(String id) {
+    for (final m in [..._metaList, ...ll(_d['metaSeen'])]) {
+      if ('${m['id']}' == id && '${m['name'] ?? ''}'.isNotEmpty) return '${m['name']}';
+    }
+    return id;
+  }
+
+  /// Meta campaigns leads came from that are linked to none of ours (their leads were not added)
+  List<Widget> _unlinkedSeen() {
+    final linked = {for (final c in ll(_d['campaigns'])) for (final m in (c['metaCampaignIds'] as List? ?? const [])) '$m'};
+    final rows = ll(_d['metaSeen']).where((m) => !linked.contains('${m['id']}') && (m['skipped'] as num? ?? 0) > 0).toList();
+    if (rows.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Ar.amber.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(tr('حملات Meta وصل منها ليدز ومش مربوطة (الليدز دي مدخلتش):'), style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+          for (final m in rows)
+            Text('• ${'${m['name']}'.isEmpty ? m['id'] : m['name']} (${m['id']}) — ${m['skipped']} ${tr('ليد')}', style: TextStyle(color: JphUi.sub(isDark))),
+        ]),
+      ),
+    ];
+  }
+
+  Future<void> _metaLink(Map<String, dynamic> c) async {
+    if (_metaList.isEmpty && _metaErr == null) {
+      final r = await lget('/integrations/meta/campaigns');
+      _metaList = ll(r['campaigns']);
+      _metaErr = '${r['error'] ?? ''}'.isEmpty ? null : '${r['error']}';
+    }
+    if (!mounted) return;
+    final chosen = {for (final m in (c['metaCampaignIds'] as List? ?? const [])) '$m'};
+    final options = <String, String>{};
+    for (final m in [..._metaList, ...ll(_d['metaSeen'])]) {
+      final id = '${m['id']}';
+      options.putIfAbsent(id, () => '${m['name'] ?? ''}'.isEmpty ? id : '${m['name']}${m['account'] != null ? ' · ${m['account']}' : ''}');
+    }
+    for (final id in chosen) {
+      options.putIfAbsent(id, () => id);
+    }
+    final manual = TextEditingController();
+    final ok = await leadForm(context, isDark, '${tr('حملات Meta لـ')} ${c['name']}', (set) => [
+          Text(tr('اختار حملات Meta اللي ليدزها تنزل على الحملة دي. حملة Meta بتتربط بحملة واحدة بس من حملاتنا.'),
+              style: TextStyle(color: JphUi.sub(isDark))),
+          if (_metaErr != null)
+            Text('${tr('مقدرناش نجيب الحملات من Meta')}: $_metaErr — ${tr('تقدر تكتب رقم الحملة بإيدك')}',
+                style: const TextStyle(fontSize: 12.5, color: Ar.red)),
+          for (final e in options.entries)
+            CheckboxListTile(
+              dense: true,
+              value: chosen.contains(e.key),
+              onChanged: (v) => set(() => v == true ? chosen.add(e.key) : chosen.remove(e.key)),
+              title: Text(e.value, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text(e.key),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          Row(children: [
+            Expanded(child: JphUi.input(isDark: isDark, label: tr('رقم حملة Meta (Campaign ID)'), controller: manual, number: true, icon: Icons.tag_rounded, big: false)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_rounded),
+              onPressed: () {
+                final id = manual.text.replaceAll(RegExp(r'\D'), '');
+                if (id.length < 3) return;
+                set(() {
+                  options.putIfAbsent(id, () => id);
+                  chosen.add(id);
+                  manual.clear();
+                });
+              },
+            ),
+          ]),
+        ], () async {
+      final r = await lpost('/leads/campaigns/${c['id']}/partner', {'metaCampaignIds': chosen.toList()}, method: 'patch', ok: tr('اتحفظ ✅'));
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    });
+    if (ok) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
@@ -414,16 +499,23 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
         _line(tr('Callback URL'), '$kApiBaseUrl/public/hooks/meta', copy: true, mono: true),
         _line(tr('Verify token'), '${meta['verifyToken'] ?? ''}', copy: true, mono: true),
         _line(tr('Access token'), meta['hasToken'] == true ? tr('متحفظ ✅') : tr('لسه متحطش')),
-        _campaignPicker('meta', meta['campaignId']),
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: const Color(0xFF1877F2).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+          child: Text(tr('بيدخل بس ليدز حملات Meta اللي انت ربطتها بحملة من حملاتنا (تحت). أي حملة تانية على حافظة الأعمال مش بتدخل.'),
+              style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+        ),
         Wrap(spacing: 8, runSpacing: 8, children: [
           dirBtn(isDark, meta['hasToken'] == true ? tr('غيّر التوكن') : tr('حط التوكن'), Icons.key_rounded, _token, primary: meta['hasToken'] != true),
           dirBtn(isDark, tr('Verify token جديد'), Icons.refresh_rounded, () => _patch('meta', {'newVerifyToken': true})),
           dirBtn(isDark, meta['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('meta', {'active': meta['active'] != true})),
         ]),
         const Divider(height: 26),
-        Text(tr('كل حملة: فورم Meta بتاعها والسيلز اللي بيستقبلوا'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        Text(tr('الليد بينزل على الحملة اللي فورمها اتربط، وإلا على الحملة الافتراضية فوق، ويتوزع على السيلز بتوع الحملة بالطريقة اللي تختارها.'),
+        Text(tr('كل حملة: حملات Meta اللي بتغذيها والسيلز اللي بيستقبلوا'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        Text(tr('الليد بينزل على الحملة اللي حملة Meta بتاعته (أو فورمه) مربوطة بيها، ويتوزع على السيلز بتوع الحملة بالطريقة اللي تختارها.'),
             style: TextStyle(color: JphUi.sub(isDark))),
+        ..._unlinkedSeen(),
         const SizedBox(height: 6),
         for (final c in ll(_d['campaigns']))
           ListTile(
@@ -432,12 +524,16 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
             leading: const Icon(Icons.ads_click_rounded),
             title: Text('${c['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text([
-              c['metaFormId'] == null ? tr('فورم Meta: مش مربوط') : 'Form ${c['metaFormId']}',
+              (c['metaCampaignIds'] as List? ?? const []).isEmpty
+                  ? tr('حملات Meta: مش مربوطة')
+                  : '${tr('حملات Meta')}: ${[for (final m in (c['metaCampaignIds'] as List)) _metaName('$m')].join('، ')}',
+              if (c['metaFormId'] != null) 'Form ${c['metaFormId']}',
               routeSummary('${c['mode']}', [for (final x in (c['assignees'] as List? ?? const [])) '$x'], _people),
             ].join('\n')),
             isThreeLine: true,
             trailing: Wrap(children: [
               IconButton(tooltip: tr('التوزيع على السيلز'), icon: const Icon(Icons.group_rounded, size: 20), onPressed: () => _campaignRoute(c)),
+              IconButton(tooltip: tr('حملات Meta'), icon: const Icon(Icons.facebook_rounded, size: 20, color: Color(0xFF1877F2)), onPressed: () => _metaLink(c)),
               IconButton(tooltip: tr('فورم Meta'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _form(c)),
             ]),
             onTap: () => _campaignRoute(c),

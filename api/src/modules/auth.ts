@@ -10,6 +10,7 @@ import { deviceApprovers } from './devices.ts';
 import { notify } from './notify.ts';
 import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
+import { partnerOf } from '../auth/partner.ts';
 
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 
@@ -34,6 +35,33 @@ export const authModule: Module = (r, { db }) => {
        ORDER BY (upper(code) = upper($1)) DESC, (status = 'active') DESC
        LIMIT 1`, [identifier.trim(), identifier.replace(/\D/g, '').length === identifier.replace(/[\s+()-]/g, '').length ? identifier.replace(/\D/g, '') : '']);
     if (!emp) {
+      // not an employee: a marketing company's own sign-in (e-mail or mobile + password, 075)
+      const digits = identifier.replace(/\D/g, '');
+      const co = await one(db, `SELECT id, password_hash, status = 'active' AS active, failed_logins, locked_until, must_change_password FROM marketing_companies
+                                 WHERE password_hash IS NOT NULL AND (lower(login_email) = lower(trim($1)) OR (length($2) >= 10 AND right(login_phone_norm, 10) = right($2, 10)))
+                                 LIMIT 1`, [identifier.trim(), digits]);
+      if (co) {
+        if (co.locked_until && new Date(co.locked_until) > new Date()) {
+          throw new AppError('locked', `Too many failed attempts. Try again after ${LOCK_MINUTES} minutes`);
+        }
+        if (!(await verifyPassword(password, co.password_hash))) {
+          const fails = co.failed_logins + 1;
+          await db.query(`UPDATE marketing_companies SET failed_logins = $2::int,
+                            locked_until = CASE WHEN $2::int >= $3::int THEN now() + make_interval(mins => $4) ELSE locked_until END
+                          WHERE id = $1`, [co.id, fails, MAX_FAILS, LOCK_MINUTES]);
+          throw new AppError('unauthenticated', 'Wrong employee ID or password');
+        }
+        if (!co.active) throw new AppError('forbidden', 'This account is deactivated');
+        const { token, hash } = newToken();
+        await db.tx(async (q) => {
+          await q.query(`UPDATE marketing_companies SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [co.id]);
+          await q.query(`INSERT INTO partner_sessions (token_hash, company_id, expires_at, user_agent)
+                         VALUES ($1,$2, now() + make_interval(hours => $3), $4)`,
+            [hash, co.id, SESSION_TTL_HOURS, String(req.headers['user-agent'] ?? '').slice(0, 200)]);
+          await audit(q, null, 'partner.login', 'marketing_company', co.id);
+        });
+        return ok({ token, mustChangePassword: co.must_change_password, expiresInHours: SESSION_TTL_HOURS, partner: true });
+      }
       dummyHash ??= hashPassword('dummy-password-1');
       await verifyPassword(password, await dummyHash);
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
@@ -102,6 +130,11 @@ export const authModule: Module = (r, { db }) => {
   });
 
   r.post('/auth/logout', async (req) => {
+    const p = await partnerOf(db, req);
+    if (p) {
+      await db.query(`UPDATE partner_sessions SET revoked_at = now() WHERE id = $1`, [p.sessionId]);
+      return ok({ ok: true });
+    }
     const a = await authenticate(db, req, { allowPasswordChange: true });
     await db.query(`UPDATE sessions SET revoked_at = now() WHERE id = $1`, [a.sessionId]);
     await db.query(`DELETE FROM push_tokens WHERE session_id = $1`, [a.sessionId]);
@@ -221,6 +254,24 @@ export const authModule: Module = (r, { db }) => {
   });
 
   r.post('/auth/change-password', async (req) => {
+    const p = await partnerOf(db, req);
+    if (p) {
+      const b = obj(req.body);
+      const current = reqStr(b, 'currentPassword', { max: 128 });
+      const next = b.newPassword;
+      const policy = passwordPolicyError(next);
+      if (policy) throw invalid(policy, { field: 'newPassword' });
+      if (next === current) throw invalid('New password must differ from the current one', { field: 'newPassword' });
+      const row = await one(db, `SELECT password_hash FROM marketing_companies WHERE id = $1`, [p.companyId]);
+      if (!(await verifyPassword(current, row.password_hash))) throw invalid('Current password is wrong', { field: 'currentPassword' });
+      const hash = await hashPassword(next as string);
+      await db.tx(async (q) => {
+        await q.query(`UPDATE marketing_companies SET password_hash = $2, must_change_password = false WHERE id = $1`, [p.companyId, hash]);
+        await q.query(`UPDATE partner_sessions SET revoked_at = now() WHERE company_id = $1 AND id <> $2 AND revoked_at IS NULL`, [p.companyId, p.sessionId]);
+        await audit(q, null, 'partner.password_changed', 'marketing_company', p.companyId);
+      });
+      return ok({ ok: true });
+    }
     const a = await authenticate(db, req, { allowPasswordChange: true });
     const b = obj(req.body);
     const current = reqStr(b, 'currentPassword', { max: 128 });
@@ -242,6 +293,18 @@ export const authModule: Module = (r, { db }) => {
   });
 
   r.get('/me', async (req) => {
+    // a marketing company: the same shape the app reads, with the role «marketing_partner» and no permissions
+    const p = await partnerOf(db, req);
+    if (p) {
+      const c = await one(db, `SELECT id, name, login_email AS email, login_phone AS phone, must_change_password FROM marketing_companies WHERE id = $1`, [p.companyId]);
+      const s = await one(db, `SELECT company_name_ar, company_name_en, currency FROM company_settings`);
+      return ok({
+        employee: { id: c.id, code: `MK-${String(c.id).slice(0, 8).toUpperCase()}`, full_name: c.name, email: c.email, phone: c.phone, role_key: 'marketing_partner',
+          role: 'marketing_partner', role_name_ar: 'شركة تسويق', role_name_en: 'Marketing company', partner: true,
+          must_change_password: c.must_change_password, has_photo: false, manages_team: false, settled: false },
+        permissions: [], company: s,
+      });
+    }
     const a = await authenticate(db, req, { allowPasswordChange: true });
     const e = await one(db, `
       SELECT e.id, e.code, e.full_name, e.job_title, e.role_key, e.email, e.phone,

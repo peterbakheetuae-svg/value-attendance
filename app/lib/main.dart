@@ -27,6 +27,7 @@ import 'jph/services/api_service.dart' show JphRouter;
 import 'jph/pages/leads/leads_api.dart' show LeadsTr;
 import 'pages/change_password_page.dart';
 import 'jph/pages/attendance/attendance_report_page.dart';
+import 'jph/pages/partner/partner_home.dart';
 
 /// Value Attendance — the original JPH Attendance app (screens, design, assets unchanged),
 /// running on the Value Attendance API through `jph/services/api_service.dart`.
@@ -167,6 +168,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     final photo = (s['photo'] ?? '').toString();
     if (uid.isEmpty) return const LoginPage();
     if (session.mustChangePassword) return const ChangePasswordPage(forced: true);
+    // a marketing company (075): its own dashboard, its campaigns' leads and the settings — nothing else
+    if (session.role == 'marketing_partner') return PartnerHomePage(uid: uid, name: name);
     // «تم التصفيه»: only his attendance report
     if (session.settled) return AttendanceReportPage(uid: uid, name: name, role: role);
     final validity = (s['validity'] ?? '').toString().toLowerCase();

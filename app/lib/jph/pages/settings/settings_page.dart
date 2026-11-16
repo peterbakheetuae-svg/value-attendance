@@ -53,12 +53,15 @@ class SettingsPage extends StatefulWidget {
   final String uid;
   final String name;
   final String role;
+  /// a marketing company's account: only «تغيير كلمة المرور» … «تسجيل الخروج» (its own pages carry the navigation)
+  final bool partner;
 
   const SettingsPage({
     super.key,
     required this.uid,
     required this.name,
     required this.role,
+    this.partner = false,
   });
 
   @override
@@ -307,7 +310,7 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Scaffold(
               extendBody: true,
               backgroundColor: Colors.transparent,
-              bottomNavigationBar: GlassBottomNav(
+              bottomNavigationBar: widget.partner ? null : GlassBottomNav(
                 currentIndex: 3, // ✅ هذا الفهرس يعتمد على موقع الإعدادات في القائمة
                 onTap: (index) => AppNav.go(context, index, current: 3, uid: widget.uid, name: widget.name, role: widget.role),
               ),
@@ -325,6 +328,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 20),
 
+                    if (!widget.partner) ...[
                     SettingsTile(
                       title: AppLocalizations.of(context, 'leave_requests') ?? 'طلبات الإجازة',
                       icon: Icons.beach_access,
@@ -504,6 +508,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
 
                     // ─── End Multi-Company Management section ───
+
+                    ],   // end of the employees' items (a marketing company starts here)
 
                     // تغيير كلمة المرور - بدون مربع خلفي
                     SettingsExpandableTile(
