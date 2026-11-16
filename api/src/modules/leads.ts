@@ -247,7 +247,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const a = await auth(req);
     const [channels, campaigns, reasons, projects, people] = await Promise.all([
       db.query(`SELECT id, name FROM lead_channels WHERE active ORDER BY sort, name`),
-      db.query(`SELECT id, name, channel_id, project_id FROM lead_campaigns WHERE active ORDER BY created_at DESC`),
+      db.query(`SELECT c.id, c.name, c.channel_id, c.project_id, mk.name AS company_name FROM lead_campaigns c
+                  LEFT JOIN marketing_companies mk ON mk.id = c.marketing_company_id WHERE c.active ORDER BY c.created_at DESC`),
       db.query(`SELECT id, name FROM lead_cancel_reasons WHERE active ORDER BY sort, name`),
       db.query(`SELECT id, name, kind FROM commission_projects WHERE status = 'active' ORDER BY name`),
       assignable(db, a),
@@ -255,7 +256,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     return ok({
       stages: (await stagesOf(db)).map(stageShape),
       channels: channels.rows, cancelReasons: reasons.rows, projects: projects.rows,
-      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id })),
+      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id, company: c.company_name ?? null })),
       assignees: (canDistribute(a) || canTeam(a)) ? people.map((e) => ({ id: e.id, name: e.full_name, code: e.code })) : [],
       can: { all: canAll(a), distribute: canDistribute(a), team: canTeam(a), own: canOwn(a), config: canConfig(a),
         reports: has(a, 'leads.reports'), import: has(a, 'leads.import'), assign: canDistribute(a) || canTeam(a),
@@ -799,9 +800,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
     if (!canConfig(a)) throw forbidden();
     const [channels, campaigns, reasons, templates, st] = await Promise.all([
       db.query(`SELECT id, name, sort, active FROM lead_channels ORDER BY sort, name`),
-      db.query(`SELECT c.*, ch.name AS channel_name, p.name AS project_name,
+      db.query(`SELECT c.*, ch.name AS channel_name, p.name AS project_name, mk.name AS company_name,
                        (SELECT count(*) FROM leads l WHERE l.campaign_id = c.id)::int AS leads
                   FROM lead_campaigns c LEFT JOIN lead_channels ch ON ch.id = c.channel_id LEFT JOIN commission_projects p ON p.id = c.project_id
+                  LEFT JOIN marketing_companies mk ON mk.id = c.marketing_company_id
                  ORDER BY c.active DESC, c.created_at DESC`),
       db.query(`SELECT id, name, sort, active FROM lead_cancel_reasons ORDER BY sort, name`),
       db.query(`SELECT id, name, body, sort, active FROM lead_templates ORDER BY sort, name`),
@@ -813,7 +815,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, channelName: c.channel_name, projectId: c.project_id,
         projectName: c.project_name, startsOn: iso(c.starts_on)?.slice(0, 10) ?? null, endsOn: iso(c.ends_on)?.slice(0, 10) ?? null,
         cost: n(c.cost), active: c.active, leads: c.leads, formToken: c.form_token ?? null, formAssignees: c.form_assignees ?? [],
-        formTitle: c.form_title ?? '' })),
+        formTitle: c.form_title ?? '', companyId: c.marketing_company_id ?? null, companyName: c.company_name ?? null,
+        metaCampaignIds: c.meta_campaign_ids ?? [] })),
+      companies: (await db.query(`SELECT id, name, status FROM marketing_companies ORDER BY status, name`)).rows
+        .map((m) => ({ id: m.id, name: m.name, active: m.status === 'active' })),
     });
   });
 
@@ -868,12 +873,33 @@ export const leadsModule: Module = (r, { db, clock }) => {
       active: bool(b, 'active') ?? old?.active ?? true,
     };
   };
+  /** شركة التسويق that runs the campaign (075): companyId in the body; absent = unchanged */
+  const campaignCompany = async (b: Record<string, unknown>, old: string | null) => {
+    if (b.companyId === undefined) return old;
+    if (b.companyId === null || b.companyId === '') return null;
+    const id = String(b.companyId);
+    if (!isUuid(id) || !(await one(db, `SELECT 1 FROM marketing_companies WHERE id = $1`, [id]))) throw invalid('شركة التسويق مش موجودة', { field: 'companyId' });
+    return id;
+  };
+  /** the Meta campaigns whose leads come to it (075): metaCampaignIds in the body; absent = unchanged. One Meta campaign feeds
+   *  one of our campaigns only — taken from any other. */
+  const campaignMeta = async (q: Q, b: Record<string, unknown>, id: string) => {
+    if (b.metaCampaignIds === undefined) return;
+    if (!Array.isArray(b.metaCampaignIds) || b.metaCampaignIds.length > 50) throw invalid('حملات Meta مش صحيحة', { field: 'metaCampaignIds' });
+    const ids = [...new Set(b.metaCampaignIds.map((x) => String(x).trim()))];
+    if (ids.some((x) => !/^[0-9]{3,30}$/.test(x))) throw invalid('رقم حملة Meta لازم يكون أرقام بس', { field: 'metaCampaignIds' });
+    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = ARRAY(SELECT x FROM unnest(meta_campaign_ids) x WHERE NOT x = ANY($2::text[]))
+                    WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [id, ids]);
+    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = $2 WHERE id = $1`, [id, ids]);
+  };
   r.post('/leads/campaigns', async (req) => {
     const a = await auth(req);
     if (!canConfig(a)) throw forbidden();
     const c = await readCampaign(db, obj(req.body));
-    const x = await one(db, `INSERT INTO lead_campaigns (name, channel_id, project_id, starts_on, ends_on, cost, active, created_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, a.id]);
+    const company = await campaignCompany(obj(req.body), null);
+    const x = await one(db, `INSERT INTO lead_campaigns (name, channel_id, project_id, starts_on, ends_on, cost, active, created_by, marketing_company_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, a.id, company]);
+    await campaignMeta(db, obj(req.body), x.id);
     await audit(db, a.id, 'lead.campaign.create', 'lead_campaign', x.id, undefined, x);
     return ok({ campaign: { id: x.id } }, 201);
   });
@@ -884,8 +910,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const old = await one(db, `SELECT * FROM lead_campaigns WHERE id = $1`, [req.params.id]);
     if (!old) throw notFound();
     const c = await readCampaign(db, obj(req.body), old);
-    const x = await one(db, `UPDATE lead_campaigns SET name = $2, channel_id = $3, project_id = $4, starts_on = $5, ends_on = $6, cost = $7, active = $8
-        WHERE id = $1 RETURNING *`, [old.id, c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active]);
+    const company = await campaignCompany(obj(req.body), old.marketing_company_id);
+    const x = await one(db, `UPDATE lead_campaigns SET name = $2, channel_id = $3, project_id = $4, starts_on = $5, ends_on = $6, cost = $7, active = $8,
+        marketing_company_id = $9 WHERE id = $1 RETURNING *`, [old.id, c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, company]);
+    await campaignMeta(db, obj(req.body), old.id);
     await audit(db, a.id, 'lead.campaign.update', 'lead_campaign', old.id, old, x);
     return ok({ campaign: { id: x.id } });
   });

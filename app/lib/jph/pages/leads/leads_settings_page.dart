@@ -270,6 +270,8 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                     if (c['channelName'] != null) '${c['channelName']}',
                     if (c['projectName'] != null) '${c['projectName']}',
                     if (c['startsOn'] != null) 'من ${c['startsOn']}${c['endsOn'] == null ? '' : ' لـ ${c['endsOn']}'}',
+                    if (c['companyName'] != null) '${c['companyName']}',
+                    if ((c['metaCampaignIds'] as List? ?? const []).isNotEmpty) 'Meta ✓',
                   ].join(' • '), style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                 ]),
               ),
@@ -294,6 +296,9 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     String? channel = c?['channelId']?.toString(), project = c?['projectId']?.toString();
     DateTime? from = DateTime.tryParse('${c?['startsOn'] ?? ''}'), to = DateTime.tryParse('${c?['endsOn'] ?? ''}');
     bool active = c?['active'] != false;
+    String? company = c?['companyId']?.toString();
+    final metaIds = <String>{for (final m in (c?['metaCampaignIds'] as List? ?? const [])) '$m'};
+    final companies = ll(_d['companies']).where((m) => m['active'] == true || '${m['id']}' == company).toList();
     String day(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
     Future<DateTime?> pick(DateTime? v) => showDatePicker(context: context, initialDate: v ?? DateTime.now(), firstDate: DateTime(2024), lastDate: DateTime(2035));
     final ok = await leadForm(context, isDark, c == null ? tr('حملة جديدة') : tr('تعديل الحملة'), (set) => [
@@ -309,17 +314,79 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             final d = await pick(to);
             if (d != null) set(() => to = d);
           }),
+          refPicker(context, isDark, tr('شركة التسويق'), Icons.business_center_rounded, companies, company, (v) => set(() => company = v)),
+          JphUi.picker(
+            isDark: isDark,
+            icon: Icons.facebook_rounded,
+            iconColor: const Color(0xFF1877F2),
+            label: tr('حملات Meta (لتتبّع الأرقام اللي جاية من ميتا)'),
+            value: metaIds.isEmpty ? tr('مش مربوطة') : metaIds.join('، '),
+            onTap: () async {
+              final v = await _pickMeta(isDark, metaIds);
+              if (v != null) set(() => metaIds..clear()..addAll(v));
+            },
+          ),
           if (c != null) SwitchListTile(value: active, onChanged: (v) => set(() => active = v), title: Text(tr('شغالة'))),
         ], () async {
       final b = {
         'name': name.text.trim(), 'channelId': channel, 'projectId': project, 'cost': num.tryParse(cost.text.replaceAll(',', '')) ?? 0,
         'startsOn': from == null ? null : day(from!), 'endsOn': to == null ? null : day(to!), if (c != null) 'active': active,
+        'companyId': company, 'metaCampaignIds': metaIds.toList(),
       };
       final r = c == null ? await lpost('/leads/campaigns', b, ok: tr('اتضافت ✅')) : await lpost('/leads/campaigns/${c['id']}', b, method: 'patch', ok: tr('اتحفظ ✅'));
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });
     if (ok) _load();
+  }
+
+  /// Meta campaigns: the ones the saved token reaches + the ones leads already came from + typed by hand
+  Future<Set<String>?> _pickMeta(bool isDark, Set<String> current) async {
+    final chosen = {...current};
+    final names = <String, String>{};
+    final listed = await lget('/integrations/meta/campaigns');
+    final seen = await lget('/integrations');
+    for (final m in [...ll(listed['campaigns']), ...ll(seen['metaSeen'])]) {
+      final id = '${m['id']}';
+      names.putIfAbsent(id, () => '${m['name'] ?? ''}'.isEmpty ? id : '${m['name']}');
+    }
+    for (final id in chosen) {
+      names.putIfAbsent(id, () => id);
+    }
+    if (!mounted) return null;
+    final manual = TextEditingController();
+    final err = '${listed['error'] ?? ''}';
+    final ok = await leadForm(context, isDark, tr('حملات Meta'), (set) => [
+          Text(tr('اختار حملات Meta اللي ليدزها تنزل على الحملة دي. حملة Meta بتتربط بحملة واحدة بس من حملاتنا.'),
+              style: TextStyle(color: JphUi.sub(isDark))),
+          if (err.isNotEmpty)
+            Text('${tr('مقدرناش نجيب الحملات من Meta')}: $err — ${tr('تقدر تكتب رقم الحملة بإيدك')}', style: const TextStyle(fontSize: 12.5, color: Ar.red)),
+          for (final e in names.entries)
+            CheckboxListTile(
+              dense: true,
+              value: chosen.contains(e.key),
+              onChanged: (v) => set(() => v == true ? chosen.add(e.key) : chosen.remove(e.key)),
+              title: Text(e.value, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text(e.key),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          Row(children: [
+            Expanded(child: JphUi.input(isDark: isDark, label: tr('رقم حملة Meta (Campaign ID)'), controller: manual, number: true, icon: Icons.tag_rounded, big: false)),
+            IconButton(
+              icon: const Icon(Icons.add_circle_rounded),
+              onPressed: () {
+                final id = manual.text.replaceAll(RegExp(r'\D'), '');
+                if (id.length < 3) return;
+                set(() {
+                  names.putIfAbsent(id, () => id);
+                  chosen.add(id);
+                  manual.clear();
+                });
+              },
+            ),
+          ]),
+        ], () async => true, saveLabel: tr('تمام'));
+    return ok ? chosen : null;
   }
 
   Widget _pending(bool isDark) {

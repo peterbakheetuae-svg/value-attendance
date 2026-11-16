@@ -192,3 +192,26 @@ test('«ربط الحساب بالجهاز» and «حالة تسجيل الدخ�
   assert.equal(f.loginActive, false);
   assert.equal(f.deviceLock, true);
 });
+
+test('a campaign is created / edited with its marketing company (leads settings → الحملات)', async () => {
+  const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الحملة', kind: 'commission', defaultPct: 1 });
+  const co = mk.body.company.id;
+  const ch = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
+  const r = await h.call(c.t.acc, 'POST', '/leads/campaigns', { name: 'حملة بشركة', channelId: ch, projectId: pid, companyId: co });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const s = (await h.call(c.t.acc, 'GET', '/leads/config')).body;
+  const x = s.campaigns.find((k: any) => k.id === r.body.campaign.id);
+  assert.equal(x.companyId, co);
+  assert.equal(x.companyName, 'شركة الحملة');
+  assert.ok(s.companies.some((k: any) => k.id === co));
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${x.id}`, { name: 'حملة بشركة', channelId: ch, projectId: pid })).status, 200);
+  assert.equal((await h.db.query(`SELECT marketing_company_id FROM lead_campaigns WHERE id = $1`, [x.id])).rows[0].marketing_company_id, co, 'absent = unchanged');
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${x.id}`, { name: 'حملة بشركة', channelId: ch, projectId: pid, companyId: null })).status, 200);
+  assert.equal((await h.db.query(`SELECT marketing_company_id FROM lead_campaigns WHERE id = $1`, [x.id])).rows[0].marketing_company_id, null);
+  // the Meta campaigns it tracks, set with the campaign (one Meta campaign → one of ours)
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${x.id}`, { name: 'حملة بشركة', channelId: ch, projectId: pid, metaCampaignIds: ['55501'] })).status, 200);
+  assert.deepEqual((await h.call(c.t.acc, 'GET', '/leads/config')).body.campaigns.find((k: any) => k.id === x.id).metaCampaignIds, ['55501']);
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${x.id}`, { name: 'حملة بشركة', channelId: ch, projectId: pid, metaCampaignIds: ['x1'] })).status, 400);
+  const meta = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.campaigns;
+  assert.ok(meta.some((k: any) => k.id === camp1 && k.company === 'آدز ميديا'), 'the lead form shows the company with the campaign');
+});
