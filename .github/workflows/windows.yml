@@ -1,23 +1,23 @@
-name: Windows desktop app — VALUNIVO.exe + installer
-# The real Flutter Windows app, built from the same app/ source as Web and Android (same screens, same API).
-#  - Called by app.yml for every release (same version as Web + Android). Publishing happens ONLY there.
-#  - feature/windows-desktop push / manual run: builds + tests the app and installer, then runs the real
-#    in-app update end-to-end test (three versions, local HTTPS server, throw-away signing key). Never publishes.
+name: Windows desktop app — VALUNIVO.exe (build, test, publish Windows only)
+# Independent of the Web / Android pipeline (app.yml is not touched and never calls this).
+# MANUAL ONLY: Actions → this workflow → Run workflow.
+#  - every run: tests, Windows smoke test, VALUNIVO.exe + VALUNIVO-Updater.exe, installer, install/uninstall test,
+#    and (unless switched off) the real in-app update end-to-end test.
+#  - publish (main only, and only if the update test passed): signs the Windows manifest with the pinned release key and
+#    copies ONLY the installer + latest.json into jaurea.com/valunivo/windows/ (remote-deploy-windows.sh — it fails if
+#    anything outside that folder changes), verifies it live, keeps a permanent copy as release windows-v<version>.
+#  - rollback_to (main only): a signed "rollback" manifest pointing at an earlier installer already on the server.
+# Version: 1.0.<this workflow's run number> — the Windows app's own numbering, independent of Web / Android.
 on:
-  push:
-    branches: [feature/windows-desktop]
-    paths: ['app/**', '.github/workflows/windows.yml']
   workflow_dispatch:
-  workflow_call:
     inputs:
-      build_number: { type: string, required: true }
-      release: { type: boolean, required: false, default: false }
-    outputs:
-      version: { value: '${{ jobs.build.outputs.version }}' }
-      public_key: { value: '${{ jobs.build.outputs.public_key }}' }
+      publish: { description: 'Publish this build to jaurea.com/valunivo/windows/ (main only)', type: boolean, default: false }
+      run_update_test: { description: 'Run the in-app update end-to-end test (required to publish)', type: boolean, default: true }
+      rollback_to: { description: 'Instead of a new build: roll Windows back to this earlier version, e.g. 1.0.12 (main only)', required: false, default: '' }
 permissions:
   contents: read
-concurrency: { group: 'windows-${{ github.workflow }}-${{ github.ref }}', cancel-in-progress: false }
+# one Windows publish at a time; never cancelled half-way (separate from the web / Android queue)
+concurrency: { group: windows-release, cancel-in-progress: false }
 env:
   FLUTTER_VERSION: '3.38.10'
   API_BASE_URL: ${{ vars.API_BASE_URL }}
@@ -27,6 +27,7 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: '3.5'
 jobs:
   build:
+    if: inputs.rollback_to == ''
     # Visual Studio 2022 (the toolchain Flutter 3.38 supports); windows-latest has VS 2026, whose MSVC 14.51
     # rejects the C++/WinRT coroutines used by audioplayers_windows and flutter_local_notifications_windows
     runs-on: windows-2022
@@ -38,25 +39,32 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
-      - name: Version (the release's shared number when called by app.yml)
+      - name: Version (Windows' own numbering)
         id: v
         run: |
-          N="${{ inputs.build_number }}"; [ -n "$N" ] || N="${{ github.run_number }}"
+          N="${{ github.run_number }}"
           echo "N=$N" >> "$GITHUB_ENV"; echo "V=1.0.$N" >> "$GITHUB_ENV"; echo "version=1.0.$N" >> "$GITHUB_OUTPUT"
           [ -n "$API_BASE_URL" ] || echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
           echo "version 1.0.$N"
-      - name: Update public key (from the release signing key; the private half never leaves this step)
+      - name: Update public key — pinned in the repository (tool/release/windows_update_public_keys.txt)
         id: key
         env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
         run: |
-          if [ -z "$SIGNING_KEY" ]; then
-            if [ "${{ inputs.release }}" = "true" ]; then echo "::error::WINDOWS_UPDATE_SIGNING_KEY secret missing — a release cannot ship without update signing"; exit 1; fi
-            echo "::notice::no WINDOWS_UPDATE_SIGNING_KEY — this test build has automatic updates switched off"; exit 0
+          trap 'rm -f "$RUNNER_TEMP/k.pem"' EXIT   # the key file never outlives this step, even on failure
+          KEYS=$(grep -vE '^[[:space:]]*(#|$)' tool/release/windows_update_public_keys.txt | tr -d '\r ' | paste -sd, - || true)
+          for k in ${KEYS//,/ }; do
+            [ ${#k} -eq 44 ] && [ "$(printf '%s' "$k" | base64 -d 2>/dev/null | wc -c)" -eq 32 ] || { echo "::error::pinned key '$k' is not a raw Ed25519 public key (base64, 44 chars)"; exit 1; }
+          done
+          if [ "${{ inputs.publish }}" = "true" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            [ -n "$KEYS" ] || { echo "::error::no pinned update public key in tool/release/windows_update_public_keys.txt — a release cannot ship without update signing"; exit 1; }
+            [ -n "$SIGNING_KEY" ] || { echo "::error::WINDOWS_UPDATE_SIGNING_KEY secret missing"; exit 1; }
+            # the secret must be the private half of a pinned key (only the public half is derived; nothing is printed)
+            umask 077; printf '%s\n' "$SIGNING_KEY" | tr -d '\r' > "$RUNNER_TEMP/k.pem"
+            PUB=$(bash tool/release/public_key.sh "$RUNNER_TEMP/k.pem" || true); rm -f "$RUNNER_TEMP/k.pem"
+            case ",$KEYS," in *",$PUB,"*) ;; *) echo "::error::WINDOWS_UPDATE_SIGNING_KEY is not the private key of a pinned public key"; exit 1;; esac
           fi
-          umask 077; printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/k.pem"
-          PUB=$(bash tool/release/public_key.sh "$RUNNER_TEMP/k.pem"); rm -f "$RUNNER_TEMP/k.pem"
-          [ ${#PUB} -eq 44 ] || { echo "::error::WINDOWS_UPDATE_SIGNING_KEY is not an Ed25519 private key (PEM)"; exit 1; }
-          echo "UPDATE_PUBLIC_KEY=$PUB" >> "$GITHUB_ENV"; echo "public_key=$PUB" >> "$GITHUB_OUTPUT"; echo "update public key: $PUB"
+          if [ -z "$KEYS" ]; then echo "::notice::no pinned update key yet — this build has automatic updates switched off"; exit 0; fi
+          echo "UPDATE_PUBLIC_KEY=$KEYS" >> "$GITHUB_ENV"; echo "public_key=$KEYS" >> "$GITHUB_OUTPUT"; echo "trusted update key(s): $KEYS"
       - run: flutter config --enable-windows-desktop && flutter pub get
       - run: flutter test
       - name: Windows smoke test inside the app (DPAPI token storage, API reachable, server rejects no / forged token, login screen)
@@ -162,7 +170,7 @@ jobs:
   # Real in-app update test (feature branch only — never part of a release run): three builds 1.0.A, 1.0.A+1 and a
   # deliberately broken 1.0.A+2, a throw-away signing key, and a local HTTPS server standing in for jaurea.com.
   update-e2e:
-    if: inputs.build_number == ''
+    if: inputs.rollback_to == '' && inputs.run_update_test
     runs-on: windows-2022
     timeout-minutes: 100
     defaults: { run: { working-directory: app, shell: bash } }
@@ -356,3 +364,89 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: update-e2e-logs, path: e2e-logs, if-no-files-found: ignore, retention-days: 30 }
+
+  # Windows ONLY → jaurea.com/valunivo/windows/. Needs the build AND the update test to have passed.
+  publish:
+    needs: [build, update-e2e]
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
+      - uses: actions/download-artifact@v4
+        with: { name: windows-out, path: win }
+      - name: Never overwrite an existing Windows release
+        run: |
+          V=${{ needs.build.outputs.version }}
+          if gh api "repos/${{ github.repository }}/releases/tags/windows-v$V" >/dev/null 2>&1; then echo "::error::windows-v$V already exists"; exit 1; fi
+      - name: Sign the manifest (pinned release key)
+        env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/k.pem"' EXIT   # the key file never outlives this step, even on failure
+          V=${{ needs.build.outputs.version }}; N=${V##*.}; TRUSTED="${{ needs.build.outputs.public_key }}"
+          [ -n "$SIGNING_KEY" ] && [ -n "$TRUSTED" ] || { echo "::error::signing key secret or pinned key missing"; exit 1; }
+          umask 077; printf '%s\n' "$SIGNING_KEY" | tr -d '\r' > "$RUNNER_TEMP/k.pem"
+          PUB=$(bash app/tool/release/public_key.sh "$RUNNER_TEMP/k.pem")
+          case ",$TRUSTED," in *",$PUB,"*) ;; *) echo "::error::signing key is not the pinned key compiled into this build"; exit 1;; esac
+          mkdir -p stage && cp "win/VALUNIVO-Setup-$V.exe" stage/
+          bash app/tool/release/sign_windows_manifest.sh "$RUNNER_TEMP/k.pem" "stage/VALUNIVO-Setup-$V.exe" "$V" "$N" stage/latest.json
+          echo "VALUNIVO-Setup-$V.exe $(sha256sum stage/VALUNIVO-Setup-$V.exe | cut -d' ' -f1)" > stage/release.txt
+          if grep -rlE 'PRIVATE KEY' stage; then echo "::error::private key material in the staging"; exit 1; fi
+      - name: Deploy — Windows folder only (remote-deploy-windows.sh)
+        run: bash app/tool/release/ssh_deploy_windows.sh stage
+      - name: Verify live (signature with the pinned key + installer bytes)
+        run: bash app/tool/release/verify_live.sh https://jaurea.com "${{ needs.build.outputs.version }}" "${{ needs.build.outputs.public_key }}" stage --windows-only
+      - name: Permanent copy (release windows-v<version>; never marked "latest", so it never affects Android / web)
+        run: |
+          V=${{ needs.build.outputs.version }}
+          gh release create "windows-v$V" -R "${{ github.repository }}" --target "${{ github.sha }}" --latest=false \
+            --title "VALUNIVO Windows $V" --notes "تطبيق الويندوز — VALUNIVO $V" \
+            "win/VALUNIVO-Setup-$V.exe" "win/VALUNIVO-$V-windows-x64.zip" stage/latest.json
+
+  # Signed rollback: points installed apps back at an earlier installer that is already on the server.
+  rollback:
+    if: inputs.rollback_to != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
+      - name: Earlier installer (from its permanent release) + checks
+        run: |
+          V="${{ inputs.rollback_to }}"
+          [[ "$V" =~ ^1\.0\.([0-9]+)$ ]] || { echo "::error::version must look like 1.0.N"; exit 1; }
+          mkdir -p stage
+          gh release download "windows-v$V" -R "${{ github.repository }}" -D stage -p "VALUNIVO-Setup-$V.exe" || { echo "::error::no release windows-v$V"; exit 1; }
+          LB=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/windows/latest.json?t=$(date +%s)" | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["manifest"])["build"])')
+          [ "${BASH_REMATCH[1]}" -lt "$LB" ] || { echo "::error::$V is not older than the live Windows build $LB"; exit 1; }
+      - name: Sign the rollback manifest (pinned release key)
+        env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/k.pem"' EXIT
+          V="${{ inputs.rollback_to }}"; N=${V##*.}
+          KEYS=$(grep -vE '^[[:space:]]*(#|$)' app/tool/release/windows_update_public_keys.txt | tr -d '\r ' | paste -sd, - || true)
+          [ -n "$SIGNING_KEY" ] && [ -n "$KEYS" ] || { echo "::error::signing key secret or pinned key missing"; exit 1; }
+          umask 077; printf '%s\n' "$SIGNING_KEY" | tr -d '\r' > "$RUNNER_TEMP/k.pem"
+          PUB=$(bash app/tool/release/public_key.sh "$RUNNER_TEMP/k.pem")
+          case ",$KEYS," in *",$PUB,"*) ;; *) echo "::error::signing key is not a pinned key"; exit 1;; esac
+          bash app/tool/release/sign_windows_manifest.sh "$RUNNER_TEMP/k.pem" "stage/VALUNIVO-Setup-$V.exe" "$V" "$N" stage/latest.json rollback
+          echo "VALUNIVO-Setup-$V.exe $(sha256sum stage/VALUNIVO-Setup-$V.exe | cut -d' ' -f1)" > stage/release.txt
+          echo "KEYS=$KEYS" >> "$GITHUB_ENV"
+      - name: Deploy — Windows folder only
+        run: bash app/tool/release/ssh_deploy_windows.sh stage
+      - name: Verify live
+        run: bash app/tool/release/verify_live.sh https://jaurea.com "${{ inputs.rollback_to }}" "$KEYS" stage --windows-only

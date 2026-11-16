@@ -4,9 +4,7 @@
 # the new Android update — into public_html/valunivo/ ONLY (+ the old public_html/value-attendance/: a redirect and its android/). WordPress (the rest of public_html) is never
 # touched: its key files are fingerprinted before and after, and the deploy fails if anything there changed.
 #
-# Expects in ~/va-staging/: web.zip, and optionally android/ (value-attendance-<v>.apk + latest.json)
-# and windows/ (VALUNIVO-Setup-<v>.exe + signed latest.json + release.txt "<installer> <sha256>").
-# Every file of the release is checked BEFORE anything goes live; update files go live installer first, latest.json last.
+# Expects in ~/va-staging/: web.zip, and optionally android/ (value-attendance-<v>.apk + latest.json).
 set -euo pipefail
 
 ROOT="$HOME/domains/jaurea.com/public_html"
@@ -32,21 +30,6 @@ if find "$STAGE/web" -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'k
   echo "secret file in build"; exit 1
 fi
 
-# --- check the whole release before publishing any of it
-if [ -s "$STAGE/android/latest.json" ]; then
-  APK=$(sed -n 's/.*"apk" *: *"\([^"]*\)".*/\1/p' "$STAGE/android/latest.json")
-  ASHA=$(sed -n 's/.*"sha256" *: *"\([0-9a-f]*\)".*/\1/p' "$STAGE/android/latest.json")
-  test -n "$APK" && test -s "$STAGE/android/$APK" || { echo "android update incomplete"; exit 1; }
-  [ "$(sha256sum "$STAGE/android/$APK" | cut -d' ' -f1)" = "$ASHA" ] || { echo "android APK hash mismatch"; exit 1; }
-fi
-if [ -s "$STAGE/windows/latest.json" ]; then
-  read -r WIN WSHA < "$STAGE/windows/release.txt" || true
-  [[ "$WIN" =~ ^VALUNIVO-Setup-[0-9]+\.[0-9]+\.[0-9]+\.exe$ ]] && test -s "$STAGE/windows/$WIN" || { echo "windows update incomplete"; exit 1; }
-  [ "$(sha256sum "$STAGE/windows/$WIN" | cut -d' ' -f1)" = "$WSHA" ] || { echo "windows installer hash mismatch"; exit 1; }
-  grep -q "$WSHA" "$STAGE/windows/latest.json" || { echo "windows manifest does not name this installer"; exit 1; }
-fi
-echo "release files checked"
-
 # everything except the two entry files first (the running app keeps working), then the entry files
 (cd "$STAGE/web" && tar cf - --exclude=./index.html --exclude=./flutter_bootstrap.js .) | (cd "$APP" && tar xf -)
 cp "$STAGE/web/flutter_bootstrap.js" "$STAGE/web/index.html" "$APP/"
@@ -65,18 +48,6 @@ if [ -s "$STAGE/android/latest.json" ]; then
   cp "$STAGE/android/$APK" "$OLD/android/value-attendance.apk"
   cp "$STAGE/android/latest.json" "$OLD/android/latest.json"
   echo "android update: $APK"
-fi
-
-# Windows update: the installer first, the signed latest.json last (the app only sees a version once its file is there).
-# Earlier installers stay (a signed rollback manifest can point back at one).
-if [ -s "$STAGE/windows/latest.json" ]; then
-  mkdir -p "$APP/windows"
-  cp "$STAGE/windows/$WIN" "$APP/windows/$WIN"
-  cp "$STAGE/windows/$WIN" "$APP/windows/VALUNIVO-Setup.exe"   # fixed link for a first install
-  [ -s "$APP/windows/latest.json" ] && cp "$APP/windows/latest.json" "$APP/windows/latest.prev.json"
-  cp "$STAGE/windows/latest.json" "$APP/windows/latest.json.new"
-  mv "$APP/windows/latest.json.new" "$APP/windows/latest.json"
-  echo "windows update: $WIN"
 fi
 
 # the old address → the new one (everything except android/, which older phones still read)

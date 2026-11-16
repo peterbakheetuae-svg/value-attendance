@@ -14,7 +14,7 @@ const _opensslSig = 'SvpqpYdPwiGzav3eH7lV5zYQX/clJusWWdMb3IE/4wSw6cnCKNOrnZqKw5I
 String envelope(String text, String sig) => jsonEncode({'format': 1, 'manifest': text, 'sig': sig});
 
 void main() {
-  final pub = base64Decode(_opensslPub);
+  final pub = [base64Decode(_opensslPub)];
 
   test('accepts a manifest signed by the release pipeline (openssl Ed25519)', () {
     final m = UpdateManifest.verify(envelope(_opensslText, _opensslSig), pub);
@@ -42,12 +42,12 @@ void main() {
     expect(() => UpdateManifest.verify(_opensslText, pub), throwsA(anything)); // plain, no signature
     expect(() => UpdateManifest.verify(envelope(_opensslText, ''), pub), throwsA(anything));
     expect(() => UpdateManifest.verify('not json', pub), throwsA(anything));
-    expect(() => UpdateManifest.verify(envelope(_opensslText, _opensslSig), pub.sublist(1)), throwsA(anything));
+    expect(() => UpdateManifest.verify(envelope(_opensslText, _opensslSig), [pub.first.sublist(1)]), throwsA(anything));
   });
 
   test('a correctly signed manifest with unsafe content is still refused', () {
     final key = nacl.SigningKey.generate();
-    final kpub = key.verifyKey.asTypedList;
+    final kpub = [key.verifyKey.asTypedList];
     String signed(Map<String, dynamic> m) {
       final t = jsonEncode(m);
       return envelope(t, base64Encode(key.sign(utf8.encode(t)).signature.asTypedList));
@@ -64,5 +64,15 @@ void main() {
     expect(() => UpdateManifest.verify(signed({...good, 'sha256': 'xyz'}), kpub), throwsA(anything));
     expect(() => UpdateManifest.verify(signed({...good, 'size': 12}), kpub), throwsA(anything));
     expect(UpdateManifest.verify(signed({...good, 'rollback': true}), kpub).rollback, isTrue);
+  });
+
+  test('planned key rotation: a manifest signed by either trusted key is accepted, any other is not', () {
+    final next = nacl.SigningKey.generate();
+    final sig = base64Encode(next.sign(utf8.encode(_opensslText)).signature.asTypedList);
+    final both = [pub.first, next.verifyKey.asTypedList];
+    expect(UpdateManifest.verify(envelope(_opensslText, _opensslSig), both).build, 7); // old key
+    expect(UpdateManifest.verify(envelope(_opensslText, sig), both).build, 7); // new key
+    expect(() => UpdateManifest.verify(envelope(_opensslText, sig), pub), throwsA(anything)); // new key not trusted yet
+    expect(() => UpdateManifest.verify(envelope(_opensslText, _opensslSig), <List<int>>[]), throwsA(anything));
   });
 }

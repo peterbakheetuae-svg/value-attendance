@@ -34,8 +34,22 @@ class WindowsUpdater {
 
   // HTTPS only. Overridable at build time for the CI update test (a local HTTPS server); production uses the default.
   static const String baseUrl = String.fromEnvironment('UPDATE_BASE_URL', defaultValue: 'https://jaurea.com/valunivo/windows/');
-  // Raw Ed25519 public key (base64), compiled in from the release signing key by the release build.
+  // Raw Ed25519 public key(s) the app trusts (base64, comma-separated), compiled in by the release build from the
+  // pinned list in tool/release/windows_update_public_keys.txt. Two keys = a planned key rotation.
   static const String publicKeyB64 = String.fromEnvironment('UPDATE_PUBLIC_KEY');
+  static List<List<int>> get trustedKeys => publicKeyB64
+      .split(',')
+      .map((k) => k.trim())
+      .where((k) => k.isNotEmpty)
+      .map((k) {
+        try {
+          return base64Decode(k);
+        } catch (_) {
+          return const <int>[];
+        }
+      })
+      .where((k) => k.length == 32)
+      .toList();
   static const Duration _every = Duration(hours: 4);
   static const Duration _idleForAutoRestart = Duration(seconds: 60);
 
@@ -49,7 +63,7 @@ class WindowsUpdater {
   _Ready? _ready;
   AppLifecycleListener? _exitListener;
 
-  bool get enabled => PlatformInfo.isWindows && baseUrl.startsWith('https://') && publicKeyB64.isNotEmpty;
+  bool get enabled => PlatformInfo.isWindows && baseUrl.startsWith('https://') && trustedKeys.isNotEmpty;
 
   static Directory get stateDir {
     final local = Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path;
@@ -113,7 +127,7 @@ class WindowsUpdater {
       final r = await http.get(Uri.parse('${baseUrl}latest.json?t=${DateTime.now().millisecondsSinceEpoch}'))
           .timeout(const Duration(seconds: 20));
       if (r.statusCode != 200) throw _Reject('manifest http ${r.statusCode}');
-      final m = UpdateManifest.verify(r.body, base64Decode(publicKeyB64));
+      final m = UpdateManifest.verify(r.body, trustedKeys);
       final prefs = await SharedPreferences.getInstance();
       final seen = prefs.getInt('win_update_issued') ?? 0;
       if (m.issued < seen) throw _Reject('replayed older manifest (issued ${m.issued} < $seen)');
@@ -381,8 +395,9 @@ class UpdateManifest {
   final bool rollback;
   const UpdateManifest._(this.version, this.build, this.installer, this.size, this.sha256, this.issued, this.rollback);
 
-  static UpdateManifest verify(String body, List<int> publicKey) {
-    if (publicKey.length != 32) throw _Reject('bad public key');
+  /// Checks the signature against [trustedKeys] (any one of them) before anything in the manifest is used.
+  static UpdateManifest verify(String body, List<List<int>> trustedKeys) {
+    if (trustedKeys.isEmpty || trustedKeys.any((k) => k.length != 32)) throw _Reject('bad public key');
     final Map<String, dynamic> env;
     try {
       env = jsonDecode(body) as Map<String, dynamic>;
@@ -398,12 +413,14 @@ class UpdateManifest {
       throw _Reject('bad signature encoding');
     }
     var ok = false;
-    try {
-      ok = sig.length == 64 &&
-          nacl.VerifyKey(nacl.Uint8List.fromList(publicKey))
-              .verify(signature: nacl.Signature(nacl.Uint8List.fromList(sig)), message: nacl.Uint8List.fromList(utf8.encode(text)));
-    } catch (_) {
-      ok = false;
+    for (final key in trustedKeys) {
+      if (ok || sig.length != 64) break;
+      try {
+        ok = nacl.VerifyKey(nacl.Uint8List.fromList(key))
+            .verify(signature: nacl.Signature(nacl.Uint8List.fromList(sig)), message: nacl.Uint8List.fromList(utf8.encode(text)));
+      } catch (_) {
+        ok = false;
+      }
     }
     if (!ok) throw _Reject('signature invalid — manifest not from the VALUNIVO release key');
     final m = jsonDecode(text) as Map<String, dynamic>;

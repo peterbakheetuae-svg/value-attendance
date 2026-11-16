@@ -1,17 +1,10 @@
-name: App — test, Web + Android + Windows, one release to Hostinger (jaurea.com/valunivo)
+name: App — test, Web + Android, deploy to Hostinger (jaurea.com/valunivo)
 on:
   push: { branches: [main], paths: ['app/**', '.github/workflows/app.yml'] }
   workflow_dispatch:
-# ONE release = one version (1.0.<run number>) for all three: Web, Android APK, Windows EXE.
-#  build (Web + APK) ─┐
-#  windows (EXE)  ────┴─► release-files (signs the Windows manifest, checks all versions match)
-#                          └─► hostinger (validates everything on the server first, then publishes; verifies all three live)
-#                               └─► github-release (permanent copy of every file; only after everything above passed)
-# If any build or check fails, nothing after it runs: no partial release, the previous one stays live.
 permissions:
-  contents: write   # keeps a copy of each release (permanent backup); the live app and its updates are on Hostinger
-# a release in progress is never cancelled half-way (a newer push waits for it)
-concurrency: { group: app-build, cancel-in-progress: false }
+  contents: write   # keeps a copy of each build as a release (backup); the live app and its updates are on Hostinger
+concurrency: { group: app-build, cancel-in-progress: true }
 env:
   FLUTTER_VERSION: '3.38.10'
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
@@ -53,7 +46,7 @@ jobs:
             echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
           fi
       - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
-        run: flutter build web --release --wasm --base-href "/valunivo/" --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+        run: flutter build web --release --wasm --base-href "/valunivo/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
       - name: Web Push (notifications for the web app on iPhone / browsers) — its worker + helper next to the app
         run: |
           cp web_push/push-sw.js web_push/va-push.js build/web/
@@ -119,83 +112,57 @@ jobs:
           ALIAS=$(keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/release.p12" -storepass "$KEY_PASS" | awk -F, '/PrivateKeyEntry/{print $1; exit}')
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$RUNNER_TEMP/release.p12" "$KEY_PASS" "$ALIAS" "$KEY_PASS" > android/key.properties
           echo "SIGNED=1" >> "$GITHUB_ENV"
-      - name: Build Android APK (every release — same version as Web and Windows)
+      - name: Android build wanted? ([apk] in the commit's first line, or a manual run)
+        env: { COMMIT_MSG: '${{ github.event.head_commit.message }}' }
+        run: |
+          W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && W=1
+          printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && W=1
+          echo "BUILD_APK=$W" >> "$GITHUB_ENV"; echo "build APK: $W"
+      - name: Build Android APK
+        # a web-only update skips the (slow) Android build entirely, so the web goes out quickly
+        if: env.BUILD_APK == '1'
         run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
-      - name: Release files — Web + Android (published only after the Windows build passes too)
+      - name: Publish the update (backup copy as a release; phones and browsers get it from Hostinger)
+        # the web-only pre-release never needs the Android key; an Android ([apk]) release does
+        id: pub
         if: github.ref == 'refs/heads/main'
+        env: { GH_TOKEN: '${{ github.token }}', COMMIT_MSG: '${{ github.event.head_commit.message }}' }
         run: |
           V=1.0.${{ github.run_number }}
-          # an Android update is part of every release: never without the release signing key (phones would refuse it)
-          [ "$SIGNED" = "1" ] || { echo "::error::ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS missing or wrong — release stopped (nothing published)"; exit 1; }
-          test -s build/app/outputs/flutter-apk/app-release.apk || { echo "::error::APK missing"; exit 1; }
-          grep -q "\"version\":\"$V\"" build/hostinger/version.json || { echo "::error::web version.json is not $V"; cat build/hostinger/version.json; exit 1; }
-          mkdir -p ../deploy-out/android
-          (cd build/hostinger && zip -qr ../../../deploy-out/web.zip .)
-          cp build/app/outputs/flutter-apk/app-release.apk "../deploy-out/android/value-attendance-$V.apk"
-          SIZE=$(stat -c%s ../deploy-out/android/value-attendance-$V.apk); SHA=$(sha256sum ../deploy-out/android/value-attendance-$V.apk | cut -d' ' -f1)
-          # same latest.json format the Android app already reads (unchanged)
-          printf '{"version":"%s","build":%s,"apk":"value-attendance-%s.apk","size":%s,"sha256":"%s"}\n' "$V" "${{ github.run_number }}" "$V" "$SIZE" "$SHA" > ../deploy-out/android/latest.json
-          cat ../deploy-out/android/latest.json; ls -la ../deploy-out ../deploy-out/android
+          [ -f build/app/outputs/flutter-apk/app-release.apk ] && cp build/app/outputs/flutter-apk/app-release.apk value-attendance.apk
+          # the same web build for jaurea.com/valunivo/ (public files only: the app that already ships to every browser)
+          (cd build/hostinger && zip -qr ../../value-attendance-web.zip .)
+          EXTRA=""; [ -f value-attendance-web-wasm-test.zip ] && EXTRA=value-attendance-web-wasm-test.zip
+          # Phones update themselves from the *latest* release. A new Android version is published only when the commit
+          # message says [apk]; otherwise the web build goes out as a pre-release (phones ignore pre-releases).
+          WANT_APK=0; printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && WANT_APK=1
+          # a manual run (Actions → Run workflow) is an Android update too — it builds the APK for that
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && WANT_APK=1
+          # without the signing key an Android update is never published (phones would refuse it); the web still goes out
+          [ -f value-attendance.apk ] || WANT_APK=0
+          if [ "$WANT_APK" = "1" ] && [ "$SIGNED" != "1" ]; then
+            echo "::warning::[apk] asked but the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASS secrets are not set — web only, no Android update"; WANT_APK=0
+          fi
+          # what goes to Hostinger: the web build, and — for an Android update — the APK + latest.json (phones read it)
+          mkdir -p ../deploy-out/android && cp value-attendance-web.zip ../deploy-out/web.zip
+          if [ "$WANT_APK" = "1" ]; then
+            cp value-attendance.apk "../deploy-out/android/value-attendance-$V.apk"
+            SIZE=$(stat -c%s value-attendance.apk); SHA=$(sha256sum value-attendance.apk | cut -d' ' -f1)
+            printf '{"version":"%s","build":%s,"apk":"value-attendance-%s.apk","size":%s,"sha256":"%s"}\n' "$V" "${{ github.run_number }}" "$V" "$SIZE" "$SHA" > ../deploy-out/android/latest.json
+            cat ../deploy-out/android/latest.json
+          fi
+          echo "apk=$WANT_APK" >> "$GITHUB_OUTPUT"
+          if [ "$WANT_APK" = "1" ]; then
+            gh release create "v$V" value-attendance.apk value-attendance-web.zip $EXTRA --title "Value Attendance $V" --notes "تحديث تلقائي للتطبيق" --latest
+          else
+            gh release create "web-$V" value-attendance-web.zip $EXTRA --title "Web build $V (no Android update)" --notes "نسخة الويب فقط" --prerelease
+          fi
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_APK == '1'
         with: { name: value-attendance-apk, path: app/build/app/outputs/flutter-apk/app-release.apk, retention-days: 30 }
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with: { name: deploy-out, path: deploy-out, retention-days: 7 }
-
-  # Windows app + installer, same version (windows.yml, also used on its own for feature-branch tests).
-  windows:
-    uses: ./.github/workflows/windows.yml
-    with:
-      build_number: '${{ github.run_number }}'
-      release: ${{ github.ref == 'refs/heads/main' }}
-    secrets: inherit
-
-  # Signs the Windows update manifest and checks that Web, Android and Windows carry the same version.
-  release-files:
-    needs: [build, windows]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { sparse-checkout: app/tool/release }
-      - uses: actions/download-artifact@v4
-        with: { name: deploy-out, path: out }
-      - uses: actions/download-artifact@v4
-        with: { name: windows-out, path: win }
-      - name: Sign the Windows update manifest (Ed25519 release key from the repository secrets)
-        env: { SIGNING_KEY: '${{ secrets.WINDOWS_UPDATE_SIGNING_KEY }}' }
-        run: |
-          V=1.0.${{ github.run_number }}; N=${{ github.run_number }}
-          [ -n "$SIGNING_KEY" ] || { echo "::error::WINDOWS_UPDATE_SIGNING_KEY missing"; exit 1; }
-          umask 077; printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/k.pem"
-          PUB=$(bash app/tool/release/public_key.sh "$RUNNER_TEMP/k.pem")
-          # the app was compiled with this exact public key — otherwise it would refuse the manifest
-          [ "$PUB" = "${{ needs.windows.outputs.public_key }}" ] || { rm -f "$RUNNER_TEMP/k.pem"; echo "::error::signing key does not match the key compiled into the Windows build"; exit 1; }
-          mkdir -p out/windows
-          cp "win/VALUNIVO-Setup-$V.exe" out/windows/
-          bash app/tool/release/sign_windows_manifest.sh "$RUNNER_TEMP/k.pem" "out/windows/VALUNIVO-Setup-$V.exe" "$V" "$N" out/windows/latest.json
-          rm -f "$RUNNER_TEMP/k.pem"
-          # for the server-side check before publishing (not served)
-          echo "VALUNIVO-Setup-$V.exe $(sha256sum out/windows/VALUNIVO-Setup-$V.exe | cut -d' ' -f1)" > out/windows/release.txt
-          cat out/windows/latest.json
-      - name: Same version everywhere
-        run: |
-          V=1.0.${{ github.run_number }}
-          W=$(unzip -p out/web.zip version.json); A=$(cat out/android/latest.json); X=$(cat out/windows/latest.json)
-          echo "web: $W"; echo "android: $A"; echo "windows: $X"
-          python3 - "$V" <<'PY2'
-          import json, sys, zipfile
-          v = sys.argv[1]
-          web = json.loads(zipfile.ZipFile('out/web.zip').read('version.json'))['version']
-          android = json.load(open('out/android/latest.json'))['version']
-          windows = json.loads(json.load(open('out/windows/latest.json'))['manifest'])['version']
-          print('web', web, '| android', android, '| windows', windows)
-          sys.exit(0 if web == android == windows == v else '::error::versions differ — release stopped')
-          PY2
-          [ "${{ needs.windows.outputs.version }}" = "$V" ] || { echo "::error::Windows build is ${{ needs.windows.outputs.version }}"; exit 1; }
-          echo "release $V: web + android + windows"
-      - uses: actions/upload-artifact@v4
-        with: { name: release-out, path: out, retention-days: 30 }
 
   # The live app: https://jaurea.com/valunivo/ (+ /android/ for phone updates; the old /value-attendance/ redirects there and keeps its /android/ for phones on older versions). Sent over SSH (encrypted,
   # server key pinned below) and placed by app/deploy/hostinger/remote-deploy.sh into public_html/valunivo/ (+ the old public_html/value-attendance/)
@@ -203,7 +170,7 @@ jobs:
   # Needs ONE repository secret: HOSTINGER_SSH_KEY (private key whose public half is added in hPanel → SSH Access)
   # or HOSTINGER_SSH_PASSWORD. Without it the step is skipped and the build is copied over by hand.
   hostinger:
-    needs: [release-files, windows]
+    needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
@@ -217,14 +184,14 @@ jobs:
         id: s
         run: |
           if [ -z "$SSH_KEY" ] && [ -z "$SSH_PASS" ]; then
-            echo "::error::HOSTINGER_SSH_KEY / HOSTINGER_SSH_PASSWORD not set — release cannot be published"; exit 1
+            echo "::warning::HOSTINGER_SSH_KEY / HOSTINGER_SSH_PASSWORD not set — Hostinger deploy skipped (copy by hand)"; echo "go=0" >> "$GITHUB_OUTPUT"
           else echo "go=1" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         if: steps.s.outputs.go == '1'
         with: { sparse-checkout: app/deploy/hostinger }
       - uses: actions/download-artifact@v4
         if: steps.s.outputs.go == '1'
-        with: { name: release-out, path: out }
+        with: { name: deploy-out, path: out }
       - name: Copy to the server and deploy
         if: steps.s.outputs.go == '1'
         run: |
@@ -244,10 +211,9 @@ jobs:
             export SSHPASS="$SSH_PASS"
             SCP="sshpass -e scp $OPTS"; SSH="sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT"
           fi
-          $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging && mkdir -p ~/va-staging/android ~/va-staging/windows'
+          $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging && mkdir -p ~/va-staging/android'
           $SCP out/web.zip "$SSH_USER@$SSH_HOST:va-staging/web.zip"
-          $SCP out/android/* "$SSH_USER@$SSH_HOST:va-staging/android/"
-          $SCP out/windows/* "$SSH_USER@$SSH_HOST:va-staging/windows/"
+          if [ -s out/android/latest.json ]; then $SCP out/android/* "$SSH_USER@$SSH_HOST:va-staging/android/"; fi
           $SSH "$SSH_USER@$SSH_HOST" 'bash -s' < app/deploy/hostinger/remote-deploy.sh
       - name: Check jaurea.com (WordPress unchanged) and the app
         if: steps.s.outputs.go == '1'
@@ -262,55 +228,8 @@ jobs:
           for f in flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp; do
             c=$(code "https://jaurea.com/valunivo/$f"); echo "$f -> $c"; [ "$c" = 200 ] || { echo "::error::$f -> $c"; exit 1; }
           done
-          V=1.0.${{ github.run_number }}
-          # Web: the live build is this release
-          curl -s --max-time 30 "https://jaurea.com/valunivo/version.json?t=$(date +%s)" | tee /dev/stderr | grep -q "\"version\":\"$V\"" || { echo "::error::web version.json is not $V"; exit 1; }
-          # Android: the same latest.json + APK the phones already read (new and old address)
-          for d in valunivo value-attendance; do
-            curl -s --max-time 30 "https://jaurea.com/$d/android/latest.json?t=$(date +%s)" | tee /dev/stderr | grep -q "\"version\":\"$V\"" || { echo "::error::$d/android/latest.json not updated"; exit 1; }
-          done
-          curl -s --max-time 300 -o apk.bin "https://jaurea.com/valunivo/android/value-attendance-$V.apk"
-          [ "$(sha256sum apk.bin | cut -d' ' -f1)" = "$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' out/android/latest.json)" ] || { echo "::error::live APK hash differs"; exit 1; }
-          # Windows: the live manifest verifies with the key compiled into the app, and the live installer matches it
-          curl -s --max-time 30 -o live.json "https://jaurea.com/valunivo/windows/latest.json?t=$(date +%s)"
-          python3 - "$V" "${{ needs.windows.outputs.public_key }}" <<'PY2'
-          import base64, json, subprocess, sys, tempfile, os
-          v, pub = sys.argv[1], base64.b64decode(sys.argv[2])
-          env = json.load(open('live.json')); text = env['manifest'].encode(); sig = base64.b64decode(env['sig'])
-          d = tempfile.mkdtemp()
-          # raw Ed25519 public key → SubjectPublicKeyInfo DER for openssl
-          open(f'{d}/pub.der', 'wb').write(bytes.fromhex('302a300506032b6570032100') + pub)
-          open(f'{d}/m', 'wb').write(text); open(f'{d}/s', 'wb').write(sig)
-          subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', f'{d}/pub.der', '-rawin', '-in', f'{d}/m', '-sigfile', f'{d}/s'], check=True)
-          m = json.loads(text)
-          assert m['version'] == v, m
-          open('win.txt', 'w').write(f"{m['installer']} {m['sha256']} {m['size']}")
-          print('windows manifest verified:', m)
-          PY2
-          read NAME SHA SIZE < win.txt
-          curl -s --max-time 300 -o win.bin "https://jaurea.com/valunivo/windows/$NAME"
-          [ "$(sha256sum win.bin | cut -d' ' -f1)" = "$SHA" ] && [ "$(stat -c%s win.bin)" = "$SIZE" ] || { echo "::error::live Windows installer does not match the signed manifest"; exit 1; }
-          echo "LIVE: web $V, android $V, windows $V — all verified"
-
-  # Permanent copy of every file of this release (GitHub releases do not expire like build artifacts).
-  # Created last: a release that exists here is complete and live. An existing tag is never overwritten.
-  github-release:
-    needs: hostinger
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    env: { GH_TOKEN: '${{ github.token }}' }
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { name: release-out, path: out }
-      - uses: actions/download-artifact@v4
-        with: { name: windows-out, path: win }
-      - run: |
-          V=1.0.${{ github.run_number }}
-          cp out/web.zip value-attendance-web.zip
-          cp "out/android/value-attendance-$V.apk" value-attendance.apk
-          cp out/android/latest.json android-latest.json
-          cp out/windows/latest.json windows-latest.json
-          gh release create "v$V" -R "${{ github.repository }}" --target "${{ github.sha }}" --latest \
-            --title "VALUNIVO $V" --notes "تحديث VALUNIVO $V — الويب + أندرويد + ويندوز (نفس النسخة)" \
-            value-attendance.apk value-attendance-web.zip android-latest.json windows-latest.json \
-            "win/VALUNIVO-Setup-$V.exe" "win/VALUNIVO-$V-windows-x64.zip"
+          if [ -s out/android/latest.json ]; then
+            for d in valunivo value-attendance; do
+              curl -s --max-time 30 "https://jaurea.com/$d/android/latest.json" | tee /dev/stderr | grep -q "$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' out/android/latest.json)" || { echo "::error::$d/android/latest.json not updated"; exit 1; }
+            done
+          fi
