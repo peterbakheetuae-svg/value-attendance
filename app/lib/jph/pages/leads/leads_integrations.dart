@@ -226,6 +226,61 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   }
 
   // ------------------------------------------------------------------ Meta
+  /// one Facebook page (a page token) or all the pages of a user token: each kept with its own token, subscribed to leads
+  Future<void> _addPage() async {
+    final t = TextEditingController();
+    final ok = await leadForm(context, isDark, tr('ربط صفحة فيسبوك'), (set) => [
+          Text(tr('الصق توكن الصفحة (Page access token) أو توكن حسابك (User token) وهيتربط كل الصفحات اللي عليه. بيتحفظ عندنا ومش بيظهر تاني.'),
+              style: TextStyle(color: JphUi.sub(isDark))),
+          JphUi.input(isDark: isDark, label: tr('Access token'), controller: t, icon: Icons.key_rounded, big: false),
+        ], () async {
+      final r = await lpost('/integrations/meta/pages', {'accessToken': t.text.trim()}, ok: tr('اتربطت ✅'));
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    });
+    if (ok) _load();
+  }
+
+  Future<void> _removePage(Map<String, dynamic> p) async {
+    final r = await lpost('/integrations/meta/pages/${p['id']}/remove', {}, ok: tr('اتشالت'));
+    if (mounted) JphUi.toast(context, r);
+    _load();
+  }
+
+  Future<void> _syncNow() async {
+    final r = await lpost('/integrations/meta/sync', {});
+    if (!mounted) return;
+    JphUi.toast(context, r['success'] == false ? r : {'success': true, 'message': '${tr('دخل')} ${r['added'] ?? 0} ${tr('ليد جديد من Meta')}'});
+    _load();
+  }
+
+  List<Widget> _pages() {
+    final pages = ll(_d['metaPages']);
+    return [
+      const Divider(height: 26),
+      Text(tr('صفحات فيسبوك المربوطة'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+      Text(tr('كل صفحة بتوكن بتاعها، والليدز بتنزل لوحدها من فورمات الصفحة على الحملة المربوطة (كل 10 دقايق وكمان لحظة ما الليد يتعمل).'),
+          style: TextStyle(color: JphUi.sub(isDark))),
+      if (pages.isEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(tr('لسه مفيش صفحات'), style: TextStyle(color: JphUi.sub(isDark)))),
+      for (final p in pages)
+        ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.flag_rounded, color: Color(0xFF1877F2)),
+          title: Text('${p['name']}'.isEmpty ? '${p['id']}' : '${p['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: Text([
+            p['subscribed'] == true ? tr('مشترك في الليدز ✅') : tr('مش مشترك'),
+            if ('${p['lastError'] ?? ''}'.isNotEmpty) '${p['lastError']}',
+          ].join(' — ')),
+          trailing: IconButton(tooltip: tr('شيل الصفحة'), icon: const Icon(Icons.link_off_rounded), onPressed: () => _removePage(p)),
+        ),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        dirBtn(isDark, tr('ربط صفحة فيسبوك'), Icons.add_link_rounded, _addPage, primary: pages.isEmpty),
+        dirBtn(isDark, tr('اسحب الليدز دلوقتي'), Icons.sync_rounded, _syncNow),
+      ]),
+    ];
+  }
+
   Future<void> _token() async {
     final t = TextEditingController();
     final ok = await leadForm(context, isDark, tr('توكن Meta'), (set) => [
@@ -515,6 +570,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
           dirBtn(isDark, tr('Verify token جديد'), Icons.refresh_rounded, () => _patch('meta', {'newVerifyToken': true})),
           dirBtn(isDark, meta['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('meta', {'active': meta['active'] != true})),
         ]),
+        if (!ro) ..._pages(),
         const Divider(height: 26),
         Text(tr('كل حملة: حملات Meta اللي بتغذيها والسيلز اللي بيستقبلوا'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
         Text(tr('الليد بينزل على الحملة اللي حملة Meta بتاعته (أو فورمه) مربوطة بيها، ويتوزع على السيلز بتوع الحملة بالطريقة اللي تختارها.'),

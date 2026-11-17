@@ -143,12 +143,20 @@ export const partnersModule: Module = (r, { db, clock }) => {
         await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = ARRAY(SELECT x FROM unnest(meta_campaign_ids) x WHERE NOT x = ANY($2::text[]))
                         WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [before.id, set.meta_campaign_ids]);
       }
+      // a Meta campaign newly linked: pulled again from its last 90 days
+      if (set.meta_campaign_ids && !(set.meta_campaign_ids as string[]).every((x) => (before.meta_campaign_ids ?? []).includes(x))) {
+        await q.query(`UPDATE lead_campaigns SET meta_synced_at = NULL WHERE id = $1`, [before.id]);
+      }
       const after = await one(q, `UPDATE lead_campaigns SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1
                                    RETURNING id, name, marketing_company_id, meta_campaign_ids`, [before.id, ...keys.map((k) => set[k])]);
       await audit(q, a.partner ? null : a.id, 'lead_campaign.partner_link', 'lead_campaign', before.id,
         { companyId: before.marketing_company_id, meta: before.meta_campaign_ids }, { companyId: after.marketing_company_id, meta: after.meta_campaign_ids });
       return after;
     });
+    if ((row.meta_campaign_ids ?? []).length) {
+      const { syncMeta } = await import('./meta_sync.ts');
+      await syncMeta(db, clock(), { campaignId: row.id, deadlineMs: 8000 }).catch(() => undefined);
+    }
     return ok({ campaign: { id: row.id, name: row.name, companyId: row.marketing_company_id, metaCampaignIds: row.meta_campaign_ids } });
   });
 

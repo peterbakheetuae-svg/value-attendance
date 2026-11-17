@@ -9,7 +9,7 @@ import { notify } from './notify.ts';
 import { assignable, phoneNorm, readLead } from './leads.ts';
 import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode } from './lead_routing.ts';
 import { canSetup, resolveDeveloper } from './exclusive.ts';
-import { seeMetaCampaign } from './partners.ts';
+import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
 
 /**
  * الربط التلقائي (see db/migrations/062_integrations.sql):
@@ -66,13 +66,6 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   const noteError = (source: string, e: string) =>
     db.query(`UPDATE integrations SET last_error = $2 WHERE source = $1`, [source, e.slice(0, 300)]).catch(() => undefined);
 
-  /** a lead from a campaign (Meta): its project / channel, and its salesmen as the campaign says (one / online / turn) */
-  async function addLead(q: Q, c: any, x: ReturnType<typeof readLead>, now: Date, from: string) {
-    x.projectId ??= c?.project_id ?? null; x.channelId ??= c?.channel_id ?? null; x.campaignId = c?.id ?? null;
-    if (c && await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`,
-      [c.id, phoneNorm(x.phone), now])) return null;   // the same number twice on the same day
-    return deliverLead(q, x, (c?.assign_mode ?? 'turn') as RouteMode, c?.form_assignees ?? [], now, from, c?.name ?? '');
-  }
   const campaignOf = async (id: string | null) => (id ? one(db, `SELECT * FROM lead_campaigns WHERE id = $1 AND active`, [id]) : null);
 
   // ------------------------------------------------------------------ the settings
@@ -113,6 +106,8 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       hasToken: !!x.access_token, verifyToken: x.source === 'meta' ? x.verify_token : undefined, lastAt: iso(x.last_at), lastError: x.last_error });
     return ok({
       valueaqar: shapeI(va), meta: shapeI(meta),
+      metaPages: (await db.query(`SELECT page_id, name, subscribed, last_error, added_at FROM meta_pages ORDER BY added_at`)).rows
+        .map((p) => ({ id: p.page_id, name: p.name, subscribed: p.subscribed, lastError: p.last_error, addedAt: iso(p.added_at) })),
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, metaFormId: c.meta_form_id, mode: c.assign_mode,
         assignees: c.form_assignees ?? [], hasProject: !!c.project_id, metaCampaignIds: c.meta_campaign_ids ?? [], companyId: c.marketing_company_id })),
       metaSeen: seen.rows.map((x) => ({ id: x.campaign_id, name: x.name, leads: x.leads, skipped: x.skipped, lastAt: iso(x.last_at) })),
@@ -149,6 +144,63 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       // a page token cannot list ad campaigns: the ones leads already came from are still offered (metaSeen)
       return ok({ campaigns: [], error: String(e?.message ?? e).slice(0, 300) });
     }
+  });
+
+  /**
+   * a Facebook page (or all the pages of a user token): kept with its own page token and subscribed to «leadgen», so its
+   * lead forms' leads reach the webhook. The token is never shown back.
+   */
+  r.post('/integrations/meta/pages', async (req) => {
+    const a = await admin(req);
+    const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
+    if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
+    let found: { id: string; name: string; token: string }[] = [];
+    try {
+      const acc = await graph('me/accounts?fields=id,name,access_token&limit=100', t);
+      found = (Array.isArray(acc.data) ? acc.data : []).filter((p: any) => /^[0-9]{3,30}$/.test(String(p.id)) && p.access_token)
+        .map((p: any) => ({ id: String(p.id), name: String(p.name ?? ''), token: String(p.access_token) }));
+    } catch { /* a page token has no «accounts» */ }
+    if (!found.length) {
+      try {
+        const me = await graph('me?fields=id,name', t);
+        if (/^[0-9]{3,30}$/.test(String(me.id))) found = [{ id: String(me.id), name: String(me.name ?? ''), token: t }];
+      } catch (e: any) {
+        throw invalid(`Meta رفض التوكن: ${String(e?.message ?? e).slice(0, 200)}`, { field: 'accessToken' });
+      }
+    }
+    if (!found.length) throw invalid('التوكن ده مش بيوصل لأي صفحة', { field: 'accessToken' });
+    const out: any[] = [];
+    for (const p of found) {
+      let subscribed = false, err: string | null = null;
+      try {
+        await graph(`${p.id}/subscribed_apps?subscribed_fields=leadgen`, p.token, { method: 'POST' });
+        subscribed = true;
+      } catch (e: any) { err = String(e?.message ?? e).slice(0, 300); }
+      await db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed, last_error, added_by) VALUES ($1,$2,$3,$4,$5,$6)
+                      ON CONFLICT (page_id) DO UPDATE SET name = EXCLUDED.name, access_token = EXCLUDED.access_token,
+                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, p.token, subscribed, err, a.id]);
+      out.push({ id: p.id, name: p.name, subscribed, lastError: err });
+    }
+    await audit(db, a.id, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
+    // what the linked campaigns already have comes in now
+    const pulled = await syncMeta(db, clock(), { deadlineMs: 8000 }).catch(() => ({ added: 0, errors: [] as string[] }));
+    return ok({ pages: out, added: pulled.added });
+  });
+
+  r.post('/integrations/meta/pages/:id/remove', async (req) => {
+    const a = await admin(req);
+    const r2 = await db.query(`DELETE FROM meta_pages WHERE page_id = $1`, [req.params.id]);
+    if (!r2.rowCount) throw notFound();
+    await audit(db, a.id, 'integration.meta_page_remove', 'integration', null, undefined, { page: req.params.id });
+    return ok({ ok: true });
+  });
+
+  /** «اسحب الليدز دلوقتي»: the linked Meta campaigns' leads, from Meta */
+  r.post('/integrations/meta/sync', async (req) => {
+    await admin(req);
+    const r2 = await syncMeta(db, clock(), { deadlineMs: 20_000 });
+    await db.query(`UPDATE integrations SET meta_sync_at = $1 WHERE source = 'meta'`, [clock()]);
+    return ok({ added: r2.added, errors: [...new Set(r2.errors)].slice(0, 5) });
   });
 
   /** a new key for Value Aqar — shown this once; the old one stops */
@@ -429,39 +481,22 @@ export const integrationsModule: Module = (r, { db, clock }) => {
 
   r.post('/public/hooks/meta', async (req) => {
     const it = await row('meta');
-    if (!it?.active || !it.access_token) return ok({ ok: true, skipped: 'off' });
+    if (!it?.active || (!it.access_token && !(await one(db, `SELECT 1 FROM meta_pages LIMIT 1`)))) return ok({ ok: true, skipped: 'off' });
     const b = obj(req.body);
     const now = clock();
     let added = 0;
     for (const entry of Array.isArray(b.entry) ? b.entry : []) {
+      // the page the lead came on: read back with that page's token (several pages, 081), else the office's
+      const token = await pageToken(db, /^[0-9]{3,30}$/.test(String(entry?.id ?? '')) ? String(entry.id) : null);
       for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
         if (change?.field !== 'leadgen') continue;
         const leadgen = String(change.value?.leadgen_id ?? '').replace(/\D/g, '');
         if (!leadgen) continue;
         try {
-          // the lead itself is read back from Meta with the office's token (a forged id just fails here)
-          const res = await fetch(`https://graph.facebook.com/v21.0/${leadgen}?fields=field_data,form_id,ad_name,campaign_id,campaign_name,created_time&access_token=${encodeURIComponent(it.access_token)}`);
-          const g: any = await res.json();
-          if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
-          const f: Record<string, string> = {};
-          for (const x of Array.isArray(g.field_data) ? g.field_data : []) f[String(x.name).toLowerCase()] = Array.isArray(x.values) ? String(x.values[0] ?? '') : '';
-          const fullName = f.full_name || [f.first_name, f.last_name].filter(Boolean).join(' ') || 'عميل من فيسبوك';
-          const phone = f.phone_number || f.phone || f.mobile || '';
-          if (phoneNorm(phone).length < 7) throw new Error('lead without a phone');
-          const extra = Object.entries(f).filter(([k]) => !['full_name', 'first_name', 'last_name', 'phone_number', 'phone', 'email'].includes(k))
-            .map(([k, v]) => `${k}: ${v}`);
-          const notes = [g.campaign_name ? `حملة: ${g.campaign_name}` : '', g.ad_name ? `إعلان: ${g.ad_name}` : '', ...extra].filter(Boolean).join(' — ').slice(0, 1900);
-          const x = readLead({ fullName, phone, email: f.email ?? '', notes, kind: 'fresh' });
-          // only the chosen Meta campaigns come in (075): the one of ours its Meta campaign — or its lead form — is linked to.
-          // A lead from any other Meta campaign is not added; the campaign is counted so the settings can offer to link it.
-          const metaCampaign = String(g.campaign_id ?? '').replace(/\D/g, '');
-          const c = (metaCampaign ? await one(db, `SELECT * FROM lead_campaigns WHERE $1 = ANY(meta_campaign_ids) AND active`, [metaCampaign]) : null)
-            ?? (g.form_id ? await one(db, `SELECT * FROM lead_campaigns WHERE meta_form_id = $1 AND active`, [String(g.form_id)]) : null);
-          if (metaCampaign) await seeMetaCampaign(db, metaCampaign, String(g.campaign_name ?? ''), !c);
-          if (!c) continue;
-          if (!c.project_id) throw new Error(`the campaign «${c.name}» has no project`);
-          const lead = await db.tx((q) => addLead(q, c, x, now, 'فيسبوك'));
-          if (lead) added++;
+          if (!token) throw new Error('no token for this page');
+          // the lead itself is read back from Meta (a forged id just fails here); only the chosen Meta campaigns come in
+          const g = await graph(`${leadgen}?fields=id,field_data,form_id,ad_name,campaign_id,campaign_name,created_time`, token);
+          if (await takeMetaLead(db, g, now) === 'added') added++;
         } catch (e: any) {
           await noteError('meta', e?.message ?? String(e));
         }

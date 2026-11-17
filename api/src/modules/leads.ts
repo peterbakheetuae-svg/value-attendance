@@ -640,6 +640,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const now = clock();
     const pm = await pendingMinutes(db);
     const params: unknown[] = [];
+    // the linked Meta campaigns' leads, pulled from Meta every 10 minutes at most (no cron: the first look after pays it)
+    await (await import('./meta_sync.ts')).maybeSyncMeta(db, now).catch(() => undefined);
     let scope = await scopeSql(db, a, params);
     const view = a.partner ? 'all' : req.query.get('view') ?? (canAll(a) || canTeam(a) ? 'all' : 'me');
     const who = req.query.get('employeeId');
@@ -952,7 +954,13 @@ export const leadsModule: Module = (r, { db, clock }) => {
     if (ids.some((x) => !/^[0-9]{3,30}$/.test(x))) throw invalid('رقم حملة Meta لازم يكون أرقام بس', { field: 'metaCampaignIds' });
     await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = ARRAY(SELECT x FROM unnest(meta_campaign_ids) x WHERE NOT x = ANY($2::text[]))
                     WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [id, ids]);
-    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = $2 WHERE id = $1`, [id, ids]);
+    // a Meta campaign newly linked: what it already has is pulled from Meta (its last 90 days), then it follows by itself
+    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = $2,
+                     meta_synced_at = CASE WHEN $2::text[] <@ meta_campaign_ids THEN meta_synced_at END WHERE id = $1`, [id, ids]);
+    if (ids.length) {
+      const { syncMeta } = await import('./meta_sync.ts');
+      await syncMeta(db, clock(), { campaignId: id, deadlineMs: 8000 }).catch(() => undefined);
+    }
   };
   r.post('/leads/campaigns', async (req) => {
     const a = await auth(req);
