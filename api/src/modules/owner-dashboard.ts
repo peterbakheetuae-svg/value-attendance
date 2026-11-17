@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Db } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
-import { authenticate, can, type Actor } from '../auth/context.ts';
+import { authenticate, can, notSettled, type Actor } from '../auth/context.ts';
 import { cashSummary, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
@@ -283,7 +283,7 @@ async function employeesPresence(db: Db, t: string, now: Date) {
       FROM employees e
       LEFT JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default LIMIT 1))
       LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
-     WHERE e.status = 'active'
+     WHERE e.status = 'active' AND ${notSettled('e')}
      ORDER BY e.full_name`, [t, now])).rows;
   const where = (x: any): { status: string; tone: string } => {
     if (!x.in_hours) return x.online ? { status: 'متصل', tone: 'good' } : { status: 'مش متصل', tone: 'muted' };
@@ -312,13 +312,13 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
         LEFT JOIN LATERAL (SELECT r.id FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence'
                   AND r.status = 'approved' AND $1 BETWEEN r.start_date AND r.end_date LIMIT 1) ab ON true
-       WHERE e.status = 'active' AND NOT e.attendance_exempt`, [t]),
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')}`, [t]),
     db.query(`
       SELECT e.full_name, at.id AS att, (at.id IS NOT NULL AND ${LATE}) AS late,
              EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence' AND r.status = 'approved'
                       AND $1 BETWEEN r.start_date AND r.end_date) AS on_leave
         FROM employees e LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
-       WHERE e.status = 'active' AND NOT e.attendance_exempt ORDER BY e.full_name`, [t]),
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')} ORDER BY e.full_name`, [t]),
     db.query(`
       SELECT d::date AS day,
              (SELECT count(*) FROM attendance at JOIN employees e ON e.id = at.employee_id WHERE at.work_date = d::date AND NOT e.attendance_exempt) AS present,
@@ -327,7 +327,7 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
     db.query(`
       SELECT e.id, e.full_name, e.job_title, count(at.id)::int AS days, count(at.id) FILTER (WHERE ${LATE})::int AS late_days
         FROM employees e LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date >= $1 AND at.work_date <= $2
-       WHERE e.status = 'active' AND NOT e.attendance_exempt GROUP BY e.id ORDER BY count(at.id) DESC`, [month, t]),
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')} GROUP BY e.id ORDER BY count(at.id) DESC`, [month, t]),
     db.query(`
       (SELECT 'request' AS kind, r.id::text AS id, e.full_name AS title,
               CASE r.type WHEN 'full_day_absence' THEN 'إجازة ' || r.days_count || ' يوم' WHEN 'hourly_permission' THEN 'إذن ساعات' ELSE r.type END AS sub,

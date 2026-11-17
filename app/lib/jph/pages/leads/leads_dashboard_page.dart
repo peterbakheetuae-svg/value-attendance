@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/api_service.dart' show JphRouter;
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
@@ -43,6 +44,9 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
     _load();
   }
 
+  /// employee id → photo URL («الأفضل»)
+  Map<String, String> _photos = const {};
+
   Future<void> _load() async {
     final seq = ++_seq;
     setState(() => _loading = true);
@@ -58,6 +62,12 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
       _meta = r[1];
       _target = lm(r[2]['me']);
     });
+    // «الأفضل»: the salesmen's photos
+    final ids = ll(_d['best']).map((b) => '${b['id']}').where((x) => x.isNotEmpty && !_photos.containsKey(x)).toList();
+    if (ids.isNotEmpty) {
+      final ph = await JphRouter.photosOf(ids);
+      if (mounted) setState(() => _photos = {..._photos, ...ph});
+    }
   }
 
   Future<void> _open(Widget page) async {
@@ -345,8 +355,22 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                 width: 30,
                 child: Text(switch (b['rank']) { 1 => '🥇', 2 => '🥈', 3 => '🥉', _ => '${b['rank']}' }, style: const TextStyle(fontSize: 18)),
               ),
+              // the photo — the first one wears the crown
+              Padding(
+                padding: EdgeInsets.only(top: b['rank'] == 1 ? 10 : 0),
+                child: Stack(clipBehavior: Clip.none, alignment: Alignment.topCenter, children: [
+                  JphUi.personAvatar('${b['name']}', _photos['${b['id']}'], size: b['rank'] == 1 ? 46 : 38),
+                  if (b['rank'] == 1 && ((b['actions'] ?? 0) as num) + ((b['deals'] ?? 0) as num) > 0)
+                    const Positioned(top: -17, child: Text('👑', style: TextStyle(fontSize: 20))),
+                ]),
+              ),
+              const SizedBox(width: 10),
               Expanded(child: Text('${b['name']}${b['me'] == true ? ' (إنت)' : ''}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
-              Text('${b['actions']}', style: TextStyle(fontWeight: FontWeight.w900, color: Ar.accent.shade700)),
+              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Text('${b['actions']} ${tr('أكشن')}', style: TextStyle(fontWeight: FontWeight.w900, color: Ar.accent.shade700)),
+                if (((b['deals'] ?? 0) as num) > 0)
+                  Text('${b['deals']} ${tr('صفقة')}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.green.shade700)),
+              ]),
             ]),
           ),
       ]),

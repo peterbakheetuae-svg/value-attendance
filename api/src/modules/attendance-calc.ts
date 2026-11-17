@@ -1,5 +1,6 @@
 import type { Q } from '../db.ts';
 import { one } from '../db.ts';
+import { settledFromSql } from '../auth/context.ts';
 import { daysInMonth, isoDow, local, timeToMinutes } from '../lib/time.ts';
 
 export interface AttendanceRow {
@@ -61,7 +62,8 @@ export interface MonthSummary {
  */
 export async function computeMonth(q: Q, employeeId: string, period: string, today: string): Promise<{ days: DayEntry[]; summary: MonthSummary }> {
   const emp = await one(q, `
-    SELECT e.joining_date, e.status, COALESCE(ws.weekend_days, dws.weekend_days) AS weekend_days
+    SELECT e.joining_date, e.status, COALESCE(ws.weekend_days, dws.weekend_days) AS weekend_days,
+           to_char(${settledFromSql('e')}, 'YYYY-MM-DD') AS settled_from
       FROM employees e
       LEFT JOIN work_schedules ws ON ws.id = e.schedule_id
       LEFT JOIN work_schedules dws ON dws.is_default
@@ -113,6 +115,8 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
     }
     if (d > today) entry.status = a ? entry.status : 'future';
     else if (emp && d < emp.joining_date) entry.status = 'before_joining';
+    // «تم التصفيه»: from the day he was settled, a day without attendance is neither an absence nor a working day
+    else if (emp?.settled_from && d >= emp.settled_from && !a) entry.status = 'inactive';
     else if (holBy.has(d) && !a) { entry.status = 'holiday'; entry.holidayName = holBy.get(d); }
     else if (weekend.includes(isoDow(d)) && !a) entry.status = 'weekend';
     else if (!a && absence) {
@@ -142,7 +146,7 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
   for (const entry of out) {
     const d = entry.date;
     if (entry.hourlyPermissionMinutes) { s.hourlyPermissions++; s.hourlyPermissionMinutes += entry.hourlyPermissionMinutes; }
-    const isWorkingDay = d <= today && !(emp && d < emp.joining_date) && !holBy.has(d) && (!weekend.includes(isoDow(d)) || sandwiched.has(d));
+    const isWorkingDay = d <= today && !(emp && d < emp.joining_date) && entry.status !== 'inactive' && !holBy.has(d) && (!weekend.includes(isoDow(d)) || sandwiched.has(d));
     if (isWorkingDay) {
       s.workingDays++; s.throughDate = d;
       if (entry.status === 'present' || entry.status === 'mission') s.attendedDays++;

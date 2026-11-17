@@ -50,6 +50,21 @@ export function forgetPermissionKeys() { knownKeys = null; }
 
 /** an employee whose work status is «تم التصفيه» (settled / finished) */
 export const SETTLED = 'تم التصفيه';
+/** SQL: the employee (alias) is not «تم التصفيه» — he is out of the attendance boards, the presence list and the counts */
+export const notSettled = (e = 'e') => `COALESCE(${e}.legacy_fields->>'status', '') <> '${SETTLED}'`;
+/**
+ * SQL: the day (Cairo date) from which a «تم التصفيه» employee is settled — NULL for anyone else. The date is kept in
+ * legacy_fields.settledAt when the status is set; for one settled before that it is read from the audit log, else the day
+ * after his last attendance (else his joining date).
+ */
+export const settledFromSql = (e = 'e') => `(CASE WHEN COALESCE(${e}.legacy_fields->>'status', '') = '${SETTLED}' THEN COALESCE(
+    CASE WHEN ${e}.legacy_fields->>'settledAt' ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN (${e}.legacy_fields->>'settledAt')::date END,
+    (SELECT (max(l.at) AT TIME ZONE 'Africa/Cairo')::date FROM audit_log l
+      WHERE l.entity = 'employee' AND l.entity_id = ${e}.id::text AND l.action = 'employee.update'
+        AND l.before->'legacy_fields'->'to'->>'status' = '${SETTLED}'
+        AND (l.before->'legacy_fields'->'from'->>'status') IS DISTINCT FROM '${SETTLED}'),
+    (SELECT max(x.work_date) + 1 FROM attendance x WHERE x.employee_id = ${e}.id),
+    ${e}.joining_date) END)`;
 
 // stays signed in until the person signs out: 180 days, renewed on every use (sign-out / password change revoke it)
 export const SESSION_TTL_HOURS = 24 * 180;

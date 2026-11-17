@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { date, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, can, has, readableIds, requirePerm } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, can, has, notSettled, readableIds, requirePerm } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
@@ -209,7 +209,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       SELECT at.*, e.id AS employee_id, e.full_name, e.code, e.job_title, t.name AS team_name
         FROM employees e LEFT JOIN teams t ON t.id = e.team_id
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
-       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')} AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
        ORDER BY e.full_name`, [l.date, ids]);
     const brs = await db.query(`SELECT b.* FROM attendance_breaks b JOIN attendance t ON t.id = b.attendance_id WHERE t.work_date = $1`, [l.date]);
     const brBy = new Map(brs.rows.map((b) => [b.attendance_id, b]));
@@ -321,7 +321,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       SELECT e.id, e.full_name, e.code, count(*) FILTER (WHERE at.check_out_at IS NULL AND at.work_date < $1)::int AS missing_checkouts,
              count(*) FILTER (WHERE at.corrected)::int AS corrections
         FROM employees e JOIN attendance at ON at.employee_id = e.id
-       WHERE at.work_date >= date_trunc('month', $1::date) AND e.status = 'active'
+       WHERE at.work_date >= date_trunc('month', $1::date) AND e.status = 'active' AND ${notSettled('e')}
          AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
        GROUP BY e.id HAVING count(*) FILTER (WHERE at.check_out_at IS NULL AND at.work_date < $1) > 0
        ORDER BY missing_checkouts DESC`, [today, ids]);

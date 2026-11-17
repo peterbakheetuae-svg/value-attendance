@@ -671,12 +671,18 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const period = oneOf(Object.fromEntries(req.query), 'period', ['today', 'week', 'month', 'all'] as const, true) ?? 'month';
     const since = period === 'today' ? `date_trunc('day', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'`
       : period === 'week' ? `$1::timestamptz - interval '7 days'` : period === 'month' ? `date_trunc('month', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'` : `($1::timestamptz - interval '200 years')`;   // «الكل» (uses $1 too: an unused parameter is an error)
+    // every salesman (the ones who hold leads) — not the general manager / owner / admin officer, and not «تم التصفيه» —
+    // the best first: the done deals (his leads closed «صفقة مكتملة» in the period), then the actions
     const best = await db.query(`
-      SELECT e.id, e.full_name, count(x.id)::int AS actions,
-             count(x.id) FILTER (WHERE x.stage IN ('meeting','after_meeting'))::int AS meetings
-        FROM lead_actions x JOIN employees e ON e.id = x.by_id
-       WHERE x.parent_id IS NULL AND NOT x.auto AND x.created_at >= ${since}
-       GROUP BY e.id ORDER BY actions DESC LIMIT 10`, [now]);
+      SELECT e.id, e.full_name,
+             (SELECT count(*) FROM lead_actions x WHERE x.by_id = e.id AND x.parent_id IS NULL AND NOT x.auto AND x.created_at >= ${since})::int AS actions,
+             (SELECT count(*) FROM lead_actions x WHERE x.by_id = e.id AND x.parent_id IS NULL AND NOT x.auto AND x.created_at >= ${since}
+                 AND x.stage IN ('meeting','after_meeting'))::int AS meetings,
+             (SELECT count(*) FROM leads l WHERE l.assigned_to = e.id AND l.stage = 'done_deal' AND l.stage_changed_at >= ${since})::int AS deals
+        FROM employees e
+       WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
+         AND e.role_key NOT IN ('owner', 'manager') AND COALESCE(e.position_key, '') <> 'admin_officer'
+       ORDER BY deals DESC, actions DESC, e.full_name`, [now]);
     const tasks = await one(db, `SELECT count(*) FILTER (WHERE status IN ('open','doing'))::int AS open,
                                         count(*) FILTER (WHERE status IN ('open','doing') AND due_at < $2)::int AS late FROM tasks WHERE assigned_to = $1`, [a.id, now]);
     // ---------------------------------------------------------------- the extra cards (like the Elite / Engaz boards)
@@ -767,7 +773,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       view, counts: c, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),
       delayByStage: Object.fromEntries(delay.rows.map((x) => [x.stage, x.n])),
       due: due.rows.map((l) => shape(l, now, pm)),
-      best: best.rows.map((x, i) => ({ rank: i + 1, id: x.id, name: x.full_name, actions: x.actions, meetings: x.meetings, me: x.id === a.id })),
+      best: best.rows.map((x, i) => ({ rank: i + 1, id: x.id, name: x.full_name, actions: x.actions, meetings: x.meetings, deals: x.deals, me: x.id === a.id })),
       period, tasks,
     });
   });

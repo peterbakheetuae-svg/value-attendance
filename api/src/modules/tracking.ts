@@ -3,7 +3,7 @@ import { assignWaiting } from './lead_routing.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
-import { audit, authenticate, can, readableIds, requireCan, requirePerm } from '../auth/context.ts';
+import { audit, authenticate, can, notSettled, readableIds, requireCan, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
@@ -102,7 +102,7 @@ export async function sweep(q: Q, now: Date) {
       FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
       LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $1
-     WHERE e.status = 'active' AND NOT e.attendance_exempt AND e.joining_date <= $1`, [l.date]);
+     WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')} AND e.joining_date <= $1`, [l.date]);
   // approved permission / visit whose return time passed: ring the employee and the approvers once
   const overdue = await q.query(`
     SELECT o.*, e.full_name FROM outing_requests o JOIN employees e ON e.id = o.employee_id

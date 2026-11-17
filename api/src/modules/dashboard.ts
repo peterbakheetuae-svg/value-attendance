@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { sweep } from './tracking.ts';
 import { one } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
-import { authenticate, has, readableIds, teamMemberIds } from '../auth/context.ts';
+import { authenticate, has, notSettled, readableIds, teamMemberIds } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
 import { computeMonth } from './attendance-calc.ts';
 import { ensurePeriod, loadPeriod } from './kpi.ts';
@@ -36,7 +36,7 @@ export const dashboardModule: Module = (r, { db, clock }) => {
         LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
         LEFT JOIN LATERAL (SELECT r.id FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence'
                   AND r.status = 'approved' AND $1 BETWEEN r.start_date AND r.end_date LIMIT 1) ab ON true
-       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scope]);
+       WHERE e.status = 'active' AND NOT e.attendance_exempt AND ${notSettled('e')} AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scope]);
     const out = await one(db, `SELECT count(*)::int AS n FROM outing_requests o
         WHERE o.work_date = $1 AND o.status = 'approved' AND o.returned_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM outing_requests c WHERE c.parent_id = o.id AND c.status = 'approved')
@@ -114,7 +114,7 @@ export const dashboardModule: Module = (r, { db, clock }) => {
           LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
           LEFT JOIN LATERAL (SELECT r.id FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence'
                     AND r.status = 'approved' AND $1 BETWEEN r.start_date AND r.end_date LIMIT 1) ab ON true
-         WHERE ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scopeIds]);
+         WHERE ${notSettled('e')} AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))`, [l.date, scopeIds]);
       const holiday = await one(db, `SELECT name FROM holidays WHERE day = $1`, [l.date]);
       out.team = {
         scope: ids ? 'team' : 'company',
@@ -128,7 +128,7 @@ export const dashboardModule: Module = (r, { db, clock }) => {
       const issues = await db.query(`
         SELECT e.id, e.full_name, count(*)::int AS missing_checkouts
           FROM attendance at JOIN employees e ON e.id = at.employee_id
-         WHERE at.work_date >= $1 AND at.work_date < $2 AND at.check_out_at IS NULL AND e.status = 'active'
+         WHERE at.work_date >= $1 AND at.work_date < $2 AND at.check_out_at IS NULL AND e.status = 'active' AND ${notSettled('e')}
            AND ($3::uuid[] IS NULL OR e.id = ANY($3::uuid[]))
          GROUP BY e.id ORDER BY 3 DESC LIMIT 10`, [period, l.date, scopeIds]);
       (out.team as any).attentionNeeded = issues.rows;

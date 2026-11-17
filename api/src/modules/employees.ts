@@ -1,6 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { mailEnabled, passwordResetMail, sendMail } from '../lib/mail.ts';
 import { one, type Q } from '../db.ts';
+import { local } from '../lib/time.ts';
 import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, can, has, isOwner, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
@@ -335,6 +336,10 @@ export const employeesModule: Module = (r, { db, clock }) => {
         const open = await one(db, `SELECT count(*)::int AS n FROM custody_items WHERE employee_id = $1 AND status = 'assigned'`, [req.params.id]);
         if (open.n > 0) throw invalid(`لازم تستلم العهدة اللي مع الموظف الأول (${open.n}) قبل «تم التصفيه»`, { field: 'status', reason: 'open_custody', count: open.n });
       }
+      // the day he was settled: from it on he is out of the attendance (no absence, no attendance counted)
+      const prevSettledAt = ((before.legacy_fields ?? {}) as Record<string, unknown>).settledAt;
+      if (lf.status === SETTLED) lf.settledAt = prevStatus === SETTLED && typeof prevSettledAt === 'string' ? prevSettledAt : local(clock()).date;
+      else delete lf.settledAt;
       // «تتبع أثناء العمل» is changed only by its own field (workTracking): a profile save keeps what was there
       const prevLf = (before.legacy_fields ?? {}) as Record<string, unknown>;
       if ('workTracking' in prevLf) lf.workTracking = prevLf.workTracking; else delete lf.workTracking;
