@@ -9,6 +9,7 @@ import { notify } from './notify.ts';
 import { assignable, phoneNorm, readLead } from './leads.ts';
 import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode } from './lead_routing.ts';
 import { canSetup, resolveDeveloper } from './exclusive.ts';
+import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
 
 /**
@@ -219,6 +220,12 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     return ok({ added: r2.added, errors: [...new Set(r2.errors)].slice(0, 5) });
   });
 
+  /** «Verify token جديد»: the 4-digit code goes to the person's own e-mail first */
+  r.post('/integrations/meta/verify-token/code', async (req) => {
+    const a = await admin(req);
+    return ok({ sentTo: await sendActionCode(db, a, 'meta_verify_token', 'Verify token جديد لـ Meta') });
+  });
+
   /** a new key for Value Aqar — shown this once; the old one stops */
   r.post('/integrations/valueaqar/key', async (req) => {
     const a = await admin(req);
@@ -247,7 +254,12 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       const t = (str(b, 'accessToken', { optional: true, max: 2000 }) ?? '').trim();
       set.access_token = t || null;
     }
-    if (source === 'meta' && b.newVerifyToken === true) set.verify_token = randomBytes(12).toString('base64url');
+    if (source === 'meta' && b.newVerifyToken === true) {
+      // replacing one already in use: only with the code e-mailed to whoever does it (the first one needs none)
+      const cur = await row('meta');
+      if (cur?.verify_token) await takeActionCode(db, a, 'meta_verify_token', b.code);
+      set.verify_token = randomBytes(12).toString('base64url');
+    }
     const keys = Object.keys(set);
     if (keys.length) {
       await db.query(`UPDATE integrations SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_by = $${keys.length + 2}, updated_at = $${keys.length + 3}

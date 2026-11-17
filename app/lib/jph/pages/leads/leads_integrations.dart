@@ -6,6 +6,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
 import 'leads_routing.dart';
+import '../login/otp_page.dart';
 
 /// إعدادات الليدز / الربط: Value Aqar (a direct channel: its inquiries come in as leads, given by the rule of their
 /// property / project / the default one; its projects and units wait here until the office adopts them as تسويق or
@@ -279,6 +280,34 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
         dirBtn(isDark, tr('اسحب الليدز دلوقتي'), Icons.sync_rounded, _syncNow),
       ]),
     ];
+  }
+
+  /// a new Verify token: Meta's webhook settings must then get the new one — so only after the code e-mailed to you
+  Future<void> _newVerifyToken() async {
+    if ('${lm(_d['meta'])['verifyToken'] ?? ''}'.isEmpty) return _patch('meta', {'newVerifyToken': true});
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Verify token جديد؟')),
+        content: Text(tr('القديم هيقف: لو حد عدّل إعدادات الـ Webhooks في تطبيقات Meta لازم يحط الجديد. هيوصلك كود على إيميلك للتأكيد.')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('لأ'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('ابعت الكود'))),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    final r = await lpost('/integrations/meta/verify-token/code', {});
+    if (!mounted) return;
+    if (r['success'] == false) return JphUi.toast(context, r);
+    final done = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => OtpPage(
+          identifier: '',
+          sentTo: '${r['sentTo'] ?? ''}',
+          verify: (code) => lpost('/integrations/meta', {'newVerifyToken': true, 'code': code}, method: 'patch'),
+          resend: () => lpost('/integrations/meta/verify-token/code', {}, ok: tr('اتبعت كود جديد ✅')),
+        )));
+    if (done == true && mounted) JphUi.toast(context, {'success': true, 'message': tr('اتعمل Verify token جديد ✅')});
+    _load();
   }
 
   Future<void> _token() async {
@@ -567,7 +596,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
         ),
         if (!ro) Wrap(spacing: 8, runSpacing: 8, children: [
           dirBtn(isDark, meta['hasToken'] == true ? tr('غيّر التوكن') : tr('حط التوكن'), Icons.key_rounded, _token, primary: meta['hasToken'] != true),
-          dirBtn(isDark, tr('Verify token جديد'), Icons.refresh_rounded, () => _patch('meta', {'newVerifyToken': true})),
+          dirBtn(isDark, tr('Verify token جديد'), Icons.refresh_rounded, _newVerifyToken),
           dirBtn(isDark, meta['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('meta', {'active': meta['active'] != true})),
         ]),
         if (!ro) ..._pages(),
