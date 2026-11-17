@@ -71,8 +71,10 @@ class Text extends w.StatelessWidget {
 
   @override
   w.Widget build(w.BuildContext context) {
-    // depends on the app's language: a const Text is built again when it changes
-    final lang = w.Localizations.maybeLocaleOf(context)?.languageCode ?? LeadsTr.lang;
+    // the app's own language setting (main.dart sets it before building the pages); reading the locale makes a
+    // const Text build again when the language changes
+    w.Localizations.maybeLocaleOf(context);
+    final lang = LeadsTr.lang;
     if (data != null) {
       return w.Text(tx(data!, lang),
           style: style, strutStyle: strutStyle, textAlign: textAlign, textDirection: textDirection, locale: locale,
