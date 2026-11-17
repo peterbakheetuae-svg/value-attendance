@@ -20,6 +20,32 @@ import {
  * Registered before leadsModule: its fixed paths (/leads/calendar …) must win over /leads/:id.
  */
 const MAX_FILE = 3_000_000;
+
+/** lead attachments (VA-07): PDF, JPEG, PNG, WEBP, Word (.doc / .docx) and Excel (.xlsx) — by magic bytes AND extension */
+const OFFICE_EXT: Record<string, string> = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+export function attachmentType(buf: Buffer, fileName: string): string | null {
+  const ext = (fileName.split('.').pop() ?? '').toLowerCase();
+  const s4 = buf.subarray(0, 4).toString('latin1');
+  if (s4 === '%PDF') return ext === 'pdf' ? 'application/pdf' : null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return ['jpg', 'jpeg'].includes(ext) ? 'image/jpeg' : null;
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return ext === 'png' ? 'image/png' : null;
+  if (s4 === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return ext === 'webp' ? 'image/webp' : null;
+  if (buf.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))) return ext === 'doc' ? 'application/msword' : null;
+  // .docx / .xlsx are zip packages with their own content-types part and main folder
+  if (s4 === 'PK\x03\x04' && OFFICE_EXT[ext]) {
+    const text = buf.toString('latin1');
+    const folder = ext === 'docx' ? 'word/' : 'xl/';
+    return text.includes('[Content_Types].xml') && text.includes(folder) ? OFFICE_EXT[ext] : null;
+  }
+  return null;
+}
+/** a stored name that cannot carry a path or control characters */
+export function safeFileName(n: string): string {
+  return n.replace(/[\\/\u0000-\u001f<>:"|?*]/g, '_').replace(/^\.+/, '_').slice(0, 160) || 'file';
+}
 const n = (v: unknown) => Number(v ?? 0);
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const iso = (v: unknown) => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
@@ -224,12 +250,14 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     const b = obj(req.body);
     const now = clock();
     const l = await workLead(db, a, req.params.id, 'work');
-    const fileName = str(b, 'fileName', { min: 1, max: 160 })!;
+    const fileName = safeFileName(str(b, 'fileName', { min: 1, max: 160 })!);
     const raw = String(b.data ?? '');
     const buf = Buffer.from(raw, 'base64');
     if (!raw || buf.length < 10) throw invalid('الملف فاضي', { field: 'data' });
     if (buf.length > MAX_FILE) throw invalid('الملف أكبر من 3 ميجا — صغّره وجرّب تاني', { field: 'data' });
-    const mime = (str(b, 'mime', { optional: true, max: 120 }) ?? 'application/octet-stream').trim();
+    // VA-07: only the types the app offers, decided by the file's real content (never the client's mime / name alone)
+    const mime = attachmentType(buf, fileName);
+    if (!mime) throw invalid('نوع الملف مش مسموح — صور (JPG/PNG/WEBP) أو PDF أو Word / Excel بس', { field: 'data' });
     const x = await db.tx(async (q) => {
       const f = await one(q, `INSERT INTO lead_attachments (lead_id, file_name, mime, size_bytes, data, by_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
         [l.id, fileName, mime, buf.length, buf, a.id, now]);
@@ -244,6 +272,9 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.aid)) throw notFound();
     const f = await one(db, `SELECT * FROM lead_attachments WHERE id = $1`, [req.params.aid]);
     if (!f || !await canSee(db, a, f.lead_id)) throw notFound();
+    // who downloaded a client's document (never its content)
+    await audit(db, a.partner ? null : a.id, 'lead.attachment_download', 'lead', f.lead_id, undefined,
+      { attachment: f.id, ...(a.partner ? { company: a.partner } : {}) });
     return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
   });
 

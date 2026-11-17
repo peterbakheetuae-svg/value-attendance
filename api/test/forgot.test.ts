@@ -43,5 +43,20 @@ test('forgot password: OTP by email → reset token → new password; wrong code
   assert.equal((await h.call(null, 'POST', '/auth/forgot/verify', { identifier: 'E1', code: good })).status, 400, 'burned');
   // rate limit: 3 codes per 15 minutes
   assert.equal((await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' })).status, 200);
-  assert.equal((await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' })).status, 409);
+  const before = sent.length;
+  const limited = await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' });
+  assert.equal(limited.status, 200, 'VA-10: rate limited, but the reply does not tell');
+  assert.equal(sent.length, before, 'no 4th code is sent');
+});
+
+test('VA-10: forgot-password replies identically for an unknown account, one without e-mail, and one with e-mail', async () => {
+  await h.db.query(`UPDATE employees SET email = NULL WHERE code = 'E2'`);
+  await h.db.query(`UPDATE employees SET email = 'e3@value.test' WHERE code = 'E3'`);
+  const shape = (r: any) => JSON.stringify({ s: r.status, b: r.body });
+  const unknown = await h.call(null, 'POST', '/auth/forgot', { identifier: 'NOBODY-123' });
+  const noMail = await h.call(null, 'POST', '/auth/forgot', { identifier: 'E2' });
+  const withMail = await h.call(null, 'POST', '/auth/forgot', { identifier: 'E3' });
+  assert.equal(shape(noMail), shape(unknown));
+  assert.equal(shape(withMail), shape(unknown));
+  assert.ok(!JSON.stringify(withMail.body).includes('e3@') && !JSON.stringify(withMail.body).includes('***'), 'no (masked) e-mail in the reply');
 });

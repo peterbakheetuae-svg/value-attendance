@@ -1,20 +1,31 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'platform_info.dart';
 import 'token_store_stub.dart' if (dart.library.io) 'token_store_windows.dart' as dpapi;
 
 /// Where the sign-in token is kept between runs.
-///  - Android / web: unchanged — the same `token` entry as before (existing sessions keep working).
-///  - Windows: encrypted with Windows DPAPI (bound to the signed-in Windows user), so the token never sits
-///    in plain text in the app's settings file. Copying that file to another PC / user does not carry the session.
+///  - Android: in the Android Keystore-backed secure storage (VA-04) — never in the plain settings file, never in
+///    backups (the manifest also disables backup). A session saved by an older version (plain `token` entry) is moved
+///    there on first read: copied, read back to verify, and only then the plain copy is removed — if the secure storage
+///    fails, the existing session is kept (never signed out by the migration).
+///  - Windows: encrypted with Windows DPAPI (bound to the signed-in Windows user), unchanged.
+///  - Web: the same `token` entry as before (browser storage).
+/// The token itself is never printed or logged.
 class TokenStore {
   TokenStore._();
 
   static const _plainKey = 'token';
   static const _protectedKey = 'token_dpapi';
+  static const _secureKey = 'session_token';
+  static const _secure = FlutterSecureStorage();
+
+  static bool get _android => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   static Future<String?> read() async {
     final p = await SharedPreferences.getInstance();
+    if (_android) return _readAndroid(p);
     if (!PlatformInfo.isWindows) return p.getString(_plainKey);
     final sealed = p.getString(_protectedKey);
     // never keep a plain copy on Windows
@@ -25,8 +36,45 @@ class TokenStore {
     return tok;
   }
 
+  static Future<String?> _readAndroid(SharedPreferences p) async {
+    String? secure;
+    try {
+      secure = await _secure.read(key: _secureKey);
+    } catch (_) {
+      secure = null; // the secure storage is unavailable: fall back to the legacy copy below (session kept)
+    }
+    final legacy = p.getString(_plainKey);
+    if (secure != null && secure.isNotEmpty) {
+      if (legacy != null) await p.remove(_plainKey); // already migrated: the plain copy goes
+      return secure;
+    }
+    if (legacy == null || legacy.isEmpty) return null;
+    // migrate an older session: copy → verify → only then remove the plain copy
+    if (await _storeSecure(legacy)) await p.remove(_plainKey);
+    return legacy;
+  }
+
+  /// true only when the token was written AND read back identical
+  static Future<bool> _storeSecure(String token) async {
+    try {
+      await _secure.write(key: _secureKey, value: token);
+      return await _secure.read(key: _secureKey) == token;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> write(String token) async {
     final p = await SharedPreferences.getInstance();
+    if (_android) {
+      if (await _storeSecure(token)) {
+        await p.remove(_plainKey);
+      } else {
+        // the phone's secure storage failed: keep the session working rather than sign the employee out
+        await p.setString(_plainKey, token);
+      }
+      return;
+    }
     if (!PlatformInfo.isWindows) {
       await p.setString(_plainKey, token);
       return;
@@ -40,5 +88,10 @@ class TokenStore {
     final p = await SharedPreferences.getInstance();
     await p.remove(_plainKey);
     await p.remove(_protectedKey);
+    if (_android) {
+      try {
+        await _secure.delete(key: _secureKey);
+      } catch (_) {}
+    }
   }
 }

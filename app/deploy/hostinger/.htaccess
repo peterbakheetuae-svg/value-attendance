@@ -9,6 +9,8 @@ DirectoryIndex index.html
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /valunivo/
+  # (http → https: done by the host's own HTTPS setting / the site root; a redirect here could loop behind the host's
+  #  proxy, so this folder relies on that plus HSTS below — see PRODUCTION_ACTIONS_REQUIRED)
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [L]
@@ -38,6 +40,18 @@ DirectoryIndex index.html
 # No API data is served from here — the API lives on its own host and is never cached by this file.
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
+  # --- security headers (VA-08)
+  # HSTS: the browser keeps using https for this host (no includeSubDomains / preload — those would bind the whole domain)
+  Header always set Strict-Transport-Security "max-age=15552000"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "DENY"
+  Header always set Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=(), usb=()"
+  # Enforced now: the parts that cannot break the Flutter app (no framing, no plugins, no <base> / form hijacking)
+  Header always set Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+  # Full policy in report-only first: the browser reports what it would block (console) without blocking. Flutter's wasm
+  # renderer needs 'wasm-unsafe-eval' and loads its engine from www.gstatic.com; fonts may come from fonts.gstatic.com.
+  # After a clean test on the live site, this line becomes the enforced Content-Security-Policy (PRODUCTION_ACTIONS_REQUIRED).
+  Header always set Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.gstatic.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://valunivo.vercel.app https://value-attendance.vercel.app https://value-attendance-api.peter-bakheet-uae.workers.dev https://www.gstatic.com https://fonts.gstatic.com https://fcm.googleapis.com https://firebaseinstallations.googleapis.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
   <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm|apk|ttf|otf|woff|woff2|webp|png|jpg|jpeg|gif|svg)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>

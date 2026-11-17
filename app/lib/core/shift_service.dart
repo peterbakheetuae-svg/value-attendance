@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'ring_alert.dart';
+import 'token_store.dart';
 
 /// «متابعة أثناء الشيفت» in the background (Android): a foreground service with its own engine, so it keeps
 /// following the employee from check-in to check-out even when the app is closed or swiped away from the recent
@@ -125,7 +126,7 @@ class _Worker {
     // a fix is asked for directly when the stream goes quiet (some phones pause it)
     _watch = Timer.periodic(const Duration(minutes: 2), (_) async {
       final p = await _prefs();
-      if (p.getBool('bg_tracking_on') != true || (p.getString('token') ?? '').isEmpty) return finish();
+      if (p.getBool('bg_tracking_on') != true || ((await TokenStore.read()) ?? '').isEmpty) return finish();
       if (_lastFix == null || DateTime.now().difference(_lastFix!) > const Duration(minutes: 3)) {
         try {
           final pos = await Geolocator.getCurrentPosition(
@@ -159,7 +160,7 @@ class _Worker {
     if (_done) return;
     _lastFix = DateTime.now();
     final p = await _prefs();
-    final token = p.getString('token');
+    final token = await TokenStore.read(); // the secure storage on Android (VA-04), the legacy copy while it migrates
     if (p.getBool('bg_tracking_on') != true || token == null || token.isEmpty) return finish();
     api.token = token;
     final rangBefore = p.getBool('bg_ringed_outside') == true;

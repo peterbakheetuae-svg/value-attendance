@@ -123,3 +123,11 @@ test('passwords are stored as scrypt hashes and never returned', async () => {
   const list = await h.call(c.t.hr, 'GET', '/employees');
   assert.equal(JSON.stringify(list.body).includes('password'), false);
 });
+
+test('VA-08: every API answer refuses framing and sends no referrer', async () => {
+  const r = await fetch(h.base + '/f/does-not-exist');
+  assert.equal(r.headers.get('x-frame-options'), 'DENY');
+  assert.equal(r.headers.get('content-security-policy'), "frame-ancestors 'none'");
+  assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+});

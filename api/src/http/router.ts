@@ -8,6 +8,8 @@ export interface Req {
   query: URLSearchParams;
   headers: IncomingMessage['headers'];
   body: any;
+  /** the request body exactly as received (signature checks, e.g. Meta's X-Hub-Signature-256) */
+  raw?: Buffer;
 }
 
 export type Reply =
@@ -82,7 +84,9 @@ interface Out { status: number; headers: Record<string, string>; body: Buffer | 
 /** Transport-independent core shared by the Node server and the serverless (fetch) entry. */
 async function handle(router: Router, opts: Opts, method: string, rawUrl: string,
   headers: IncomingMessage['headers'], getBody: () => Promise<Buffer>): Promise<Out> {
-  const h: Record<string, string> = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' };
+  // no API answer (JSON, files, the public lead form page) may be framed by another site; no referrer leaves it (VA-08)
+  const h: Record<string, string> = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer' };
   const origin = headers.origin as string | undefined;
   if (origin && opts.corsOrigins.includes(origin)) {
     h['Access-Control-Allow-Origin'] = origin;
@@ -105,8 +109,9 @@ async function handle(router: Router, opts: Opts, method: string, rawUrl: string
   try {
     const m = router.match(method, url.pathname);
     if (!m) throw new AppError('not_found', 'Route not found');
-    const body = parseBody(method, String(headers['content-type'] ?? ''), await getBody());
-    return out(await m.handler({ method, path: url.pathname, params: m.params, query: url.searchParams, headers, body }));
+    const raw = await getBody();
+    const body = parseBody(method, String(headers['content-type'] ?? ''), raw);
+    return out(await m.handler({ method, path: url.pathname, params: m.params, query: url.searchParams, headers, body, raw }));
   } catch (e: any) {
     const err = e instanceof AppError ? e : fromDbError(e);
     if (err) return out({ status: err.status, json: { error: { code: err.code, message: err.message, details: err.details } } });
