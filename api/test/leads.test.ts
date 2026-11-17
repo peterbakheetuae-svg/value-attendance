@@ -87,17 +87,19 @@ test('a salesman adds his own lead; a repeated number', async () => {
   const own = await h.call(c.t.e3, 'POST', '/leads', { fullName: 'عميل شخصي', phone: '+20 111 222 3333', projectId: pid });
   assert.equal(own.status, 201, JSON.stringify(own.body));
   assert.equal(own.body.lead.assignedTo.id, c.ids.e3);
-  // the same number by another salesman: refused, it is someone's client
+  // the same number added by hand again: «الليد ده موجود» — whose only for المالك / المدير العام / المسؤول الإداري
+  const name3 = (await h.db.query(`SELECT full_name FROM employees WHERE id = $1`, [c.ids.e3])).rows[0].full_name;
   const again = await h.call(c.t.e1, 'POST', '/leads', { fullName: 'نفس العميل', phone: '01112223333', projectId: pid });
   assert.equal(again.status, 409);
-  assert.match(again.body.error.message, /موجود/);
-  // by the distributor: a duplicate, given to the old salesman
-  const dup = await h.call(c.t.acc, 'POST', '/leads', { fullName: 'نفس العميل', phone: '00201112223333', projectId: pid, assignees: [c.ids.e1] });
-  assert.equal(dup.status, 201);
-  assert.equal(dup.body.duplicate, true);
-  assert.equal(dup.body.lead.assignedTo.id, c.ids.e3, 'the original salesman keeps his client');
-  assert.equal(dup.body.lead.duplicateOf.id, own.body.lead.id);
-  assert.equal((await h.call(c.t.acc, 'GET', '/leads?tab=duplicated')).body.total, 1);
+  assert.equal(again.body.error.message, 'الليد ده موجود بالفعل');
+  const byAcc = await h.call(c.t.acc, 'POST', '/leads', { fullName: 'نفس العميل', phone: '00201112223333', projectId: pid, assignees: [c.ids.e1] });
+  assert.equal(byAcc.status, 409);
+  const accPos = (await h.db.query(`SELECT position_key FROM employees WHERE id = $1`, [c.ids.acc])).rows[0].position_key;
+  assert.equal(byAcc.body.error.message.includes(name3), accPos === 'admin_officer', 'told whose only as «مسؤول إداري»');
+  const byOwner = await h.call(c.t.owner, 'POST', '/leads', { fullName: 'نفس العميل', phone: '01112223333', projectId: pid });
+  assert.equal(byOwner.status, 409);
+  assert.ok(byOwner.body.error.message.includes(name3), 'the owner / general manager is told whose');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM leads WHERE phone_norm = '201112223333' OR phone_norm LIKE '%1112223333'`)).rows[0].n, 1);
 });
 
 test('«إضافة أكشن», the follow-up reminder and the 25 minutes alert', async () => {

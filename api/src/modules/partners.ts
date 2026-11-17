@@ -6,7 +6,7 @@ import { audit, authenticate, has } from '../auth/context.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
 import { hashPassword, passwordPolicyError } from '../auth/password.ts';
 import type { Req } from '../http/router.ts';
-import { phoneNorm, readLead, stageShape, stagesOf } from './leads.ts';
+import { phoneNorm, readLead, refuseExisting, stageShape, stagesOf } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { canOffice } from './cash.ts';
 
@@ -417,6 +417,7 @@ export const partnersModule: Module = (r, { db, clock }) => {
       if (await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`, [c.id, phoneNorm(x.phone), now])) {
         throw conflict('الرقم ده اتضاف على الحملة دي النهارده');
       }
+      await refuseExisting(q, null, [x.phone, ...x.extraPhones]);   // «الليد ده موجود» — never whose
       const l = await deliverLead(q, x, (c.assign_mode ?? 'turn') as RouteMode, c.form_assignees ?? [], now, p.name, c.name);
       await q.query(`UPDATE leads SET partner_company_id = $2 WHERE id = $1`, [l.id, p.companyId]);
       await audit(q, null, 'partner.lead_create', 'lead', l.id, undefined, { company: p.companyId, campaign: c.id });

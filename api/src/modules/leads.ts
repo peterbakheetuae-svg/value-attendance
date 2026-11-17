@@ -206,6 +206,18 @@ async function findDuplicate(q: Q, phones: string[]) {
                   ORDER BY l.created_at LIMIT 1`, [norms]);
 }
 
+/** a lead added by hand whose number is already a lead: refused (409). Only المالك / المدير العام / المسؤول الإداري learn
+ *  which salesman has it; [viewer] null (a marketing company) never does. */
+export async function refuseExisting(q: Q, viewer: string | null, phones: string[]) {
+  const dup = await findDuplicate(q, phones);
+  if (!dup) return;
+  const me = viewer ? await one(q, `SELECT role_key, position_key FROM employees WHERE id = $1`, [viewer]) : null;
+  const sees = !!me && (['owner', 'manager'].includes(me.role_key) || me.position_key === 'admin_officer');
+  throw conflict(sees
+    ? `الليد ده موجود بالفعل (#${dup.ref_no} ${dup.full_name}) — ${dup.assigned_name ? `مع ${dup.assigned_name}` : 'مش متوزع'}`
+    : 'الليد ده موجود بالفعل');
+}
+
 /**
  * Insert one lead. Its salesman: the one asked for, else the original lead's salesman for a repeated number,
  * else nobody (it waits in «مش متوزع»).
@@ -355,6 +367,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
       x.campaignId = await ref(q, 'lead_campaigns', x.campaignId, 'campaignId', 'اختار الحملة');
       x.projectId = await ref(q, 'commission_projects', x.projectId, 'projectId', 'اختار المشروع');
       if (!x.projectId) throw invalid('اختار المشروع', { field: 'projectId' });
+      // a number already in the leads is never added again by hand: «الليد ده موجود» — and with whom only for
+      // المالك / المدير العام / المسؤول الإداري (the salesmen and the rest are not told who has it)
+      await refuseExisting(q, a.id, [x.phone, ...x.extraPhones]);
       // a salesman's own lead is his; the distributor / manager pick the salesmen (several → their turn)
       let to: string | null = null;
       let pool: string[] = [];
