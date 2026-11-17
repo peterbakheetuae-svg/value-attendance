@@ -310,7 +310,7 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Scaffold(
               extendBody: true,
               backgroundColor: Colors.transparent,
-              bottomNavigationBar: widget.partner ? null : GlassBottomNav(
+              bottomNavigationBar: GlassBottomNav(
                 currentIndex: 3, // ✅ هذا الفهرس يعتمد على موقع الإعدادات في القائمة
                 onTap: (index) => AppNav.go(context, index, current: 3, uid: widget.uid, name: widget.name, role: widget.role),
               ),

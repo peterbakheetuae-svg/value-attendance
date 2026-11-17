@@ -78,7 +78,38 @@ class GlassBottomNav extends StatelessWidget {
                     textDirection: isRTL ? TextDirection.rtl : TextDirection.ltr,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: AppNav.settled
+                      children: AppNav.partner
+                          ? [
+                              // a marketing company: its dashboard, its campaigns' leads, المزيد (the settings)
+                              _Item(
+                                icon: Icons.home_rounded,
+                                label: AppLocalizations.of(context, 'dashboard'),
+                                active: currentIndex == 0,
+                                onTap: () => onTap(0),
+                                isDark: isDark,
+                                activeColor: activeColor,
+                                inactiveColor: inactiveColor,
+                              ),
+                              _Item(
+                                icon: Icons.leaderboard_rounded,
+                                label: tr('الليدز'),
+                                active: currentIndex == 6,
+                                onTap: () => onTap(6),
+                                isDark: isDark,
+                                activeColor: activeColor,
+                                inactiveColor: inactiveColor,
+                              ),
+                              _Item(
+                                icon: Icons.more_horiz_rounded,
+                                label: 'المزيد',
+                                active: currentIndex == 3,
+                                onTap: () => AppMenu.showMore(context),
+                                isDark: isDark,
+                                activeColor: activeColor,
+                                inactiveColor: inactiveColor,
+                              ),
+                            ]
+                          : AppNav.settled
                           ? [
                               _Item(
                                 icon: Icons.assignment_rounded,

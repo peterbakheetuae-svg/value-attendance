@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import '../core/async_view.dart';
 import '../core/i18n.dart';
 import '../core/session.dart';
-import '../design/glass.dart';
-import '../design/glass_page.dart';
-import '../design/primary_button.dart';
+import '../jph/services/app_controller.dart';
+import '../jph/widgets/app_background.dart';
+import '../jph/widgets/glass_ui.dart' show Ar;
+import '../jph/widgets/jph_form_ui.dart';
+import '../design/glass_page.dart' show showSnack;
 
 class ChangePasswordPage extends StatefulWidget {
   final bool forced;
@@ -55,31 +57,81 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassPage(
-      title: t('change_password'),
-      actions: [
-        if (widget.forced) TextButton(onPressed: () => context.read<Session>().logout(), child: Text(t('logout'))),
-      ],
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (widget.forced) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(t('must_change_password'), style: TextStyle(color: Colors.orange[700], fontWeight: FontWeight.w700))),
-        GlassCard(
-          radius: 20,
-          child: Material(
-            type: MaterialType.transparency,
+    // the app's theme (AppBackground, the glass boxes, the light / dark colours) — like every other page
+    final isDark = context.watch<AppController>().isDark;
+    final pin = context.read<Session>().canUsePin;
+    return AppBackground(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
             child: Column(children: [
-              TextField(controller: _cur, obscureText: true, decoration: glassInput(context, t('current_password'))),
-              const SizedBox(height: 14),
-              TextField(controller: _new, obscureText: true, decoration: glassInput(context, t('new_password'),
-                  hint: context.read<Session>().canUsePin ? t('password_or_pin_policy') : t('password_policy'))),
-              const SizedBox(height: 14),
-              TextField(controller: _again, obscureText: true, decoration: glassInput(context, t('confirm_password')), onSubmitted: (_) => _save()),
-              if (_err != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: const TextStyle(color: Colors.red))),
-              const SizedBox(height: 20),
-              PrimaryButton(label: t('save'), loading: _busy, onTap: _save),
+              if (widget.forced)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: Row(children: [
+                    const SizedBox(width: 46),
+                    Expanded(
+                      child: Text(t('change_password'), textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                    ),
+                    TextButton(onPressed: () => context.read<Session>().logout(), child: Text(t('logout'))),
+                  ]),
+                )
+              else
+                JphUi.header(context, isDark: isDark, isRTL: true, title: t('change_password')),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 30), children: [
+                      Center(
+                        child: Container(
+                          width: 84,
+                          height: 84,
+                          decoration: BoxDecoration(color: JphUi.primary(isDark).withOpacity(0.15), shape: BoxShape.circle),
+                          child: Icon(Icons.lock_reset_rounded, size: 42, color: JphUi.primary(isDark)),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (widget.forced)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Text(t('must_change_password'), textAlign: TextAlign.center,
+                              style: const TextStyle(color: Ar.amber, fontWeight: FontWeight.w800)),
+                        ),
+                      JphUi.input(isDark: isDark, label: t('current_password'), controller: _cur, obscure: true, icon: Icons.lock_outline_rounded, big: false),
+                      const SizedBox(height: 12),
+                      JphUi.input(isDark: isDark, label: t('new_password'), controller: _new, obscure: true, icon: Icons.lock_rounded, big: false,
+                          hint: pin ? t('password_or_pin_policy') : t('password_policy')),
+                      const SizedBox(height: 12),
+                      JphUi.input(isDark: isDark, label: t('confirm_password'), controller: _again, obscure: true, icon: Icons.lock_rounded, big: false,
+                          onSubmitted: (_) => _save()),
+                      if (_err != null)
+                        Padding(padding: const EdgeInsets.only(top: 12), child: Text(_err!, style: const TextStyle(color: Ar.red, fontWeight: FontWeight.w700))),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        height: 54,
+                        child: FilledButton(
+                          onPressed: _busy ? null : _save,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: JphUi.primary(isDark),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          child: _busy
+                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : Text(t('save'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white)),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
             ]),
           ),
         ),
-      ]),
+      ),
     );
   }
 }

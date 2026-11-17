@@ -2,65 +2,102 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
-import '../../widgets/app_background.dart';
+import '../../widgets/app_menu.dart';
+import '../../widgets/app_nav.dart';
+import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../leads/leads_api.dart';
-import '../settings/settings_page.dart';
 
 /// A marketing company's app (its own sign-in, not an employee — db/migrations/075_marketing_partners.sql):
 ///   لوحة التحكم — like the sales dashboard the owner sees, but only its campaigns' leads
 ///   الليدز      — the leads of its campaigns (read-only: stage, salesman, comments, closed or not) + adding a lead
 ///   الإعدادات   — «تغيير كلمة المرور» … «تسجيل الخروج»
 /// The server answers only /partner/… for it; every other page refuses its account.
-class PartnerHomePage extends StatefulWidget {
-  final String uid, name;
-  const PartnerHomePage({super.key, required this.uid, required this.name});
+/// what the company's pages share: its campaigns and the stages (loaded once)
+class PartnerMeta {
+  static Map<String, dynamic>? _m;
+  static Future<Map<String, dynamic>> load({bool fresh = false}) async {
+    if (_m != null && !fresh) return _m!;
+    final r = await lget('/partner/meta');
+    if (r['success'] != false) _m = r;
+    return r;
+  }
 
-  @override
-  State<PartnerHomePage> createState() => _PartnerHomePageState();
+  static void clear() => _m = null;
 }
 
-class _PartnerHomePageState extends State<PartnerHomePage> {
-  int _tab = 0;
+GlassBottomNav _bar(BuildContext context, int index) => GlassBottomNav(
+      currentIndex: index,
+      onTap: (i) => AppNav.go(context, i, current: index, uid: AppNav.uid ?? '', name: AppNav.name ?? '', role: AppNav.role ?? ''),
+    );
+
+/// the company's home (AppNav.home): its dashboard, in the app's frame (the same bottom bar / side bar as everyone)
+class PartnerDashboardPage extends StatefulWidget {
+  const PartnerDashboardPage({super.key});
+
+  @override
+  State<PartnerDashboardPage> createState() => _PartnerDashboardPageState();
+}
+
+class _PartnerDashboardPageState extends State<PartnerDashboardPage> {
   Map<String, dynamic> _meta = {};
 
   @override
   void initState() {
     super.initState();
-    _loadMeta();
+    AppNav.homeAlive++;
+    PartnerMeta.load(fresh: true).then((m) {
+      if (mounted) setState(() => _meta = m);
+    });
   }
 
-  Future<void> _loadMeta() async {
-    final r = await lget('/partner/meta');
-    if (mounted && r['success'] != false) setState(() => _meta = r);
+  @override
+  void dispose() {
+    AppNav.homeAlive--;
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    final pages = [
-      _PartnerDashboard(isDark: isDark, meta: _meta, onOpenLeads: () => setState(() => _tab = 1)),
-      _PartnerLeads(isDark: isDark, meta: _meta),
-      SettingsPage(uid: widget.uid, name: widget.name, role: 'شركة تسويق', partner: true),
-    ];
-    return AppBackground(
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: SafeArea(bottom: false, child: IndexedStack(index: _tab, children: pages)),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _tab,
-            onDestinationSelected: (i) => setState(() => _tab = i),
-            destinations: [
-              NavigationDestination(icon: const Icon(Icons.space_dashboard_rounded), label: tr('لوحة التحكم')),
-              NavigationDestination(icon: const Icon(Icons.groups_rounded), label: tr('الليدز')),
-              NavigationDestination(icon: const Icon(Icons.settings_rounded), label: tr('الإعدادات')),
-            ],
-          ),
-        ),
-      ),
+    return LeadsShell(
+      isDark: isDark,
+      title: tr('لوحة التحكم'),
+      bottomBar: _bar(context, 0),
+      child: _PartnerDashboard(isDark: isDark, meta: _meta, onOpenLeads: () => AppNav.go(context, 6, current: 0,
+          uid: AppNav.uid ?? '', name: AppNav.name ?? '', role: AppNav.role ?? '')),
+    );
+  }
+}
+
+/// «الليدز»: its campaigns' leads (tab 6 of the bottom bar, like «لوحة السيلز» for the sales)
+class PartnerLeadsPage extends StatefulWidget {
+  const PartnerLeadsPage({super.key});
+
+  @override
+  State<PartnerLeadsPage> createState() => _PartnerLeadsPageState();
+}
+
+class _PartnerLeadsPageState extends State<PartnerLeadsPage> {
+  Map<String, dynamic>? _meta;
+
+  @override
+  void initState() {
+    super.initState();
+    PartnerMeta.load().then((m) {
+      if (mounted) setState(() => _meta = m);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.watch<AppController>().isDark;
+    return LeadsShell(
+      isDark: isDark,
+      title: tr('الليدز'),
+      bottomBar: _bar(context, 6),
+      child: _meta == null ? const Center(child: CircularProgressIndicator()) : _PartnerLeads(isDark: isDark, meta: _meta!),
     );
   }
 }
@@ -457,7 +494,7 @@ class _PartnerLeadsState extends State<_PartnerLeads> {
       ),
       PositionedDirectional(
         end: 16,
-        bottom: 16,
+        bottom: AppMenu.wide(context) ? 16 : 96,   // above the bottom bar on the phone
         child: FloatingActionButton.extended(
           heroTag: 'partner-add',
           onPressed: _add,
@@ -504,13 +541,10 @@ class _PartnerLeadPageState extends State<_PartnerLeadPage> {
   Widget build(BuildContext context) {
     final l = lm(_d['lead']);
     final st = lm(l['stage']);
-    return AppBackground(
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: AppBar(backgroundColor: Colors.transparent, title: Text('${l['fullName'] ?? tr('الليد')}')),
-          body: _loading
+    return LeadsShell(
+      isDark: isDark,
+      title: '${l['fullName'] ?? tr('الليد')}',
+      child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _d['success'] == false
                   ? Center(child: Text('${_d['message']}'))
@@ -564,8 +598,6 @@ class _PartnerLeadPageState extends State<_PartnerLeadPage> {
                           ),
                       ])),
                     ]),
-        ),
-      ),
     );
   }
 }

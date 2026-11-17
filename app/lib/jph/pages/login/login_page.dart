@@ -1,5 +1,6 @@
 //login_page.dart
 import '../partner/partner_home.dart';
+import '../../widgets/app_nav.dart';
 import 'package:flutter/material.dart';
 import '../../../pages/change_password_page.dart';
 import '../../services/jph_bridge.dart';
@@ -164,8 +165,10 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
 
       if (JphBridge.session.role == 'marketing_partner') {
         // a marketing company: only its own pages
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PartnerHomePage(
-              uid: response["uid"]?.toString() ?? '', name: response["name"]?.toString() ?? '')));
+        AppNav.uid = response["uid"]?.toString() ?? '';
+        AppNav.name = response["name"]?.toString() ?? '';
+        AppNav.role = 'marketing_partner';
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PartnerDashboardPage()));
       } else if (JphBridge.session.settled) {
         // «تم التصفيه»: only his attendance report
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => AttendanceReportPage(

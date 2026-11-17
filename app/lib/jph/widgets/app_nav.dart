@@ -7,6 +7,7 @@ import '../pages/dashboard_employers/dashboard_page.dart';
 import '../pages/employees/employees_page.dart';
 import '../pages/leads/leads_api.dart' show seesLeads;
 import '../pages/leads/leads_dashboard_page.dart';
+import '../pages/partner/partner_home.dart';
 import '../pages/profile/profile_page.dart';
 import '../pages/settings/settings_page.dart';
 import '../services/api_service.dart';
@@ -28,7 +29,12 @@ class AppNav {
   /// «تم التصفيه»: only the attendance report (and the settings, to sign out)
   static bool get settled => JphBridge.session.settled;
 
-  static Widget home({required String uid, required String name, required String role, String photo = ''}) => settled
+  /// a marketing company (075): its dashboard (0), its campaigns' leads (6) and the settings (3) — the same frame as everyone
+  static bool get partner => JphBridge.session.role == 'marketing_partner';
+
+  static Widget home({required String uid, required String name, required String role, String photo = ''}) => partner
+      ? const PartnerDashboardPage()
+      : settled
       ? AttendanceReportPage(uid: uid, name: name, role: role)
       : adminHome
       ? DashboardPage(uid: uid, name: name, role: role, photo: photo)
@@ -41,7 +47,11 @@ class AppNav {
   static String? uid, name, role, photo;
 
   static Widget? page(int index, {required String uid, required String name, required String role, String photo = ''}) =>
-      settled && index != 1 && index != 3 ? null : switch (index) {
+      partner ? switch (index) {
+        3 => SettingsPage(uid: uid, name: name, role: role, partner: true),
+        6 => const PartnerLeadsPage(),
+        _ => null,
+      } : settled && index != 1 && index != 3 ? null : switch (index) {
         1 => AttendanceReportPage(uid: uid, name: name, role: role),
         2 => seesEmployees ? EmployeesPage(currentUserId: uid, currentUserName: name, currentUserRole: role) : null,
         3 => SettingsPage(uid: uid, name: name, role: role),
