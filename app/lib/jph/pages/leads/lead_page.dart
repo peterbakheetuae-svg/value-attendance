@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/app_nav.dart';
 import '../../widgets/side_sheet.dart';
 import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
@@ -276,7 +277,12 @@ class _LeadPageState extends State<LeadPage> {
         if ('${l['email'] ?? ''}'.isNotEmpty) kv(tr('الإيميل'), '${l['email']}'),
         if (l['budget'] != null) kv(tr('الميزانية'), JphUi.money(l['budget'])),
         if (l['cancelReason'] != null) kv(tr('سبب الإلغاء'), '${lm(l['cancelReason'])['name']}'),
-        if (l['duplicateOf'] != null) kv(tr('مكرر'), 'نفس رقم ${lm(l['duplicateOf'])['name']}'),
+        if (l['duplicateOf'] != null)
+          kv(tr('مكرر'), [
+            'نفس رقم ${lm(l['duplicateOf'])['name']}',
+            // only the management gets the original's salesman (the lead is now with two salesmen)
+            if (lm(l['duplicateOf']).containsKey('owner')) 'الأصلي مع ${lm(l['duplicateOf'])['owner'] ?? 'مش متوزع'}',
+          ].join(' — ')),
         if ((l['noAnswerCount'] ?? 0) > 0) kv(tr('مردّش'), '${l['noAnswerCount']} مرة'),
         if (refs.isNotEmpty) kv(tr('متشارك مع'), refs.map((r) => '${r['name']}').join(tr('، '))),
         if ('${l['notes'] ?? ''}'.isNotEmpty) kv(tr('ملاحظات'), '${l['notes']}'),
@@ -330,7 +336,7 @@ class _LeadPageState extends State<LeadPage> {
                   Text('${rp['comment']}', style: TextStyle(color: JphUi.text(isDark))),
                 ]),
               ),
-            Align(
+            if (!AppNav.partner) Align(   // a marketing company reads the comments, never answers
               alignment: AlignmentDirectional.centerEnd,
               child: TextButton.icon(onPressed: () => _reply(isDark, x), icon: const Icon(Icons.reply_rounded, size: 18), label: Text(tr('رد'))),
             ),
@@ -522,18 +528,31 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
   final source = isNew || can?['editSource'] == true;
   final phoneOk = isNew || can?['editPhone'] == true;
   return leadForm(context, isDark, isNew ? tr('إنشاء عميل محتمل') : 'تعديل ${lead['fullName']}', (set) {
-    final camps = ll(meta['campaigns']).where((c) => channel == null || c['channelId'] == null || c['channelId'] == channel).toList();
+    // الحملة: every campaign (with its marketing company); picking one fills its channel (and its project when none is chosen)
+    final camps = [
+      for (final c in ll(meta['campaigns']))
+        {...c, 'name': c['company'] == null ? '${c['name']}' : '${c['name']} · ${c['company']}'},
+    ];
     return [
       JphUi.input(isDark: isDark, label: tr('اسم العميل'), controller: name, icon: Icons.person_rounded),
       if (phoneOk) JphUi.input(isDark: isDark, label: tr('الموبايل'), controller: phone, icon: Icons.phone_rounded, number: true),
       JphUi.input(isDark: isDark, label: tr('أرقام تانية (افصل بينهم بـ ،)'), controller: phone2, icon: Icons.phone_forwarded_rounded, big: false),
       refPicker(context, isDark, tr('المشروع'), Icons.apartment_rounded, projects, project, (v) => set(() => project = v), allowNone: false),
       if (source) ...[
+        refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() {
+              campaign = v;
+              final c = camps.where((x) => '${x['id']}' == v).firstOrNull;
+              if (c != null) {
+                if (c['channelId'] != null) channel = '${c['channelId']}';
+                if (project == null && c['projectId'] != null) project = '${c['projectId']}';
+              }
+            })),
         refPicker(context, isDark, tr('القناة'), Icons.campaign_rounded, ll(meta['channels']), channel, (v) => set(() {
               channel = v;
-              campaign = null;
+              // a campaign of another channel no longer fits
+              final c = camps.where((x) => '${x['id']}' == campaign).firstOrNull;
+              if (c != null && c['channelId'] != null && '${c['channelId']}' != v) campaign = null;
             })),
-        if (camps.isNotEmpty) refPicker(context, isDark, tr('الحملة'), Icons.ads_click_rounded, camps, campaign, (v) => set(() => campaign = v)),
       ],
       SegmentedButton<String>(
         segments: [ButtonSegment(value: 'fresh', label: Text(tr('جديد'))), ButtonSegment(value: 'cold', label: Text(tr('مكالمات باردة')))],
@@ -570,9 +589,15 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
       if (source) ...{'channelId': channel, 'campaignId': campaign},
       if (isNew) 'assignees': assignees,
     };
-    final r = isNew ? await lpost('/leads', b, ok: tr('اتضاف الليد ✅')) : await lpost('/leads/${lead['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
+    var r = isNew ? await lpost('/leads', b, ok: tr('اتضاف الليد ✅')) : await lpost('/leads/${lead['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
+    // the number is already a lead: «إضافة» or «إلغاء»
+    if (isNew && isDuplicateRefusal(r) && context.mounted) {
+      if (!await confirmDuplicate(context, '${r['message']}')) return false;
+      r = await lpost('/leads', {...b, 'confirmDuplicate': true}, ok: tr('اتضاف كليد مكرر ✅'));
+    }
     if (context.mounted) {
-      JphUi.toast(context, r['duplicate'] == true ? {...r, 'message': tr('اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز')} : r);
+      JphUi.toast(context, r['duplicate'] == true && b['confirmDuplicate'] != true && r['message'] == null
+          ? {...r, 'message': tr('اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز')} : r);
     }
     return r['success'] == true;
   }, saveLabel: isNew ? tr('إضافة') : tr('حفظ'));

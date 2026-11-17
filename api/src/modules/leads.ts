@@ -1,5 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
+import { AppError } from '../http/errors.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
@@ -50,7 +51,7 @@ export const canDistribute = (a: Actor) => has(a, 'leads.distribute');
 export const canTeam = (a: Actor) => has(a, 'leads.team');
 const canOwn = (a: Actor) => has(a, 'leads.own');
 export const canConfig = (a: Actor) => has(a, 'leads.config');
-export const anyLeads = (a: Actor) => canAll(a) || canTeam(a) || canOwn(a);
+export const anyLeads = (a: Actor) => !!a.partner || canAll(a) || canTeam(a) || canOwn(a);
 
 /** digits only; an Egyptian mobile in any form (+20 / 0020 / 20 / 1xxxxxxxxx) becomes 01xxxxxxxxx */
 export function phoneNorm(v: unknown): string {
@@ -63,6 +64,7 @@ export function phoneNorm(v: unknown): string {
 
 /** the people whose leads the actor sees: everyone (null) or a list of employee ids */
 export async function seenPeople(q: Q, a: Actor): Promise<string[] | null> {
+  if (a.partner) return [];   // a marketing company: no salesman's leads (scopeSql gives it its campaigns' ones)
   if (canAll(a)) return null;
   const ids = [a.id];
   if (canTeam(a)) ids.push(...await teamMemberIds(q, a.id));
@@ -71,6 +73,11 @@ export async function seenPeople(q: Q, a: Actor): Promise<string[] | null> {
 
 /** SQL condition (alias l) for the leads the actor sees; pushes its parameters */
 export async function scopeSql(q: Q, a: Actor, params: unknown[]): Promise<string> {
+  if (a.partner) {
+    // a marketing company (read-only): the leads of the campaigns linked to it, and the ones it added itself
+    params.push(a.partner); const c = params.length;
+    return `(l.partner_company_id = $${c} OR EXISTS (SELECT 1 FROM lead_campaigns cpx WHERE cpx.id = l.campaign_id AND cpx.marketing_company_id = $${c}))`;
+  }
   const people = await seenPeople(q, a);
   if (!people) return 'TRUE';
   params.push(people); const p = params.length;
@@ -131,7 +138,7 @@ export async function log(q: Q, leadId: string, kind: string, by: string | null,
 export const LIST_SELECT = `
   SELECT l.*, s.full_name AS assigned_name, cr.full_name AS created_name, lb.full_name AS last_by_name,
          p.name AS project_name, ch.name AS channel_name, cp.name AS campaign_name, rs.name AS cancel_reason_name,
-         d.full_name AS duplicate_of_name, stg.name_ar AS stage_name, stg.delay_minutes AS stage_delay
+         d.full_name AS duplicate_of_name, dso.full_name AS duplicate_of_owner, stg.name_ar AS stage_name, stg.delay_minutes AS stage_delay
     FROM leads l
     LEFT JOIN lead_stages stg ON stg.key = l.stage
     LEFT JOIN employees s ON s.id = l.assigned_to
@@ -141,9 +148,11 @@ export const LIST_SELECT = `
     LEFT JOIN lead_channels ch ON ch.id = l.channel_id
     LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
     LEFT JOIN lead_cancel_reasons rs ON rs.id = l.cancel_reason_id
-    LEFT JOIN leads d ON d.id = l.duplicate_of`;
+    LEFT JOIN leads d ON d.id = l.duplicate_of
+    LEFT JOIN employees dso ON dso.id = d.assigned_to`;
 
-export function shape(l: any, now: Date, pendingMin: number) {
+/** [seesDup]: the viewer may know who has the original of a repeated lead (المالك / المدير العام / مدير المبيعات / المسؤول الإداري) */
+export function shape(l: any, now: Date, pendingMin: number, seesDup = false) {
   const next = l.next_at ? new Date(l.next_at) : null;
   const open = !['cancelled', 'done_deal', 'reservation'].includes(l.stage);
   const assignedAt = l.assigned_at ? new Date(l.assigned_at) : null;
@@ -160,7 +169,7 @@ export function shape(l: any, now: Date, pendingMin: number) {
     channel: l.channel_id ? { id: l.channel_id, name: l.channel_name } : null,
     campaign: l.campaign_id ? { id: l.campaign_id, name: l.campaign_name } : null,
     cancelReason: l.cancel_reason_id ? { id: l.cancel_reason_id, name: l.cancel_reason_name } : null,
-    duplicateOf: l.duplicate_of ? { id: l.duplicate_of, name: l.duplicate_of_name } : null,
+    duplicateOf: l.duplicate_of ? { id: l.duplicate_of, name: l.duplicate_of_name, ...(seesDup ? { owner: l.duplicate_of_owner ?? null } : {}) } : null,
     notes: l.notes, createdAt: iso(l.created_at), createdByName: l.created_name ?? null,
   };
 }
@@ -206,19 +215,45 @@ async function findDuplicate(q: Q, phones: string[]) {
                   ORDER BY l.created_at LIMIT 1`, [norms]);
 }
 
+/** who may know which salesman has a repeated lead: المالك / المدير العام / مدير المبيعات / المسؤول الإداري */
+const WATCHERS_SQL = `e.status = 'active' AND (e.role_key IN ('owner', 'manager', 'sales_manager') OR e.position_key = 'admin_officer')`;
+export async function seesDuplicates(q: Q, id: string | null) {
+  return !!id && !!(await one(q, `SELECT 1 FROM employees e WHERE e.id = $1 AND ${WATCHERS_SQL}`, [id]));
+}
+export async function duplicateWatchers(q: Q) {
+  return (await q.query(`SELECT e.id FROM employees e WHERE ${WATCHERS_SQL}`)).rows.map((x) => x.id as string);
+}
+
+/**
+ * A lead added by hand whose number is already a lead: «الليد ده موجود» (409, reason «duplicate») — unless the adder
+ * confirmed («إضافة»): then it is added as a repeat (it shows in «مكرر») and the original is returned. Only the watchers
+ * learn which salesman has it; [viewer] null (a marketing company) never does.
+ */
+export async function refuseExisting(q: Q, viewer: string | null, phones: string[], confirmed = false) {
+  const dup = await findDuplicate(q, phones);
+  if (!dup || confirmed) return dup ?? null;
+  const sees = await seesDuplicates(q, viewer);
+  throw new AppError('conflict', sees
+    ? `الليد ده موجود بالفعل (#${dup.ref_no} ${dup.full_name}) — ${dup.assigned_name ? `مع ${dup.assigned_name}` : 'مش متوزع'}`
+    : 'الليد ده موجود بالفعل', { reason: 'duplicate' });
+}
+
 /**
  * Insert one lead. Its salesman: the one asked for, else the original lead's salesman for a repeated number,
  * else nobody (it waits in «مش متوزع»).
  */
 export async function insertLead(q: Q, a: Actor | null, x: NewLead, assignTo: string | null, now: Date, source: 'create' | 'import' | 'form',
-    pool: string[] = []) {
+    pool: string[] = [], opts: { confirmedRepeat?: boolean } = {}) {
   const dup = await findDuplicate(q, [x.phone, ...x.extraPhones]);
   const by = a?.id ?? null;
-  if (a && dup && !canDistribute(a) && !canTeam(a)) {
+  // a repeat added on purpose («إضافة» after «الليد ده موجود»): it goes where it was sent — not to the original's
+  // salesman, who is not told (only the watchers are)
+  const repeat = !!dup && !!opts.confirmedRepeat;
+  if (a && dup && !repeat && !canDistribute(a) && !canTeam(a)) {
     throw conflict(dup.assigned_to === a.id ? 'العميل ده موجود عندك بالفعل' : `الرقم ده موجود قبل كده${dup.assigned_name ? ` عند ${dup.assigned_name}` : ''}`);
   }
   let to = assignTo;
-  if (dup && dup.assigned_to && dup.assigned_status === 'active') to = dup.assigned_to;
+  if (!repeat && dup && dup.assigned_to && dup.assigned_status === 'active') to = dup.assigned_to;
   const l = await one(q, `INSERT INTO leads (full_name, phone, phone_norm, extra_phones, email, budget, kind, channel_id, campaign_id, project_id,
         notes, created_by, created_at, updated_at, stage_changed_at, assigned_to, assigned_at, assigned_by, duplicate_of, assign_pool)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,CASE WHEN $14::uuid IS NULL THEN NULL ELSE $13::timestamptz END,
@@ -228,7 +263,7 @@ export async function insertLead(q: Q, a: Actor | null, x: NewLead, assignTo: st
   await log(q, l.id, source, by, {});
   if (dup) await log(q, l.id, 'duplicate', by, { of: dup.id, ofRef: Number(dup.ref_no) });
   if (to) await log(q, l.id, 'assign', by, { to, mode: dup && to === dup.assigned_to ? 'duplicate' : pool.length > 1 ? 'turn' : 'manual', turn: pool.length > 1 });
-  if (dup && dup.assigned_to && dup.assigned_to !== by) {
+  if (!repeat && dup && dup.assigned_to && dup.assigned_to !== by) {
     await notify(q, { to: dup.assigned_to, type: 'lead_duplicate', title: `العميل ${dup.full_name} رجع تاني`, body: `دخل كليد جديد برقم ${x.phone}`,
       entity: 'lead', entityId: l.id, dedupeKey: `lead:${l.id}:dup` });
   }
@@ -247,7 +282,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const a = await auth(req);
     const [channels, campaigns, reasons, projects, people] = await Promise.all([
       db.query(`SELECT id, name FROM lead_channels WHERE active ORDER BY sort, name`),
-      db.query(`SELECT id, name, channel_id, project_id FROM lead_campaigns WHERE active ORDER BY created_at DESC`),
+      db.query(`SELECT c.id, c.name, c.channel_id, c.project_id, mk.name AS company_name FROM lead_campaigns c
+                  LEFT JOIN marketing_companies mk ON mk.id = c.marketing_company_id
+                 WHERE c.active AND ($1::uuid IS NULL OR c.marketing_company_id = $1) ORDER BY c.created_at DESC`, [a.partner ?? null]),
       db.query(`SELECT id, name FROM lead_cancel_reasons WHERE active ORDER BY sort, name`),
       db.query(`SELECT id, name, kind FROM commission_projects WHERE status = 'active' ORDER BY name`),
       assignable(db, a),
@@ -255,9 +292,12 @@ export const leadsModule: Module = (r, { db, clock }) => {
     return ok({
       stages: (await stagesOf(db)).map(stageShape),
       channels: channels.rows, cancelReasons: reasons.rows, projects: projects.rows,
-      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id })),
+      campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, projectId: c.project_id, company: c.company_name ?? null })),
       assignees: (canDistribute(a) || canTeam(a)) ? people.map((e) => ({ id: e.id, name: e.full_name, code: e.code })) : [],
-      can: { all: canAll(a), distribute: canDistribute(a), team: canTeam(a), own: canOwn(a), config: canConfig(a),
+      // a marketing company: it adds leads (on its campaigns) and opens the settings to look — nothing else
+      can: a.partner ? { all: false, distribute: false, team: false, own: false, config: true, reports: false, import: false, assign: false,
+        create: true, edit: false, export: false, tasks: true, roles: false, stages: false, deals: false, dealCreate: false, partner: true } : {
+        all: canAll(a), distribute: canDistribute(a), team: canTeam(a), own: canOwn(a), config: canConfig(a),
         reports: has(a, 'leads.reports'), import: has(a, 'leads.import'), assign: canDistribute(a) || canTeam(a),
         create: has(a, 'leads.create'), edit: has(a, 'leads.edit'), export: has(a, 'leads.export'), tasks: has(a, 'leads.tasks'),
         roles: has(a, 'roles.manage'), stages: has(a, 'leads.stages'), deals: has(a, 'deals.view'), dealCreate: has(a, 'deals.create') },
@@ -271,6 +311,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const qs = req.query;
     const now = clock();
     const pm = await pendingMinutes(db);
+    const sd = await seesDuplicates(db, a.id);
     const params: unknown[] = [];
     const base: string[] = [await scopeSql(db, a, params)];
     const add = (sql: (i: number) => string, v: unknown) => { params.push(v); base.push(sql(params.length)); };
@@ -337,7 +378,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       db.query(`SELECT l.stage, count(*)::int AS n FROM leads l WHERE ${base.join(' AND ')} AND ${TABS[tab]} GROUP BY 1`, params.slice(0, baseLen)),
     ]);
     return ok({
-      leads: rows.rows.map((l) => shape(l, now, pm)), total: total.n, page, size, tab,
+      leads: rows.rows.map((l) => shape(l, now, pm, sd)), total: total.n, page, size, tab,
       tabs, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),
     });
   });
@@ -345,6 +386,11 @@ export const leadsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ add one lead
   r.post('/leads', async (req) => {
     const a = await auth(req);
+    if (a.partner) {
+      // a marketing company from the sales dashboard: added on one of its campaigns, the way its own page adds it
+      const { partnerAddLead } = await import('./partners.ts');
+      return partnerAddLead(db, { companyId: a.partner, name: a.fullName }, obj(req.body), clock());
+    }
     if (!has(a, 'leads.create')) throw forbidden('مش مسموح لك تضيف ليدز');
     const b = obj(req.body);
     const x = readLead(b);
@@ -354,6 +400,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
       x.campaignId = await ref(q, 'lead_campaigns', x.campaignId, 'campaignId', 'اختار الحملة');
       x.projectId = await ref(q, 'commission_projects', x.projectId, 'projectId', 'اختار المشروع');
       if (!x.projectId) throw invalid('اختار المشروع', { field: 'projectId' });
+      // a number already in the leads is never added again by hand: «الليد ده موجود» — and with whom only for
+      // المالك / المدير العام / المسؤول الإداري (the salesmen and the rest are not told who has it)
+      const dup = await refuseExisting(q, a.id, [x.phone, ...x.extraPhones], b.confirmDuplicate === true);
       // a salesman's own lead is his; the distributor / manager pick the salesmen (several → their turn)
       let to: string | null = null;
       let pool: string[] = [];
@@ -362,7 +411,18 @@ export const leadsModule: Module = (r, { db, clock }) => {
         if (pool.length) to = (await rotation(q, pool))[0];
         else if (!canDistribute(a)) to = a.id;
       } else to = a.id;
-      const res = await insertLead(q, a, x, to, now, 'create', pool);
+      const res = await insertLead(q, a, x, to, now, 'create', pool, { confirmedRepeat: !!dup });
+      if (dup) {
+        // the watchers learn it is now with two salesmen; the adder is not told with whom
+        const names = await q.query(`SELECT id, full_name FROM employees WHERE id = ANY($1::uuid[])`, [[dup.assigned_to, res.to].filter(Boolean)]);
+        const nm = (id: string | null) => names.rows.find((e) => e.id === id)?.full_name ?? 'مش متوزع';
+        for (const to of await duplicateWatchers(q)) {
+          if (to === a.id) continue;
+          await notify(q, { to, type: 'lead_duplicate_added', title: `ليد مكرر اتضاف: ${x.fullName}`,
+            body: `ضافه ${a.fullName} وهو موجود قبل كده — الأصلي مع ${nm(dup.assigned_to)} والجديد مع ${nm(res.to)}`,
+            entity: 'lead', entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:dup_added` });
+        }
+      }
       if (res.to && res.to !== a.id) {
         await notify(q, { to: res.to, type: 'lead_assigned', title: `ليد جديد: ${x.fullName}`, body: res.duplicate ? 'عميل قديم رجع تاني' : 'ابدأ كلّمه',
           entity: 'lead', entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:assign:${now.getTime()}` });
@@ -580,8 +640,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const now = clock();
     const pm = await pendingMinutes(db);
     const params: unknown[] = [];
+    // the linked Meta campaigns' leads, pulled from Meta every 10 minutes at most (no cron: the first look after pays it)
+    await (await import('./meta_sync.ts')).maybeSyncMeta(db, now).catch(() => undefined);
     let scope = await scopeSql(db, a, params);
-    const view = req.query.get('view') ?? (canAll(a) || canTeam(a) ? 'all' : 'me');
+    const view = a.partner ? 'all' : req.query.get('view') ?? (canAll(a) || canTeam(a) ? 'all' : 'me');
     const who = req.query.get('employeeId');
     if (view === 'me') { params.push(a.id); scope += ` AND l.assigned_to = $${params.length}`; }
     else if (who && isUuid(who)) { params.push(who); scope += ` AND l.assigned_to = $${params.length}`; }
@@ -796,15 +858,18 @@ export const leadsModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ settings: channels / campaigns / cancel reasons
   r.get('/leads/config', async (req) => {
     const a = await auth(req);
-    if (!canConfig(a)) throw forbidden();
+    if (!canConfig(a) && !a.partner) throw forbidden();
+    const pc = a.partner ?? null;   // a marketing company looks (read-only) at its own campaigns only
     const [channels, campaigns, reasons, templates, st] = await Promise.all([
       db.query(`SELECT id, name, sort, active FROM lead_channels ORDER BY sort, name`),
-      db.query(`SELECT c.*, ch.name AS channel_name, p.name AS project_name,
+      db.query(`SELECT c.*, ch.name AS channel_name, p.name AS project_name, mk.name AS company_name,
                        (SELECT count(*) FROM leads l WHERE l.campaign_id = c.id)::int AS leads
                   FROM lead_campaigns c LEFT JOIN lead_channels ch ON ch.id = c.channel_id LEFT JOIN commission_projects p ON p.id = c.project_id
-                 ORDER BY c.active DESC, c.created_at DESC`),
+                  LEFT JOIN marketing_companies mk ON mk.id = c.marketing_company_id
+                 WHERE $1::uuid IS NULL OR c.marketing_company_id = $1
+                 ORDER BY c.active DESC, c.created_at DESC`, [pc]),
       db.query(`SELECT id, name, sort, active FROM lead_cancel_reasons ORDER BY sort, name`),
-      db.query(`SELECT id, name, body, sort, active FROM lead_templates ORDER BY sort, name`),
+      db.query(`SELECT id, name, body, sort, active FROM lead_templates WHERE $1::uuid IS NULL ORDER BY sort, name`, [pc]),
       one(db, `SELECT lead_auto_reassign_minutes FROM company_settings LIMIT 1`),
     ]);
     return ok({
@@ -812,8 +877,12 @@ export const leadsModule: Module = (r, { db, clock }) => {
       autoReassignMinutes: st?.lead_auto_reassign_minutes ?? null,
       campaigns: campaigns.rows.map((c) => ({ id: c.id, name: c.name, channelId: c.channel_id, channelName: c.channel_name, projectId: c.project_id,
         projectName: c.project_name, startsOn: iso(c.starts_on)?.slice(0, 10) ?? null, endsOn: iso(c.ends_on)?.slice(0, 10) ?? null,
-        cost: n(c.cost), active: c.active, leads: c.leads, formToken: c.form_token ?? null, formAssignees: c.form_assignees ?? [],
-        formTitle: c.form_title ?? '' })),
+        cost: pc ? 0 : n(c.cost), active: c.active, leads: c.leads, formToken: pc ? null : c.form_token ?? null, formAssignees: pc ? [] : c.form_assignees ?? [],
+        formTitle: c.form_title ?? '', companyId: c.marketing_company_id ?? null, companyName: c.company_name ?? null,
+        metaCampaignIds: c.meta_campaign_ids ?? [] })),
+      readOnly: !!pc,
+      companies: (await db.query(`SELECT id, name, status FROM marketing_companies WHERE $1::uuid IS NULL OR id = $1 ORDER BY status, name`, [pc])).rows
+        .map((m) => ({ id: m.id, name: m.name, active: m.status === 'active' })),
     });
   });
 
@@ -868,12 +937,39 @@ export const leadsModule: Module = (r, { db, clock }) => {
       active: bool(b, 'active') ?? old?.active ?? true,
     };
   };
+  /** شركة التسويق that runs the campaign (075): companyId in the body; absent = unchanged */
+  const campaignCompany = async (b: Record<string, unknown>, old: string | null) => {
+    if (b.companyId === undefined) return old;
+    if (b.companyId === null || b.companyId === '') return null;
+    const id = String(b.companyId);
+    if (!isUuid(id) || !(await one(db, `SELECT 1 FROM marketing_companies WHERE id = $1`, [id]))) throw invalid('شركة التسويق مش موجودة', { field: 'companyId' });
+    return id;
+  };
+  /** the Meta campaigns whose leads come to it (075): metaCampaignIds in the body; absent = unchanged. One Meta campaign feeds
+   *  one of our campaigns only — taken from any other. */
+  const campaignMeta = async (q: Q, b: Record<string, unknown>, id: string) => {
+    if (b.metaCampaignIds === undefined) return;
+    if (!Array.isArray(b.metaCampaignIds) || b.metaCampaignIds.length > 50) throw invalid('حملات Meta مش صحيحة', { field: 'metaCampaignIds' });
+    const ids = [...new Set(b.metaCampaignIds.map((x) => String(x).trim()))];
+    if (ids.some((x) => !/^[0-9]{3,30}$/.test(x))) throw invalid('رقم حملة Meta لازم يكون أرقام بس', { field: 'metaCampaignIds' });
+    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = ARRAY(SELECT x FROM unnest(meta_campaign_ids) x WHERE NOT x = ANY($2::text[]))
+                    WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [id, ids]);
+    // a Meta campaign newly linked: what it already has is pulled from Meta (its last 90 days), then it follows by itself
+    await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = $2,
+                     meta_synced_at = CASE WHEN $2::text[] <@ meta_campaign_ids THEN meta_synced_at END WHERE id = $1`, [id, ids]);
+    if (ids.length) {
+      const { syncMeta } = await import('./meta_sync.ts');
+      await syncMeta(db, clock(), { campaignId: id, deadlineMs: 8000 }).catch(() => undefined);
+    }
+  };
   r.post('/leads/campaigns', async (req) => {
     const a = await auth(req);
     if (!canConfig(a)) throw forbidden();
     const c = await readCampaign(db, obj(req.body));
-    const x = await one(db, `INSERT INTO lead_campaigns (name, channel_id, project_id, starts_on, ends_on, cost, active, created_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, a.id]);
+    const company = await campaignCompany(obj(req.body), null);
+    const x = await one(db, `INSERT INTO lead_campaigns (name, channel_id, project_id, starts_on, ends_on, cost, active, created_by, marketing_company_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, a.id, company]);
+    await campaignMeta(db, obj(req.body), x.id);
     await audit(db, a.id, 'lead.campaign.create', 'lead_campaign', x.id, undefined, x);
     return ok({ campaign: { id: x.id } }, 201);
   });
@@ -884,8 +980,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const old = await one(db, `SELECT * FROM lead_campaigns WHERE id = $1`, [req.params.id]);
     if (!old) throw notFound();
     const c = await readCampaign(db, obj(req.body), old);
-    const x = await one(db, `UPDATE lead_campaigns SET name = $2, channel_id = $3, project_id = $4, starts_on = $5, ends_on = $6, cost = $7, active = $8
-        WHERE id = $1 RETURNING *`, [old.id, c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active]);
+    const company = await campaignCompany(obj(req.body), old.marketing_company_id);
+    const x = await one(db, `UPDATE lead_campaigns SET name = $2, channel_id = $3, project_id = $4, starts_on = $5, ends_on = $6, cost = $7, active = $8,
+        marketing_company_id = $9 WHERE id = $1 RETURNING *`, [old.id, c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.cost, c.active, company]);
+    await campaignMeta(db, obj(req.body), old.id);
     await audit(db, a.id, 'lead.campaign.update', 'lead_campaign', old.id, old, x);
     return ok({ campaign: { id: x.id } });
   });
@@ -914,10 +1012,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const [l] = (await db.query(`${LIST_SELECT} WHERE l.id = $1`, [req.params.id])).rows;
     if (!l) throw notFound();
     // «مين فتح الليد»: once per person every 30 minutes
-    if (!await one(db, `SELECT 1 FROM lead_logs WHERE lead_id = $1 AND kind = 'view' AND by_id = $2 AND created_at > $3::timestamptz - interval '30 minutes'`, [l.id, a.id, now])) {
+    if (!a.partner && !await one(db, `SELECT 1 FROM lead_logs WHERE lead_id = $1 AND kind = 'view' AND by_id = $2 AND created_at > $3::timestamptz - interval '30 minutes'`, [l.id, a.id, now])) {
       await log(db, l.id, 'view', a.id);
     }
-    const manager = canAll(a) || canTeam(a);
+    const manager = canAll(a) || canTeam(a) || !!a.partner;   // the company sees every step of its leads
     const [actions, logs, refs, units] = await Promise.all([
       db.query(`SELECT x.*, e.full_name AS by_name, rs.name AS reason_name, u.unit_no, u.status AS unit_status
                   FROM lead_actions x LEFT JOIN employees e ON e.id = x.by_id LEFT JOIN lead_cancel_reasons rs ON rs.id = x.cancel_reason_id
@@ -945,7 +1043,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       contracted: 'متعاقد', completed: 'مكتمل', cancel_pending: 'مستني موافقة الإلغاء', cancelled: 'ملغي' };
     const work = await canWork(db, a, l);
     return ok({
-      lead: shape(l, now, await pendingMinutes(db)),
+      lead: shape(l, now, await pendingMinutes(db), await seesDuplicates(db, a.id)),
       actions: top.map((x) => ({ ...act(x), replies: replies.filter((y) => y.parent_id === x.id).reverse().map(act) })),
       logs: logs.rows.map((g) => ({ kind: g.kind, byName: g.by_name ?? 'النظام', at: iso(g.created_at),
         data: { ...g.data, toName: g.data?.to ? names.get(g.data.to) : undefined, fromName: g.data?.from ? names.get(g.data.from) : undefined } })),
@@ -954,7 +1052,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         price: n(u.unit_price), deposit: n(u.deposit_amount), at: iso(u.created_at) })),
       can: { act: work, reserve: work && l.assigned_to != null && !CLOSED.includes(l.stage), edit: (work || canDistribute(a)) && has(a, 'leads.edit'),
         editPhone: canDistribute(a), editSource: canDistribute(a), assign: canDistribute(a) || (canTeam(a) && work),
-        refer: work, log: manager, reply: true },
+        refer: work, log: manager, reply: !a.partner },
     });
   });
 
@@ -1025,7 +1123,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const status = req.query.get('status') ?? 'open';
     const params: unknown[] = [a.id];
     const where: string[] = [];
-    if (view === 'created') where.push(`k.created_by = $1`);
+    if (a.partner) where.push(`$1::uuid IS NOT NULL AND k.lead_id IS NOT NULL AND ${await scopeSql(db, a, params)}`);   // a marketing company: its leads' tasks
+    else if (view === 'created') where.push(`k.created_by = $1`);
     else if (view === 'team' && canGiveTasks(a)) {
       if (canAll(a) || has(a, 'employee.read_all')) where.push(`TRUE`);
       else { params.push([a.id, ...await teamMemberIds(db, a.id)]); where.push(`(k.assigned_to = ANY($${params.length}::uuid[]) OR k.created_by = $1)`); }
@@ -1038,8 +1137,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
                                   ORDER BY (k.status IN ('open','doing')) DESC, k.due_at ASC NULLS LAST, k.created_at DESC LIMIT 300`, params);
     return ok({
       tasks: rows.rows.map((k) => shapeTask(k, a, now)),
-      people: (await taskPeople(db, a)).map((e) => ({ id: e.id, name: e.full_name })),
-      canAssignOthers: canGiveTasks(a),
+      people: a.partner ? [] : (await taskPeople(db, a)).map((e) => ({ id: e.id, name: e.full_name })),
+      canAssignOthers: !a.partner && canGiveTasks(a),
     });
   });
 

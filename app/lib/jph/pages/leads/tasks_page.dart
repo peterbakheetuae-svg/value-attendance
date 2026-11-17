@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/app_nav.dart';
 import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
@@ -41,11 +42,13 @@ class _TasksPageState extends State<TasksPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    final views = [('mine', tr('مهامي'), Icons.person_rounded), ('created', tr('اللي إديتها'), Icons.outbox_rounded), if (_others) ('team', tr('الفريق'), Icons.groups_rounded)];
+    final views = AppNav.partner
+        ? [('mine', tr('مهام ليدزك'), Icons.task_alt_rounded)]
+        : [('mine', tr('مهامي'), Icons.person_rounded), ('created', tr('اللي إديتها'), Icons.outbox_rounded), if (_others) ('team', tr('الفريق'), Icons.groups_rounded)];
     return LeadsShell(
       isDark: isDark,
       title: tr('المهام'),
-      fab: FloatingActionButton.extended(
+      fab: AppNav.partner ? null : FloatingActionButton.extended(   // a marketing company only looks
         onPressed: () async {
           if (await editTask(context, isDark)) _load();
         },

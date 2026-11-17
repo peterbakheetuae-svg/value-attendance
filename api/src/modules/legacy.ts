@@ -290,13 +290,16 @@ export const legacyModule: Module = (r, { db, clock }) => {
   r.delete('/notifications/:id', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const n = await db.query(`DELETE FROM notifications WHERE id = $1 AND recipient_id = $2`, [req.params.id, a.id]);
+    const n = a.partner
+      ? await db.query(`UPDATE partner_notifications SET deleted = true WHERE id = $1 AND company_id = $2 AND NOT deleted`, [req.params.id, a.partner])
+      : await db.query(`DELETE FROM notifications WHERE id = $1 AND recipient_id = $2`, [req.params.id, a.id]);
     if (!n.rowCount) throw notFound();
     return ok({ ok: true });
   });
   r.delete('/notifications', async (req) => {
     const a = await authenticate(db, req);
-    await db.query(`DELETE FROM notifications WHERE recipient_id = $1`, [a.id]);
+    if (a.partner) await db.query(`UPDATE partner_notifications SET deleted = true WHERE company_id = $1`, [a.partner]);
+    else await db.query(`DELETE FROM notifications WHERE recipient_id = $1`, [a.id]);
     return ok({ ok: true });
   });
 

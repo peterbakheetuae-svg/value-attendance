@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../services/app_controller.dart';
 import '../../services/notification_service.dart';
 import '../../widgets/app_background.dart';
+import '../../widgets/app_nav.dart';
 import '../../theme/app_colors.dart';
 import 'Send_Notifications_Page.dart'; // 🔥 استيراد صفحة إرسال الإشعارات
 import '../../widgets/glass_dialog.dart';
@@ -506,8 +507,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
                           // أزرار الإجراءات
                           Row(
                             children: [
-                              // 🔥 زر إرسال إشعار جديد
-                              GestureDetector(
+                              // 🔥 زر إرسال إشعار جديد (not for a marketing company's account)
+                              if (!AppNav.partner) GestureDetector(
                                 onTap: _navigateToSendNotifications,
                                 child: Container(
                                   width: 46,
@@ -520,7 +521,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              if (!AppNav.partner) const SizedBox(width: 8),
 
                               if (notifications.isNotEmpty && unreadCount > 0)
                                 GestureDetector(

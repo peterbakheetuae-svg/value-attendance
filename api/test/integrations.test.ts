@@ -174,3 +174,29 @@ test('a campaign (Meta form / public form): its salesmen and its mode — online
   l = await leadOf(l.id);
   assert.equal(l.assigned_to, c.ids.e1);
 });
+
+test('a new Meta Verify token (one already in use) only with the code e-mailed to the person', async () => {
+  const sent: any[] = [];
+  const prev = globalThis.fetch;
+  process.env.BREVO_API_KEY = 'k'; process.env.MAIL_FROM = 'hr@value.test';
+  globalThis.fetch = (async (url: any, init: any) => {
+    if (String(url).startsWith('https://api.brevo.com/')) { sent.push(JSON.parse(init.body)); return new Response('{}', { status: 201 }); }
+    return prev(url, init);
+  }) as typeof fetch;
+  try {
+    await h.db.query(`UPDATE employees SET email = 'acc@value.test' WHERE id = $1`, [c.ids.acc]);
+    const before = (await h.db.query(`SELECT verify_token FROM integrations WHERE source = 'meta'`)).rows[0].verify_token;
+    assert.ok(before);
+    assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/meta', { newVerifyToken: true })).status, 400, 'no code');
+    const s = await h.call(c.t.acc, 'POST', '/integrations/meta/verify-token/code', {});
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.equal(sent.at(-1).to[0].email, 'acc@value.test');
+    const code = /(\d{4})/.exec(sent.at(-1).textContent)![1];
+    assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/meta', { newVerifyToken: true, code: code === '0000' ? '1111' : '0000' })).status, 400);
+    assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/meta', { newVerifyToken: true, code })).status, 200);
+    assert.notEqual((await h.db.query(`SELECT verify_token FROM integrations WHERE source = 'meta'`)).rows[0].verify_token, before);
+    assert.equal((await h.call(c.t.acc, 'PATCH', '/integrations/meta', { newVerifyToken: true, code })).status, 400, 'single use');
+  } finally {
+    globalThis.fetch = prev; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
+  }
+});

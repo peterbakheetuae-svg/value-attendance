@@ -55,6 +55,10 @@ class JphUi {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(children: [
+        // a home page (the bottom of the stack) has nothing to go back to
+        if (!Navigator.canPop(context))
+          const SizedBox(width: 46, height: 46)
+        else
         GestureDetector(
           onTap: () => Navigator.pop(context),
           child: Container(
@@ -102,7 +106,8 @@ class JphUi {
 
   /// A number / text field inside the same box.
   static Widget input({required bool isDark, required String label, required TextEditingController controller,
-      String? hint, IconData? icon, bool number = false, ValueChanged<String>? onChanged, String? suffix, bool big = true}) {
+      String? hint, IconData? icon, bool number = false, ValueChanged<String>? onChanged, String? suffix, bool big = true,
+      bool obscure = false, ValueChanged<String>? onSubmitted}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: box(isDark),
@@ -111,6 +116,8 @@ class JphUi {
         TextField(
           controller: controller,
           onChanged: onChanged,
+          onSubmitted: onSubmitted,
+          obscureText: obscure,
           keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
           decoration: InputDecoration(
             hintText: hint,

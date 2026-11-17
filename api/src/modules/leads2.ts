@@ -108,7 +108,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     if (!from || !to || !dayRe.test(from) || !dayRe.test(to)) throw invalid('حدد الفترة', { field: 'from' });
     if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 62) throw invalid('الفترة طويلة', { field: 'to' });
     const now = clock();
-    const view = req.query.get('view') ?? 'me';
+    const view = a.partner ? 'all' : req.query.get('view') ?? 'me';   // a marketing company: all of its leads
     const who = req.query.get('employeeId');
     const params: unknown[] = [from, to];
     let scope = await scopeSql(db, a, params);

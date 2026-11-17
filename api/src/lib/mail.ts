@@ -64,3 +64,25 @@ export function otpMail(p: { name: string; code: string; company: string }) {
     <p style="color:#666;font-size:13px">للدعم: 01080660100 — info@valueaqar.com</p></div>`;
   return { subject: `كود استعادة كلمة المرور — ${p.company}`, html, text };
 }
+
+/** the 4-digit code that confirms a new e-mail for an account («تعديل الحساب») */
+export function emailChangeMail(p: { name: string; code: string; company: string }) {
+  const text = `أهلاً ${p.name}\n\nكود تأكيد الإيميل الجديد لحسابك على تطبيق ${p.company}: ${p.code}\n` +
+    'الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، تجاهل الرسالة.';
+  const html = `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;line-height:1.8;color:#111">
+    <p>أهلاً ${esc(p.name)}،</p><p>كود تأكيد الإيميل الجديد لحسابك على تطبيق ${esc(p.company)}:</p>
+    <p style="font-size:30px;font-weight:bold;letter-spacing:10px;color:#4F46E5">${esc(p.code)}</p>
+    <p>الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، تجاهل الرسالة.</p></div>`;
+  return { subject: `كود تأكيد الإيميل — ${p.company}`, html, text };
+}
+
+/** the 4-digit code that confirms a sensitive change in the settings */
+export function actionCodeMail(p: { name: string; code: string; company: string; what: string }) {
+  const text = `أهلاً ${p.name}\n\nكود تأكيد «${p.what}» على تطبيق ${p.company}: ${p.code}\n` +
+    'الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، كلّم الإدارة فورًا.';
+  const html = `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;font-size:15px;line-height:1.8;color:#111">
+    <p>أهلاً ${esc(p.name)}،</p><p>كود تأكيد «${esc(p.what)}» على تطبيق ${esc(p.company)}:</p>
+    <p style="font-size:30px;font-weight:bold;letter-spacing:10px;color:#4F46E5">${esc(p.code)}</p>
+    <p>الكود صالح لمدة 10 دقايق. لو ماطلبتش ده، كلّم الإدارة فورًا.</p></div>`;
+  return { subject: `كود تأكيد — ${p.company}`, html, text };
+}
