@@ -298,3 +298,9 @@ test('settings: channels and cancel reasons', async () => {
   assert.ok(!(await h.call(c.t.e1, 'GET', '/leads/meta')).body.channels.some((x: any) => x.id === ch.body.item.id), 'a stopped channel is not offered');
   assert.equal((await h.call(c.t.acc, 'PATCH', '/leads/settings', { pendingMinutes: 30 })).body.pendingMinutes, 30);
 });
+
+test('«هيتحدد بعد المكالمة»: a lead added without a project on purpose', async () => {
+  const later = await h.call(c.t.e3, 'POST', '/leads', { fullName: 'المشروع بعدين', phone: '01000000071', projectLater: true });
+  assert.equal(later.status, 201, JSON.stringify(later.body));
+  assert.equal((await h.db.query(`SELECT project_id FROM leads WHERE id = $1`, [later.body.lead.id])).rows[0].project_id, null);
+});

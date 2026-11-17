@@ -522,8 +522,11 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
   String kind = '${lead?['kind'] ?? 'fresh'}';
   String? project = lm(lead?['project'])['id']?.toString(), channel = lm(lead?['channel'])['id']?.toString(),
       campaign = lm(lead?['campaign'])['id']?.toString();
-  final projects = ll(meta['projects']);
-  if (project == null && projects.length == 1) project = '${projects.first['id']}';
+  // «هيتحدد بعد المكالمة» on top of the projects: the lead comes in without a project, set later from the lead
+  const later = 'later';
+  final projects = [{'id': later, 'name': tr('هيتحدد بعد المكالمة')}, ...ll(meta['projects'])];
+  if (!isNew && project == null) project = later;
+  if (project == null && projects.length == 2) project = '${projects.last['id']}';
   List<String> assignees = [];
   final people = ll(meta['assignees']);
   final source = isNew || can?['editSource'] == true;
@@ -585,7 +588,8 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
     final extra = phone2.text.split(RegExp(r'[،,\n]')).map((x) => x.trim()).where((x) => x.length >= 7).toList();
     final b = <String, dynamic>{
       'fullName': name.text.trim(), 'extraPhones': extra, 'email': email.text.trim(), 'kind': kind, 'notes': notes.text.trim(),
-      'budget': num.tryParse(budget.text.replaceAll(',', '')), 'projectId': project,
+      'budget': num.tryParse(budget.text.replaceAll(',', '')), 'projectId': project == later ? null : project,
+      if (project == later) 'projectLater': true,
       if (phoneOk) 'phone': phone.text.trim(),
       if (source) ...{'channelId': channel, 'campaignId': campaign},
       if (isNew) 'assignees': assignees,

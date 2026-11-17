@@ -399,7 +399,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       x.channelId = await ref(q, 'lead_channels', x.channelId, 'channelId', 'اختار القناة');
       x.campaignId = await ref(q, 'lead_campaigns', x.campaignId, 'campaignId', 'اختار الحملة');
       x.projectId = await ref(q, 'commission_projects', x.projectId, 'projectId', 'اختار المشروع');
-      if (!x.projectId) throw invalid('اختار المشروع', { field: 'projectId' });
+      // «هيتحدد بعد المكالمة»: the project is set later, from the lead
+      if (!x.projectId && b.projectLater !== true) throw invalid('اختار المشروع', { field: 'projectId' });
       // a number already in the leads is never added again by hand: «الليد ده موجود» — and with whom only for
       // المالك / المدير العام / المسؤول الإداري (the salesmen and the rest are not told who has it)
       const dup = await refuseExisting(q, a.id, [x.phone, ...x.extraPhones], b.confirmDuplicate === true);
