@@ -1,5 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
+import { AppError } from '../http/errors.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
@@ -131,7 +132,7 @@ export async function log(q: Q, leadId: string, kind: string, by: string | null,
 export const LIST_SELECT = `
   SELECT l.*, s.full_name AS assigned_name, cr.full_name AS created_name, lb.full_name AS last_by_name,
          p.name AS project_name, ch.name AS channel_name, cp.name AS campaign_name, rs.name AS cancel_reason_name,
-         d.full_name AS duplicate_of_name, stg.name_ar AS stage_name, stg.delay_minutes AS stage_delay
+         d.full_name AS duplicate_of_name, dso.full_name AS duplicate_of_owner, stg.name_ar AS stage_name, stg.delay_minutes AS stage_delay
     FROM leads l
     LEFT JOIN lead_stages stg ON stg.key = l.stage
     LEFT JOIN employees s ON s.id = l.assigned_to
@@ -141,9 +142,11 @@ export const LIST_SELECT = `
     LEFT JOIN lead_channels ch ON ch.id = l.channel_id
     LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
     LEFT JOIN lead_cancel_reasons rs ON rs.id = l.cancel_reason_id
-    LEFT JOIN leads d ON d.id = l.duplicate_of`;
+    LEFT JOIN leads d ON d.id = l.duplicate_of
+    LEFT JOIN employees dso ON dso.id = d.assigned_to`;
 
-export function shape(l: any, now: Date, pendingMin: number) {
+/** [seesDup]: the viewer may know who has the original of a repeated lead (المالك / المدير العام / مدير المبيعات / المسؤول الإداري) */
+export function shape(l: any, now: Date, pendingMin: number, seesDup = false) {
   const next = l.next_at ? new Date(l.next_at) : null;
   const open = !['cancelled', 'done_deal', 'reservation'].includes(l.stage);
   const assignedAt = l.assigned_at ? new Date(l.assigned_at) : null;
@@ -160,7 +163,7 @@ export function shape(l: any, now: Date, pendingMin: number) {
     channel: l.channel_id ? { id: l.channel_id, name: l.channel_name } : null,
     campaign: l.campaign_id ? { id: l.campaign_id, name: l.campaign_name } : null,
     cancelReason: l.cancel_reason_id ? { id: l.cancel_reason_id, name: l.cancel_reason_name } : null,
-    duplicateOf: l.duplicate_of ? { id: l.duplicate_of, name: l.duplicate_of_name } : null,
+    duplicateOf: l.duplicate_of ? { id: l.duplicate_of, name: l.duplicate_of_name, ...(seesDup ? { owner: l.duplicate_of_owner ?? null } : {}) } : null,
     notes: l.notes, createdAt: iso(l.created_at), createdByName: l.created_name ?? null,
   };
 }
@@ -206,16 +209,27 @@ async function findDuplicate(q: Q, phones: string[]) {
                   ORDER BY l.created_at LIMIT 1`, [norms]);
 }
 
-/** a lead added by hand whose number is already a lead: refused (409). Only المالك / المدير العام / المسؤول الإداري learn
- *  which salesman has it; [viewer] null (a marketing company) never does. */
-export async function refuseExisting(q: Q, viewer: string | null, phones: string[]) {
+/** who may know which salesman has a repeated lead: المالك / المدير العام / مدير المبيعات / المسؤول الإداري */
+const WATCHERS_SQL = `e.status = 'active' AND (e.role_key IN ('owner', 'manager', 'sales_manager') OR e.position_key = 'admin_officer')`;
+export async function seesDuplicates(q: Q, id: string | null) {
+  return !!id && !!(await one(q, `SELECT 1 FROM employees e WHERE e.id = $1 AND ${WATCHERS_SQL}`, [id]));
+}
+export async function duplicateWatchers(q: Q) {
+  return (await q.query(`SELECT e.id FROM employees e WHERE ${WATCHERS_SQL}`)).rows.map((x) => x.id as string);
+}
+
+/**
+ * A lead added by hand whose number is already a lead: «الليد ده موجود» (409, reason «duplicate») — unless the adder
+ * confirmed («إضافة»): then it is added as a repeat (it shows in «مكرر») and the original is returned. Only the watchers
+ * learn which salesman has it; [viewer] null (a marketing company) never does.
+ */
+export async function refuseExisting(q: Q, viewer: string | null, phones: string[], confirmed = false) {
   const dup = await findDuplicate(q, phones);
-  if (!dup) return;
-  const me = viewer ? await one(q, `SELECT role_key, position_key FROM employees WHERE id = $1`, [viewer]) : null;
-  const sees = !!me && (['owner', 'manager'].includes(me.role_key) || me.position_key === 'admin_officer');
-  throw conflict(sees
+  if (!dup || confirmed) return dup ?? null;
+  const sees = await seesDuplicates(q, viewer);
+  throw new AppError('conflict', sees
     ? `الليد ده موجود بالفعل (#${dup.ref_no} ${dup.full_name}) — ${dup.assigned_name ? `مع ${dup.assigned_name}` : 'مش متوزع'}`
-    : 'الليد ده موجود بالفعل');
+    : 'الليد ده موجود بالفعل', { reason: 'duplicate' });
 }
 
 /**
@@ -223,14 +237,17 @@ export async function refuseExisting(q: Q, viewer: string | null, phones: string
  * else nobody (it waits in «مش متوزع»).
  */
 export async function insertLead(q: Q, a: Actor | null, x: NewLead, assignTo: string | null, now: Date, source: 'create' | 'import' | 'form',
-    pool: string[] = []) {
+    pool: string[] = [], opts: { confirmedRepeat?: boolean } = {}) {
   const dup = await findDuplicate(q, [x.phone, ...x.extraPhones]);
   const by = a?.id ?? null;
-  if (a && dup && !canDistribute(a) && !canTeam(a)) {
+  // a repeat added on purpose («إضافة» after «الليد ده موجود»): it goes where it was sent — not to the original's
+  // salesman, who is not told (only the watchers are)
+  const repeat = !!dup && !!opts.confirmedRepeat;
+  if (a && dup && !repeat && !canDistribute(a) && !canTeam(a)) {
     throw conflict(dup.assigned_to === a.id ? 'العميل ده موجود عندك بالفعل' : `الرقم ده موجود قبل كده${dup.assigned_name ? ` عند ${dup.assigned_name}` : ''}`);
   }
   let to = assignTo;
-  if (dup && dup.assigned_to && dup.assigned_status === 'active') to = dup.assigned_to;
+  if (!repeat && dup && dup.assigned_to && dup.assigned_status === 'active') to = dup.assigned_to;
   const l = await one(q, `INSERT INTO leads (full_name, phone, phone_norm, extra_phones, email, budget, kind, channel_id, campaign_id, project_id,
         notes, created_by, created_at, updated_at, stage_changed_at, assigned_to, assigned_at, assigned_by, duplicate_of, assign_pool)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,$13,$14,CASE WHEN $14::uuid IS NULL THEN NULL ELSE $13::timestamptz END,
@@ -240,7 +257,7 @@ export async function insertLead(q: Q, a: Actor | null, x: NewLead, assignTo: st
   await log(q, l.id, source, by, {});
   if (dup) await log(q, l.id, 'duplicate', by, { of: dup.id, ofRef: Number(dup.ref_no) });
   if (to) await log(q, l.id, 'assign', by, { to, mode: dup && to === dup.assigned_to ? 'duplicate' : pool.length > 1 ? 'turn' : 'manual', turn: pool.length > 1 });
-  if (dup && dup.assigned_to && dup.assigned_to !== by) {
+  if (!repeat && dup && dup.assigned_to && dup.assigned_to !== by) {
     await notify(q, { to: dup.assigned_to, type: 'lead_duplicate', title: `العميل ${dup.full_name} رجع تاني`, body: `دخل كليد جديد برقم ${x.phone}`,
       entity: 'lead', entityId: l.id, dedupeKey: `lead:${l.id}:dup` });
   }
@@ -284,6 +301,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const qs = req.query;
     const now = clock();
     const pm = await pendingMinutes(db);
+    const sd = await seesDuplicates(db, a.id);
     const params: unknown[] = [];
     const base: string[] = [await scopeSql(db, a, params)];
     const add = (sql: (i: number) => string, v: unknown) => { params.push(v); base.push(sql(params.length)); };
@@ -350,7 +368,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       db.query(`SELECT l.stage, count(*)::int AS n FROM leads l WHERE ${base.join(' AND ')} AND ${TABS[tab]} GROUP BY 1`, params.slice(0, baseLen)),
     ]);
     return ok({
-      leads: rows.rows.map((l) => shape(l, now, pm)), total: total.n, page, size, tab,
+      leads: rows.rows.map((l) => shape(l, now, pm, sd)), total: total.n, page, size, tab,
       tabs, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),
     });
   });
@@ -369,7 +387,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (!x.projectId) throw invalid('اختار المشروع', { field: 'projectId' });
       // a number already in the leads is never added again by hand: «الليد ده موجود» — and with whom only for
       // المالك / المدير العام / المسؤول الإداري (the salesmen and the rest are not told who has it)
-      await refuseExisting(q, a.id, [x.phone, ...x.extraPhones]);
+      const dup = await refuseExisting(q, a.id, [x.phone, ...x.extraPhones], b.confirmDuplicate === true);
       // a salesman's own lead is his; the distributor / manager pick the salesmen (several → their turn)
       let to: string | null = null;
       let pool: string[] = [];
@@ -378,7 +396,18 @@ export const leadsModule: Module = (r, { db, clock }) => {
         if (pool.length) to = (await rotation(q, pool))[0];
         else if (!canDistribute(a)) to = a.id;
       } else to = a.id;
-      const res = await insertLead(q, a, x, to, now, 'create', pool);
+      const res = await insertLead(q, a, x, to, now, 'create', pool, { confirmedRepeat: !!dup });
+      if (dup) {
+        // the watchers learn it is now with two salesmen; the adder is not told with whom
+        const names = await q.query(`SELECT id, full_name FROM employees WHERE id = ANY($1::uuid[])`, [[dup.assigned_to, res.to].filter(Boolean)]);
+        const nm = (id: string | null) => names.rows.find((e) => e.id === id)?.full_name ?? 'مش متوزع';
+        for (const to of await duplicateWatchers(q)) {
+          if (to === a.id) continue;
+          await notify(q, { to, type: 'lead_duplicate_added', title: `ليد مكرر اتضاف: ${x.fullName}`,
+            body: `ضافه ${a.fullName} وهو موجود قبل كده — الأصلي مع ${nm(dup.assigned_to)} والجديد مع ${nm(res.to)}`,
+            entity: 'lead', entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:dup_added` });
+        }
+      }
       if (res.to && res.to !== a.id) {
         await notify(q, { to: res.to, type: 'lead_assigned', title: `ليد جديد: ${x.fullName}`, body: res.duplicate ? 'عميل قديم رجع تاني' : 'ابدأ كلّمه',
           entity: 'lead', entityId: res.lead.id, dedupeKey: `lead:${res.lead.id}:assign:${now.getTime()}` });
@@ -988,7 +1017,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       contracted: 'متعاقد', completed: 'مكتمل', cancel_pending: 'مستني موافقة الإلغاء', cancelled: 'ملغي' };
     const work = await canWork(db, a, l);
     return ok({
-      lead: shape(l, now, await pendingMinutes(db)),
+      lead: shape(l, now, await pendingMinutes(db), await seesDuplicates(db, a.id)),
       actions: top.map((x) => ({ ...act(x), replies: replies.filter((y) => y.parent_id === x.id).reverse().map(act) })),
       logs: logs.rows.map((g) => ({ kind: g.kind, byName: g.by_name ?? 'النظام', at: iso(g.created_at),
         data: { ...g.data, toName: g.data?.to ? names.get(g.data.to) : undefined, fromName: g.data?.from ? names.get(g.data.from) : undefined } })),

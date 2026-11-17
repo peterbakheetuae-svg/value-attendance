@@ -417,13 +417,19 @@ class _PartnerLeadsState extends State<_PartnerLeads> {
         JphUi.toast(context, {'success': false, 'message': tr('اختار الحملة')});
         return false;
       }
-      final r = await lpost('/partner/leads', {
+      final body = {
         'campaignId': campaign,
         'fullName': name.text.trim(),
         'phone': phone.text.trim(),
         'email': email.text.trim(),
         'notes': notes.text.trim(),
-      }, ok: tr('اتضاف الليد ✅'));
+      };
+      var r = await lpost('/partner/leads', body, ok: tr('اتضاف الليد ✅'));
+      // the number is already a lead: «إضافة» (it waits for the management, not distributed) or «إلغاء»
+      if (isDuplicateRefusal(r) && mounted) {
+        if (!await confirmDuplicate(context, '${r['message']}')) return false;
+        r = await lpost('/partner/leads', {...body, 'confirmDuplicate': true}, ok: tr('اتضاف — الإدارة هتراجعه ✅'));
+      }
       if (mounted) JphUi.toast(context, r);
       return r['success'] == true;
     });

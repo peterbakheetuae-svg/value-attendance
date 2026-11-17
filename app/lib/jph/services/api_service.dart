@@ -628,7 +628,7 @@ class JphRouter {
       if (reason == 'pending_exists' || reason == 'overlap' || reason == 'unit_sold' || reason == 'duplicate_receipt' || reason == 'unit_has_buyer') {
         AlertCenter.instance.popupError('مينفعش تكرر الطلب', msg);
       }
-      return {'success': false, 'code': e.code, 'status': e.status, 'message': msg};
+      return {'success': false, 'code': e.code, 'status': e.status, 'message': msg, if (e.details != null) 'details': e.details};
     } catch (e) {
       return _fail('حدث خطأ غير متوقع');
     }

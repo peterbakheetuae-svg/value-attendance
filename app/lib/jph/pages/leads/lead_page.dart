@@ -276,7 +276,12 @@ class _LeadPageState extends State<LeadPage> {
         if ('${l['email'] ?? ''}'.isNotEmpty) kv(tr('الإيميل'), '${l['email']}'),
         if (l['budget'] != null) kv(tr('الميزانية'), JphUi.money(l['budget'])),
         if (l['cancelReason'] != null) kv(tr('سبب الإلغاء'), '${lm(l['cancelReason'])['name']}'),
-        if (l['duplicateOf'] != null) kv(tr('مكرر'), 'نفس رقم ${lm(l['duplicateOf'])['name']}'),
+        if (l['duplicateOf'] != null)
+          kv(tr('مكرر'), [
+            'نفس رقم ${lm(l['duplicateOf'])['name']}',
+            // only the management gets the original's salesman (the lead is now with two salesmen)
+            if (lm(l['duplicateOf']).containsKey('owner')) 'الأصلي مع ${lm(l['duplicateOf'])['owner'] ?? 'مش متوزع'}',
+          ].join(' — ')),
         if ((l['noAnswerCount'] ?? 0) > 0) kv(tr('مردّش'), '${l['noAnswerCount']} مرة'),
         if (refs.isNotEmpty) kv(tr('متشارك مع'), refs.map((r) => '${r['name']}').join(tr('، '))),
         if ('${l['notes'] ?? ''}'.isNotEmpty) kv(tr('ملاحظات'), '${l['notes']}'),
@@ -583,9 +588,15 @@ Future<bool> editLead(BuildContext context, bool isDark, Map<String, dynamic> me
       if (source) ...{'channelId': channel, 'campaignId': campaign},
       if (isNew) 'assignees': assignees,
     };
-    final r = isNew ? await lpost('/leads', b, ok: tr('اتضاف الليد ✅')) : await lpost('/leads/${lead['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
+    var r = isNew ? await lpost('/leads', b, ok: tr('اتضاف الليد ✅')) : await lpost('/leads/${lead['id']}', b, ok: tr('اتحفظ ✅'), method: 'patch');
+    // the number is already a lead: «إضافة» or «إلغاء»
+    if (isNew && isDuplicateRefusal(r) && context.mounted) {
+      if (!await confirmDuplicate(context, '${r['message']}')) return false;
+      r = await lpost('/leads', {...b, 'confirmDuplicate': true}, ok: tr('اتضاف كليد مكرر ✅'));
+    }
     if (context.mounted) {
-      JphUi.toast(context, r['duplicate'] == true ? {...r, 'message': tr('اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز')} : r);
+      JphUi.toast(context, r['duplicate'] == true && b['confirmDuplicate'] != true && r['message'] == null
+          ? {...r, 'message': tr('اتضاف — الرقم ده موجود قبل كده فراح لنفس السيلز')} : r);
     }
     return r['success'] == true;
   }, saveLabel: isNew ? tr('إضافة') : tr('حفظ'));

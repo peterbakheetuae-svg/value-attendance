@@ -100,6 +100,21 @@ test('a salesman adds his own lead; a repeated number', async () => {
   assert.equal(byOwner.status, 409);
   assert.ok(byOwner.body.error.message.includes(name3), 'the owner / general manager is told whose');
   assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM leads WHERE phone_norm = '201112223333' OR phone_norm LIKE '%1112223333'`)).rows[0].n, 1);
+  assert.equal(again.body.error.details?.reason, 'duplicate', 'the app offers «إضافة / إلغاء»');
+  // «إضافة»: it is added as a repeat (in «مكرر»), stays with the one who added it, and he is not told whose the original is
+  const added = await h.call(c.t.e1, 'POST', '/leads', { fullName: 'نفس العميل', phone: '01112223333', projectId: pid, confirmDuplicate: true });
+  assert.equal(added.status, 201, JSON.stringify(added.body));
+  assert.equal(added.body.lead.assignedTo.id, c.ids.e1, 'not moved to the original salesman');
+  assert.equal(added.body.lead.duplicateOf.id, own.body.lead.id);
+  assert.equal(added.body.lead.duplicateOf.owner, undefined, 'the salesman does not learn whose');
+  assert.ok(!JSON.stringify(added.body).includes(name3));
+  assert.equal((await h.call(c.t.owner, 'GET', '/leads?tab=duplicated')).body.total, 1);
+  const seen = (await h.call(c.t.owner, 'GET', `/leads/${added.body.lead.id}`)).body.lead.duplicateOf;
+  assert.equal(seen.owner, name3, 'the general manager sees it is with two salesmen');
+  const told = (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE type = 'lead_duplicate_added' AND entity_id = $1`, [added.body.lead.id])).rows[0].n;
+  assert.ok(told >= 1, 'the watchers are told');
+  const toOrig = (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND entity_id = $2`, [c.ids.e3, added.body.lead.id])).rows[0].n;
+  assert.equal(toOrig, 0, 'the original salesman is not told');
 });
 
 test('«إضافة أكشن», the follow-up reminder and the 25 minutes alert', async () => {

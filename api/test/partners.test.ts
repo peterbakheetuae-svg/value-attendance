@@ -215,3 +215,27 @@ test('a campaign is created / edited with its marketing company (leads settings 
   const meta = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.campaigns;
   assert.ok(meta.some((k: any) => k.id === camp1 && k.company === 'آدز ميديا'), 'the lead form shows the company with the campaign');
 });
+
+test('a company adds a lead that exists: «الليد ده موجود»; «إضافة» → not distributed, the managers are told', async () => {
+  const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة المكرر', kind: 'commission', defaultPct: 1 });
+  const id = mk.body.company.id;
+  await h.call(c.t.owner, 'PATCH', `/leads/partners/${id}/login`, { email: 'dup@co.com', password: 'Start#2026x' });
+  await h.db.query(`UPDATE marketing_companies SET must_change_password = false, device_lock = false WHERE id = $1`, [id]);
+  await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [other] });
+  const tok = (await h.call(null, 'POST', '/auth/login', { identifier: 'dup@co.com', password: 'Start#2026x' })).body.token;
+  const first = await h.call(tok, 'POST', '/partner/leads', { campaignId: other, fullName: 'عميل مكرر', phone: '01099990000' });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  // the next day, the same number again
+  h.now.value = new Date(h.now.value.getTime() + 26 * 3600_000);
+  const again = await h.call(tok, 'POST', '/partner/leads', { campaignId: other, fullName: 'عميل مكرر', phone: '01099990000' });
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error.message, 'الليد ده موجود بالفعل');
+  assert.equal(again.body.error.details?.reason, 'duplicate');
+  const ok2 = await h.call(tok, 'POST', '/partner/leads', { campaignId: other, fullName: 'عميل مكرر', phone: '01099990000', confirmDuplicate: true });
+  assert.equal(ok2.status, 201, JSON.stringify(ok2.body));
+  const row = (await h.db.query(`SELECT assigned_to, duplicate_of FROM leads WHERE id = $1`, [ok2.body.lead.id])).rows[0];
+  assert.equal(row.assigned_to, null, 'not distributed');
+  assert.ok(row.duplicate_of);
+  const n = (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE type = 'lead_duplicate_partner' AND entity_id = $1`, [ok2.body.lead.id])).rows[0].n;
+  assert.ok(n >= 1);
+});

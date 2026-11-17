@@ -1,6 +1,8 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+
+import '../../widgets/glass_dialog.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_service.dart';
@@ -504,3 +506,23 @@ Widget dirBtn(bool isDark, String label, IconData icon, VoidCallback? onTap, {bo
 /// bar stays and the page takes the screen (not a panel on top); the side bar keeps «لوحة السيلز» lit.
 Future<T?> openLeadsPage<T>(BuildContext context, Widget page) =>
     Navigator.of(context).push<T>(MaterialPageRoute(settings: const RouteSettings(name: 'leads'), builder: (_) => page));
+
+/// «الليد ده موجود» (the server answered 409 / reason «duplicate»): the app's own dialog — «إضافة» adds it anyway as a
+/// repeat (it goes to «مكرر»; who has the original is told only to the managers), «إلغاء» adds nothing.
+bool isDuplicateRefusal(Map<String, dynamic> r) => r['success'] == false && (r['details'] as Map?)?['reason'] == 'duplicate';
+
+Future<bool> confirmDuplicate(BuildContext context, String message) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => GlassAlertDialog(
+      icon: const Icon(Icons.content_copy_rounded, color: Ar.amber, size: 34),
+      title: Text(tr('الليد ده موجود')),
+      content: Text('$message\n\n${tr('تضيفه برضه؟ هيتسجل كليد مكرر.')}'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء'))),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('إضافة'))),
+      ],
+    ),
+  );
+  return ok == true;
+}
