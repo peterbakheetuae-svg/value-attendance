@@ -38,6 +38,8 @@ import '../../widgets/payouts_widgets.dart';
 import '../../../core/shift_tracker.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
+import '../../widgets/windows_attendance_card.dart';
+import '../../../core/platform_info.dart';
 
 class DashboardPageTeam extends StatefulWidget {
   final String uid;
@@ -999,6 +1001,18 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       const SizedBox(height: 18),
                       // money handed to me → "تم الاستلام"
                       PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
+                      // the Windows app: no check-in / check-out from the computer — his day as a dashboard instead
+                      if (PlatformInfo.isWindows)
+                        WindowsAttendanceOverview(
+                          isDark: Provider.of<AppController>(context).isDark,
+                          checkIn: state.checkInTime,
+                          checkOut: state.checkOutTime,
+                          liveWork: liveWorkTimeN,
+                          sheetData: sheetData,
+                          monthData: monthData,
+                          exempt: sheetData['attendanceExempt'] == true,
+                        )
+                      else ...[
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),
@@ -1050,6 +1064,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       ),
                       const SizedBox(height: 8),
                       MonthStats(monthData: monthData),
+                      ],
 
                       const SizedBox(height: 90),
                     ],

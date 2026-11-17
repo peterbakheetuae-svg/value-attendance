@@ -164,6 +164,24 @@ export const partnersModule: Module = (r, { db, clock }) => {
   const FILE_KINDS = ['contract', 'financial_plan', 'execution_vision', 'logo'] as const;
   const FILE_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 
+/** an uploaded company file: its name, type and bytes — an image for the logo, a PDF for the documents, at most 3 MB,
+ *  and the content must be what it says (a PDF starts with %PDF, an image with its own signature) */
+function readCompanyFile(body: unknown, kind: string): { name: string; mime: string; data: Buffer } {
+  const b = obj(body);
+  const name = str(b, 'fileName', { min: 1, max: 200 })!.trim();
+  const mime = String(b.mime ?? '');
+  if (!FILE_MIMES.includes(mime) || (kind === 'logo' ? mime === 'application/pdf' : mime !== 'application/pdf')) {
+    throw invalid(kind === 'logo' ? 'اللوجو لازم يكون صورة' : 'المستند لازم يكون ملف PDF', { field: 'mime' });
+  }
+  const data = Buffer.from(String(b.data ?? ''), 'base64');
+  if (!data.length || data.length > 3 * 1024 * 1024) throw invalid('الملف فاضي أو أكبر من 3 ميجا', { field: 'data' });
+  const magic = data.subarray(0, 12).toString('latin1');
+  const okMagic = mime === 'application/pdf' ? magic.startsWith('%PDF') : mime === 'image/png' ? magic.startsWith('\x89PNG')
+    : mime === 'image/jpeg' ? data[0] === 0xff && data[1] === 0xd8 : magic.startsWith('RIFF') && magic.slice(8, 12) === 'WEBP';
+  if (!okMagic) throw invalid('محتوى الملف مش مطابق لنوعه', { field: 'data' });
+  return { name, mime, data };
+}
+
   /** the choices of a company's file: المدير العام (a general manager / the owner), المدير المباشر (an «مسؤول إداري»), the campaigns */
   async function companyOptions() {
     const campaigns = await db.query(`SELECT id, name, active, marketing_company_id FROM lead_campaigns ORDER BY active DESC, created_at DESC`);
@@ -258,19 +276,7 @@ export const partnersModule: Module = (r, { db, clock }) => {
     const a = await admin(req);
     const kind = req.params.kind as (typeof FILE_KINDS)[number];
     if (!isUuid(req.params.id) || !FILE_KINDS.includes(kind)) throw notFound();
-    const b = obj(req.body);
-    const name = str(b, 'fileName', { min: 1, max: 200 })!.trim();
-    const mime = String(b.mime ?? '');
-    if (!FILE_MIMES.includes(mime) || (kind === 'logo' ? mime === 'application/pdf' : mime !== 'application/pdf')) {
-      throw invalid(kind === 'logo' ? 'اللوجو لازم يكون صورة' : 'المستند لازم يكون ملف PDF', { field: 'mime' });
-    }
-    const data = Buffer.from(String(b.data ?? ''), 'base64');
-    if (!data.length || data.length > 3 * 1024 * 1024) throw invalid('الملف فاضي أو أكبر من 3 ميجا', { field: 'data' });
-    // the content must be what it says (a PDF starts with %PDF, an image with its own signature)
-    const magic = data.subarray(0, 12).toString('latin1');
-    const okMagic = mime === 'application/pdf' ? magic.startsWith('%PDF') : mime === 'image/png' ? magic.startsWith('\x89PNG')
-      : mime === 'image/jpeg' ? data[0] === 0xff && data[1] === 0xd8 : magic.startsWith('RIFF') && magic.slice(8, 12) === 'WEBP';
-    if (!okMagic) throw invalid('محتوى الملف مش مطابق لنوعه', { field: 'data' });
+    const { name, mime, data } = readCompanyFile(req.body, kind);
     await db.tx(async (q) => {
       if (!(await one(q, `SELECT 1 FROM marketing_companies WHERE id = $1`, [req.params.id]))) throw notFound();
       await q.query(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6)
@@ -333,6 +339,19 @@ export const partnersModule: Module = (r, { db, clock }) => {
     const f = await one(db, `SELECT file_name, mime, data FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [p.companyId, req.params.kind]);
     if (!f) throw notFound('مفيش ملف');
     return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+  });
+
+  /** «تعديل الحساب» → its photo: the company changes its own logo (the documents stay the office's to upload) */
+  r.put('/partner/files/logo', async (req) => {
+    const p = await partner(req);
+    const { name, mime, data } = readCompanyFile(req.body, 'logo');
+    await db.tx(async (q) => {
+      await q.query(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,'logo',$2,$3,$4,NULL)
+                     ON CONFLICT (company_id, kind) DO UPDATE SET file_name = EXCLUDED.file_name, mime = EXCLUDED.mime, data = EXCLUDED.data,
+                       uploaded_by = NULL, uploaded_at = now()`, [p.companyId, name, mime, data]);
+      await audit(q, null, 'partner.logo', 'marketing_company', p.companyId, undefined, { name, bytes: data.length });
+    });
+    return ok({ ok: true });
   });
 
   // ------------------------------------------------------------------ «تعديل الحساب»: its name, mobile, e-mail (by a code)

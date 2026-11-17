@@ -355,6 +355,14 @@ test('«تعديل الحساب»: name and mobile; a new e-mail only after its 
     assert.equal((await h.db.query(`SELECT login_email FROM marketing_companies WHERE id = $1`, [companyId])).rows[0].login_email, 'new@ads.com');
     assert.equal((await h.call(pt, 'POST', '/partner/account/email/verify', { code })).status, 400, 'single use');
     assert.equal((await h.call(c.t.e1, 'PATCH', '/partner/account', { name: 'x' })).status, 401, 'an employee is not a company');
+    // its photo (logo): an image only, the content checked; then it reads it back
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]).toString('base64');
+    assert.equal((await h.call(pt, 'PUT', '/partner/files/logo', { fileName: 'x.pdf', mime: 'application/pdf', data: png })).status, 400);
+    assert.equal((await h.call(pt, 'PUT', '/partner/files/logo', { fileName: 'x.png', mime: 'image/jpeg', data: png })).status, 400, 'not a JPEG');
+    const lg = await h.call(pt, 'PUT', '/partner/files/logo', { fileName: 'logo.png', mime: 'image/png', data: png });
+    assert.equal(lg.status, 200, JSON.stringify(lg.body));
+    assert.equal((await h.call(pt, 'GET', '/partner/files/logo')).body.data, png);
+    assert.equal((await h.call(c.t.e1, 'PUT', '/partner/files/logo', { fileName: 'logo.png', mime: 'image/png', data: png })).status, 401);
   } finally {
     globalThis.fetch = prev; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
   }

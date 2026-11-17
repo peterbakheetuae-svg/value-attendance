@@ -43,6 +43,29 @@ test('employees view: attendance, best employees, KPIs, leave / outings', async 
   assert.equal(r.body.pipeline.rows.length, 5);
 });
 
+test('employees view: «الموظفين دلوقتي» — online dot and where each one is during work hours', async () => {
+  const at = (r: any) => r.body.presence.rows.find((x: any) => x.id === c.ids.e1);
+  let r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.presence.route, 'attendance_today');
+  assert.equal(at(r).online, true, 'signed in just now');
+  assert.equal(at(r).inHours, true, '12:00 Cairo on a Tuesday');
+  assert.equal(at(r).status, 'لسه مسجلش حضور');
+  await h.db.query(`INSERT INTO outing_requests (employee_id, kind, work_date, requested_at, expected_return_at, reason, status)
+                    VALUES ($1, 'visit', '2026-11-10', '2026-11-10T09:00:00Z', '2026-11-10T14:00:00Z', 'زيارة عميل', 'approved')`, [c.ids.e1]);
+  r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
+  assert.equal(at(r).status, 'خارج المكتب بإذن زيارة');
+  await h.db.query(`UPDATE sessions SET last_seen_at = now() - interval '30 days' WHERE employee_id = $1`, [c.ids.e1]);
+  r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
+  assert.equal(at(r).online, false);
+  // the routes of the cards open their own pages
+  const f = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=finance');
+  assert.equal(f.body.kpis[1].route, 'office_commissions');
+  assert.equal(f.body.kpis[2].route, 'owners');
+  assert.equal(f.body.coming.route, 'installments');
+  assert.equal(r.body.latest.route, 'leave_requests');
+});
+
 test('sales view (لوحة السيلز): new leads, late follow-ups, actions, reservations against the target, stages, most active, waiting leads', async () => {
   assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/owner?view=sales')).status, 403);
   const pr = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'مشروع ليدز اللوحة', totalPct: 2, salesPct: 0.3, managerPct: 0.2, companyPct: 1.5 });

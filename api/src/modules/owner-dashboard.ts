@@ -177,8 +177,8 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       { label: 'الخزنة', value: total, format: 'money', highlight: true, progress: total > 0 ? r2((total - bank) / total) : 0,
         foot: `نقدي ${short(total - bank)} · بنك ${short(bank)}`, route: 'cash', icon: 'wallet' },
       { label: 'عمولتي', value: mine.transferred, format: 'money', foot: `في الأمانة ${short(mine.pending)} · جاية ${short(mine.upcoming)}`,
-        delta: null, route: 'exclusive', icon: 'percent' },
-      { label: 'المستحق للملاك', value: ownersDue, format: 'money', foot: `اتصرف لهم ${short(ownersPaid)}`, route: 'exclusive', icon: 'owner' },
+        delta: null, route: 'office_commissions', icon: 'percent' },
+      { label: 'المستحق للملاك', value: ownersDue, format: 'money', foot: `اتصرف لهم ${short(ownersPaid)}`, route: 'owners', icon: 'owner' },
       { label: 'صافي المكتب', value: net, format: 'money', tone: net >= 0 ? 'good' : 'bad',
         foot: `دخل ${short(income)} − مصاريف ${short(costs)}`, route: 'finance', icon: 'profit' },
     ],
@@ -196,7 +196,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       route: 'cash',
     },
     pipeline: {
-      title: 'الوحدات', sub: 'المشاريع الحصري — كل الوحدات حسب حالتها', route: 'exclusive',
+      title: 'الوحدات', sub: 'المشاريع الحصري — كل الوحدات حسب حالتها', route: 'units',
       rows: [
         { label: 'محجوز', value: units.reserved, tone: 'accent' }, { label: 'متعاقد', value: units.contracted, tone: 'warn' },
         { label: 'مكتمل', value: units.completed, tone: 'info' }, { label: 'ملغي', value: units.cancelled, tone: 'muted' },
@@ -205,7 +205,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       button: 'المشاريع',
     },
     ranked: {
-      title: 'أمانات الملاك', sub: 'لكل مشروع: اللي في الأمانة والمستحق للمالك', route: 'exclusive',
+      title: 'أمانات الملاك', sub: 'لكل مشروع: اللي في الأمانة والمستحق للمالك', route: 'projects_box',
       rows: ex.filter((p) => p.units.total > 0 || p.owner.inTrust > 0).sort((x, y) => y.owner.inTrust - x.owner.inTrust).slice(0, 5).map((p) => ({
         title: p.name, sub: `${p.ownerName} · ${p.units.contracted + p.units.completed} مباع`, value: p.owner.due, format: 'money',
         progress: r2(p.owner.inTrust / maxDue), id: p.id,
@@ -223,7 +223,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       title: 'الخزنة', label: 'الرصيد دلوقتي', value: total, format: 'money', spark,
       rows: [{ label: 'خزنة المكتب', value: office, format: 'money' }, { label: 'خزنة المحاسب', value: accountant, format: 'money' }],
       button: { label: 'طلب توريد', route: 'cash' },
-      warn: n(overdue.n) > 0 ? { label: `${overdue.n} قسط متأخر`, route: 'sales' } : null,
+      warn: n(overdue.n) > 0 ? { label: `${overdue.n} قسط متأخر`, route: 'installments' } : null,
       route: 'cash',
     },
     ring: {
@@ -242,16 +242,16 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       route: 'finance',
     },
     coming: {
-      title: 'الجاي', sub: 'أقساط الأسبوعين الجايين', route: 'sales',
+      title: 'الجاي', sub: 'أقساط الأسبوعين الجايين', route: 'installments',
       rows: coming.rows.map((x) => ({ day: ds(x.day), title: x.title, sub: x.sub, amount: r2(n(x.amount)), tone: x.src === 'ex' ? 'accent' : 'info' })),
       empty: 'مفيش أقساط قريبة',
     },
     attention: {
       title: 'محتاج انتباه', sub: 'حاجات مستنية قرار', route: 'finance_requests',
       rows: [
-        n(overdue.n) > 0 ? { icon: 'alert', title: `${overdue.n} قسط متأخر`, sub: `${fmt(n(overdue.s))} لسه متحصلتش`, button: 'الأقساط', route: 'sales' } : null,
-        mine.pending > 0 ? { icon: 'percent', title: 'عمولة مستنية التحويل', sub: `${fmt(mine.pending)} لسه جوه أمانات الملاك`, button: 'حوّل', route: 'exclusive' } : null,
-        units.reserved > 0 ? { icon: 'home', title: `${units.reserved} وحدة محجوزة`, sub: `عمولة محتملة ${fmt(mine.potential)}`, button: 'الوحدات', route: 'exclusive' } : null,
+        n(overdue.n) > 0 ? { icon: 'alert', title: `${overdue.n} قسط متأخر`, sub: `${fmt(n(overdue.s))} لسه متحصلتش`, button: 'الأقساط', route: 'installments' } : null,
+        mine.pending > 0 ? { icon: 'percent', title: 'عمولة مستنية التحويل', sub: `${fmt(mine.pending)} لسه جوه أمانات الملاك`, button: 'حوّل', route: 'office_commissions' } : null,
+        units.reserved > 0 ? { icon: 'home', title: `${units.reserved} وحدة محجوزة`, sub: `عمولة محتملة ${fmt(mine.potential)}`, button: 'الوحدات', route: 'units' } : null,
         pay.due - pay.paid > 0 ? { icon: 'payroll', title: 'مرتبات لسه متصرفتش', sub: `${fmt(r2(pay.due - pay.paid))} من ${fmt(pay.due)}`, button: 'المرتبات', route: 'finance_requests' } : null,
       ].filter(Boolean),
       empty: 'كله تمام',
@@ -259,7 +259,49 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
   };
 }
 
-async function employeesView(db: Db, t: string, range: number, from: string) {
+/**
+ * «الموظفين دلوقتي»: every active employee with a green/red dot (a session seen in the last 10 minutes — the same rule as
+ * «المستخدمون المتصلون» in لوحة السيلز) and where they are: during their work hours داخل المكتب (checked in, not out, no
+ * outing running) / خارج المكتب بإذن ساعات / بإذن زيارة (an approved outing not back yet) / انصرف / لسه مسجلش / إجازة;
+ * outside their work hours only متصل / مش متصل.
+ */
+async function employeesPresence(db: Db, t: string, now: Date) {
+  const rows = (await db.query(`
+    SELECT e.id, e.full_name, e.job_title,
+           EXISTS (SELECT 1 FROM sessions s WHERE s.employee_id = e.id AND s.revoked_at IS NULL
+                    AND s.last_seen_at > $2::timestamptz - interval '10 minutes') AS online,
+           at.check_in_at, at.check_out_at,
+           EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.type = 'full_day_absence' AND r.status = 'approved'
+                    AND $1 BETWEEN r.start_date AND r.end_date) AS on_leave,
+           (SELECT o.kind FROM outing_requests o WHERE o.employee_id = e.id AND o.work_date = $1 AND o.status = 'approved'
+                AND o.parent_id IS NULL AND o.returned_at IS NULL AND COALESCE(o.starts_at, o.decided_at, o.requested_at) <= $2
+              ORDER BY o.requested_at DESC LIMIT 1) AS outing,
+           (ws.id IS NOT NULL
+              AND NOT (EXTRACT(isodow FROM ($2::timestamptz AT TIME ZONE 'Africa/Cairo'))::int = ANY(ws.weekend_days))
+              AND ($2::timestamptz AT TIME ZONE 'Africa/Cairo')::time
+                  BETWEEN COALESCE(e.work_start, ws.start_time) AND COALESCE(e.work_end, ws.end_time)) AS in_hours
+      FROM employees e
+      LEFT JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default LIMIT 1))
+      LEFT JOIN attendance at ON at.employee_id = e.id AND at.work_date = $1
+     WHERE e.status = 'active'
+     ORDER BY e.full_name`, [t, now])).rows;
+  const where = (x: any): { status: string; tone: string } => {
+    if (!x.in_hours) return x.online ? { status: 'متصل', tone: 'good' } : { status: 'مش متصل', tone: 'muted' };
+    if (x.on_leave) return { status: 'في إجازة', tone: 'info' };
+    if (x.outing) return { status: x.outing === 'visit' ? 'خارج المكتب بإذن زيارة' : 'خارج المكتب بإذن ساعات', tone: 'warn' };
+    if (x.check_in_at && !x.check_out_at) return { status: 'داخل المكتب', tone: 'good' };
+    if (x.check_out_at) return { status: 'انصرف', tone: 'muted' };
+    return { status: 'لسه مسجلش حضور', tone: 'bad' };
+  };
+  const list = rows.map((x) => ({ id: x.id, name: x.full_name, job: x.job_title ?? '', online: !!x.online, inHours: !!x.in_hours, ...where(x) }));
+  list.sort((a, b) => Number(b.online) - Number(a.online));
+  return {
+    title: 'الموظفين دلوقتي', sub: `${list.filter((x) => x.online).length} متصل من ${list.length}`, route: 'attendance_today',
+    rows: list, empty: 'مفيش موظفين',
+  };
+}
+
+async function employeesView(db: Db, t: string, range: number, from: string, now: Date) {
   const month = t.slice(0, 8) + '01';
   const [today, people, daily, ranked, pending, outs, outDaily, kpi, leaves, holidays, births, forgot] = await Promise.all([
     one(db, `
@@ -341,12 +383,14 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
       if (d >= t && d <= addDays(t, 14)) bd.push({ day: d, title: `عيد ميلاد ${x.full_name}` });
     }
   }
+  const presence = await employeesPresence(db, t, now);
   const coming = [
     ...leaves.rows.map((x) => ({ day: ds(x.day), title: `إجازة ${x.title}`, sub: `${x.days_count} يوم`, tone: 'info' })),
     ...holidays.rows.map((x) => ({ day: ds(x.day), title: x.name, sub: 'إجازة رسمية', tone: 'good' })),
     ...bd.map((x) => ({ ...x, sub: '🎂', tone: 'accent' })),
   ].sort((x, y) => x.day.localeCompare(y.day)).slice(0, 5);
   return {
+    presence,
     summary: [
       `حاضر النهارده ${today.present} من ${today.active}`,
       today.late ? `${today.late} متأخر` : '',
@@ -389,7 +433,7 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
       empty: 'لسه مفيش حضور الشهر ده',
     },
     latest: {
-      title: 'الإجازات والأذونات', sub: 'طلبات مستنية الرد', route: 'requests',
+      title: 'الإجازات والأذونات', sub: 'طلبات مستنية الرد', route: 'leave_requests',
       rows: pending.rows.map((x) => ({ kind: x.kind, id: x.id, title: x.title, sub: x.sub, at: x.at, amount: null, status: x.status, tone: 'warn' })),
       empty: 'مفيش طلبات مستنية',
     },
@@ -411,7 +455,7 @@ async function employeesView(db: Db, t: string, range: number, from: string) {
       ],
       route: 'kpi',
     },
-    coming: { title: 'الجاي', sub: 'إجازات، أعياد ميلاد، إجازات رسمية', route: 'requests', rows: coming, empty: 'مفيش حاجة الأسبوعين الجايين' },
+    coming: { title: 'الجاي', sub: 'إجازات، أعياد ميلاد، إجازات رسمية', route: 'leave_requests', rows: coming, empty: 'مفيش حاجة الأسبوعين الجايين' },
     attention: {
       title: 'محتاج انتباه', sub: 'النهارده', route: 'attendance_today',
       rows: [
@@ -518,9 +562,9 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
     kpis: [
       { label: 'حجوزات وتعاقدات الشهر', value: won, format: 'count', highlight: true, progress: target ? r2(pct) : null,
         foot: `${k.res_month} حجز · ${k.deals_month} تعاقد${target ? ` · التارجت ${target}` : ''}`, route: 'sales', icon: 'handshake' },
-      { label: 'ليدز جديدة النهارده', value: k.new_today, format: 'count', foot: `${k.new_month} الشهر ده`, route: 'leads', icon: 'lead' },
+      { label: 'ليدز جديدة النهارده', value: k.new_today, format: 'count', foot: `${k.new_month} الشهر ده`, route: 'leads_fresh', icon: 'lead' },
       { label: 'متابعات متأخرة', value: k.late, format: 'count', foot: k.unassigned ? `${k.unassigned} مش متوزع` : 'كله متوزع',
-        route: 'leads', icon: 'late', tone: k.late ? 'warn' : null },
+        route: 'leads_delay', icon: 'late', tone: k.late ? 'warn' : null },
       { label: 'أكشنز النهارده', value: k.actions_today, format: 'count', foot: `${k.answered_today} رد · ${k.no_answer_today} مردّش`, route: 'leads', icon: 'phone' },
     ],
     chart: {
@@ -534,10 +578,10 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
         { label: 'أكشنز الفترة', value: daily.rows.reduce((s2, x) => s2 + n(x.actions), 0), format: 'count' },
         { label: 'أعلى يوم', value: best?.value ?? 0, format: 'count', day: best?.day ?? null },
       ],
-      route: 'leads',
+      route: 'leads_all',
     },
     pipeline: {
-      title: 'الليدز المفتوحة', sub: `${k.open} ليد حسب المرحلة`, route: 'leads',
+      title: 'الليدز المفتوحة', sub: `${k.open} ليد حسب المرحلة`, route: 'leads_list',
       rows: open.slice(0, 6).map((x, i) => ({ label: x.name_ar, value: n(x.n), tone: i === 0 ? 'accent' : (STAGE_TONE[x.kind] ?? 'info') })),
       footer: { icon: 'people', strong: `${k.unassigned}`, text: 'ليد مش متوزع على سيلز' },
       button: 'لوحة السيلز',
@@ -549,7 +593,7 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
       empty: 'لسه مفيش أكشنز الشهر ده',
     },
     latest: {
-      title: 'أحدث الليدز', sub: 'آخر اللي نزل', route: 'leads',
+      title: 'أحدث الليدز', sub: 'آخر اللي نزل', route: 'leads_list',
       rows: latest.rows.map((x) => ({ kind: 'lead', id: x.id, title: x.full_name, at: x.created_at, amount: null,
         sub: [x.channel ?? 'من غير قناة', x.project, x.sales ?? 'مش متوزع'].filter(Boolean).join(' · '),
         status: x.assigned_to ? (x.stage_name ?? '') : 'مش متوزع', tone: x.assigned_to ? (STAGE_TONE[x.kind] ?? 'info') : 'bad' })),
@@ -560,7 +604,7 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
       spark: daily.rows.map((x) => n(x.value)),
       rows: [{ label: 'حجوزات الشهر', value: k.res_month, format: 'count' }, { label: 'صفقات مفتوحة', value: k.deals_open, format: 'count' }],
       button: { label: 'لوحة السيلز', route: 'leads' },
-      warn: k.waiting > 0 ? { label: `${k.waiting} ليد مستني سيلز متصل`, route: 'leads' } : null,
+      warn: k.waiting > 0 ? { label: `${k.waiting} ليد مستني سيلز متصل`, route: 'leads_unassigned' } : null,
       route: 'sales',
     },
     ring: {
@@ -577,15 +621,15 @@ async function salesView(db: Db, t: string, range: number, from: string, now: Da
       ],
       route: 'leads_targets',
     },
-    coming: { title: 'الجاي', sub: 'ميتنجات ومهام الأسبوعين الجايين', route: 'leads', rows: coming, empty: 'مفيش ميتنجات ولا مهام جاية' },
+    coming: { title: 'الجاي', sub: 'ميتنجات ومهام الأسبوعين الجايين', route: 'leads_calendar', rows: coming, empty: 'مفيش ميتنجات ولا مهام جاية' },
     attention: {
       title: 'محتاج انتباه', sub: 'السيلز', route: 'leads',
       rows: [
         k.waiting ? { icon: 'alert', title: `مستنيين سيلز متصل: ${k.waiting}`, sub: 'محدش من السيلز المختارين فاتح — وزّعهم أو هيروحوا لأول واحد يفتح',
-          button: 'وزّع', route: 'leads' } : null,
-        k.unassigned - k.waiting > 0 ? { icon: 'people', title: `مش متوزعين: ${k.unassigned - k.waiting}`, sub: 'ليدز من غير سيلز', button: 'وزّع', route: 'leads' } : null,
-        k.late ? { icon: 'late', title: `متابعات متأخرة: ${k.late}`, sub: lateBy.rows.map((x) => `${x.full_name} (${x.n})`).join('، '), button: 'متابعة', route: 'leads' } : null,
-        k.tasks_late ? { icon: 'calendar', title: `مهام متأخرة: ${k.tasks_late}`, sub: 'عدّى ميعادها ولسه مفتوحة', button: 'المهام', route: 'leads' } : null,
+          button: 'وزّع', route: 'leads_unassigned' } : null,
+        k.unassigned - k.waiting > 0 ? { icon: 'people', title: `مش متوزعين: ${k.unassigned - k.waiting}`, sub: 'ليدز من غير سيلز', button: 'وزّع', route: 'leads_unassigned' } : null,
+        k.late ? { icon: 'late', title: `متابعات متأخرة: ${k.late}`, sub: lateBy.rows.map((x) => `${x.full_name} (${x.n})`).join('، '), button: 'متابعة', route: 'leads_delay' } : null,
+        k.tasks_late ? { icon: 'calendar', title: `مهام متأخرة: ${k.tasks_late}`, sub: 'عدّى ميعادها ولسه مفتوحة', button: 'المهام', route: 'tasks' } : null,
       ].filter(Boolean),
       empty: 'كله تمام في السيلز',
     },
@@ -613,7 +657,7 @@ export const ownerDashboardModule: Module = (r, { db, clock }) => {
       one(db, `SELECT l.action, l.at, e.full_name AS actor FROM audit_log l LEFT JOIN employees e ON e.id = l.actor_id ORDER BY l.id DESC LIMIT 1`),
     ]);
     const body: Card = view === 'finance' ? redactFinance(await financeView(db, a, t, range, from), a)
-      : view === 'sales' ? await salesView(db, t, range, from, clock()) : await employeesView(db, t, range, from);
+      : view === 'sales' ? await salesView(db, t, range, from, clock()) : await employeesView(db, t, range, from, clock());
     return ok({ view, date: t, range, name: me?.full_name ?? '', ...body, last: last ? { action: last.action, at: last.at, actor: last.actor } : null });
   });
 };

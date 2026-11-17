@@ -2,6 +2,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../core/api.dart';
+import '../../core/platform_info.dart';
 import 'jph_bridge.dart';
 import 'alert_center.dart';
 
@@ -932,6 +933,8 @@ class JphRouter {
   }
 
   static Future<Map<String, dynamic>> _checkIn(Map<String, dynamic> p) async {
+    // the Windows app (VALUNIVO.exe) never punches: check-in / check-out are from the phone only
+    if (PlatformInfo.isWindows) return _fail('تسجيل الحضور والانصراف من تطبيق الموبايل بس — مش من برنامج الكمبيوتر');
     Map<String, dynamic> today;
     try {
       today = await _todayMerged();
@@ -961,6 +964,7 @@ class JphRouter {
   }
 
   static Future<Map<String, dynamic>> _checkOut(Map<String, dynamic> p) async {
+    if (PlatformInfo.isWindows) return _fail('تسجيل الحضور والانصراف من تطبيق الموبايل بس — مش من برنامج الكمبيوتر');
     final r = await _api.postOrQueue('/attendance/check-out', _loc(p['location']), label: 'تسجيل انصراف');
     if (r['queued'] == true) {
       final now = DateTime.now().toUtc().toIso8601String();

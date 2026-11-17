@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
@@ -303,6 +304,23 @@ class _PartnerEditAccountPageState extends State<PartnerEditAccountPage> {
   late final _email = TextEditingController(text: '${widget.data['email'] ?? ''}');
   final _current = TextEditingController(), _next = TextEditingController(), _confirm = TextEditingController();
   bool _loading = false;
+  /// a new photo (its logo) picked here, sent with «حفظ»
+  Uint8List? _newLogo;
+
+  Future<void> _pickLogo() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1024, maxHeight: 1024);
+    if (x == null) return;
+    final b = await x.readAsBytes();
+    if (b.length > 3 * 1024 * 1024) return _say('الصورة أكبر من 3 ميجا');
+    setState(() => _newLogo = b);
+  }
+
+  /// the type from the content (the server checks the same signatures)
+  static String _mimeOf(Uint8List b) {
+    if (b.length > 4 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) return 'image/png';
+    if (b.length > 12 && String.fromCharCodes(b.sublist(0, 4)) == 'RIFF' && String.fromCharCodes(b.sublist(8, 12)) == 'WEBP') return 'image/webp';
+    return 'image/jpeg';
+  }
 
   @override
   void dispose() {
@@ -322,6 +340,16 @@ class _PartnerEditAccountPageState extends State<PartnerEditAccountPage> {
     setState(() => _loading = true);
     var changed = false;
     try {
+      // 0) its photo (logo)
+      if (_newLogo != null) {
+        final mime = _mimeOf(_newLogo!);
+        final r = await lpost('/partner/files/logo',
+            {'fileName': 'logo.${mime.split('/').last}', 'mime': mime, 'data': base64Encode(_newLogo!)}, method: 'put');
+        if (r['success'] == false) return _say(r['message']);
+        PartnerLogo.bytes = _newLogo;
+        _newLogo = null;
+        changed = true;
+      }
       // 1) name / mobile
       final body = <String, dynamic>{
         if (_name.text.trim() != '${widget.data['name'] ?? ''}') 'name': _name.text.trim(),
@@ -387,6 +415,39 @@ class _PartnerEditAccountPageState extends State<PartnerEditAccountPage> {
           child: Form(
             key: _formKey,
             child: Column(children: [
+              // its photo (logo) — like the employee's «تعديل الملف الشخصي»
+              GestureDetector(
+                onTap: _loading ? null : _pickLogo,
+                child: Stack(children: [
+                  Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: primaryColor, width: 2),
+                      color: isDark ? AppColors.surfaceVariantDark : Ar.grey[200],
+                      image: (_newLogo ?? PartnerLogo.bytes) != null
+                          ? DecorationImage(image: MemoryImage((_newLogo ?? PartnerLogo.bytes)!), fit: BoxFit.cover)
+                          : null,
+                    ),
+                    child: (_newLogo ?? PartnerLogo.bytes) == null
+                        ? Icon(Icons.business_rounded, size: 40, color: isDark ? Colors.white54 : Colors.black45)
+                        : null,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle),
+                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 8),
+              Text('اضغط على الصورة لتغييرها', style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white60 : Colors.black54)),
+              const SizedBox(height: 16),
               GlassCard(
                 radius: 24,
                 padding: const EdgeInsets.all(16),

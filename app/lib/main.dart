@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'core/api.dart';
 import 'core/i18n.dart';
 import 'core/session.dart';
+import 'jph/widgets/top_messenger.dart';
 import 'jph/l10n/app_localizations.dart';
 import 'jph/pages/dashboard_employees/dashboard_page_team.dart';
 import 'jph/pages/dashboard_employers/dashboard_page.dart';
@@ -151,7 +152,8 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
           navigatorKey: navigatorKey,
           // Android: location / over other apps / battery first; never opens without the location permission
           // Windows app: + the small update status chip (nothing on Android / web)
-          builder: (context, child) => WindowsUpdateOverlay(child: PermissionsGate(child: child ?? const SizedBox())),
+          // TopMessenger: error / info messages drawn above any open form, sheet or dialog
+          builder: (context, child) => WindowsUpdateOverlay(child: PermissionsGate(child: TopMessenger(child: child ?? const SizedBox()))),
           home: _home(),
         );
       },

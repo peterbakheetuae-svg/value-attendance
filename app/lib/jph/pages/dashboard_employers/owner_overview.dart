@@ -6,12 +6,19 @@ import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/glass_ui.dart';
+import '../../widgets/jph_form_ui.dart' show JphUi;
 import '../attendance/attendance_report_page.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../employees/employees_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
 import '../finance/finance_dashboard_page.dart';
+import '../leads/lead_page.dart' show openLead;
+import '../leads/leads_calendar_page.dart' show LeadsCalendarPage;
 import '../leads/leads_dashboard_page.dart';
+import '../leads/leads_list_page.dart' show LeadsListPage;
+import '../leads/tasks_page.dart' show TasksPage;
+import '../leave_summary.dart' show LeaveSummaryPage;
+import '../sales/sales_page.dart' show SalesPage;
 import '../leads/leads_targets_page.dart';
 import '../multi_company/kpi_page.dart';
 import 'attendance_today_page.dart';
@@ -71,6 +78,8 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   int _range = 14;
   String? _chip;
   Map<String, dynamic>? _d;
+  /// employee id → photo URL for «الموظفين دلوقتي»
+  Map<String, String> _photos = const {};
   String? _error;
   int _gen = 0; // bumps on every load → cards replay their entrance
 
@@ -94,6 +103,11 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         _error = '${r['message'] ?? 'مش قادر أحمّل البيانات'}';
       }
     });
+    final ids = _l(_m(r['presence'])['rows']).map((x) => '${x['id']}').where((x) => x.isNotEmpty).toList();
+    if (r['success'] == true && ids.isNotEmpty) {
+      final ph = await ApiService.photosOf(ids);
+      if (mounted) setState(() => _photos = ph);
+    }
   }
 
   _P get p => _P(widget.isDark);
@@ -158,6 +172,32 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         page = const LeadsDashboardPage();
       case 'leads_targets':
         page = const LeadsTargetsPage();
+      case 'units':
+        page = const SalesHubPage();
+      case 'office_commissions':
+        page = const CommissionsDuePage();
+      case 'owners':
+        page = const OwnersPage();
+      case 'projects_box':
+        page = const ProjectsBoxPage();
+      case 'installments':
+        page = const SalesPage();
+      case 'leave_requests':
+        page = LeaveSummaryPage(uid: widget.uid, name: widget.name, role: widget.role);
+      case 'leads_all':
+        page = const LeadsListPage();
+      case 'leads_list':
+        page = const LeadsListPage();
+      case 'leads_fresh':
+        page = const LeadsListPage(tab: 'fresh');
+      case 'leads_delay':
+        page = const LeadsListPage(tab: 'delay');
+      case 'leads_unassigned':
+        page = const LeadsListPage(tab: 'unassigned');
+      case 'leads_calendar':
+        page = const LeadsCalendarPage();
+      case 'tasks':
+        page = const TasksPage();
       case 'requests':
         widget.onOpenClassic();
         return;
@@ -453,7 +493,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     return _card(
       i: i,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _head('${c['title']}', '${c['sub']}'),
+        _head('${c['title']}', '${c['sub']}', link: c['route'] == null ? null : 'التفاصيل', route: c['route']?.toString()),
         seg(),
         const SizedBox(height: 18),
         Wrap(children: stats.map(stat).toList()),
@@ -574,7 +614,9 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         if (rows.isEmpty) _empty('${c['empty'] ?? ''}'),
         for (var k = 0; k < rows.length; k++) ...[
           if (k > 0) Divider(height: 1, color: p.line),
-          Padding(
+          _Press(
+           onTap: () => _go('${c['route']}'),
+           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Row(children: [
               SizedBox(width: 22, child: Text('${k + 1}', style: TextStyle(fontSize: 15, color: p.muted))),
@@ -605,7 +647,64 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               CountUpText(fmt(_n(rows[k]['value']), '${rows[k]['format']}'), style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: p.ink)),
             ]),
           ),
+          ),
         ],
+      ]),
+    );
+  }
+
+  // ---------------------------------------------------------------- «الموظفين دلوقتي» (employees view, above الحضور اليومي)
+  Widget _presence() {
+    final c = _m(_d!['presence']);
+    final rows = _l(c['rows']);
+    Color toneOf(String t) => switch (t) {
+          'good' => p.good,
+          'warn' => p.warn,
+          'bad' => p.bad,
+          'info' => p.info,
+          _ => p.muted,
+        };
+    Widget person(Map<String, dynamic> x) {
+      final online = x['online'] == true;
+      return Container(
+        width: 232,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(color: p.card2, borderRadius: BorderRadius.circular(14), border: Border.all(color: p.line)),
+        child: Row(children: [
+          Stack(clipBehavior: Clip.none, children: [
+            JphUi.personAvatar('${x['name']}', _photos['${x['id']}'], size: 40),
+            PositionedDirectional(
+              bottom: -1, end: -1,
+              child: Container(
+                width: 12, height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: online ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                  border: Border.all(color: widget.isDark ? const Color(0xFF1B2230) : Colors.white, width: 2),
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('${x['name']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: p.ink)),
+              const SizedBox(height: 3),
+              Text('${x['status']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: toneOf('${x['tone']}'))),
+            ]),
+          ),
+        ]),
+      );
+    }
+
+    return _card(
+      i: 0,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _head('${c['title']}', '${c['sub']}', link: 'الحضور', route: c['route']?.toString()),
+        if (rows.isEmpty) _empty('${c['empty'] ?? ''}'),
+        Wrap(spacing: 10, runSpacing: 10, children: rows.map(person).toList()),
       ]),
     );
   }
@@ -625,7 +724,14 @@ class _OwnerOverviewState extends State<OwnerOverview> {
         for (var k = 0; k < rows.length; k++) ...[
           if (k > 0) Divider(height: 1, color: p.line),
           _Press(
-            onTap: () => _go(_routeOf('${rows[k]['kind']}', '${c['route']}')),
+            onTap: () async {
+              if ('${rows[k]['kind']}' == 'lead' && rows[k]['id'] != null) {
+                await openLead(context, '${rows[k]['id']}');
+                _load(quiet: true);
+                return;
+              }
+              _go(_routeOf('${rows[k]['kind']}', '${c['route']}'));
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -659,9 +765,10 @@ class _OwnerOverviewState extends State<OwnerOverview> {
   String _routeOf(String kind, String fallback) => switch (kind) {
         'advance' || 'transfer' => 'finance_requests',
         'owner_payout' || 'expense' => 'cash',
-        'contract' || 'cancel' => 'exclusive',
-        'request' || 'outing' => 'requests',
-        'lead' => 'leads',
+        'contract' || 'cancel' => 'units',
+        'request' => 'leave_requests',
+        'outing' => 'requests',
+        'lead' => 'leads_list',
         _ => fallback,
       };
 
@@ -963,6 +1070,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
               ),
             if (ready) ...[
               _kpis(),
+              if (_view == 'employees' && _d!['presence'] != null) _presence(),
               if (wide)
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(flex: 3, child: Column(children: [_chart(0), _pipeline(1), _ranked(2), _latest(3)])),

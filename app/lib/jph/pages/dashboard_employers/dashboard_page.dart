@@ -42,6 +42,8 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/payouts_widgets.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
+import '../../widgets/windows_attendance_card.dart';
+import '../../../core/platform_info.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -1646,6 +1648,18 @@ class _DashboardPageState extends State<DashboardPage>
                       const PendingSalesMoneyCard(),
                       _buildPendingOutingsCard(),
                       PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
+                      // the Windows app: no check-in / check-out from the computer — his status only
+                      if (PlatformInfo.isWindows)
+                        WindowsAttendanceOverview(
+                          isDark: Provider.of<AppController>(context).isDark,
+                          checkIn: state.checkInTime,
+                          checkOut: state.checkOutTime,
+                          sheetData: sheetData,
+                          monthData: const {},
+                          exempt: _exempt,
+                          showMonth: false,
+                        )
+                      else ...[
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),
@@ -1676,6 +1690,7 @@ class _DashboardPageState extends State<DashboardPage>
                           ),
                         ],
                       ),
+                      ],
 
                       const SizedBox(height: 18),
                       Text(
