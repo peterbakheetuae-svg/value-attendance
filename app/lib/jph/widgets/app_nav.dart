@@ -8,6 +8,7 @@ import '../pages/employees/employees_page.dart';
 import '../pages/leads/leads_api.dart' show seesLeads;
 import '../pages/leads/leads_dashboard_page.dart';
 import '../pages/partner/partner_home.dart';
+import '../pages/partner/partner_profile.dart';
 import '../pages/profile/profile_page.dart';
 import '../pages/settings/settings_page.dart';
 import '../services/api_service.dart';
@@ -50,6 +51,7 @@ class AppNav {
       partner ? switch (index) {
         3 => SettingsPage(uid: uid, name: name, role: role, partner: true),
         6 => const PartnerLeadsPage(),
+        4 => const PartnerProfilePage(),
         _ => null,
       } : settled && index != 1 && index != 3 ? null : switch (index) {
         1 => AttendanceReportPage(uid: uid, name: name, role: role),

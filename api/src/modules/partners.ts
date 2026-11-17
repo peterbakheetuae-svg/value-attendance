@@ -289,6 +289,66 @@ export const partnersModule: Module = (r, { db, clock }) => {
         FROM lead_campaigns cp LEFT JOIN commission_projects pr ON pr.id = cp.project_id
        WHERE cp.marketing_company_id = $1 ORDER BY cp.active DESC, cp.created_at DESC`, [p.companyId])).rows;
 
+  // ------------------------------------------------------------------ its profile (like an employee's «الملف الشخصي»)
+  r.get('/partner/profile', async (req) => {
+    const p = await partner(req);
+    const c = await one(db, `
+      SELECT c.*, g.full_name AS gm_name, m.full_name AS manager_name
+        FROM marketing_companies c LEFT JOIN employees g ON g.id = c.general_manager_id LEFT JOIN employees m ON m.id = c.manager_id
+       WHERE c.id = $1`, [p.companyId]);
+    const files = await db.query(`SELECT kind, file_name, uploaded_at FROM marketing_company_files WHERE company_id = $1`, [p.companyId]);
+    return ok({
+      profile: {
+        name: c.name, email: c.login_email, phone: c.login_phone ?? c.phone, kind: c.kind,
+        defaultPct: Number(c.default_pct), monthlyFee: Number(c.monthly_fee), status: c.status,
+        contractDate: c.contract_date ? new Date(c.contract_date).toISOString().slice(0, 10) : null,
+        manager: c.manager_name ?? null, generalManager: c.gm_name ?? null,
+        campaigns: (await campaignsOf(p)).map((x) => ({ id: x.id, name: x.name, active: x.active })),
+        files: Object.fromEntries(files.rows.map((f) => [f.kind, { fileName: f.file_name, uploadedAt: iso(f.uploaded_at) }])),
+      },
+    });
+  });
+
+  /** its own logo / documents (read-only) */
+  r.get('/partner/files/:kind', async (req) => {
+    const p = await partner(req);
+    if (!['contract', 'financial_plan', 'execution_vision', 'logo'].includes(req.params.kind)) throw notFound();
+    const f = await one(db, `SELECT file_name, mime, data FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [p.companyId, req.params.kind]);
+    if (!f) throw notFound('مفيش ملف');
+    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+  });
+
+  // ------------------------------------------------------------------ its bell: what happened on its campaigns' leads
+  r.get('/partner/notifications', async (req) => {
+    const p = await partner(req);
+    const now = clock();
+    const seen = (await one(db, `SELECT notifications_seen_at FROM marketing_companies WHERE id = $1`, [p.companyId]))?.notifications_seen_at ?? null;
+    const rows = await db.query(`
+      SELECT * FROM (
+        SELECT 'lead' AS kind, l.id AS lead_id, l.full_name AS lead_name, cp.name AS campaign, NULL::text AS stage_name, NULL::text AS comment,
+               NULL::text AS by_name, l.created_at AS at
+          FROM leads l LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
+         WHERE ${SEES(1)} AND l.created_at > $2::timestamptz - interval '30 days'
+        UNION ALL
+        SELECT 'action', l.id, l.full_name, cp.name, st.name_ar, a.comment, e.full_name, a.created_at
+          FROM lead_actions a JOIN leads l ON l.id = a.lead_id LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
+          LEFT JOIN lead_stages st ON st.key = a.stage LEFT JOIN employees e ON e.id = a.by_id
+         WHERE ${SEES(1)} AND a.parent_id IS NULL AND a.created_at > $2::timestamptz - interval '30 days'
+      ) z ORDER BY at DESC LIMIT 60`, [p.companyId, now]);
+    const items = rows.rows.map((x) => ({
+      kind: x.kind, leadId: x.lead_id, at: iso(x.at), unread: !seen || new Date(x.at) > new Date(seen),
+      title: x.kind === 'lead' ? `ليد جديد: ${x.lead_name}` : `${x.lead_name}: ${x.stage_name ?? 'متابعة'}`,
+      body: x.kind === 'lead' ? (x.campaign ?? '') : [x.by_name, x.comment].filter(Boolean).join(' — '),
+    }));
+    return ok({ items, unread: items.filter((i) => i.unread).length });
+  });
+
+  r.post('/partner/notifications/seen', async (req) => {
+    const p = await partner(req);
+    await db.query(`UPDATE marketing_companies SET notifications_seen_at = $2 WHERE id = $1`, [p.companyId, clock()]);
+    return ok({ ok: true });
+  });
+
   r.get('/partner/meta', async (req) => {
     const p = await partner(req);
     return ok({

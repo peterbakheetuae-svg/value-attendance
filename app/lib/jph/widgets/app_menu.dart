@@ -111,7 +111,10 @@ class AppMenu {
           const MenuEntry('nav0', 'لوحة التحكم', Icons.grid_view_rounded, nav: 0),
           MenuEntry('leads', tr('الليدز'), Icons.leaderboard_rounded, nav: 6),
         ]),
-        MenuSection('الحساب', [const MenuEntry('nav3', 'الإعدادات', Icons.settings_rounded, nav: 3)]),
+        MenuSection('الحساب', [
+          const MenuEntry('nav4', 'الملف الشخصي', Icons.person_rounded, nav: 4),
+          const MenuEntry('nav3', 'الإعدادات', Icons.settings_rounded, nav: 3),
+        ]),
       ];
     }
     if (AppNav.settled) {

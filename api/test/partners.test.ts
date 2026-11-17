@@ -239,3 +239,25 @@ test('a company adds a lead that exists: «الليد ده موجود»; «إض�
   const n = (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE type = 'lead_duplicate_partner' AND entity_id = $1`, [ok2.body.lead.id])).rows[0].n;
   assert.ok(n >= 1);
 });
+
+test('the company\'s profile, its documents and its bell (its campaigns\' leads only)', async () => {
+  const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الجرس', kind: 'fixed', monthlyFee: 7000 });
+  const id = mk.body.company.id;
+  await h.call(c.t.owner, 'PATCH', `/leads/partners/${id}/login`, { email: 'bell@co.com', password: 'Start#2026x' });
+  await h.db.query(`UPDATE marketing_companies SET must_change_password = false, device_lock = false WHERE id = $1`, [id]);
+  await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [camp1], managerId: c.ids.acc, contractDate: '2026-10-01' });
+  await h.call(c.t.owner, 'PUT', `/marketing-companies/${id}/files/contract`, { fileName: 'c.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1 x').toString('base64') });
+  const tok = (await h.call(null, 'POST', '/auth/login', { identifier: 'bell@co.com', password: 'Start#2026x' })).body.token;
+  const pr = await h.call(tok, 'GET', '/partner/profile');
+  assert.equal(pr.status, 200, JSON.stringify(pr.body));
+  assert.equal(pr.body.profile.name, 'شركة الجرس');
+  assert.equal(pr.body.profile.contractDate, '2026-10-01');
+  assert.ok(pr.body.profile.manager);
+  assert.ok(pr.body.profile.files.contract);
+  assert.equal((await h.call(tok, 'GET', '/partner/files/contract')).status, 200);
+  const n1 = await h.call(tok, 'GET', '/partner/notifications');
+  assert.equal(n1.status, 200, JSON.stringify(n1.body));
+  assert.ok(n1.body.items.length > 0 && n1.body.unread > 0, 'its campaign already has leads');
+  assert.equal((await h.call(tok, 'POST', '/partner/notifications/seen', {})).status, 200);
+  assert.equal((await h.call(tok, 'GET', '/partner/notifications')).body.unread, 0);
+});

@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
+import '../../widgets/app_background.dart';
 import '../../widgets/app_menu.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../leads/leads_api.dart';
+import 'partner_profile.dart';
 
 /// A marketing company's app (its own sign-in, not an employee — db/migrations/075_marketing_partners.sql):
 ///   لوحة التحكم — like the sales dashboard the owner sees, but only its campaigns' leads
@@ -61,12 +63,31 @@ class _PartnerDashboardPageState extends State<PartnerDashboardPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    return LeadsShell(
-      isDark: isDark,
-      title: tr('لوحة التحكم'),
-      bottomBar: _bar(context, 0),
-      child: _PartnerDashboard(isDark: isDark, meta: _meta, onOpenLeads: () => AppNav.go(context, 6, current: 0,
-          uid: AppNav.uid ?? '', name: AppNav.name ?? '', role: AppNav.role ?? '')),
+    // the top like the general manager's dashboard: the bell, today / the name, the photo → «الملف الشخصي»
+    return AppBackground(
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBody: true,
+          bottomNavigationBar: _bar(context, 0),
+          body: SafeArea(
+            bottom: false,
+            child: Column(children: [
+              PartnerTopBar(isDark: isDark, name: '${lm(_meta['company'])['name'] ?? AppNav.name ?? ''}'),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1200),
+                    child: _PartnerDashboard(isDark: isDark, meta: _meta, onOpenLeads: () => AppNav.go(context, 6, current: 0,
+                        uid: AppNav.uid ?? '', name: AppNav.name ?? '', role: AppNav.role ?? '')),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -159,14 +180,13 @@ class _PartnerDashboardState extends State<_PartnerDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final company = lm(widget.meta['company']);
     final campaigns = ll(widget.meta['campaigns']);
     final counts = lm(_d['counts']);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 30), children: [
-        Text('${company['name'] ?? ''}', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
-        Text(tr('لوحة التحكم — ليدز حملاتك بس'), style: TextStyle(color: JphUi.sub(isDark))),
+        Text(tr('لوحة التحكم'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        Text(tr('ليدز حملاتك بس'), style: TextStyle(color: JphUi.sub(isDark))),
         const SizedBox(height: 12),
         if (campaigns.length > 1)
           SingleChildScrollView(
