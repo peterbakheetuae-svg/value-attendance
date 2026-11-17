@@ -3,3 +3,4 @@
 # (ship builds trusting both, then sign with the new one, then remove the old line).
 # Get it from the private key you created (Git Bash):  bash app/tool/release/public_key.sh valunivo-update-key.pem
 # A release refuses to build until this file holds a key AND the WINDOWS_UPDATE_SIGNING_KEY secret matches one of them.
+yIEVVn7DP7rThRNo0pZ0nWWZ5pm4RKYYt0vaLrwP63s=
