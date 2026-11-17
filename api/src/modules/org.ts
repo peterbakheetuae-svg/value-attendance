@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, date, num, obj, reqStr, str, time, uuid, isUuid } from '../http/validate.ts';
-import { audit, authenticate, has, requirePerm } from '../auth/context.ts';
+import { audit, authenticate, has, requirePerm, notSettled } from '../auth/context.ts';
 import { assertDelegable, assertNoLockout, assertNotOwnProfile } from '../auth/permission-admin.ts';
 import { isRegistered } from '../lib/permission-registry.ts';
 
@@ -36,7 +36,7 @@ export const orgModule: Module = (r, { db }) => {
   r.get('/departments', async (req) => {
     await authenticate(db, req);
     const rows = await db.query(`
-      SELECT d.*, (SELECT count(*)::int FROM employees e WHERE e.department_id = d.id AND e.status = 'active') AS employee_count
+      SELECT d.*, (SELECT count(*)::int FROM employees e WHERE e.department_id = d.id AND e.status = 'active' AND ${notSettled('e')}) AS employee_count
         FROM departments d ORDER BY d.active DESC, d.name_ar`);
     return ok({ departments: rows.rows });
   });
@@ -66,7 +66,7 @@ export const orgModule: Module = (r, { db }) => {
     await authenticate(db, req);
     const rows = await db.query(`
       SELECT t.*, d.name_ar AS department_name, m.full_name AS manager_name,
-             (SELECT count(*)::int FROM employees e WHERE e.team_id = t.id AND e.status = 'active') AS member_count
+             (SELECT count(*)::int FROM employees e WHERE e.team_id = t.id AND e.status = 'active' AND ${notSettled('e')}) AS member_count
         FROM teams t LEFT JOIN departments d ON d.id = t.department_id LEFT JOIN employees m ON m.id = t.manager_id
        ORDER BY t.active DESC, t.name`);
     return ok({ teams: rows.rows });
@@ -250,7 +250,7 @@ export const orgModule: Module = (r, { db }) => {
     const roles = await db.query(`
       SELECT r.*, b.name_ar AS base_name_ar,
              COALESCE((SELECT array_agg(rp.perm_key ORDER BY rp.perm_key) FROM role_permissions rp WHERE rp.role_key = r.key), '{}') AS permissions,
-             (SELECT count(*)::int FROM employees e WHERE e.status = 'active'
+             (SELECT count(*)::int FROM employees e WHERE e.status = 'active' AND ${notSettled('e')}
                 AND COALESCE(e.position_key, e.role_key) = r.key) AS employee_count
         FROM roles r LEFT JOIN roles b ON b.key = r.base_key
        ORDER BY r.active DESC, COALESCE(b.rank, r.rank) DESC, r.builtin DESC, r.name_ar`);

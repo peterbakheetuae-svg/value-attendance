@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, str, isUuid } from '../http/validate.ts';
-import { audit, authenticate, can, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, can, has, type Actor, notSettled } from '../auth/context.ts';
 
 /**
  * استمارات — pilot: استمارة استلام عهدة (mobile phone custody receipt).
@@ -123,10 +123,10 @@ async function prefill(q: Q, employeeId: string) {
     SELECT e.full_name AS "employeeName", e.code AS "employeeCode", e.job_title AS "jobTitle",
            COALESCE(d.name_ar, '') AS "department",
            COALESCE(
-             (SELECT m.full_name FROM employees m WHERE m.id = e.sales_manager_id AND m.status = 'active' AND m.id <> e.id),
+             (SELECT m.full_name FROM employees m WHERE m.id = e.sales_manager_id AND m.status = 'active' AND ${notSettled('m')} AND m.id <> e.id),
              (SELECT m.full_name FROM teams t JOIN employees m ON m.id = t.manager_id
-               WHERE t.id = e.team_id AND t.active AND m.status = 'active' AND m.id <> e.id),
-             (SELECT g.full_name FROM employees g WHERE g.id = e.general_manager_id AND g.status = 'active' AND g.id <> e.id),
+               WHERE t.id = e.team_id AND t.active AND m.status = 'active' AND ${notSettled('m')} AND m.id <> e.id),
+             (SELECT g.full_name FROM employees g WHERE g.id = e.general_manager_id AND g.status = 'active' AND ${notSettled('g')} AND g.id <> e.id),
              '') AS "directManager"
       FROM employees e LEFT JOIN departments d ON d.id = e.department_id
      WHERE e.id = $1`, [employeeId]);

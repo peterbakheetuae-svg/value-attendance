@@ -60,3 +60,26 @@ test('تم التصفيه: from that day no absence and no attendance counted; o
   assert.ok(best.includes(c.ids.e2) && best.includes(c.ids.e3), JSON.stringify(best));
   for (const x of [c.ids.e1, c.ids.owner, c.ids.acc]) assert.ok(!best.includes(x), x);
 });
+
+test('تم التصفيه: never an approver, left out of «للجميع» (still picked one by one) and of the team counts', async () => {
+  // e1 (settled) as e2's sales manager: e2's permission request skips him
+  await h.db.query(`UPDATE employees SET sales_manager_id = $1 WHERE id = $2`, [c.ids.e1, c.ids.e2]);
+  const team = (await h.call(c.t.hr, 'GET', '/teams')).body;
+  const a = (team.teams ?? team).find((t: any) => t.id === c.ids.teamA);
+  const live = (await h.db.query(`SELECT count(*)::int AS n FROM employees WHERE team_id = $1 AND status = 'active'
+                                   AND COALESCE(legacy_fields->>'status', '') <> 'تم التصفيه'`, [c.ids.teamA])).rows[0].n;
+  assert.equal(a.member_count, live, 'the settled one is not counted');
+  const all = await h.call(c.t.hr, 'POST', '/notifications/send', { title: 'تعميم', content: 'للكل', all: true });
+  assert.ok(all.status < 300, JSON.stringify(all.body));
+  const got = async (id: string) => (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND title = $2`, [id, 'تعميم'])).rows[0].n;
+  assert.equal(await got(c.ids.e1), 0);
+  assert.equal(await got(c.ids.e2), 1);
+  const one = await h.call(c.t.hr, 'POST', '/notifications/send', { title: 'ليه هو', content: 'فردي', recipientIds: [c.ids.e1] });
+  assert.ok(one.status < 300, JSON.stringify(one.body));
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND title = 'ليه هو'`, [c.ids.e1])).rows[0].n, 1);
+  // e2 asks for a permission: it never waits on the settled manager
+  const o = await h.call(c.t.e2, 'POST', '/outings', { kind: 'permission', reason: 'مشوار سريع', expectedReturn: '15:00' });
+  assert.equal(o.status, 201, JSON.stringify(o.body));
+  const m = (await h.db.query(`SELECT manager_id FROM outing_requests WHERE employee_id = $1 ORDER BY requested_at DESC LIMIT 1`, [c.ids.e2])).rows[0];
+  assert.notEqual(m.manager_id, c.ids.e1);
+});

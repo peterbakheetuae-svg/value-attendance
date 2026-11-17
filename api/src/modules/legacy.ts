@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
-import { actorById, audit, authenticate, can, canOwnerOnly, has, readableIds, requirePerm } from '../auth/context.ts';
+import { actorById, audit, authenticate, can, canOwnerOnly, has, readableIds, requirePerm, notSettled } from '../auth/context.ts';
 import { photoScope, selfieScope } from '../auth/media-scope.ts';
 import { daysBetween, local } from '../lib/time.ts';
 import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
@@ -244,7 +244,9 @@ export const legacyModule: Module = (r, { db, clock }) => {
     // "الجميع": everyone this person may message (the whole company, or his team), never himself
     let list: string[];
     if (b.all === true) {
-      list = allowed ?? (await db.query(`SELECT id FROM employees WHERE status = 'active'`)).rows.map((x) => x.id);
+      // «تم التصفيه» is left out of «الجميع» (he is still there to pick one by one)
+      list = (await db.query(`SELECT e.id FROM employees e WHERE e.status = 'active' AND ${notSettled('e')}
+                               AND ($1::uuid[] IS NULL OR e.id = ANY($1::uuid[]))`, [allowed])).rows.map((x) => x.id);
       list = list.filter((x) => x !== a.id);
     } else {
       list = Array.isArray(b.recipientIds) ? b.recipientIds.filter((x): x is string => typeof x === 'string' && isUuid(x)) : [];

@@ -20,7 +20,7 @@ async function watchersOf(q: Q, employeeId: string): Promise<string[]> {
     SELECT DISTINCT x.id FROM employees e
       LEFT JOIN teams t ON t.id = e.team_id
       JOIN employees x ON x.id IN (t.manager_id, e.sales_manager_id)
-     WHERE e.id = $1 AND x.id <> $1 AND x.status = 'active'`, [employeeId]);
+     WHERE e.id = $1 AND x.id <> $1 AND x.status = 'active' AND ${notSettled('x')}`, [employeeId]);
   return [...new Set([...all, ...mgr.rows.map((r) => r.id)])];
 }
 
@@ -42,7 +42,7 @@ export async function exitRecipients(q: Q, employeeId: string): Promise<string[]
   const gm = await generalManagerOf(q, employeeId);
   const roles = await q.query<{ id: string }>(`
     SELECT e.id FROM employees e JOIN roles r ON r.key = COALESCE(e.position_key, e.role_key)
-     WHERE e.status = 'active' AND e.id <> $1
+     WHERE e.status = 'active' AND ${notSettled('e')} AND e.id <> $1
        AND ((r.key = 'admin_officer' OR r.name_ar = 'مسؤول إداري')
             OR ($2::uuid IS NULL AND (r.key = 'manager' OR r.base_key = 'manager')))`, [employeeId, gm]);
   return [...new Set([...(gm ? [gm] : []), ...roles.rows.map((x) => x.id), ...await watchersOf(q, employeeId)])];

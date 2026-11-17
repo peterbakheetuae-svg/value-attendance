@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
-import { audit, authenticate, has, readableIds, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, readableIds, type Actor, notSettled } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { geofence } from './attendance.ts';
@@ -12,8 +12,8 @@ const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit
 async function resolveManager(q: Q, employeeId: string): Promise<string | null> {
   const r = await one(q, `
     SELECT COALESCE(
-      (SELECT m.id FROM employees m WHERE m.id = e.sales_manager_id AND m.status = 'active'),
-      (SELECT m.id FROM teams t JOIN employees m ON m.id = t.manager_id WHERE t.id = e.team_id AND t.active AND m.status = 'active')) AS mid
+      (SELECT m.id FROM employees m WHERE m.id = e.sales_manager_id AND m.status = 'active' AND ${notSettled('m')}),
+      (SELECT m.id FROM teams t JOIN employees m ON m.id = t.manager_id WHERE t.id = e.team_id AND t.active AND m.status = 'active' AND ${notSettled('m')})) AS mid
       FROM employees e WHERE e.id = $1`, [employeeId]);
   return r?.mid && r.mid !== employeeId ? r.mid : null;
 }

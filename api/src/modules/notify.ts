@@ -1,5 +1,6 @@
 import type { Q } from '../db.ts';
 import { effectiveSql } from '../auth/permission-admin.ts';
+import { notSettled } from '../auth/context.ts';
 import { pushTo, type PushResult } from '../lib/fcm.ts';
 
 /** Insert a notification exactly once per (recipient, dedupeKey). Returns what the push did (null: a duplicate). */
@@ -30,7 +31,7 @@ export async function holdersOf(q: Q, perm: string, exclude: string[] = []): Pro
 export async function generalManagerOf(q: Q, employeeId: string): Promise<string | null> {
   const r = await q.query<{ id: string }>(`
     SELECT g.id FROM employees e JOIN employees g ON g.id = e.general_manager_id
-     WHERE e.id = $1 AND g.status = 'active' AND g.id <> e.id`, [employeeId]);
+     WHERE e.id = $1 AND g.status = 'active' AND ${notSettled('g')} AND g.id <> e.id`, [employeeId]);
   return r.rows[0]?.id ?? null;
 }
 
@@ -38,6 +39,6 @@ export async function generalManagerOf(q: Q, employeeId: string): Promise<string
 export async function gmRecipients(q: Q, employeeId: string): Promise<string[]> {
   const gm = await generalManagerOf(q, employeeId);
   if (gm) return [gm];
-  const r = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'owner' AND status = 'active' AND id <> $1`, [employeeId]);
+  const r = await q.query<{ id: string }>(`SELECT id FROM employees e WHERE e.role_key = 'owner' AND e.status = 'active' AND ${notSettled('e')} AND e.id <> $1`, [employeeId]);
   return r.rows.map((x) => x.id);
 }

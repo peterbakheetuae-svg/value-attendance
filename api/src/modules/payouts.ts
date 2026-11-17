@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 
@@ -61,7 +61,7 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     if (!has(a, 'finance.fund')) throw forbidden();
     const rows = await db.query(`
       SELECT e.id, e.full_name, e.code FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-       WHERE rp.perm_key = 'finance.disburse' AND e.status = 'active' AND e.id <> $1 ORDER BY e.full_name`, [a.id]);
+       WHERE rp.perm_key = 'finance.disburse' AND e.status = 'active' AND ${notSettled('e')} AND e.id <> $1 ORDER BY e.full_name`, [a.id]);
     return ok({ cashiers: rows.rows });
   });
 

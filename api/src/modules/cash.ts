@@ -4,7 +4,7 @@ import { local } from '../lib/time.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor, can } from '../auth/context.ts';
+import { audit, authenticate, has, type Actor, can, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 
 /**
@@ -279,7 +279,7 @@ export async function ownerAccounts(q: Q, a: Actor) {
 async function cashOfficers(q: Q, exceptId?: string) {
   const r = await q.query(`
     SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = 'cash.office' AND e.status = 'active' AND e.id <> COALESCE($1::uuid, '00000000-0000-0000-0000-000000000000')`,
+     WHERE rp.perm_key = 'cash.office' AND e.status = 'active' AND ${notSettled('e')} AND e.id <> COALESCE($1::uuid, '00000000-0000-0000-0000-000000000000')`,
     [exceptId ?? null]);
   return r.rows.map((x) => x.id as string);
 }
@@ -287,7 +287,7 @@ async function cashOfficers(q: Q, exceptId?: string) {
 export async function hrOperators(q: Q, exceptId?: string) {
   const r = await q.query(`
     SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE rp.perm_key = 'cash.hr_operate' AND e.status = 'active' AND e.role_key <> 'owner'
+     WHERE rp.perm_key = 'cash.hr_operate' AND e.status = 'active' AND ${notSettled('e')} AND e.role_key <> 'owner'
        AND e.id <> COALESCE($1::uuid, '00000000-0000-0000-0000-000000000000')`, [exceptId ?? null]);
   return r.rows.map((x) => x.id as string);
 }
@@ -347,7 +347,7 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   }
   const perm = x.box === 'hr' ? 'cash.hr_operate' : 'cash.office';
   const ok2 = await one(q, `SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-                             WHERE e.id = $1 AND e.status = 'active' AND rp.perm_key = $2`, [x.recipientId, perm]);
+                             WHERE e.id = $1 AND e.status = 'active' AND ${notSettled('e')} AND rp.perm_key = $2`, [x.recipientId, perm]);
   if (!ok2) throw invalid(x.box === 'hr' ? 'The recipient must be from HR' : 'The recipient must be the manager or the owner', { field: 'recipientId' });
   if (x.externalNo && await one(q, `SELECT 1 FROM cash_receipts WHERE lower(trim(external_no)) = lower(trim($1))`, [x.externalNo])) {
     throw new AppError('conflict', 'This receipt number was already recorded', { reason: 'duplicate_receipt' });
@@ -402,7 +402,7 @@ function shapeExpense(x: any) {
  */
 async function hasHrDesk(q: Q) {
   return !!(await one(q, `SELECT 1 FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-     WHERE e.status = 'active' AND rp.perm_key = 'cash.hr_operate'
+     WHERE e.status = 'active' AND ${notSettled('e')} AND rp.perm_key = 'cash.hr_operate'
        AND NOT EXISTS (SELECT 1 FROM role_permissions o WHERE o.role_key = rp.role_key AND o.perm_key = 'cash.office') LIMIT 1`));
 }
 const hrSideOf = (a: Actor, desk: boolean) => hrDesk(a) || (canHrOperate(a) && !desk);

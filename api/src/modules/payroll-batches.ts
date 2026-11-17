@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 
@@ -256,7 +256,7 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
       await q.query(`UPDATE payroll_batches SET status = 'pending_approval', submitted_at = now(), return_reason = NULL WHERE id = $1`, [b.id]);
       await audit(q, a.id, 'payroll.batch.submit', 'payroll_batch', b.id, { status: b.status }, { status: 'pending_approval' });
       const ap = await q.query(`SELECT DISTINCT e.id FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
-                                 WHERE rp.perm_key = 'payroll.approve' AND e.status = 'active' AND e.id <> $1`, [a.id]);
+                                 WHERE rp.perm_key = 'payroll.approve' AND e.status = 'active' AND ${notSettled('e')} AND e.id <> $1`, [a.id]);
       for (const x of ap.rows) {
         await notify(q, { to: x.id, type: 'payroll_batch', title: `مرتبات ${String(b.period).slice(0, 7)} مستنية موافقتك`,
           body: `دفعة #${b.ref_no}`, entity: 'payroll_batch', entityId: b.id, dedupeKey: `payroll:${b.id}:submit:${Date.now()}` });
