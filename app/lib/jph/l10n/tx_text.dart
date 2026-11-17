@@ -111,9 +111,10 @@ final Map<String, String> _cache = {};
 
 class _Template {
   final String key;   // its longest fixed piece: a sentence that has it is tried
+  final int fixed;    // how much of it is fixed text: the more, the more specific (tried first)
   final RegExp re;
   final String en;
-  _Template(this.key, this.re, this.en);
+  _Template(this.key, this.fixed, this.re, this.en);
 }
 
 List<_Template>? _templates;
@@ -124,7 +125,9 @@ List<_Template> _loadTemplates() {
     if (!ar.contains('{0}')) return;
     final fixed = ar.split(hole);
     var key = '';
+    var total = 0;
     for (final f in fixed) {
+      total += f.trim().length;
       if (f.trim().length > key.length) key = f.trim();
     }
     if (key.isEmpty) return;
@@ -137,9 +140,9 @@ List<_Template> _loadTemplates() {
     }
     b.write(RegExp.escape(ar.substring(last)));
     b.write(r'$');
-    out.add(_Template(key, RegExp(b.toString(), dotAll: true), en));
+    out.add(_Template(key, total, RegExp(b.toString(), dotAll: true), en));
   });
-  out.sort((a, b) => b.key.length.compareTo(a.key.length));
+  out.sort((a, b) => b.fixed.compareTo(a.fixed));
   return out;
 }
 
@@ -160,7 +163,7 @@ String tx(String s, [String? lang]) {
 /// [s] or null (an InputDecoration's label / hint …)
 String? txn(String? s) => s == null ? null : tx(s);
 
-String _translate(String s) {
+String _translate(String s, [int depth = 0]) {
   // 1) as it is (and without the spaces around it)
   final e = _exact(s);
   if (e != null) return e;
@@ -177,7 +180,8 @@ String _translate(String s) {
     var out = p.en;
     for (var i = 1; i <= m.groupCount; i++) {
       final v = m.group(i) ?? '';
-      out = out.replaceAll('{${i - 1}}', _exact(v.trim()) ?? v);
+      // a value with Arabic in it (a kind, a status …) is put in English too
+      out = out.replaceAll('{${i - 1}}', depth < 2 && _arabic.hasMatch(v) ? _translate(v, depth + 1) : v);
     }
     return s.replaceFirst(t, out);
   }
