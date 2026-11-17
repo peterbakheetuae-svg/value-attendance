@@ -123,7 +123,7 @@ class _BreakPageState extends State<BreakPage> {
             ),
             child: const Center(
               child: Icon(
-                Icons.coffee,
+                Icons.directions_walk_rounded,
                 color: Ar.amber,
                 size: 24,
               ),
@@ -153,13 +153,13 @@ class _BreakPageState extends State<BreakPage> {
                 Row(
                   children: [
                     _buildInfoChip(
-                      'بداية: ${employee['breakStart']}',
+                      'خرج: ${employee['breakStart']}',
                       Icons.access_time,
                       isDark ? Ar.info[300]! : Ar.info,
                     ),
                     const SizedBox(width: 8),
                     _buildInfoChip(
-                      'المدة: ${employee['breakDuration']}',
+                      'بره من: ${employee['breakDuration']}',
                       Icons.timer,
                       isDark ? Ar.accent[300]! : Ar.accent,
                     ),
@@ -171,17 +171,17 @@ class _BreakPageState extends State<BreakPage> {
           Column(
             children: [
               Icon(
-                Icons.warning,
-                color: employee['breakDuration'] == '55 دقيقة'
+                employee['breakExceeded'] == true ? Icons.warning_rounded : Icons.check_circle_rounded,
+                color: employee['breakExceeded'] == true
                     ? Ar.red
                     : isDark ? Ar.green[300] : Ar.green,
               ),
               const SizedBox(height: 4),
               Text(
-                employee['breakDuration'] == '55 دقيقة' ? 'مقارب' : 'طبيعي',
+                employee['breakExceeded'] == true ? 'عدّى ميعاد الرجوع' : 'في الميعاد',
                 style: TextStyle(
                   fontSize: 12,
-                  color: employee['breakDuration'] == '55 دقيقة'
+                  color: employee['breakExceeded'] == true
                       ? Ar.red
                       : isDark ? Ar.green[300] : Ar.green,
                 ),

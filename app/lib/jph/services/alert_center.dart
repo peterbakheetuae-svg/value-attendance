@@ -15,6 +15,14 @@ import '../../core/push.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
+import '../widgets/top_banner.dart';
+import '../pages/leave_summary.dart';
+import '../pages/advance_request_page.dart';
+import '../pages/commissions/commissions_page.dart';
+import '../pages/exclusive/exclusive_projects_page.dart' show SalesHubPage;
+import '../pages/multi_company/kpi_page.dart';
+import '../pages/cash/cashbox_hub_page.dart';
+import '../pages/leads/leads_dashboard_page.dart';
 
 /// In-app notification center with an audible ring (no push service on the free plan):
 /// polls the API while the app runs (Android keeps running in the background during a shift),
@@ -34,16 +42,59 @@ class AlertCenter with WidgetsBindingObserver {
   static final Map<String, String> entityOf = {};
 
   /// Tap on a notification in the list: open the related request when there is one to act on.
-  Future<void> openRelated(BuildContext ctx, String notificationId, String type) async {
-    final id = entityOf[notificationId];
+  Future<void> openRelated(BuildContext ctx, String notificationId, String type) =>
+      openFor(ctx, type, entityOf[notificationId], fromList: true);
+
+  /// the icon and colour of a notification's banner, by its kind
+  static (IconData, Color) _look(String type) {
+    if (type.startsWith('lead_')) return (Icons.leaderboard_rounded, Glass.blue);
+    if (type.startsWith('task_')) return (Icons.task_alt_rounded, Ar.info.shade700);
+    if (type.startsWith('request_')) return (Icons.beach_access_rounded, Ar.green.shade700);
+    if (type.startsWith('advance_') || type.startsWith('cash') || type.startsWith('payout') || type.startsWith('finance') ||
+        type.startsWith('payroll')) {
+      return (Icons.account_balance_wallet_rounded, Ar.amber.shade700);
+    }
+    if (type.startsWith('commission_')) return (Icons.workspace_premium_rounded, Ar.amber.shade700);
+    if (type.startsWith('exclusive_') || type.startsWith('sale_')) return (Icons.apartment_rounded, Ar.tan.shade700);
+    if (type.contains('unauthorized') || type.contains('overdue')) return (Icons.warning_amber_rounded, Ar.red.shade600);
+    if (type.startsWith('checkin') || type.startsWith('checkout') || type.startsWith('attendance')) {
+      return (Icons.fingerprint_rounded, Ar.info.shade700);
+    }
+    return (Icons.notifications_active_rounded, Glass.blue);
+  }
+
+  /// Opens what a notification is about: a lead on the sales board, the leave requests, the financial requests, the
+  /// commissions, the sales, the tasks … — else the notifications page. [fromList]: tapped in the notifications page
+  /// itself (nothing to open → stay there).
+  Future<void> openFor(BuildContext ctx, String type, String? id, {bool fromList = false}) async {
+    final s = JphBridge.session;
+    final uid = s.me?['code']?.toString() ?? '', name = s.name, role = s.me?['role_name_ar']?.toString() ?? '';
+    Future<void> go(Widget page) => Navigator.of(ctx).push(MaterialPageRoute(builder: (_) => page));
+    if (type.startsWith('request_')) return go(LeaveSummaryPage(uid: uid, name: name, role: role));
+    if (type.startsWith('advance_') || type == 'finance_awaiting') return go(AdvanceRequestPage(uid: uid, name: name, role: role));
+    if (type.startsWith('commission_')) return go(const CommissionsPage(requestsOnly: true));
+    if (type.startsWith('exclusive_') || type == 'sale_awaiting') return go(const SalesHubPage());
+    if (type == 'evaluation_published') return go(const KpiPage());
+    if ((type.startsWith('cash') || type.startsWith('payout') || type == 'payroll_batch') && CashboxHubPage.canCash) {
+      return go(CashboxHubPage(uid: uid, name: name, role: role));
+    }
+    if (type.startsWith('lead_') && id == null) return go(const LeadsDashboardPage());
+    if (await _openSpecial(ctx, type, id)) return;
+    if (!fromList && ctx.mounted) {
+      await go(NotificationsPage(uid: uid, name: name, role: role));
+    }
+  }
+
+  /// the leads / tasks / a new phone / a permission waiting for a decision — true when it handled the tap
+  Future<bool> _openSpecial(BuildContext ctx, String type, String? id) async {
     // نظام الليدز: a lead's notification opens the lead, a task's opens the tasks
     if (type.startsWith('task_')) {
       await pushSide(ctx, const TasksPage());
-      return;
+      return true;
     }
     if (type.startsWith('lead_') && id != null) {
       await openLead(ctx, id);
-      return;
+      return true;
     }
     // a new phone waiting for approval: its employee's phones, with approve / refuse
     if (type == 'device_request' && id != null) {
@@ -61,9 +112,9 @@ class AlertCenter with WidgetsBindingObserver {
           ),
         ),
       );
-      return;
+      return true;
     }
-    if (id == null || !(type == 'outing_awaiting' || type == 'outing_extension_awaiting')) return;
+    if (id == null || !(type == 'outing_awaiting' || type == 'outing_extension_awaiting')) return false;
     final o = await ApiService.post({'action': 'outing_get', 'id': id});
     if (o['success'] == true && ctx.mounted) {
       final m = (o['outing'] as Map).cast<String, dynamic>();
@@ -71,6 +122,7 @@ class AlertCenter with WidgetsBindingObserver {
         await showOutingDecision(ctx, m, (approve, comment) => ApiService.post({'action': 'outing_decide', 'id': id, 'approve': approve, 'comment': comment}));
       }
     }
+    return true;
   }
 
   GlobalKey<NavigatorState>? _nav;
@@ -165,13 +217,24 @@ class AlertCenter with WidgetsBindingObserver {
       for (final n in fresh) {
         if (!_ringing.contains(n['type'])) {
           // normal notification: a quiet banner while the app is open (no ringing)
-          final ctx = _nav?.currentContext;
-          if (_foreground && ctx != null && ctx.mounted) {
-            ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(SnackBar(
-              content: Text('🔔 ${n['title']}'),
-              duration: const Duration(seconds: 4),
-              behavior: SnackBarBehavior.floating,
-            ));
+          // normal notification: the app's own banner at the top — swipe it away, or tap it to open what it's about
+          final overlay = _nav?.currentState?.overlay;
+          if (_foreground && overlay != null && overlay.mounted) {
+            final type = '${n['type']}';
+            final look = _look(type);
+            TopBanner.show(
+              overlay,
+              title: '${n['title']}',
+              body: '${n['body'] ?? ''}',
+              icon: look.$1,
+              color: look.$2,
+              onTap: () async {
+                final c = _nav?.currentContext;
+                if (c == null || !c.mounted) return;
+                try { await JphBridge.api.post('/notifications/${n['id']}/read', {}); } catch (_) {}
+                if (c.mounted) await openFor(c, type, n['entity_id']?.toString());
+              },
+            );
           }
           continue;
         }

@@ -665,10 +665,10 @@ class _OwnerOverviewState extends State<OwnerOverview> {
           'info' => p.info,
           _ => p.muted,
         };
-    Widget person(Map<String, dynamic> x) {
+    Widget person(Map<String, dynamic> x, double w) {
       final online = x['online'] == true;
       return Container(
-        width: 232,
+        width: w,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(color: p.card2, borderRadius: BorderRadius.circular(14), border: Border.all(color: p.line)),
         child: Row(children: [
@@ -705,7 +705,11 @@ class _OwnerOverviewState extends State<OwnerOverview> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _head('${c['title']}', '${c['sub']}', link: 'الحضور', route: c['route']?.toString()),
         if (rows.isEmpty) _empty('${c['empty'] ?? ''}'),
-        Wrap(spacing: 10, runSpacing: 10, children: rows.map(person).toList()),
+        // two employees in a row
+        LayoutBuilder(builder: (context, box) {
+          final w = (box.maxWidth - 10) / 2;
+          return Wrap(spacing: 10, runSpacing: 10, children: [for (final x in rows) person(x, w)]);
+        }),
       ]),
     );
   }

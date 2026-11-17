@@ -25,7 +25,9 @@ class TopTabs extends StatelessWidget {
       return Expanded(
         child: GestureDetector(
           onTap: () => onTap(m),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
             padding: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
               color: selected ? primaryColor : Colors.transparent,
@@ -50,7 +52,22 @@ class TopTabs extends StatelessWidget {
       );
     }
 
-    return Container(
+    // swipe the bar right / left to move between the tabs: the selection goes the way the finger goes
+    void swipe(DragEndDetails d) {
+      final v = d.primaryVelocity ?? 0;
+      if (v.abs() < 150) return;
+      final rtl = Directionality.of(context) == TextDirection.rtl;
+      final forward = rtl ? v < 0 : v > 0;   // the selection moves the way the finger moves
+      const order = DashMode.values;
+      final i = order.indexOf(mode) + (forward ? 1 : -1);
+      if (i < 0 || i >= order.length) return;
+      onTap(order[i]);
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragEnd: swipe,
+      child: Container(
       padding: const EdgeInsets.all(6),
       decoration: Glass.tile(isDark, r: 30),
       child: Row(
@@ -59,6 +76,7 @@ class TopTabs extends StatelessWidget {
           tab('break_time', Icons.access_time, DashMode.breakTime),
           tab('leave', Icons.logout, DashMode.leave),
         ],
+      ),
       ),
     );
   }
