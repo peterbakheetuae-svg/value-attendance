@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'platform_info.dart';
 import 'windows_updater.dart';
 import '../jph/widgets/glass_dialog.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// App update (Android): every Android build is published on the app's own site —
 /// https://jaurea.com/valunivo/android/latest.json names the newest version and its APK next to it.

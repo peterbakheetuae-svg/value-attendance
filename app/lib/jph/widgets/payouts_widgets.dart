@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
@@ -6,6 +6,7 @@ import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_dialog.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 const payoutKindsAr = {
   'salary': 'القبض',
@@ -157,7 +158,7 @@ class PayoutsList extends StatelessWidget {
                           context: context,
                           builder: (c) => GlassAlertDialog(
                             title: const Text('بلاغ عن مشكلة في المبلغ'),
-                            content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(hintText: 'إيه المشكلة؟ (مثلاً: استلمت مبلغ أقل)')),
+                            content: TextField(controller: reason, maxLines: 3, decoration:  InputDecoration(hintText: txs('إيه المشكلة؟ (مثلاً: استلمت مبلغ أقل)'))),
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
                               ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('إرسال')),

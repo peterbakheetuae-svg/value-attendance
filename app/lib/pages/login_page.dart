@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/api.dart';
 import '../core/app_settings.dart';
@@ -8,6 +8,7 @@ import '../core/session.dart';
 import '../design/app_colors.dart';
 import '../design/glass.dart';
 import '../design/primary_button.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Same composition as the original JPH login: language pill + theme toggle on top,
 /// centred logo, 28/w900 title, orange subtitle, glass form card, footer.
@@ -104,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
                               controller: _id,
                               autofillHints: const [AutofillHints.username],
                               textInputAction: TextInputAction.next,
-                              decoration: glassInput(context, t('employee_code_or_email')).copyWith(errorText: _idErr),
+                              decoration: glassInput(context, t('employee_code_or_email')).copyWith(errorText: txs(_idErr)),
                               style: TextStyle(color: textColor),
                             ),
                             const SizedBox(height: 16),
@@ -115,7 +116,7 @@ class _LoginPageState extends State<LoginPage> {
                               onSubmitted: (_) => _submit(),
                               decoration: glassInput(context, t('password_or_pin'),
                                   suffix: IconButton(icon: Icon(_hide ? Icons.visibility_off : Icons.visibility, color: sub),
-                                      onPressed: () => setState(() => _hide = !_hide))).copyWith(errorText: _pwErr),
+                                      onPressed: () => setState(() => _hide = !_hide))).copyWith(errorText: txs(_pwErr)),
                               style: TextStyle(color: textColor),
                             ),
                             const SizedBox(height: 24),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -12,6 +12,7 @@ import 'leads_integrations.dart';
 import 'leads_permissions.dart';
 import 'leads_stages.dart';
 import '../../widgets/app_nav.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// إعدادات الليدز: the channels (فيسبوك / تيك توك …), the campaigns (with their cost, for the report),
 /// the cancel reasons, and after how many minutes a lead nobody acted on rings the manager.

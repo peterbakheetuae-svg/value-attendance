@@ -1,8 +1,9 @@
 import 'dart:ui';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../theme/app_colors.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The «Ardena» glass look (the reference the owner picked): warm smoked-glass squares, soft inner tiles,
 /// pill segments and meters — in the site's own colours, its orange included.

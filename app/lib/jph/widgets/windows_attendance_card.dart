@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The Windows app (VALUNIVO.exe) only: check-in / check-out are done from the phone, never from the computer.
 /// In place of the fingerprint button + tabs, the employee sees his day as cards in the owner dashboard's style:

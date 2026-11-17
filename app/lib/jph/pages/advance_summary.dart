@@ -2,9 +2,9 @@
 import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:ui';
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart' hide Text;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../widgets/jph_form_ui.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +18,7 @@ import '../l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class FinancialSummaryPage extends StatefulWidget {
   final String uid;
@@ -912,7 +913,7 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
                   _applyFilters();
                 },
                 decoration: InputDecoration(
-                  hintText: 'بحث باسم الموظف، الملاحظات، النوع...',
+                  hintText: txs('بحث باسم الموظف، الملاحظات، النوع...'),
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),

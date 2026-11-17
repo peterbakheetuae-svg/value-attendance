@@ -2,13 +2,14 @@ import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../services/api_service.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'cash_page.dart' show newClientRef, showBankMoveSheet;
 import '../exclusive/exclusive_projects_page.dart' show ProjectsBoxPage, CommissionsDuePage, ExpectedCommissionsPage, PendingSalesMoneyCard, monthQuery, monthLabel;
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الخزنة the office's way (GET /cash/overview):
 ///   المتاح = بنك + نقدي (نقدي = خزنة المكتب + خزنة المحاسب)

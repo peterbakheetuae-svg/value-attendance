@@ -1,5 +1,5 @@
 import '../../widgets/side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/api_service.dart';
@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Job positions + their permissions, read from the server: any new position shows up here
 /// automatically. Permissions are enforced by the API; this page only edits them.
@@ -218,7 +219,7 @@ class _PositionsPageState extends State<PositionsPage> {
     return out;
   }
 
-  InputDecoration _input(String label) => InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
+  InputDecoration _input(String label) => InputDecoration(labelText: txs(label), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
 
   Future<void> _editPosition(Map<String, dynamic>? r) async {
     final name = TextEditingController(text: '${r?['name_ar'] ?? ''}');

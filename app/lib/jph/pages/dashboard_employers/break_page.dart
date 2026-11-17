@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../../services/api_service.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
@@ -6,6 +6,7 @@ import '../../l10n/app_localizations.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class BreakPage extends StatefulWidget {
   final String uid;

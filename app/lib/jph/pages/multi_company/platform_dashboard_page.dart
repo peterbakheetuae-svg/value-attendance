@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -8,6 +8,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../services/api_service.dart';
 import '../../widgets/glass_dialog.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Platform Owner dashboard — plans, subscriptions, and billing events.
 ///
@@ -373,12 +374,12 @@ class _PlatformDashboardPageState extends State<PlatformDashboardPage>
             unselectedLabelColor: AppColors.onSurfaceVariantLight,
             indicatorColor: AppColors.primary,
             tabs: [
-              Tab(text: AppLocalizations.of(context, 'platform_plans')),
+              Tab(text: txs(AppLocalizations.of(context, 'platform_plans'))),
               Tab(
                   text:
-                      AppLocalizations.of(context, 'platform_subscriptions')),
-              Tab(text: AppLocalizations.of(context, 'platform_billing')),
-              Tab(text: AppLocalizations.of(context, 'company_info')),
+                      txs(AppLocalizations.of(context, 'platform_subscriptions'))),
+              Tab(text: txs(AppLocalizations.of(context, 'platform_billing'))),
+              Tab(text: txs(AppLocalizations.of(context, 'company_info'))),
             ],
           ),
         ),

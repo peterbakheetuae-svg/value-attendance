@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// "عمولة صفقة" inside the financial request page: project → unit → price/m² × area. The total value, the
 /// salesperson percentage and the expected commission are computed (locked); the server recomputes them anyway
@@ -129,7 +130,7 @@ class _DealCommissionFormState extends State<DealCommissionForm> {
           controller: _note,
           maxLines: 3, minLines: 2,
           decoration: InputDecoration(
-            hintText: 'ملاحظة (اختياري): اسم العميل، رقم العقد...',
+            hintText: txs('ملاحظة (اختياري): اسم العميل، رقم العقد...'),
             hintStyle: TextStyle(color: JphUi.sub(isDark), fontSize: 15),
             border: InputBorder.none,
           ),

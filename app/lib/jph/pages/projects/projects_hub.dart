@@ -254,7 +254,7 @@ class _ProjectsListState extends State<ProjectsList> {
           style: TextStyle(fontSize: 16, color: Glass.ink(isDark)),
           decoration: InputDecoration(
             border: InputBorder.none,
-            hintText: 'دوّر على مشروع أو مطور',
+            hintText: txs('دوّر على مشروع أو مطور'),
             hintStyle: TextStyle(color: Glass.muted(isDark)),
             prefixIcon: Icon(Icons.search_rounded, size: 19, color: Glass.muted(isDark)),
             contentPadding: const EdgeInsets.symmetric(vertical: 12),

@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class GlassMiniCard extends StatelessWidget {
   final String title;

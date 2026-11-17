@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -11,6 +11,7 @@ import 'leads_api.dart';
 import 'leads_extra.dart';
 import 'tasks_page.dart' show editTask;
 import 'deals_page.dart' show editDeal;
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One lead (a side panel on the computer): its data, «إضافة أكشن», the reservation from it, the comments and replies,
 /// the reservations made from it and — for the managers — its log (who gave it, who opened it).

@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_dialog.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +11,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
 import 'leads_tr.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The language of the leads pages (set with the app's language in main.dart): ar / en / hi / ur.
 class LeadsTr {

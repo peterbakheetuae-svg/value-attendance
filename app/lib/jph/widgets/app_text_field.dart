@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'glass_ui_widgets.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class AppTextField extends StatelessWidget {
   final String label;
@@ -34,7 +35,7 @@ class AppTextField extends StatelessWidget {
         ),
         decoration: InputDecoration(
           border: InputBorder.none,
-          labelText: label,
+          labelText: txs(label),
           labelStyle: TextStyle(
             color: (isDark ? Colors.white : Colors.black).withOpacity(0.55),
             fontWeight: FontWeight.w700,

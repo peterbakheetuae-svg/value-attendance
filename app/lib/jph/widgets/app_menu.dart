@@ -2,7 +2,7 @@ import 'side_sheet.dart';
 import 'dart:ui' as ui;
 
 import '../../core/platform_info.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../forms/client_intro_page.dart';
@@ -24,9 +24,12 @@ import '../pages/settings/late_rules_page.dart';
 import '../services/api_service.dart';
 import '../services/app_controller.dart';
 import '../services/jph_bridge.dart';
+import '../services/session_service.dart';
+import '../pages/login/login_page.dart';
 import 'app_nav.dart';
 import '../pages/leads/leads_api.dart' show seesLeads, tr;
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One entry of the app's menu: a page, a bottom-bar tab ([nav]) or a group with sub-items.
 class MenuEntry {
@@ -296,6 +299,7 @@ class _MoreSheet extends StatelessWidget {
                     const SizedBox(height: 8),
                     Divider(color: Glass.line(d)),
                     _darkRow(context, d, app),
+                    _logoutRow(context, d),
                   ]),
                 ),
               ]),
@@ -377,6 +381,41 @@ Widget _darkRow(BuildContext context, bool d, AppController app, {bool small = f
           ),
         ),
       ]),
+    );
+
+/// «تسجيل الخروج» under «الوضع الداكن»: asks first, then the login page right away (the server is told in the background)
+Widget _logoutRow(BuildContext context, bool d) => InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () async {
+        final nav = Navigator.of(context, rootNavigator: true);
+        final yes = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('تسجيل الخروج'),
+            content: const Text('متأكد إنك عايز تسجل خروج؟'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Ar.red),
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('تسجيل الخروج'),
+              ),
+            ],
+          ),
+        );
+        if (yes != true) return;
+        await SessionService.logout();
+        nav.pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginPage()), (route) => false);
+        ApiService.signOut().timeout(const Duration(seconds: 12)).catchError((_) {});
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(children: [
+          Icon(Icons.logout_rounded, size: 22, color: Ar.red.shade400),
+          const SizedBox(width: 14),
+          Expanded(child: Text('تسجيل الخروج', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Ar.red.shade400))),
+        ]),
+      ),
     );
 
 // ==================================================================== the computer's side bar

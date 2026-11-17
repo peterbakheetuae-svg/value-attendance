@@ -243,7 +243,7 @@ class _Worker {
     await p.setBool('bg_ringed_outside', true);
     try {
       await RingAlert.show(id: 7001, title: 'إنت برّه نطاق المكتب ⚠️',
-          body: 'ارجع المكتب، أو اطلب إذن / زيارة من التطبيق.', payload: 'unauthorized_exit_self');
+          body: 'ارجع المكتب، أو اطلب إذن / معاينة من التطبيق.', payload: 'unauthorized_exit_self');
     } catch (_) {}
     return true;
   }

@@ -2,7 +2,7 @@ import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +16,7 @@ import 'leave_summary.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
 import '../services/api_service.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class LeaveRequestPage extends StatefulWidget {
   final String uid;
@@ -457,7 +458,7 @@ class _LeaveRequestPageState extends State<LeaveRequestPage> {
                                           maxLines: 4,
                                           minLines: 3,
                                           decoration: InputDecoration(
-                                            hintText: 'اكتب سبب الإجازة هنا...',
+                                            hintText: txs('اكتب سبب الإجازة هنا...'),
                                             hintStyle: TextStyle(
                                               color: subduedTextColor,
                                               fontSize: 16,

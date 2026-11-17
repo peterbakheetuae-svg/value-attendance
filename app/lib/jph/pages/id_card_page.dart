@@ -1,5 +1,5 @@
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart'; // ✅ أضف هذا
 
 import '../services/app_controller.dart'; // ✅ أضف هذا
@@ -9,6 +9,7 @@ import '../widgets/glass_ui_widgets.dart';
 import '../widgets/app_background.dart'; // ✅ أضف هذا - بدل GlassBackground
 import '../widgets/app_nav.dart';
 import '../widgets/glass_bottom_nav.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class IdCardPage extends StatelessWidget {
   final String uid;

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -8,6 +8,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../services/api_service.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Multi-company reports screen with three tabs:
 ///
@@ -262,11 +263,11 @@ class _ReportsPageState extends State<ReportsPage>
             unselectedLabelColor: AppColors.onSurfaceVariantLight,
             indicatorColor: AppColors.primary,
             tabs: [
-              Tab(text: AppLocalizations.of(context, 'report_tab_company')),
-              Tab(text: AppLocalizations.of(context, 'report_tab_summary')),
+              Tab(text: txs(AppLocalizations.of(context, 'report_tab_company'))),
+              Tab(text: txs(AppLocalizations.of(context, 'report_tab_summary'))),
               Tab(
                   text:
-                      AppLocalizations.of(context, 'report_tab_consolidated')),
+                      txs(AppLocalizations.of(context, 'report_tab_consolidated'))),
             ],
           ),
         ),

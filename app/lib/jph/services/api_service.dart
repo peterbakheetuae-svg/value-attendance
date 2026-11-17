@@ -205,7 +205,7 @@ class JphRouter {
         case 'checkout':
           return await _checkOut(p);
         case 'break_start':
-          return _fail('الاستراحة اتشالت — استخدم «إذن ساعات» أو «زيارة»');
+          return _fail('الاستراحة اتشالت — استخدم «إذن ساعات» أو «معاينة»');
         case 'break_end':
           await _api.post('/attendance/break-end', {});
           return _ok({'message': 'تم إنهاء الاستراحة'});
@@ -218,7 +218,7 @@ class JphRouter {
             'kind': p['kind'], 'expectedReturn': p['expectedReturn'], 'reason': p['reason'],
             if (p['startAt'] != null) 'startAt': p['startAt'],
             if (p['parentId'] != null) 'parentId': p['parentId'],
-          }, label: 'طلب إذن / زيارة');
+          }, label: 'طلب إذن / معاينة');
           if (r['queued'] == true) return _ok({'message': 'الطلب اتحفظ على الموبايل 📴 وهيتبعت للموافقة أول ما النت يرجع'});
           return _ok({'outing': r['outing'], 'message': p['parentId'] != null ? 'تم إرسال طلب التمديد للموافقة' : 'تم إرسال الطلب للموافقة'});
         case 'outing_return':
@@ -663,7 +663,7 @@ class JphRouter {
     if (e.details?['reason'] == 'project_inactive') return 'المشروع ده مش بيستقبل صفقات دلوقتي';
     if (e.details?['reason'] == 'month_closed') return 'مرتب الشهر ده اتصرف خلاص — اختار شهر بعده';
     if (e.details?['reason'] == 'already_paid') return 'العمولة دي اتصرفت — الغي الصرف الأول';
-    if (e.details?['reason'] == 'overlap') return 'الوقت ده متداخل مع إذن أو زيارة تانية ليك';
+    if (e.details?['reason'] == 'overlap') return 'الوقت ده متداخل مع إذن أو معاينة تانية ليك';
     if (e.details?['reason'] == 'otp_invalid') return 'الكود غلط أو انتهت صلاحيته';
     if (e.details?['reason'] == 'otp_rate_limited') return 'طلبت أكواد كتير — استنى ربع ساعة وجرب تاني';
     if (e.details?['reason'] == 'reset_expired') return 'الوقت خلص — اطلب كود جديد';
@@ -1430,7 +1430,10 @@ class JphRouter {
           for (final o in _list(d['outings']))
             {
               'kind': o['kind'],
-              'label': o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات',
+              'label': o['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات',
+              'out': _time(o['from'], '--'),
+              'back': o['returnedAt'] != null ? _time(o['returnedAt'], '--') : '',
+              'expected': _time(o['expectedReturn'], '--'),
               'text': 'من ${_time(o['from'], '--')} لـ ${_time(o['expectedReturn'], '--')}'
                   '${o['returnedAt'] != null ? ' — رجع ${_time(o['returnedAt'], '--')}' : ''}',
             },
@@ -1523,7 +1526,7 @@ class JphRouter {
       out.add({
         'id': x['employee_id'],
         'name': _s(x['employee_name']),
-        'project': '${x['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'} — الرجوع ${_time(x['expected_return_at'])}',
+        'project': '${x['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات'} — الرجوع ${_time(x['expected_return_at'])}',
         'breakStart': _time(x['starts_at'] ?? x['requested_at']),
         'breakDuration': from == null ? '--' : '${now.difference(from).inMinutes} دقيقة',
         'breakExceeded': back != null && back.isBefore(now),

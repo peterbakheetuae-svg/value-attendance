@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
@@ -6,6 +6,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Late arrival / early leave deduction (same glass design as the rest of the app).
 /// Approved policy: fixed-amount tiers by minutes — up to the first tier nothing is deducted; past a tier the
@@ -118,8 +119,8 @@ class _LateRulesPageState extends State<LateRulesPage> {
   }
 
   InputDecoration _input(String label, {String? suffix}) => InputDecoration(
-        labelText: label,
-        suffixText: suffix,
+        labelText: txs(label),
+        suffixText: txs(suffix),
         isDense: true,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       );
@@ -205,7 +206,7 @@ class _LateRulesPageState extends State<LateRulesPage> {
                                   onChanged: (_) => setState(() {}), decoration: _input('يتخصم', suffix: 'جنيه')),
                             ),
                             IconButton(
-                              tooltip: 'حذف الشريحة',
+                              tooltip: txs('حذف الشريحة'),
                               icon: const Icon(Icons.remove_circle_outline, color: AppColors.error),
                               onPressed: _tiers.length <= 1 ? null : () => setState(() => _tiers.removeAt(i)),
                             ),
@@ -221,7 +222,7 @@ class _LateRulesPageState extends State<LateRulesPage> {
                           ),
                         ),
                       const SizedBox(height: 4),
-                      Text('إذن الساعات والزيارة المتوافق عليهم مش بيتحسبوا تأخير ولا انصراف بدري.', style: sub),
+                      Text('إذن الساعات والمعاينة المتوافق عليهم مش بيتحسبوا تأخير ولا انصراف بدري.', style: sub),
                     ]),
                   ),
                   if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Ar.red))),

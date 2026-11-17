@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
+import { audit, authenticate, has, teamMemberIds, type Actor, notSettled } from '../auth/context.ts';
 import { assertDelegable, assertNotOwnProfile } from '../auth/permission-admin.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
@@ -46,7 +46,7 @@ async function progress(q: Q, ids: string[] | null, month: string) {
       t.calls AS t_calls, t.meetings AS t_meetings, t.reservations AS t_reservations, t.deals AS t_deals, t.deals_value AS t_deals_value
       FROM employees e JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
       LEFT JOIN lead_targets t ON t.employee_id = e.id AND t.month = $1::date
-     WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND ($3::uuid[] IS NULL OR e.id = ANY($3::uuid[]))
+     WHERE rp.perm_key = 'leads.own' AND e.status = 'active' AND ${notSettled('e')} AND ($3::uuid[] IS NULL OR e.id = ANY($3::uuid[]))
      ORDER BY e.full_name`, [`${month}-01`, endOfMonth(month), ids]);
   const pct = (a: number, t: unknown) => (n(t) > 0 ? Math.round(a * 100 / n(t)) : null);
   return r.rows.map((x) => ({

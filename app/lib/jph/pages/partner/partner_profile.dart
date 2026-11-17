@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +19,7 @@ import '../leads/leads_api.dart';
 import '../login/otp_page.dart';
 import '../../services/api_service.dart';
 import '../notifications/notifications_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// the company's logo (its «صورة الملف الشخصي»), loaded once
 class PartnerLogo {
@@ -273,7 +274,7 @@ class _PartnerProfilePageState extends State<PartnerProfilePage> {
                             title: Text(e.value, style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
                             subtitle: Text(files[e.key] != null ? '${lm(files[e.key])['fileName']}' : 'لسه مترفعش', style: TextStyle(color: sub)),
                             trailing: files[e.key] != null
-                                ? IconButton(tooltip: 'عرض', icon: const Icon(Icons.visibility_rounded), onPressed: () => _openDoc(e.key))
+                                ? IconButton(tooltip: txs('عرض'), icon: const Icon(Icons.visibility_rounded), onPressed: () => _openDoc(e.key))
                                 : null,
                           ),
                       ], textColor),
@@ -392,7 +393,7 @@ class _PartnerEditAccountPageState extends State<PartnerEditAccountPage> {
   }
 
   InputDecoration _deco(String label, IconData icon, Color primaryColor) => InputDecoration(
-        labelText: label,
+        labelText: txs(label),
         prefixIcon: Icon(icon, color: primaryColor),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       );

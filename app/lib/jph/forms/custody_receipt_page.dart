@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +14,7 @@ import '../widgets/swipe_tabs.dart';
 import 'custody_receipt_pdf.dart';
 import 'form_delete.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 Future<Map<String, dynamic>> _get(String path, [Map<String, dynamic> q = const {}]) =>
     ApiService.post({'action': 'cash_get', 'path': path, 'query': q});

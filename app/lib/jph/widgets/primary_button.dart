@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../theme/app_colors.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class PrimaryButton extends StatelessWidget {
   final String label;

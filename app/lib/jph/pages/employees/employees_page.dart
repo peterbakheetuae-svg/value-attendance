@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/employees_api.dart';
@@ -13,6 +13,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_bottom_nav.dart'; // سنحتاج لإنشاء هذه الصفحة لاحقاً
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class EmployeesPage extends StatefulWidget {
   final String currentUserId;
@@ -331,7 +332,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           // شريط البحث
                           TextField(
                             decoration: InputDecoration(
-                              hintText: AppLocalizations.of(context, 'search_employees') ?? 'ابحث عن موظف',
+                              hintText: txs(AppLocalizations.of(context, 'search_employees') ?? 'ابحث عن موظف'),
                               prefixIcon: Icon(Icons.search),
                               filled: true,
                               fillColor: isDark ? Colors.white.withOpacity(0.1) : Colors.white.withOpacity(0.3),

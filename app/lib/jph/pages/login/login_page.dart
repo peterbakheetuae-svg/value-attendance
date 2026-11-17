@@ -1,7 +1,7 @@
 //login_page.dart
 import '../partner/partner_home.dart';
 import '../../widgets/app_nav.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../../../pages/change_password_page.dart';
 import '../../services/jph_bridge.dart';
 import 'package:provider/provider.dart';
@@ -20,6 +20,7 @@ import '../../widgets/primary_button.dart';
 import 'forgot_password_page.dart';
 import '../../widgets/glass_ui.dart';
 import '../attendance/attendance_report_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -505,7 +506,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                   focusNode: _uidFocusNode,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    labelText: 'كود الموظف أو الموبايل أو الإيميل',
+                    labelText: txs('كود الموظف أو الموبايل أو الإيميل'),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: subduedTextColor.withOpacity(0.3))),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primary, width: 2)),
                     labelStyle: TextStyle(color: subduedTextColor),
@@ -529,7 +530,7 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
                   focusNode: _passFocusNode,
                   obscureText: _hidePass,
                   decoration: InputDecoration(
-                    labelText: AppLocalizations.of(context, 'password') ?? 'كلمة المرور',
+                    labelText: txs(AppLocalizations.of(context, 'password') ?? 'كلمة المرور'),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: subduedTextColor.withOpacity(0.3))),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primary, width: 2)),
                     labelStyle: TextStyle(color: subduedTextColor),

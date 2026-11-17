@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../services/api_service.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/jph_form_ui.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// HR / المدير / the owner: delete an earlier form (asks first). Returns true when it was deleted.
 Future<bool> deleteFormRecord(BuildContext context, String id, String label) async {
@@ -32,7 +33,7 @@ Future<bool> deleteFormRecord(BuildContext context, String id, String label) asy
 
 /// The small red delete button shown on an earlier form for those allowed.
 Widget formDeleteButton(VoidCallback onTap) => IconButton(
-      tooltip: 'حذف',
+      tooltip: txs('حذف'),
       visualDensity: VisualDensity.compact,
       icon: const Icon(Icons.delete_outline_rounded, color: Ar.red),
       onPressed: onTap,

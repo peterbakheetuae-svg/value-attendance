@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/async_view.dart';
@@ -9,6 +9,7 @@ import '../design/app_colors.dart';
 import '../design/glass.dart';
 import '../design/glass_page.dart';
 import 'common.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// "متابعة الموظفين أثناء الشيفت" — who is in the office, who is out and for how long, whose tracking stopped.
 class TrackingLivePage extends StatefulWidget {

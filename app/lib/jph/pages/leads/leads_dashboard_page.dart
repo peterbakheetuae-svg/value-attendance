@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart' show JphRouter;
@@ -18,6 +18,7 @@ import 'leads_settings_page.dart';
 import 'leads_targets_page.dart';
 import 'tasks_page.dart';
 import 'deals_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// لوحة السيلز: the counts of every stage (tap → those leads), the follow-ups due, «مستني أكشن», the late ones,
 /// the ranking, and the way to the leads, the tasks, the reports and the settings.

@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../../l10n/app_localizations.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class LanguagePicker extends StatelessWidget {
   final String current;

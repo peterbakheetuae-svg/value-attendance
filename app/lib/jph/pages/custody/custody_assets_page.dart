@@ -1,7 +1,7 @@
 import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -13,6 +13,7 @@ import '../../widgets/swipe_tabs.dart';
 import '../../widgets/custody_asset_card.dart';
 import 'custody_asset_details_page.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الإعدادات ← العهدة: the company's mobiles and laptops. Each item is added once here (button top-right), then
 /// handed to an employee from his page ("تسليم عهدة" picks from this list) and used to fill the custody receipt form.
@@ -297,7 +298,7 @@ class _AssetsListState extends State<_AssetsList> {
               load();
             },
             trailing: ApiService.can('custody.manage') && x['status'] == 'active' && x['holder'] == null
-                ? IconButton(tooltip: 'أرشفة', onPressed: () => _retire(x), icon: Icon(Icons.archive_outlined, color: JphUi.sub(isDark)))
+                ? IconButton(tooltip: txs('أرشفة'), onPressed: () => _retire(x), icon: Icon(Icons.archive_outlined, color: JphUi.sub(isDark)))
                 : ApiService.can('custody.manage') && x['status'] == 'retired'
                     ? TextButton.icon(onPressed: () => _restore(x), icon: const Icon(Icons.unarchive_rounded), label: const Text('رجّعها'))
                     : null,

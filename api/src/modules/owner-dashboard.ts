@@ -288,7 +288,7 @@ async function employeesPresence(db: Db, t: string, now: Date) {
   const where = (x: any): { status: string; tone: string } => {
     if (!x.in_hours) return x.online ? { status: 'متصل', tone: 'good' } : { status: 'مش متصل', tone: 'muted' };
     if (x.on_leave) return { status: 'في إجازة', tone: 'info' };
-    if (x.outing) return { status: x.outing === 'visit' ? 'خارج المكتب بإذن زيارة' : 'خارج المكتب بإذن ساعات', tone: 'warn' };
+    if (x.outing) return { status: x.outing === 'visit' ? 'خارج المكتب بإذن معاينة' : 'خارج المكتب بإذن ساعات', tone: 'warn' };
     if (x.check_in_at && !x.check_out_at) return { status: 'داخل المكتب', tone: 'good' };
     if (x.check_out_at) return { status: 'انصرف', tone: 'muted' };
     return { status: 'لسه مسجلش حضور', tone: 'bad' };
@@ -334,7 +334,7 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
               r.created_at AS at, CASE r.status WHEN 'pending_manager' THEN 'مستني المدير' ELSE 'مستني HR' END AS status
          FROM requests r JOIN employees e ON e.id = r.employee_id WHERE r.status IN ('pending_manager','pending_hr'))
       UNION ALL
-      (SELECT 'outing', o.id::text, e.full_name, CASE o.kind WHEN 'visit' THEN 'زيارة' ELSE 'إذن خروج' END, o.requested_at, 'مستني الموافقة'
+      (SELECT 'outing', o.id::text, e.full_name, CASE o.kind WHEN 'visit' THEN 'معاينة' ELSE 'إذن خروج' END, o.requested_at, 'مستني الموافقة'
          FROM outing_requests o JOIN employees e ON e.id = o.employee_id WHERE o.status = 'pending')
       ORDER BY at DESC LIMIT 6`),
     one(db, `SELECT
@@ -424,7 +424,7 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
         { label: 'خارج دلوقتي', value: outs.out_now, tone: 'warn' }, { label: 'غايب', value: absent.length, tone: 'bad' },
         { label: 'إجازة', value: today.on_leave, tone: 'muted' },
       ],
-      footer: { icon: 'clock', strong: `${outs.today}`, text: 'خروج وزيارة النهارده' },
+      footer: { icon: 'clock', strong: `${outs.today}`, text: 'خروج ومعاينة النهارده' },
       button: 'الحضور',
     },
     ranked: {
@@ -438,9 +438,9 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
       empty: 'مفيش طلبات مستنية',
     },
     wallet: {
-      title: 'الخروج والزيارات', label: 'خرجوا النهارده', value: outs.today, format: 'count',
+      title: 'الخروج والمعاينات', label: 'خرجوا النهارده', value: outs.today, format: 'count',
       spark: outDaily.rows.map((x) => n(x.n)),
-      rows: [{ label: 'أذونات الشهر', value: outs.perms_month, format: 'count' }, { label: 'زيارات الشهر', value: outs.visits_month, format: 'count' }],
+      rows: [{ label: 'أذونات الشهر', value: outs.perms_month, format: 'count' }, { label: 'معاينات الشهر', value: outs.visits_month, format: 'count' }],
       button: { label: 'الطلبات', route: 'requests' },
       warn: outs.late_back > 0 ? { label: `${outs.late_back} اتأخر في الرجوع`, route: 'attendance_today' } : null,
       route: 'requests',
@@ -462,7 +462,7 @@ async function employeesView(db: Db, t: string, range: number, from: string, now
         absent.length ? { icon: 'absent', title: `غياب: ${absent.length}`, sub: absent.join('، '), button: 'الحضور', route: 'attendance_today' } : null,
         late.length ? { icon: 'late', title: `تأخير: ${late.length}`, sub: late.join('، '), button: 'التقرير', route: 'attendance_report' } : null,
         forgot.rows.length ? { icon: 'clock', title: `نسيوا الانصراف امبارح: ${forgot.rows.length}`, sub: forgot.rows.map((x) => x.full_name).join('، '), button: 'تعديل', route: 'attendance_report' } : null,
-        outs.late_back ? { icon: 'alert', title: `${outs.late_back} اتأخر في الرجوع`, sub: 'من إذن خروج أو زيارة', button: 'متابعة', route: 'attendance_today' } : null,
+        outs.late_back ? { icon: 'alert', title: `${outs.late_back} اتأخر في الرجوع`, sub: 'من إذن خروج أو معاينة', button: 'متابعة', route: 'attendance_today' } : null,
       ].filter(Boolean),
       empty: 'كله تمام النهارده',
     },

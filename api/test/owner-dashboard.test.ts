@@ -52,9 +52,9 @@ test('employees view: «الموظفين دلوقتي» — online dot and where
   assert.equal(at(r).inHours, true, '12:00 Cairo on a Tuesday');
   assert.equal(at(r).status, 'لسه مسجلش حضور');
   await h.db.query(`INSERT INTO outing_requests (employee_id, kind, work_date, requested_at, expected_return_at, reason, status)
-                    VALUES ($1, 'visit', '2026-11-10', '2026-11-10T09:00:00Z', '2026-11-10T14:00:00Z', 'زيارة عميل', 'approved')`, [c.ids.e1]);
+                    VALUES ($1, 'visit', '2026-11-10', '2026-11-10T09:00:00Z', '2026-11-10T14:00:00Z', 'معاينة عميل', 'approved')`, [c.ids.e1]);
   r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
-  assert.equal(at(r).status, 'خارج المكتب بإذن زيارة');
+  assert.equal(at(r).status, 'خارج المكتب بإذن معاينة');
   await h.db.query(`UPDATE sessions SET last_seen_at = now() - interval '30 days' WHERE employee_id = $1`, [c.ids.e1]);
   r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
   assert.equal(at(r).online, false);

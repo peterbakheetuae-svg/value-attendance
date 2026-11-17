@@ -2,13 +2,14 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/save_file.dart';
 import '../../services/api_service.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// مستندات وحدة في مشروع تسويق: «استمارة الحجز» و«عقد التعاقد» — صورة أو PDF (لحد 3 ميجا للملف).
 /// In the reservation / contract forms the files are only picked; they are uploaded once the unit is saved.
@@ -97,7 +98,7 @@ Widget unitFilesField(BuildContext context, bool isDark, StateSetter set, String
             Expanded(child: Text(f.name, overflow: TextOverflow.ellipsis, style: TextStyle(color: JphUi.text(isDark)))),
             Text(_size(f.bytes.length), style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
             IconButton(
-              tooltip: 'شيله',
+              tooltip: txs('شيله'),
               visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.close_rounded, size: 18),
               onPressed: () => set(() => files.remove(f)),
@@ -223,7 +224,7 @@ class _UnitFilesSectionState extends State<UnitFilesSection> {
             subtitle: Text([if (f['byName'] != null) '${f['byName']}', _size(int.tryParse('${f['size']}') ?? 0)].join(' · ')),
             onTap: f['canOpen'] == false ? null : () => _open(f),
             trailing: f['canDelete'] == true
-                ? IconButton(tooltip: 'مسح', icon: const Icon(Icons.delete_outline_rounded, color: Ar.red), onPressed: () => _delete(f))
+                ? IconButton(tooltip: txs('مسح'), icon: const Icon(Icons.delete_outline_rounded, color: Ar.red), onPressed: () => _delete(f))
                 : const Icon(Icons.open_in_new_rounded, size: 18),
           ),
         if (!widget.files.any((f) => f['kind'] == k))

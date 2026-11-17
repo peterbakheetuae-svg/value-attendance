@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/async_view.dart';
 import '../core/i18n.dart';
@@ -8,6 +8,7 @@ import '../jph/widgets/app_background.dart';
 import '../jph/widgets/glass_ui.dart' show Ar;
 import '../jph/widgets/jph_form_ui.dart';
 import '../design/glass_page.dart' show showSnack;
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   final bool forced;

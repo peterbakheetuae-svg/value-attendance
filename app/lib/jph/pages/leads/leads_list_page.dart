@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -11,6 +11,7 @@ import 'lead_page.dart';
 import 'leads_api.dart';
 import 'leads_extra.dart';
 import 'leads_import.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الليدز: the tabs (الكل / فريش / كولد / متأخر / مستني / مكرر / مش متوزع), the stages bar, the search and the filters;
 /// a salesman sees his leads ordered by the nearest follow-up; the distributor / manager select several to give them out.

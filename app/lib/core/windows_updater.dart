@@ -5,7 +5,7 @@ import 'dart:ui' show AppExitResponse;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../jph/theme/app_colors.dart';
 import '../jph/widgets/glass_dialog.dart';
 import 'platform_info.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Automatic updates for the Windows app (VALUNIVO.exe). Android keeps its own updater (AppUpdater).
 ///

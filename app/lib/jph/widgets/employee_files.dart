@@ -2,7 +2,7 @@ import 'side_sheet.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
@@ -14,6 +14,7 @@ import 'glass_ui_widgets.dart';
 import 'glass_dialog.dart';
 import 'custody_asset_card.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Employee documents (acknowledgment PDF, job description PDF, ID image) and custody sections —
 /// same glass cards as the rest of the profile. Files are fetched with the session token only.
@@ -175,10 +176,10 @@ class _EmployeeDocumentsSectionState extends State<EmployeeDocumentsSection> {
                     Text(cur == null ? 'مش مرفوع' : '${_date(cur['created_at'])} • ${cur['uploaded_by_name'] ?? ''}', style: sub),
                   ])),
                   if (cur != null)
-                    IconButton(icon: const Icon(Icons.visibility_outlined), tooltip: 'عرض',
+                    IconButton(icon: const Icon(Icons.visibility_outlined), tooltip: txs('عرض'),
                         onPressed: () => openDocument(context, id: '${cur['id']}', mime: '${cur['mime']}', name: docTitles[k]!)),
                   if (canManage)
-                    IconButton(icon: Icon(cur == null ? Icons.upload_file_rounded : Icons.sync_rounded), tooltip: cur == null ? 'رفع' : 'استبدال',
+                    IconButton(icon: Icon(cur == null ? Icons.upload_file_rounded : Icons.sync_rounded), tooltip: txs(cur == null ? 'رفع' : 'استبدال'),
                         onPressed: _busy ? null : () => _replace(k)),
                 ]),
                 if (history.isNotEmpty)
@@ -243,7 +244,7 @@ class _EmployeeCustodySectionState extends State<EmployeeCustodySection> {
   void _snack(Map<String, dynamic> r) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
 
-  InputDecoration _input(String l) => InputDecoration(labelText: l, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
+  InputDecoration _input(String l) => InputDecoration(labelText: txs(l), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
 
   Widget _sheet(BuildContext ctx, String title, List<Widget> children) {
     final isDark = Provider.of<AppController>(ctx, listen: false).isDark;

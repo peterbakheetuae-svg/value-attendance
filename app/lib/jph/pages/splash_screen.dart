@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
@@ -11,6 +11,7 @@ import 'dashboard_employers/dashboard_page.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
 import '../widgets/logo_orbit.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class SplashScreen extends StatefulWidget {
   final int splashDuration;

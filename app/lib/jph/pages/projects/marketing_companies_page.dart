@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_ui.dart';
 import 'marketing_company_form_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// شركات التسويق: one paid a fixed monthly fee (recorded as an office expense «شركة تسويق»), one paid a commission on
 /// the sales it brings (picked on the reservation; its % comes out of the office share of that unit).

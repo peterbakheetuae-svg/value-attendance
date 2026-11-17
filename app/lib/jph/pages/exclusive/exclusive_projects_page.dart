@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -21,6 +21,7 @@ import '../commissions/commission_project_page.dart';
 import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
 import 'unit_files.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 part '../projects/projects_hub.dart';
 
@@ -571,7 +572,7 @@ class _ResForm {
             context: context,
             builder: (ctx) => GlassAlertDialog(
               title: const Text('القسط كل كام شهر'),
-              content: TextField(controller: c, autofocus: true, keyboardType: TextInputType.number, decoration: const InputDecoration(suffixText: 'شهر')),
+              content: TextField(controller: c, autofocus: true, keyboardType: TextInputType.number, decoration:  InputDecoration(suffixText: txs('شهر'))),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
                 FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('تمام')),
@@ -1031,7 +1032,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
     return _Shell(
       title: p.isEmpty ? 'المشروع' : '${p['name']}',
       action: p.isNotEmpty && _seesKind()
-          ? IconButton(tooltip: 'تعديل المشروع', icon: const Icon(Icons.edit_rounded), onPressed: () => _editProject(isDark, p))
+          ? IconButton(tooltip: txs('تعديل المشروع'), icon: const Icon(Icons.edit_rounded), onPressed: () => _editProject(isDark, p))
           : null,
       child: _d == null
           ? const Center(child: CircularProgressIndicator())

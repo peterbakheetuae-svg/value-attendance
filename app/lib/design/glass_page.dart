@@ -1,7 +1,8 @@
 import '../jph/widgets/side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'app_colors.dart';
 import 'glass.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Pushed sub-page in the original look: background image, transparent scaffold,
 /// back button + 22px bold title, content capped at a readable width on web/tablet.

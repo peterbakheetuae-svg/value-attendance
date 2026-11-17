@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
@@ -6,6 +6,7 @@ import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_ui_widgets.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One box with every KPI of the employee this month: target, actual, achievement and weight.
 class EmployeeKpiBox extends StatefulWidget {

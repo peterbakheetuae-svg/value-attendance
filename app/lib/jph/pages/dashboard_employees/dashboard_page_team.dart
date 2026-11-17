@@ -2,7 +2,7 @@ import 'dart:async';
 import '../../../core/web_push.dart';
 import 'dart:math' as math;
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,6 +40,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
 import '../../widgets/windows_attendance_card.dart';
 import '../../../core/platform_info.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class DashboardPageTeam extends StatefulWidget {
   final String uid;
@@ -611,7 +612,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           );
         }
         return FingerUiConfig(
-          title: 'إذن ساعات / زيارة',
+          title: 'إذن ساعات / معاينة',
           subtitle: _outingPending != null ? 'فيه طلب مستني الموافقة — تقدر تطلب غيره' : "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
@@ -636,7 +637,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
           return d == null ? '--:--' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
         }
         return StatRightCardModel.outing(
-          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
+          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات'),
           start: o == null ? '--:--' : hhmm(o['starts_at'] ?? o['requested_at']),
           expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
           returnAt: _outingActive == null ? null : DateTime.tryParse('${_outingActive!['expected_return_at']}')?.toLocal(),

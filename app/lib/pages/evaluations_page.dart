@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/async_view.dart';
 import '../core/format.dart';
@@ -9,6 +9,7 @@ import '../design/glass.dart';
 import '../design/glass_page.dart';
 import '../design/primary_button.dart';
 import 'common.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 const evalDimensions = ['discipline', 'attendance', 'communication', 'follow_up', 'teamwork', 'sales_performance', 'initiative', 'professional_behavior'];
 const _camel = {

@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -10,6 +10,7 @@ import '../../widgets/jph_form_ui.dart';
 import 'project_form_page.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One project: its split, the totals and the sold units (approved deals only). Company figures arrive from the
 /// API only for the owner / المدير; the sales manager gets only his team's units.
@@ -56,7 +57,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('السجل هيفضل محفوظ بقيمه الأصلية، بس العمولة هتتشال من المرتب.'),
             const SizedBox(height: 10),
-            TextField(controller: reason, maxLines: 2, decoration: const InputDecoration(hintText: 'السبب (إجباري)')),
+            TextField(controller: reason, maxLines: 2, decoration:  InputDecoration(hintText: txs('السبب (إجباري)'))),
           ]),
           actions: [
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
@@ -97,7 +98,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
                     action: manage && p != null
                         ? IconButton(
                             icon: Icon(Icons.edit_rounded, color: JphUi.primary(isDark)),
-                            tooltip: 'تعديل المشروع',
+                            tooltip: txs('تعديل المشروع'),
                             onPressed: () async {
                               final saved = await Navigator.push(context, MaterialPageRoute(builder: (_) => ProjectFormPage(project: p)));
                               if (saved == true) _load();
@@ -131,7 +132,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
                                       child: TextField(
                                         controller: _q,
                                         onChanged: (_) => setState(() {}),
-                                        decoration: InputDecoration(hintText: 'ابحث برقم الوحدة أو اسم البائع', border: InputBorder.none,
+                                        decoration: InputDecoration(hintText: txs('ابحث برقم الوحدة أو اسم البائع'), border: InputBorder.none,
                                             prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark))),
                                       ),
                                     ),
@@ -253,7 +254,7 @@ class _CommissionProjectPageState extends State<CommissionProjectPage> {
                 DataCell(Text(JphUi.date(u['decidedAt']))),
                 DataCell(Text(JphUi.monthAr('${u['period']}'))),
                 DataCell(_payChips(u)),
-                if (_canVoid) DataCell(IconButton(icon: const Icon(Icons.block_rounded, color: Ar.red), tooltip: 'إلغاء', onPressed: () => _void(u))),
+                if (_canVoid) DataCell(IconButton(icon: const Icon(Icons.block_rounded, color: Ar.red), tooltip: txs('إلغاء'), onPressed: () => _void(u))),
               ]),
           ],
         ),

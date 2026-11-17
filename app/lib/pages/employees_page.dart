@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +17,7 @@ import 'common.dart';
 import 'evaluations_page.dart';
 import 'kpi_page.dart';
 import 'requests_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class EmployeesPage extends StatefulWidget {
   const EmployeesPage({super.key});

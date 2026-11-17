@@ -1,5 +1,6 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 import 'package:provider/provider.dart'; // 🔥 أضف هذا
 
 import '../services/app_controller.dart'; // 🔥 أضف هذا

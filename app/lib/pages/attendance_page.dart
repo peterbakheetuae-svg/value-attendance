@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../core/api.dart';
@@ -11,6 +11,7 @@ import '../design/glass.dart';
 import '../design/glass_page.dart';
 import '../design/primary_button.dart';
 import 'common.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class AttendancePage extends StatelessWidget {
   const AttendancePage({super.key});

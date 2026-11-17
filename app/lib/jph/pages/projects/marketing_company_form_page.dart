@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
@@ -13,6 +13,7 @@ import '../../widgets/employee_files.dart' show PickedDoc, pickDocument;
 import '../../widgets/glass_ui.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/jph_form_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// شركة تسويق — exactly the employee's form (add_employee_page.dart: same sections, fields and look) without what only an
 /// employee has: الرقم القومي، تاريخ الميلاد، الوظيفة، يوم الإجازة، ليس لديه حضور وانصراف، تسجيل الحضور بصورة، ساعات العمل،
@@ -394,7 +395,7 @@ class _MarketingCompanyFormPageState extends State<MarketingCompanyFormPage> {
                                         maxLines: 1, overflow: TextOverflow.ellipsis),
                                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                                       if (files[k] != null && _picked[k] == null)
-                                        IconButton(tooltip: 'عرض', icon: const Icon(Icons.visibility_rounded), onPressed: () => _openDoc(k)),
+                                        IconButton(tooltip: txs('عرض'), icon: const Icon(Icons.visibility_rounded), onPressed: () => _openDoc(k)),
                                       TextButton(
                                         onPressed: () async {
                                           final f = await pickDocument(context, 'pdf');

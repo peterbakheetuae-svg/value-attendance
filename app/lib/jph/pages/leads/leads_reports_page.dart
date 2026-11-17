@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -8,6 +8,7 @@ import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
 import 'leads_extra.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// تقارير الليدز (of a period): every salesman's work, the channels, the campaigns (cost / CPL / CPA / ROI),
 /// the cancel reasons, the funnel and who is late on which lead.

@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
@@ -22,6 +22,7 @@ import '../sales/sales_page.dart' show SalesPage;
 import '../leads/leads_targets_page.dart';
 import '../multi_company/kpi_page.dart';
 import 'attendance_today_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The home of المالك / المدير العام — the Ignara overview, card for card and motion for motion, in the app's
 /// colours: greeting + headline → [المالية | الموظفين | سيلز] → 4 KPI cards (the first one a gradient with a progress bar) →

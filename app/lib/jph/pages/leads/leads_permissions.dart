@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الإعدادات / التحكم في الوصول / صلاحيات الأدوار (like Elite): what every role may do on the sales board, then
 /// exceptions for one employee (allowed / denied on top of his role). The owner only; the owner role always has all.

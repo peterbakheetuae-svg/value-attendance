@@ -1,6 +1,6 @@
 import '../../widgets/side_sheet.dart';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/attendance_report_monthly_api.dart';
 import '../../services/jph_bridge.dart';
@@ -20,6 +20,7 @@ import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/payslip_pdf.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class AttendanceReportPage extends StatefulWidget {
   final String uid;
@@ -442,7 +443,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
               Text(selectedEmployeeName ?? '', style: const TextStyle(fontWeight: FontWeight.w700)),
               pick('وقت الحضور', tIn, (t) => tIn = t),
               pick('وقت الانصراف', tOut, (t) => tOut = t, clearable: true),
-              TextField(controller: reason, decoration: const InputDecoration(labelText: 'سبب التعديل (اختياري)')),
+              TextField(controller: reason, decoration:  InputDecoration(labelText: txs('سبب التعديل (اختياري)'))),
               const SizedBox(height: 8),
               const Text('المواعيد الأصلية بتفضل محفوظة، والتعديل بيتسجل باسمك.', style: TextStyle(fontSize: 12, color: Ar.grey)),
             ]),
@@ -573,7 +574,7 @@ class _AttendanceReportPageState extends State<AttendanceReportPage> {
                         loadingText: loadingText,
                         noMonthlyDataText: noMonthlyDataText,
                         noDailyDataText: noDailyDataText,
-                        errorText: errorText,
+                        errorText: txs(errorText),
                         retryText: retryText,
                         context: context,
                       ),

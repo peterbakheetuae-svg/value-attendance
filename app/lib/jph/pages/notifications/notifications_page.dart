@@ -1,5 +1,5 @@
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../../services/alert_center.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +11,7 @@ import '../../theme/app_colors.dart';
 import 'Send_Notifications_Page.dart'; // 🔥 استيراد صفحة إرسال الإشعارات
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String uid;

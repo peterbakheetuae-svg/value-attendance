@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
@@ -10,6 +10,7 @@ import '../../widgets/app_background.dart';
 import '../settings/privacy_policy_page.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class TermsPage extends StatefulWidget {
   const TermsPage({super.key});

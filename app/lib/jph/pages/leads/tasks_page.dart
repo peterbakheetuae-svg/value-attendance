@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -8,6 +8,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// المهام: mine, the ones I gave, my team's — each with its person, its time and its state.
 class TasksPage extends StatefulWidget {

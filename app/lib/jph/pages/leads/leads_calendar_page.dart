@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -8,6 +8,7 @@ import '../../widgets/side_sheet.dart';
 import 'lead_page.dart';
 import 'leads_api.dart';
 import 'tasks_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// التقويم: the follow-ups / meetings of the leads and the tasks — a month grid with dots, and the chosen day's list.
 class LeadsCalendarPage extends StatefulWidget {

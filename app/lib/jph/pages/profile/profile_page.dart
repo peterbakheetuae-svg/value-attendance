@@ -1,6 +1,6 @@
 // lib/pages/profile/profile_page.dart
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../pages/employees/employees_page.dart';
 import '../../services/app_controller.dart';
@@ -19,6 +19,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../widgets/employee_kpi_box.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class ProfilePage extends StatefulWidget {
   final String uid;

@@ -1,5 +1,6 @@
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class FingerprintAction extends StatelessWidget {
   final String label;

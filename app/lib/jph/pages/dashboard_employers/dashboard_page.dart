@@ -6,7 +6,7 @@ import '../../../core/shift_tracker.dart';
 import '../../services/jph_bridge.dart';
 import 'dart:math' as math;
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +44,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
 import '../../widgets/windows_attendance_card.dart';
 import '../../../core/platform_info.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class DashboardPage extends StatefulWidget {
   final String uid;
@@ -376,7 +377,7 @@ class _DashboardPageState extends State<DashboardPage>
           Row(children: [
             const Icon(Icons.notifications_active_rounded, color: Ar.amber),
             const SizedBox(width: 8),
-            Text('طلبات إذن / زيارة مستنية موافقتك (${_pendingOutings.length})',
+            Text('طلبات إذن / معاينة مستنية موافقتك (${_pendingOutings.length})',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ]),
           const SizedBox(height: 8),
@@ -384,7 +385,7 @@ class _DashboardPageState extends State<DashboardPage>
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded),
-              title: Text('${o['employee_name'] ?? ''} — ${o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'}${o['parent_id'] != null ? ' (تمديد)' : ''}'),
+              title: Text('${o['employee_name'] ?? ''} — ${o['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات'}${o['parent_id'] != null ? ' (تمديد)' : ''}'),
               subtitle: Text('من ${hhmm(o['starts_at'] ?? o['requested_at'])} لـ ${hhmm(o['expected_return_at'])} • ${o['reason'] ?? ''}',
                   maxLines: 2, overflow: TextOverflow.ellipsis),
               trailing: const Icon(Icons.chevron_left_rounded),
@@ -542,7 +543,7 @@ class _DashboardPageState extends State<DashboardPage>
           );
         }
         return FingerUiConfig(
-          title: 'إذن ساعات / زيارة',
+          title: 'إذن ساعات / معاينة',
           subtitle: _outingPending != null ? 'فيه طلب مستني الموافقة — تقدر تطلب غيره' : "اضغط مطولاً للاختيار",
           color: getAccentColor(),
           iconBg: getAccentColor(),
@@ -579,7 +580,7 @@ class _DashboardPageState extends State<DashboardPage>
           return d == null ? '--:--' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
         }
         return StatRightCardModel.outing(
-          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات'),
+          kind: o == null ? '--' : (o['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات'),
           start: o == null ? '--:--' : hhmm(o['starts_at'] ?? o['requested_at']),
           expectedReturn: o == null ? '--:--' : hhmm(o['expected_return_at']),
           returnAt: _outingActive == null ? null : DateTime.tryParse('${_outingActive!['expected_return_at']}')?.toLocal(),
@@ -1703,13 +1704,13 @@ class _DashboardPageState extends State<DashboardPage>
                         ['المتأخرين', _n(_ovToday['late'])],
                         ['الغايبين', _n(_ovToday['absent'])],
                         ['في إجازة', _n(_ovToday['onLeave'])],
-                        ['برّه بإذن / زيارة', _n(_ovToday['outNow'])],
+                        ['برّه بإذن / معاينة', _n(_ovToday['outNow'])],
                         ['ساعات الشغل', _hm(_ovToday['workMinutes'])],
                       ], taps: {
                         'الحاضرين': () => _openToday('present'),
                         'المتأخرين': () => _openToday('late'),
                         'الغايبين': () => _openToday('absent'),
-                        'برّه بإذن / زيارة': _openOut,
+                        'برّه بإذن / معاينة': _openOut,
                       }),
 
                       const SizedBox(height: 16),

@@ -1,8 +1,8 @@
 import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:ui';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' hide Text;
+import 'package:flutter/material.dart' hide Text;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'attendance/attendance_filters.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class LeaveSummaryPage extends StatefulWidget {
   final String uid;
@@ -769,7 +770,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
                   _applyFilters();
                 },
                 decoration: InputDecoration(
-                  hintText: 'بحث باسم الموظف، السبب، النوع...',
+                  hintText: txs('بحث باسم الموظف، السبب، النوع...'),
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white60 : Ar.grey.shade600,
                   ),

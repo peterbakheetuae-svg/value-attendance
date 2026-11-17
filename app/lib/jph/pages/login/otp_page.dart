@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
@@ -9,6 +9,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// OTP verification — the "Secure Vault Access" motion (digit pills → digits orbit and spin into the
 /// center → loading ring with a 0–100 counter → success flash, bubbles, confetti, check drawn, badge pop;
@@ -647,7 +648,7 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
     final isDark = Provider.of<AppController>(context).isDark;
     final accent = isDark ? AppColors.primaryLight : AppColors.primary;
     InputDecoration dec(String l) => InputDecoration(
-          labelText: l,
+          labelText: txs(l),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           suffixIcon: IconButton(icon: Icon(_hide ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _hide = !_hide)),
         );

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -8,6 +8,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -119,9 +120,9 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextField(
                     controller: _uidController,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'employee_id') ?? 'رقم الموظف',
+                      labelText: txs(AppLocalizations.of(context, 'employee_id') ?? 'رقم الموظف'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      errorText: _uidError,
+                      errorText: txs(_uidError),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -129,18 +130,18 @@ class _RegisterPageState extends State<RegisterPage> {
                     controller: _passwordController,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'password') ?? 'كلمة المرور',
+                      labelText: txs(AppLocalizations.of(context, 'password') ?? 'كلمة المرور'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      errorText: _passwordError,
+                      errorText: txs(_passwordError),
                     ),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: _nameController,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'full_name') ?? 'الاسم الكامل',
+                      labelText: txs(AppLocalizations.of(context, 'full_name') ?? 'الاسم الكامل'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      errorText: _nameError,
+                      errorText: txs(_nameError),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -148,9 +149,9 @@ class _RegisterPageState extends State<RegisterPage> {
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'email') ?? 'البريد الإلكتروني',
+                      labelText: txs(AppLocalizations.of(context, 'email') ?? 'البريد الإلكتروني'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      errorText: _emailError,
+                      errorText: txs(_emailError),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -158,7 +159,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'phone') ?? 'رقم الهاتف',
+                      labelText: txs(AppLocalizations.of(context, 'phone') ?? 'رقم الهاتف'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
@@ -166,9 +167,9 @@ class _RegisterPageState extends State<RegisterPage> {
                   TextField(
                     controller: _companyIdController,
                     decoration: InputDecoration(
-                      labelText: AppLocalizations.of(context, 'company_id') ?? 'معرف الشركة',
+                      labelText: txs(AppLocalizations.of(context, 'company_id') ?? 'معرف الشركة'),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      errorText: _companyIdError,
+                      errorText: txs(_companyIdError),
                     ),
                   ),
                   const SizedBox(height: 24),

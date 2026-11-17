@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/notification_service.dart';
 import '../../services/app_controller.dart';
@@ -8,6 +8,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 // صفحة واحدة موحدة تجمع خصائص الصفحتين: NotificationSettingsPageteam و NotificationSettingsPage
 class NotificationSettingsPage extends StatefulWidget {

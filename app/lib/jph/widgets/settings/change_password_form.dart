@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/api_service.dart'; // استيراد ApiService بدلاً من PasswordService
 import '../../l10n/app_localizations.dart';
 import '../glass_dialog.dart';
 import '../glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class ChangePasswordForm extends StatefulWidget {
   final String uid;
@@ -149,7 +150,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
               controller: _oldPasswordController,
               obscureText: !_showOldPassword,
               decoration: InputDecoration(
-                labelText: AppLocalizations.of(context, 'old_password') ?? 'كلمة المرور القديمة',
+                labelText: txs(AppLocalizations.of(context, 'old_password') ?? 'كلمة المرور القديمة'),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -185,7 +186,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
               controller: _newPasswordController,
               obscureText: !_showNewPassword,
               decoration: InputDecoration(
-                labelText: AppLocalizations.of(context, 'new_password') ?? 'كلمة المرور الجديدة',
+                labelText: txs(AppLocalizations.of(context, 'new_password') ?? 'كلمة المرور الجديدة'),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -221,7 +222,7 @@ class _ChangePasswordFormState extends State<ChangePasswordForm> {
               controller: _confirmPasswordController,
               obscureText: !_showConfirmPassword,
               decoration: InputDecoration(
-                labelText: AppLocalizations.of(context, 'confirm_new_password') ?? 'تأكيد كلمة المرور الجديدة',
+                labelText: txs(AppLocalizations.of(context, 'confirm_new_password') ?? 'تأكيد كلمة المرور الجديدة'),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),

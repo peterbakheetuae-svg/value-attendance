@@ -1,5 +1,5 @@
 import '../../widgets/side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../services/api_service.dart';
@@ -10,6 +10,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// KPI & performance evaluation — same glass layout and 3 tabs as the original screen:
 /// 1) KPIs per job position, 2) employee performance (targets, actuals, achievement, trend),
@@ -108,7 +109,7 @@ Widget _pick(BuildContext ctx, String label, IconData icon, String? value, Map<S
   );
 }
 
-InputDecoration _input(String label) => InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
+InputDecoration _input(String label) => InputDecoration(labelText: txs(label), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)));
 
 class _KpiPageState extends State<KpiPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -216,7 +217,7 @@ class _PositionsTabState extends State<_PositionsTab> {
                     const Icon(Icons.work_outline_rounded, color: AppColors.primary),
                     const SizedBox(width: 10),
                     Expanded(child: Text('${p['name_ar']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                    if (_canConfig) IconButton(icon: const Icon(Icons.tune_rounded), tooltip: 'تحديد المؤشرات', onPressed: () => _editSet(p, items)),
+                    if (_canConfig) IconButton(icon: const Icon(Icons.tune_rounded), tooltip: txs('تحديد المؤشرات'), onPressed: () => _editSet(p, items)),
                   ]),
                   if (set == null)
                     Padding(

@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'app_background.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 import 'glass_ui_widgets.dart'; // بدلاً من glass_card.dart
 
 

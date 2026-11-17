@@ -100,7 +100,7 @@ test('overdue: rings once; extension follows the same workflow; owner told only 
 
 test('rejection reaches the employee; history is immutable in the database', async () => {
   at('2026-03-10T13:30:00Z');
-  const r = await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', expectedReturn: '17:00', reason: 'زيارة عميل' });
+  const r = await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', expectedReturn: '17:00', reason: 'معاينة عميل' });
   await h.call(c.t.sm1, 'POST', `/outings/${r.body.outing.id}/decision`, { decision: 'reject', comment: 'محتاجينك في المكتب' });
   assert.ok((await types(c.t.e1)).includes('outing_rejected'));
   await assert.rejects(h.db.query(`UPDATE outing_requests SET status = 'approved' WHERE id = $1`, [r.body.outing.id]));

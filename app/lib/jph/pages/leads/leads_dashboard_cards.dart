@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The extra cards of «لوحة السيلز» (like the Elite / Engaz boards): the numbers strip (Phone Call, WhatsApp
 /// Contacts, Created today, Avg Response Time), Lead creation · last 7 days, Avg Response Time / week,

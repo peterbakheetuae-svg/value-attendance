@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Android only. On the first start after install the app asks, one after the other, for:
 ///   • the location (required — attendance and the in-shift follow-up need it),

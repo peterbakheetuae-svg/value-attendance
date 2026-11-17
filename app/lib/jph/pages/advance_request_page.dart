@@ -2,7 +2,7 @@ import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +18,7 @@ import 'cash/cash_page.dart';
 import '../widgets/swipe_tabs.dart';
 import '../widgets/adjustment_form.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class AdvanceRequestPage extends StatefulWidget {
   final String uid;
@@ -342,7 +343,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                               keyboardType: TextInputType.number,
                                               textInputAction: TextInputAction.done,
                                               decoration: InputDecoration(
-                                                hintText: 'أدخل المبلغ',
+                                                hintText: txs('أدخل المبلغ'),
                                                 hintStyle: TextStyle(
                                                   color: subduedTextColor,
                                                   fontSize: 16,
@@ -487,7 +488,7 @@ class _AdvanceRequestPageState extends State<AdvanceRequestPage> {
                                           maxLines: 4,
                                           minLines: 3,
                                           decoration: InputDecoration(
-                                            hintText: 'اكتب ملاحظة توضيحية هنا...',
+                                            hintText: txs('اكتب ملاحظة توضيحية هنا...'),
                                             hintStyle: TextStyle(
                                               color: subduedTextColor,
                                               fontSize: 16,

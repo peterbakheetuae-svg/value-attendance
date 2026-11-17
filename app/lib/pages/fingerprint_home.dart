@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -19,6 +19,7 @@ import 'common.dart';
 import 'notifications_page.dart';
 import 'employees_page.dart';
 import 'requests_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The original JPH employee home, rebuilt 1:1 on the new API:
 /// header (bell · date/name · avatar) → three top tabs (attendance / break / leave)

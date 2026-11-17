@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -13,6 +13,7 @@ import '../../widgets/swipe_tabs.dart';
 import '../attendance/attendance_widgets.dart';
 import 'cash_page.dart';
 import 'payout_tabs.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الخزنة (كانت "ملخص المالية"): صفحة واحدة بشريط زي الصفحة الرئيسية — اسحب يمين وشمال:
 ///   الطلبات (وتحتها: سلف | مرتبات | عمولات) | الخزنة (الأرصدة وكل أرقام الشهر، التحويلات، المصروفات، التحصيلات) | السجل.

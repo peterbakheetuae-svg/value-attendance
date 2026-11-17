@@ -201,7 +201,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
           await audit(q, a.id, 'tracking.authorized_exit', 'outing_request', outing.id, undefined, { at: now, ...stages });
         } else {
           const where = `على بُعد ${Math.round(outside!)} متر من المكتب — الساعة ${hhmm(now)}`;
-          const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو زيارة معتمدة';
+          const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو معاينة معتمدة';
           await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!), ...stages });
           // the alarm: the employee (all his phones) + his general manager + the administrative officer (+ his watchers)
           const event = `${a.id}:${deviceKey}:${now.getTime()}`;
@@ -212,7 +212,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
               entity: 'employee', entityId: a.id, dedupeKey: `unauthorized_exit:${event}` }));
           }
           const self = await notify(q, { to: a.id, type: 'unauthorized_exit_self', title: 'إنت برة المكتب من غير إذن معتمد',
-            body: `لو خارج لشغل أو مشوار اطلب «زيارة» أو «إذن ساعات» من التطبيق.${onPhone}`, dedupeKey: `unauthorized_exit_self:${event}` });
+            body: `لو خارج لشغل أو مشوار اطلب «معاينة» أو «إذن ساعات» من التطبيق.${onPhone}`, dedupeKey: `unauthorized_exit_self:${event}` });
           // dispatched → what each push service said (accepted ≠ shown ≠ heard: those happen on the phone)
           await audit(q, a.id, 'tracking.alert_dispatch', 'employee', a.id, undefined,
             { event, recipients: to.length, employee: pushSum([self]), others: pushSum(sent) });

@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../cash/cash_page.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// لوحة المالية — role-based: HR sees the HR cashbox side only; المدير / owner also see the office cashbox and the
 /// company-wide figures. Second tab: مؤشرات الموظفين (month vs previous month, alerts and suggestions — advice only).
@@ -281,7 +282,7 @@ class _InsightsTabState extends State<_InsightsTab> {
           _delta(isDark, 'غياب', c['absenceDays'], p['absenceDays']),
           _delta(isDark, 'إجازة بدون مرتب', c['unpaidLeaveDays'], p['unpaidLeaveDays']),
           _delta(isDark, 'أذونات', c['permissions'], p['permissions']),
-          _delta(isDark, 'زيارات', c['visits'], p['visits'], lowerIsBetter: false),
+          _delta(isDark, 'معاينات', c['visits'], p['visits'], lowerIsBetter: false),
           _delta(isDark, 'صفقات', c['deals'], p['deals'], lowerIsBetter: false),
           _delta(isDark, 'عمولات', c['commissions'], p['commissions'], lowerIsBetter: false),
           if (c['evaluation'] != null || p['evaluation'] != null) _delta(isDark, 'التقييم', c['evaluation'], p['evaluation'], lowerIsBetter: false, suffix: '/5'),

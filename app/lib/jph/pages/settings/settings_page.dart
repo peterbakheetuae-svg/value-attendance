@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'permissions_page.dart';
 import '../../../core/app_updater.dart';
 import '../cash/cashbox_hub_page.dart';
@@ -48,6 +48,7 @@ import '../../widgets/glass_dialog.dart';
 import '../custody/custody_assets_page.dart';
 import '../../forms/client_intro_page.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class SettingsPage extends StatefulWidget {
   final String uid;
@@ -329,117 +330,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 20),
 
                     if (!widget.partner) ...[
-                    SettingsTile(
-                      title: AppLocalizations.of(context, 'leave_requests') ?? 'طلبات الإجازة',
-                      icon: Icons.beach_access,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LeaveSummaryPage(
-                              uid: widget.uid,
-                              name: widget.name,
-                              role: widget.role,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ─── المالية: قائمة منسدلة (طلبات ومبيعات / الخزنة …) ───
-                    SettingsExpandableTile(
-                      title: AppLocalizations.of(context, 'finance') ?? 'المالية',
-                      icon: Icons.account_balance_wallet,
-                      expanded: _financeOpen,
-                      onToggle: () => setState(() => _financeOpen = !_financeOpen),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: Column(children: [
-                          for (final (i, it) in _financeItems().indexed) ...[
-                            if (i > 0) const SizedBox(height: 12),
-                            _companyOption(appController, it.$1, it.$2, it.$3),
-                          ],
-                        ]),
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // ─── المشاريع: المشاريع / المبيعات / الخزنة / الملاك / العملاء ───
-                    if (_projectItems().isNotEmpty) ...[
-                      SettingsExpandableTile(
-                        title: 'المشاريع',
-                        icon: Icons.apartment_rounded,
-                        expanded: _projectsOpen,
-                        onToggle: () => setState(() => _projectsOpen = !_projectsOpen),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          child: Column(children: [
-                            for (final (i, it) in _projectItems().indexed) ...[
-                              if (i > 0) const SizedBox(height: 12),
-                              _companyOption(appController, it.$1, it.$2, it.$3),
-                            ],
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // ─── شركات التسويق: بند لوحده (راتب ثابت / عمولة على المبيعات) ───
-                    if (ApiService.can('cash.office')) ...[
-                      SettingsTile(
-                        title: 'شركات التسويق',
-                        icon: Icons.campaign_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingCompaniesPage())),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // ─── العهدة: the company's mobiles / laptops (add here, hand over from the employee's page) ───
-                    if (CustodyAssetsPage.visible) ...[
-                      SettingsTile(
-                        title: 'العهدة',
-                        icon: Icons.inventory_2_rounded,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustodyAssetsPage())),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // ─── استمارات ← استمارة استلام عهدة (موبايل / كمبيوتر محمول) • استمارات عملاء (استمارة تعارف — for everyone) ───
-                    ...[
-                      SettingsExpandableTile(
-                        title: 'استمارات',
-                        icon: Icons.description_rounded,
-                        expanded: _formsOpen,
-                        onToggle: () => setState(() => _formsOpen = !_formsOpen),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                            if (CustodyReceiptPage.canUse || ApiService.can('documents.read') || ApiService.can('employee.read_all')) ...[
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8, right: 4),
-                                child: Text('استمارة استلام عهدة', style: TextStyle(fontWeight: FontWeight.w800,
-                                    color: appController.isDark ? Colors.white70 : Colors.black54)),
-                              ),
-                              _companyOption(appController, 'موبايل', Icons.phone_android_rounded, () => const CustodyReceiptPage()),
-                              const SizedBox(height: 12),
-                              _companyOption(appController, 'كمبيوتر محمول', Icons.laptop_rounded, () => const CustodyReceiptPage(device: 'laptop')),
-                              const SizedBox(height: 16),
-                            ],
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8, right: 4),
-                              child: Text('استمارات عملاء', style: TextStyle(fontWeight: FontWeight.w800,
-                                  color: appController.isDark ? Colors.white70 : Colors.black54)),
-                            ),
-                            _companyOption(appController, 'استمارة تعارف', Icons.person_search_rounded, () => const ClientIntroPage()),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
+                    // طلبات الإجازة / المالية / المشاريع / شركات التسويق / العهدة / استمارات: from the ⋮ menu (AppMenu)
                     // ─── إعدادات الشركة: expands in place like "change password" / "language"; admins only ───
                     if (_companyItems().isNotEmpty) ...[
                       SettingsExpandableTile(

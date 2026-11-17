@@ -1,5 +1,5 @@
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../l10n/app_localizations.dart';
@@ -13,6 +13,7 @@ import 'app_menu.dart';
 import 'glass_ui.dart';
 import '../pages/leads/leads_api.dart' show seesLeads, tr;
 import '../services/jph_bridge.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class GlassBottomNav extends StatelessWidget {
   final int currentIndex;

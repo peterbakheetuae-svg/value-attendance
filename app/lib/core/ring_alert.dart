@@ -27,7 +27,7 @@ class RingAlert {
     if (_channels) return;
     await _android?.createNotificationChannel(const AndroidNotificationChannel(
       ringChannel, 'رنين التنبيهات المهمة',
-      description: 'طلبات الإذن والزيارة وميعاد الرجوع',
+      description: 'طلبات الإذن والمعاينة وميعاد الرجوع',
       importance: Importance.max,
       playSound: true,
       sound: RawResourceAndroidNotificationSound('notification'),
@@ -51,7 +51,7 @@ class RingAlert {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     final details = AndroidNotificationDetails(
       ringChannel, 'رنين التنبيهات المهمة',
-      channelDescription: 'طلبات الإذن والزيارة وميعاد الرجوع',
+      channelDescription: 'طلبات الإذن والمعاينة وميعاد الرجوع',
       importance: Importance.max,
       priority: Priority.max,
       fullScreenIntent: true,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -9,6 +9,7 @@ import '../../widgets/primary_button.dart';
 import '../../widgets/company_selector_sheet.dart';
 import '../../services/api_service.dart';
 import '../../widgets/glass_dialog.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Advances management screen — list, submit, approve/reject advance requests.
 ///

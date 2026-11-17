@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// طلبات مالية ← علاوة / خصم: same look as "طلب".
 ///  • جزاء: comes off that month's salary (shows in "خصومات" in the monthly report).

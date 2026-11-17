@@ -1,7 +1,7 @@
 import '../../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -10,6 +10,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/custody_asset_card.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// العهدة ← one item: its card, «تسليم العهدة إلى» (or «استلام العهدة» while it is with someone) and its history —
 /// who had it, from when, when it came back and who received it.
@@ -47,7 +48,7 @@ class _CustodyAssetDetailsPageState extends State<CustodyAssetDetailsPage> {
   }
 
   InputDecoration _input(bool isDark, String label) => InputDecoration(
-        labelText: label,
+        labelText: txs(label),
         filled: true,
         fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.white,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),

@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -12,6 +12,7 @@ import '../attendance/attendance_widgets.dart';
 import '../cash/cash_page.dart';
 import '../../widgets/glass_ui.dart';
 import '../exclusive/exclusive_projects_page.dart' show ExclusiveUnitPage;
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// المبيعات والأقساط — the operational page for HR and the manager (the Projects page stays as it is):
 ///  • الأقساط المستحقة: كل المفتوح | المتأخر | النهارده (swipe), period filter icon top-left, search by buyer.
@@ -197,7 +198,7 @@ class _DueListState extends State<_DueList> {
           child: TextField(
             controller: _q,
             onSubmitted: (_) => _load(),
-            decoration: InputDecoration(hintText: 'ابحث باسم المشتري', border: InputBorder.none,
+            decoration: InputDecoration(hintText: txs('ابحث باسم المشتري'), border: InputBorder.none,
                 prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark))),
           ),
         ),
@@ -292,7 +293,7 @@ class _ClientsTabState extends State<_ClientsTab> {
           child: TextField(
             controller: _q,
             onSubmitted: (_) => _load(),
-            decoration: InputDecoration(hintText: 'ابحث باسم العميل أو الموبايل أو الوحدة', border: InputBorder.none,
+            decoration: InputDecoration(hintText: txs('ابحث باسم العميل أو الموبايل أو الوحدة'), border: InputBorder.none,
                 prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark))),
           ),
         ),
@@ -892,7 +893,7 @@ class _SaleDetailsPageState extends State<SaleDetailsPage> {
                                           ),
                                           JphUi.chip((_lineStatus[l['status']] ?? ('${l['status']}', Ar.grey)).$1, (_lineStatus[l['status']] ?? ('', Ar.grey)).$2),
                                           if (can['collect'] == true && ((l['remaining'] as num?) ?? 0) > 0)
-                                            IconButton(tooltip: 'تحصيل', icon: Icon(Icons.add_card_rounded, color: JphUi.primary(isDark)), onPressed: () => _collect(l)),
+                                            IconButton(tooltip: txs('تحصيل'), icon: Icon(Icons.add_card_rounded, color: JphUi.primary(isDark)), onPressed: () => _collect(l)),
                                         ]),
                                       ),
                                     const SizedBox(height: 16),

@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الإعدادات / المراحل (like Elite): every stage with its type, «وقت التنبيه» (the salesman is reminded this long
 /// before the follow-up time) and «مدة التأخير» (the lead counts as late only this long after it). New stages can be

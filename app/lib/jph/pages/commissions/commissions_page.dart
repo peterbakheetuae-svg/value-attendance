@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import '../exclusive/exclusive_projects_page.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
@@ -13,6 +13,7 @@ import 'commission_project_page.dart';
 import 'project_form_page.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// إدارة عمولات المشاريع — one place, tabs by permission:
 ///  مشاريع (owner / المدير / HR / sales manager) • الاعتماد (المدير / owner) • عمولات (عمولاتي — everyone).
@@ -166,7 +167,7 @@ class _ProjectsTabState extends State<_ProjectsTab> {
                 controller: _q,
                 onSubmitted: (_) => _load(),
                 decoration: InputDecoration(
-                  hintText: 'ابحث باسم المشروع', border: InputBorder.none,
+                  hintText: txs('ابحث باسم المشروع'), border: InputBorder.none,
                   prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark)),
                   suffixIcon: IconButton(icon: const Icon(Icons.arrow_forward_rounded), onPressed: _load),
                 ),
@@ -363,7 +364,7 @@ class _ApproveTabState extends State<_ApproveTab> {
         child: GlassAlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
           title: const Text('سبب الرفض', style: TextStyle(fontWeight: FontWeight.w900)),
-          content: TextField(controller: reason, maxLines: 3, decoration: const InputDecoration(hintText: 'اكتب السبب (إجباري)')),
+          content: TextField(controller: reason, maxLines: 3, decoration:  InputDecoration(hintText: txs('اكتب السبب (إجباري)'))),
           actions: [
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
             ElevatedButton(

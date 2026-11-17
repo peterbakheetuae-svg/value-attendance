@@ -1,5 +1,5 @@
 import '../../widgets/side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -11,6 +11,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../services/api_service.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Company information & office location — same glass UI as the original company screen,
 /// with the office geofence drawn on an OpenStreetMap map. The offices here drive geofencing.
@@ -250,7 +251,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
   }
 
   InputDecoration _input(String label) => InputDecoration(
-        labelText: label,
+        labelText: txs(label),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       );
 

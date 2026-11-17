@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../../core/api.dart';
 import '../services/jph_bridge.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// ربط الحساب بأكتر من جهاز: the phones linked to one account. The first phone is linked by itself; any other
 /// phone waits here until the general manager / administrative officer (or the owner) approves it. Only approved
@@ -101,7 +102,7 @@ class _EmployeeDevicesBoxState extends State<EmployeeDevicesBox> {
           Icon(Icons.devices_rounded, color: Ar.info.shade700),
           const SizedBox(width: 8),
           Expanded(child: Text('الأجهزة المربوطة بالحساب', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: fg))),
-          IconButton(onPressed: _busy ? null : _load, icon: const Icon(Icons.refresh_rounded), tooltip: 'تحديث'),
+          IconButton(onPressed: _busy ? null : _load, icon: const Icon(Icons.refresh_rounded), tooltip: txs('تحديث')),
         ]),
         Text('أول جهاز بيتربط لوحده. أي جهاز تاني بيستنى موافقة المدير العام أو المسؤول الإداري، والحساب يدخل من الأجهزة الموافق عليها بس.',
             style: TextStyle(fontSize: 12.5, color: fg.withValues(alpha: 0.7))),

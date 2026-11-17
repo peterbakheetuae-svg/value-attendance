@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 
 import '../../../core/api.dart' show kApiBaseUrl;
@@ -7,6 +7,7 @@ import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
 import 'leads_routing.dart';
 import '../login/otp_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// إعدادات الليدز / الربط: Value Aqar (a direct channel: its inquiries come in as leads, given by the rule of their
 /// property / project / the default one; its projects and units wait here until the office adopts them as تسويق or

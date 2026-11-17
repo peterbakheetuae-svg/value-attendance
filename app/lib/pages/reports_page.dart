@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -14,6 +14,7 @@ import '../design/glass.dart';
 import '../design/glass_page.dart';
 import '../design/primary_button.dart';
 import 'common.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Monthly reports: filters (month · department · team · sales manager), per-employee
 /// summaries from /reports/monthly, Excel export (server) and PDF/print (client, RTL Cairo).

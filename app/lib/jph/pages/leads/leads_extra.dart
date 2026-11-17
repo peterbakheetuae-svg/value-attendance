@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/save_file.dart';
@@ -12,6 +12,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../widgets/app_nav.dart';
 import 'leads_api.dart';
 import 'quote_pdf.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// نظام الليدز — المرحلة التانية: the lead's files, the client's request and the units that match it, «وصلت الميتنج»,
 /// the WhatsApp templates, and the Excel export.

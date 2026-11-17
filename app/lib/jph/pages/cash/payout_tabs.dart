@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../services/api_service.dart';
 import '../../services/jph_bridge.dart';
@@ -11,6 +11,7 @@ import '../advance_summary.dart';
 import '../attendance/attendance_report_page.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الخزنة ← الطلبات: شريط تاني تحت شريط الصفحة — سلف | مرتبات | عمولات.
 /// الطريقة الوحيدة لصرف السلف والمرتبات والعمولات:

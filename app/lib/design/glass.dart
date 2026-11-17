@@ -4,8 +4,9 @@
 // (blur 14/18, radius 26, 1px white 30% border, 28/14 shadow, etc.). The only structural
 // change is that they read light/dark from Theme instead of the old AppController.
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'app_colors.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 bool isDarkOf(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
 
@@ -360,7 +361,7 @@ class GlassIconButton extends StatelessWidget {
 InputDecoration glassInput(BuildContext context, String label, {Widget? suffix, String? hint}) {
   final sub = isDarkOf(context) ? AppColors.onSurfaceVariantDark : AppColors.onSurfaceVariantLight;
   return InputDecoration(
-    labelText: label, hintText: hint,
+    labelText: txs(label), hintText: txs(hint),
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: sub.withValues(alpha: 0.3))),
     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: sub.withValues(alpha: 0.3))),
     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),

@@ -3,11 +3,12 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// استيراد ليدز من ملف إكسيل (.xlsx) أو CSV — up to 1000 a time. The first row is the headers:
 /// الاسم | الموبايل | موبايل 2 | الإيميل | الميزانية | المشروع | القناة | ملاحظات (Arabic or English names).

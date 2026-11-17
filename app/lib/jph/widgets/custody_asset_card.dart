@@ -1,9 +1,10 @@
 import 'side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One item of العهدة (mobile / laptop) — the same card on the العهدة page, its details page and «تسليم عهدة».
 const custodyAccAr = {'charger': 'شاحن', 'cable': 'كابل', 'case': 'جراب', 'headset': 'سماعة', 'bag': 'شنطة', 'mouse': 'ماوس', 'other': 'أخرى'};

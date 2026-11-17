@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/async_view.dart';
 import '../core/format.dart';
@@ -8,6 +8,7 @@ import '../design/app_colors.dart';
 import '../design/glass.dart';
 import 'requests_page.dart';
 import 'fingerprint_home.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Role-shaped dashboard in the original layout: header (bell · name/date · avatar),
 /// today card, then bold-titled sections of GlassMiniCards. All values come from /dashboard.

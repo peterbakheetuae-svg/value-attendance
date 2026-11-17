@@ -4,7 +4,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +15,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../../forms/payment_voucher_pdf.dart';
 import 'cash_overview.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الخزينة — the office cashbox (المدير / owner only) and the HR cashbox.
 /// Tabs by permission: الأرصدة • الحركات • التحويلات • المصروفات • التحصيلات.
@@ -1581,7 +1582,7 @@ class _ReceiptsTabState extends State<_ReceiptsTab> {
           child: TextField(
             controller: _q,
             onSubmitted: (_) => _load(),
-            decoration: InputDecoration(hintText: 'ابحث بالاسم أو رقم الإيصال', border: InputBorder.none,
+            decoration: InputDecoration(hintText: txs('ابحث بالاسم أو رقم الإيصال'), border: InputBorder.none,
                 prefixIcon: Icon(Icons.search_rounded, color: JphUi.primary(isDark))),
           ),
         ),

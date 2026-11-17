@@ -3,7 +3,7 @@ import '../pages/leads/lead_page.dart';
 import '../pages/leads/tasks_page.dart';
 import '../widgets/side_sheet.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import '../widgets/employee_devices.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../pages/notifications/notifications_page.dart';
@@ -14,6 +14,7 @@ import 'notification_service.dart';
 import '../../core/push.dart';
 import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// In-app notification center with an audible ring (no push service on the free plan):
 /// polls the API while the app runs (Android keeps running in the background during a shift),

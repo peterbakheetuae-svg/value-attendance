@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../services/app_controller.dart';
 import '../theme/app_colors.dart';
 import 'glass_dialog.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Hourly permission / external visit dialogs — same shell as the original break dialog
 /// (rounded 24 dialog, translucent surface, circular icon badge, full-width buttons).
@@ -86,11 +87,11 @@ Future<String?> showOutingKindPicker(BuildContext context) {
     builder: (ctx) => _shell(ctx,
         icon: Icons.directions_walk_rounded,
         color: AppColors.primary,
-        title: 'إذن ساعات أو زيارة',
+        title: 'إذن ساعات أو معاينة',
         subtitle: 'اختار نوع الطلب',
         children: [
           _button(ctx, label: 'إذن ساعات', icon: Icons.timelapse_rounded, color: AppColors.primary, onTap: () => Navigator.pop(ctx, 'permission')),
-          _button(ctx, label: 'زيارة', icon: Icons.location_city_rounded, color: AppColors.secondary, onTap: () => Navigator.pop(ctx, 'visit')),
+          _button(ctx, label: 'معاينة', icon: Icons.location_city_rounded, color: AppColors.secondary, onTap: () => Navigator.pop(ctx, 'visit')),
           _button(ctx, label: 'إلغاء', icon: Icons.close_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
         ]),
   );
@@ -104,7 +105,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
   final withStart = kind == 'permission' && !extension;
   TimeOfDay? start = withStart ? TimeOfDay.now() : null;
   String? error;
-  final label = kind == 'visit' ? 'زيارة' : 'إذن ساعات';
+  final label = kind == 'visit' ? 'معاينة' : 'إذن ساعات';
   return showDialog<Map<String, String>>(
     context: context,
     builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
@@ -127,7 +128,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
                 },
                 child: InputDecorator(
                   decoration: InputDecoration(
-                    labelText: 'بداية الإذن *',
+                    labelText: txs('بداية الإذن *'),
                     prefixIcon: const Icon(Icons.login_rounded),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                     filled: true,
@@ -148,7 +149,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
               },
               child: InputDecorator(
                 decoration: InputDecoration(
-                  labelText: withStart ? 'نهاية الإذن *' : 'ميعاد الرجوع المتوقع *',
+                  labelText: txs(withStart ? 'نهاية الإذن *' : 'ميعاد الرجوع المتوقع *'),
                   prefixIcon: const Icon(Icons.schedule_rounded),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                   filled: true,
@@ -163,7 +164,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
               controller: reason,
               maxLines: 3,
               decoration: InputDecoration(
-                labelText: extension ? 'سبب التمديد *' : 'السبب / ملاحظات *',
+                labelText: txs(extension ? 'سبب التمديد *' : 'السبب / ملاحظات *'),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 filled: true,
                 fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.6),
@@ -205,7 +206,7 @@ Future<Map<String, String>?> showOutingForm(BuildContext context, {required Stri
 /// While out: "I'm back" / extension / (overdue) new request. Returns 'return' | 'extend' | 'new' | null.
 Future<String?> showOutingActions(BuildContext context, {required String kind, required DateTime expectedReturn, required bool overdue}) {
   String two(int v) => v.toString().padLeft(2, '0');
-  final label = kind == 'visit' ? 'زيارة' : 'إذن ساعات';
+  final label = kind == 'visit' ? 'معاينة' : 'إذن ساعات';
   return showDialog<String>(
     context: context,
     barrierDismissible: !overdue,
@@ -217,7 +218,7 @@ Future<String?> showOutingActions(BuildContext context, {required String kind, r
         children: [
           _button(ctx, label: 'رجعت المكتب', icon: Icons.login_rounded, color: AppColors.success, onTap: () => Navigator.pop(ctx, 'return')),
           _button(ctx, label: 'طلب تمديد', icon: Icons.more_time_rounded, color: Ar.amber, onTap: () => Navigator.pop(ctx, 'extend')),
-          if (overdue) _button(ctx, label: 'طلب جديد (إذن / زيارة)', icon: Icons.add_rounded, color: AppColors.primary, onTap: () => Navigator.pop(ctx, 'new')),
+          if (overdue) _button(ctx, label: 'طلب جديد (إذن / معاينة)', icon: Icons.add_rounded, color: AppColors.primary, onTap: () => Navigator.pop(ctx, 'new')),
           _button(ctx, label: 'إغلاق', icon: Icons.close_rounded, color: Ar.grey, outlined: true, onTap: () => Navigator.pop(ctx)),
         ]),
   );
@@ -226,7 +227,7 @@ Future<String?> showOutingActions(BuildContext context, {required String kind, r
 /// Approve / reject a request (opened from a ringing notification).
 Future<void> showOutingDecision(BuildContext context, Map<String, dynamic> o, Future<Map<String, dynamic>> Function(bool approve, String comment) decide) {
   final note = TextEditingController();
-  final kind = o['kind'] == 'visit' ? 'زيارة' : 'إذن ساعات';
+  final kind = o['kind'] == 'visit' ? 'معاينة' : 'إذن ساعات';
   final ext = o['parent_id'] != null;
   final back = DateTime.tryParse('${o['expected_return_at']}')?.toLocal();
   String two(int v) => v.toString().padLeft(2, '0');
@@ -240,7 +241,7 @@ Future<void> showOutingDecision(BuildContext context, Map<String, dynamic> o, Fu
         children: [
           TextField(
             controller: note,
-            decoration: InputDecoration(labelText: 'ملاحظة (اختياري)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
+            decoration: InputDecoration(labelText: txs('ملاحظة (اختياري)'), border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
           ),
           const SizedBox(height: 14),
           _button(ctx, label: 'موافقة', icon: Icons.check_rounded, color: AppColors.success, onTap: () async {

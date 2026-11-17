@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/app_settings.dart';
 import '../core/i18n.dart';
@@ -17,6 +17,7 @@ import 'kpi_page.dart';
 import 'notifications_page.dart';
 import 'reports_page.dart';
 import 'tracking_page.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Settings-style hub (original SettingTile list inside GlassCards), filtered by permission.
 class MorePage extends StatelessWidget {

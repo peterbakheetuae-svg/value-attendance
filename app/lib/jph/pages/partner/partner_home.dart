@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -10,6 +10,7 @@ import '../../widgets/jph_form_ui.dart';
 import '../leads/lead_page.dart';
 import '../leads/leads_api.dart';
 import 'partner_profile.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// A marketing company's app (its own sign-in, not an employee — db/migrations/075_marketing_partners.sql):
 ///   لوحة التحكم — like the sales dashboard the owner sees, but only its campaigns' leads

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../pages/cash/cash_page.dart';
 import '../pages/sales/sales_page.dart';
@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import 'jph_form_ui.dart';
 import 'glass_dialog.dart';
 import 'glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// تبويب "مبيعات" في طلبات المالية: بيع وحدة (كاش أو تقسيط) ببيانات العميل، ومعاه طلب العمولة.
 ///  - السيلز: البيعة بتروح للإدارة تعتمدها، وطلب العمولة باسمه.
@@ -177,7 +178,7 @@ class _SalesTabState extends State<SalesTab> {
         context: context,
         builder: (ctx) => GlassAlertDialog(
           title: const Text('رفض البيعة'),
-          content: TextField(controller: reason, decoration: const InputDecoration(hintText: 'السبب')),
+          content: TextField(controller: reason, decoration:  InputDecoration(hintText: txs('السبب'))),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
             TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('رفض', style: TextStyle(color: Ar.red))),

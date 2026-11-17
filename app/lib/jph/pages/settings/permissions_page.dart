@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
@@ -6,6 +6,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// «إعدادات الشركة ← الصلاحيات»: the one place permissions are managed — job-title profiles, individual exceptions,
 /// comparing two profiles and the change history. Everything here is enforced by the server too (it refuses changing
@@ -83,10 +84,10 @@ class _PermissionsPageState extends State<PermissionsPage> with SingleTickerProv
           leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).pop()),
           actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
           bottom: TabBar(controller: _tabs, isScrollable: true, labelColor: AppColors.primary, tabs: const [
-            Tab(text: 'المسميات الوظيفية'),
-            Tab(text: 'الموظفين'),
-            Tab(text: 'مقارنة'),
-            Tab(text: 'سجل التغييرات'),
+            Tab(text: txs('المسميات الوظيفية')),
+            Tab(text: txs('الموظفين')),
+            Tab(text: txs('مقارنة')),
+            Tab(text: txs('سجل التغييرات')),
           ]),
         ),
         body: _loading
@@ -167,7 +168,7 @@ class _PermissionsPageState extends State<PermissionsPage> with SingleTickerProv
 }
 
 InputDecoration _search(String hint) => InputDecoration(
-    prefixIcon: const Icon(Icons.search), hintText: hint, isDense: true,
+    prefixIcon: const Icon(Icons.search), hintText: txs(hint), isDense: true,
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)));
 
 Widget _permTitle(_Perm p) => Row(children: [
@@ -488,7 +489,7 @@ class _CompareTabState extends State<_CompareTab> {
     final pa = permsOf(_a), pb = permsOf(_b);
     DropdownButtonFormField<String> pick(String? v, ValueChanged<String?> on, String label) => DropdownButtonFormField<String>(
           value: v, isExpanded: true,
-          decoration: InputDecoration(labelText: label, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), isDense: true),
+          decoration: InputDecoration(labelText: txs(label), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)), isDense: true),
           items: roles.map((r) => DropdownMenuItem(value: '${r['key']}', child: Text('${r['nameAr']}'))).toList(),
           onChanged: on,
         );

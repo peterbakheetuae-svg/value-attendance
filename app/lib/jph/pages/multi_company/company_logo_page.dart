@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/doc_logos.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// إعدادات الشركة ← لوجو الشركة: the logo printed on every document of the company (payment vouchers, payslips …).
 class CompanyLogoPage extends StatefulWidget {

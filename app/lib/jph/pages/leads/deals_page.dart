@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -6,6 +6,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'lead_page.dart' show openLead;
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الصفقات (like Elite): a board of three columns — مفتوحة / ناجحة / خاسرة. Drag a card to another column
 /// (or between two cards) to move it; on the phone a long press drags too, or the card's menu moves it.

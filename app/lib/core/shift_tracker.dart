@@ -77,7 +77,7 @@ class ShiftTracker {
     _ringedOutside = true;
     await RingAlert.init();
     await RingAlert.show(id: 7001, title: 'إنت برّه نطاق المكتب ⚠️',
-        body: 'ارجع المكتب، أو اطلب إذن / زيارة من التطبيق.', payload: 'unauthorized_exit_self');
+        body: 'ارجع المكتب، أو اطلب إذن / معاينة من التطبيق.', payload: 'unauthorized_exit_self');
     return true;
   }
 

@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +15,7 @@ import '../widgets/swipe_tabs.dart';
 import 'custody_receipt_pdf.dart';
 import 'form_delete.dart';
 import '../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الإعدادات ← استمارات ← استمارات عملاء ← استمارة تعارف.
 /// Every employee can fill it. "اسم مسؤول المبيعات" is the employee who fills it (automatic); HR / the management

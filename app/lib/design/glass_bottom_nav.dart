@@ -1,9 +1,10 @@
 // Original JPH Attendance GlassBottomNav (radius 40, blur 12/14, 72px, pill for the active
 // item with icon + label). Generalised to take its items so each role gets its own tabs.
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'app_colors.dart';
 import 'glass.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class NavItem {
   final IconData icon;

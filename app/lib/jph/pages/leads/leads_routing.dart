@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// توزيع الليدز اللي بتيجي لوحدها (فاليو عقار، فورم Meta، فورم الحملة): who gets them and how.
 ///   one    → سيلز واحد ثابت

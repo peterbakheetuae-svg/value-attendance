@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -10,6 +10,7 @@ import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/primary_button.dart';
 import 'otp_page.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -79,9 +80,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        labelText: 'كود الموظف / الموبايل / الإيميل',
+                        labelText: txs('كود الموظف / الموبايل / الإيميل'),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        errorText: _emailError,
+                        errorText: txs(_emailError),
                       ),
                     ),
                     const SizedBox(height: 24),

@@ -1,9 +1,10 @@
 import 'side_sheet.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'glass_ui.dart';
 
 import '../pages/attendance/attendance_filters.dart';
 import '../theme/app_colors.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// The app's own building blocks (same look as "طلب سلفة / مصاريف" and "صرف مالية"):
 /// white / glass boxes with radius 20, a 44×44 icon tile, label 14 / value 18, bottom sheets with a handle.
@@ -120,11 +121,11 @@ class JphUi {
           obscureText: obscure,
           keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
           decoration: InputDecoration(
-            hintText: hint,
+            hintText: txs(hint),
             hintStyle: TextStyle(color: sub(isDark), fontSize: 13.5),
             border: InputBorder.none,
             prefixIcon: icon == null ? null : Icon(icon, color: primary(isDark), size: 22),
-            suffixText: suffix,
+            suffixText: txs(suffix),
             contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
           style: TextStyle(fontSize: big ? 17 : 14, fontWeight: FontWeight.w800, color: text(isDark)),

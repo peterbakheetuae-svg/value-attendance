@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:url_launcher/url_launcher.dart'; // 🔥 استيراد الحزمة
 import '../../theme/app_colors.dart';
 import '../../l10n/app_localizations.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class AttendanceExpandableCards extends StatefulWidget {
   final List<Map<String, dynamic>> days;
@@ -368,13 +369,14 @@ class AttendanceExpandableCard extends StatelessWidget {
                           label: 'الوقت',
                           value: dayData['startTime'] ?? '--',
                         ),
-                        _buildDetailItem(
-                          icon: Icons.photo,
-                          label: 'الصورة',
-                          value: _formatImage(dayData['startImage']),
-                          isImage: true,
-                          imageUrl: dayData['startImage']?.toString(),
-                        ),
+                        if (_formatImage(dayData['startImage']) != 'لا توجد صورة')
+                          _buildDetailItem(
+                            icon: Icons.photo,
+                            label: 'الصورة',
+                            value: _formatImage(dayData['startImage']),
+                            isImage: true,
+                            imageUrl: dayData['startImage']?.toString(),
+                          ),
                         _buildDetailItem(
                           icon: Icons.location_on,
                           label: location,
@@ -397,6 +399,36 @@ class AttendanceExpandableCard extends StatelessWidget {
 
                     const SizedBox(height: 16),
 
+                    // 🔥 سجل الخروجات والأذونات (بين الحضور والانصراف): خرج الساعة كام ورجع الساعة كام
+                    _buildSection(
+                      title: 'سجل الخروجات والأذونات',
+                      items: [
+                        if ((dayData['outings'] is List ? dayData['outings'] as List : const []).isEmpty)
+                          _buildDetailItem(icon: Icons.directions_walk_rounded, label: 'لا يوجد', value: '--'),
+                        for (final o in (dayData['outings'] is List ? dayData['outings'] as List : const []).whereType<Map>()) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2, bottom: 6),
+                            child: Row(children: [
+                              Icon(o['kind'] == 'visit' ? Icons.home_work_rounded : Icons.timelapse_rounded,
+                                  size: 18, color: isDark ? Ar.amber.shade300 : Ar.amber.shade800),
+                              const SizedBox(width: 6),
+                              Text('${o['label']}',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: isDark ? Colors.white : Colors.black87)),
+                            ]),
+                          ),
+                          _buildDetailItem(icon: Icons.logout_rounded, label: 'وقت الخروج', value: '${o['out'] ?? '--'}'),
+                          _buildDetailItem(
+                            icon: Icons.login_rounded,
+                            label: 'وقت العودة',
+                            value: '${o['back'] ?? ''}'.isNotEmpty ? '${o['back']}' : 'لسه مرجعش (المتوقع ${o['expected'] ?? '--'})',
+                            valueColor: '${o['back'] ?? ''}'.isNotEmpty ? Ar.green : Ar.amber,
+                          ),
+                        ],
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
                     // 🔥 قسم الانصراف
                     _buildSection(
                       title: endTime,
@@ -406,13 +438,14 @@ class AttendanceExpandableCard extends StatelessWidget {
                           label: 'الوقت',
                           value: dayData['endTime'] ?? '--',
                         ),
-                        _buildDetailItem(
-                          icon: Icons.photo,
-                          label: 'الصورة',
-                          value: _formatImage(dayData['endImage']),
-                          isImage: true,
-                          imageUrl: dayData['endImage']?.toString(),
-                        ),
+                        if (_formatImage(dayData['endImage']) != 'لا توجد صورة')
+                          _buildDetailItem(
+                            icon: Icons.photo,
+                            label: 'الصورة',
+                            value: _formatImage(dayData['endImage']),
+                            isImage: true,
+                            imageUrl: dayData['endImage']?.toString(),
+                          ),
                         _buildDetailItem(
                           icon: Icons.location_on,
                           label: location,
@@ -472,24 +505,6 @@ class AttendanceExpandableCard extends StatelessWidget {
                           label: 'نهاية العمل',
                           value: '${dayData['scheduleEnd'] ?? '--'}',
                         ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // 🔥 أذونات الخروج والزيارات
-                    _buildSection(
-                      title: 'أذونات الخروج والزيارات',
-                      items: [
-                        if ((dayData['outings'] is List ? dayData['outings'] as List : const []).isEmpty)
-                          _buildDetailItem(icon: Icons.directions_walk_rounded, label: 'لا يوجد', value: '--'),
-                        for (final o in (dayData['outings'] is List ? dayData['outings'] as List : const []).whereType<Map>())
-                          _buildDetailItem(
-                            icon: o['kind'] == 'visit' ? Icons.location_city_rounded : Icons.timelapse_rounded,
-                            label: '${o['label']}',
-                            value: '${o['text']}',
-                            valueColor: Ar.green,
-                          ),
                       ],
                     ),
 

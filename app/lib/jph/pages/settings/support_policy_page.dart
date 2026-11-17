@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart'; // لإضافة Clipboard
@@ -9,6 +9,7 @@ import '../../l10n/app_localizations.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
@@ -426,7 +427,7 @@ VALUNIVO Support:
                   color: color,
                 ),
                 onPressed: onCopy,
-                tooltip: AppLocalizations.of(context, 'copy_email') ?? 'نسخ',
+                tooltip: txs(AppLocalizations.of(context, 'copy_email') ?? 'نسخ'),
               ),
             ],
           ),

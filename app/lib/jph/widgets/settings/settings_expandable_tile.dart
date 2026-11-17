@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../glass_ui.dart';
 import 'settings_tile.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// A settings group in the dashboard's card (the «Ardena» glass square) that opens in place.
 class SettingsExpandableTile extends StatelessWidget {

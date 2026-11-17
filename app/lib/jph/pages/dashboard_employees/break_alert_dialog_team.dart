@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/app_localizations.dart';
@@ -8,6 +8,7 @@ import 'fingerprint_config_team.dart';
 import '../../services/dashboard_state.dart';
 import 'dash_mode_team.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 Future<void> showBreakAlertDialog({
   required BuildContext context,

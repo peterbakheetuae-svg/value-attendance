@@ -7,7 +7,7 @@ import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { geofence } from './attendance.ts';
 
-const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'زيارة' };
+const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
 
 async function resolveManager(q: Q, employeeId: string): Promise<string | null> {
   const r = await one(q, `

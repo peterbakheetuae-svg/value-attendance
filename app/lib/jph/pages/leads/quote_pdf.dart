@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -14,6 +14,7 @@ import '../../widgets/doc_logos.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
 import 'leads_api.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// «عرض سعر» for a lead on an available unit: the price, the discount, the down payment, the installments
 /// (every 1 / 3 / 6 months for N years) and their schedule — a PDF to print or share with the client.

@@ -1,11 +1,12 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import '../core/format.dart';
 import '../core/i18n.dart';
 import '../core/session.dart';
 import '../design/app_colors.dart';
 import '../design/glass.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// ‹ March 2026 › month switcher in a glass pill.
 class MonthPicker extends StatelessWidget {

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
@@ -6,6 +6,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import 'leads_api.dart';
 import 'leads_extra.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// التارجت الشهري: every salesman's target (calls / meetings / reservations / contracts / their value) and how far he got.
 class LeadsTargetsPage extends StatefulWidget {

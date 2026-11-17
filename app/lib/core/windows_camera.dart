@@ -1,9 +1,10 @@
 import 'package:camera/camera.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 
 import '../jph/widgets/glass_dialog.dart';
 import 'platform_info.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Windows app: `ImagePicker().pickImage(source: ImageSource.camera)` has no camera of its own on Windows.
 /// This gives it one (the PC's webcam, through the official camera_windows plugin), so every existing

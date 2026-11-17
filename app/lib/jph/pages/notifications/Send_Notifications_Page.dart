@@ -1,5 +1,5 @@
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../services/app_controller.dart';
@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'View_Notifications_Page.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class SendNotificationsPage extends StatefulWidget {
   final String uid;
@@ -470,7 +471,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                 child: TextFormField(
                                   controller: _titleController,
                                   decoration: InputDecoration(
-                                    hintText: 'أدخل عنوان الإشعار',
+                                    hintText: txs('أدخل عنوان الإشعار'),
                                     hintStyle: TextStyle(color: subduedTextColor),
                                     border: InputBorder.none,
                                   ),
@@ -512,7 +513,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                                   maxLines: 6,
                                   minLines: 4,
                                   decoration: InputDecoration(
-                                    hintText: 'أدخل محتوى الإشعار هنا...',
+                                    hintText: txs('أدخل محتوى الإشعار هنا...'),
                                     hintStyle: TextStyle(color: subduedTextColor),
                                     border: InputBorder.none,
                                   ),
