@@ -39,6 +39,14 @@ function plain(v: unknown): unknown {
 
 export const backupModule: Module = (r, { db, clock }) => {
   const guard = (req: Req) => { if (!authorized(req)) throw new AppError('unauthenticated', 'Backup token required'); };
+  // the business data never leaves unencrypted: without BACKUP_ENCRYPTION_KEY (32 bytes, base64) nothing is exported
+  // (the minute heartbeat below is not an export and keeps working)
+  const exportGuard = (req: Req) => {
+    guard(req);
+    if (!backupKeyConfigured()) {
+      throw new AppError('unprocessable', 'Backups are encrypted: set BACKUP_ENCRYPTION_KEY on the API host first', { reason: 'backup_key_missing' });
+    }
+  };
   /** Minute heartbeat (no scheduler on the free plan): overdue permissions ring, reminders go out on time. */
   r.post('/backup/sweep', async (req) => {
     guard(req);
@@ -50,7 +58,7 @@ export const backupModule: Module = (r, { db, clock }) => {
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1`)).rows.map((x) => x.t).filter((t) => !SKIP.has(t));
 
   r.get('/backup/tables', async (req) => {
-    guard(req);
+    exportGuard(req);
     const out = [];
     for (const t of await tables()) {
       const n = await db.query(`SELECT count(*)::int AS n FROM "${t}"`);
@@ -60,7 +68,7 @@ export const backupModule: Module = (r, { db, clock }) => {
   });
 
   r.get('/backup/table/:name', async (req) => {
-    guard(req);
+    exportGuard(req);
     const name = req.params.name;
     if (!(await tables()).includes(name)) throw notFound();
     const offset = Math.max(0, Number(req.query.get('offset') ?? 0) || 0);
@@ -76,11 +84,8 @@ export const backupModule: Module = (r, { db, clock }) => {
     const next = rows.length < res.rows.length || res.rows.length === 2000 ? offset + rows.length : null;
     const redacted = (await db.query<{ c: string }>(`SELECT column_name AS c FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`, [name])).rows.map((x) => x.c).filter((k) => SECRET_COLUMN.test(k));
-    // encrypted at rest in the Drive copy when BACKUP_ENCRYPTION_KEY is set: «rows» becomes one sealed string (AES-256-GCM),
-    // opened with tools/backup-decrypt.mjs and the same key for a restore
-    if (backupKeyConfigured()) {
-      return ok({ table: name, offset, rows: seal(JSON.stringify(rows), 'BACKUP_ENCRYPTION_KEY'), next, redacted, encrypted: true });
-    }
-    return ok({ table: name, offset, rows, next, redacted });
+    // encrypted at rest in the Drive copy: «rows» is one sealed string (AES-256-GCM), opened with tools/backup-decrypt.mjs
+    // and the same key for a restore
+    return ok({ table: name, offset, rows: seal(JSON.stringify(rows), 'BACKUP_ENCRYPTION_KEY'), next, redacted, encrypted: true });
   });
 };
