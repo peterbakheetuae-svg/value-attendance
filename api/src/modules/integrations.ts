@@ -47,8 +47,9 @@ const MSG = ['message', 'notes', 'note', 'details', 'body', 'comment', 'inquiry'
 const PROJECT_NAME = ['project_name', 'project_title', 'compound_name', 'project'];
 
 export const integrationsModule: Module = (r, { db, clock }) => {
-  const admin = async (req: Req) => {
+  const admin = async (req: Req, partnerToo = false) => {
     const a = await authenticate(db, req);
+    if (a.partner && partnerToo) return a;   // a marketing company: looks at the Meta part, for its own campaigns
     if (!has(a, 'leads.config')) throw forbidden('الربط لمن عنده إعدادات الليدز');
     return a;
   };
@@ -76,7 +77,22 @@ export const integrationsModule: Module = (r, { db, clock }) => {
 
   // ------------------------------------------------------------------ the settings
   r.get('/integrations', async (req) => {
-    const a = await admin(req);
+    const a = await admin(req, true);
+    if (a.partner) {
+      // the company's view (read-only but for choosing its campaigns' Meta campaigns): no keys, tokens, salesmen or Value Aqar
+      const meta = await ensure('meta');
+      const mine = await db.query(`SELECT id, name, meta_campaign_ids FROM lead_campaigns WHERE active AND marketing_company_id = $1 ORDER BY created_at DESC`, [a.partner]);
+      const seen = await db.query(`SELECT * FROM meta_seen_campaigns ORDER BY last_at DESC LIMIT 200`);
+      return ok({
+        partner: true,
+        meta: { source: 'meta', active: meta.active, hasToken: !!meta.access_token, lastAt: iso(meta.last_at), lastError: null },
+        valueaqar: null,
+        campaigns: mine.rows.map((c) => ({ id: c.id, name: c.name, metaCampaignIds: c.meta_campaign_ids ?? [], companyId: a.partner, assignees: [], mode: null })),
+        metaSeen: seen.rows.map((x) => ({ id: x.campaign_id, name: x.name, leads: x.leads, skipped: x.skipped, lastAt: iso(x.last_at) })),
+        companies: [{ id: a.partner, name: a.fullName, active: true }],
+        routes: [], properties: [], people: [], projects: [],
+      });
+    }
     const [va, meta] = [await ensure('valueaqar'), await ensure('meta')];
     const campaigns = await db.query(`SELECT id, name, meta_form_id, assign_mode, form_assignees, project_id, meta_campaign_ids, marketing_company_id
                                         FROM lead_campaigns WHERE active ORDER BY created_at DESC`);
@@ -115,7 +131,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
 
   /** the Meta campaigns the saved token reaches (its ad accounts) — to pick which ones come in */
   r.get('/integrations/meta/campaigns', async (req) => {
-    await admin(req);
+    await admin(req, true);
     const it = await row('meta');
     if (!it?.access_token) return ok({ campaigns: [], error: 'حط توكن Meta الأول' });
     try {

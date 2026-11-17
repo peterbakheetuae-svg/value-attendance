@@ -16,7 +16,11 @@ import '../../widgets/glass_ui.dart';
 class OtpPage extends StatefulWidget {
   final String identifier;
   final String sentTo;
-  const OtpPage({super.key, required this.identifier, this.sentTo = ''});
+  /// the same page for another code (a new e-mail in «تعديل الحساب»): how the code is checked / sent again — on success
+  /// it closes with true instead of asking for a new password
+  final Future<Map<String, dynamic>> Function(String code)? verify;
+  final Future<Map<String, dynamic>> Function()? resend;
+  const OtpPage({super.key, required this.identifier, this.sentTo = '', this.verify, this.resend});
 
   @override
   State<OtpPage> createState() => _OtpPageState();
@@ -112,7 +116,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
     FocusScope.of(context).unfocus();
     _orbitDigits = _ctrls.map((c) => c.text).toList();
     setState(() => _stage = _Stage.orbit);
-    final call = ApiService.post({'action': 'verify_otp', 'identifier': widget.identifier, 'code': _code});
+    final call = widget.verify?.call(_code) ?? ApiService.post({'action': 'verify_otp', 'identifier': widget.identifier, 'code': _code});
     await _orbit.forward(from: 0);
     await Future<void>.delayed(const Duration(milliseconds: 180));
     if (!mounted) return;
@@ -132,6 +136,10 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
       await _success.forward(from: 0);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
+      if (widget.verify != null) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
           builder: (_) => NewPasswordPage(resetToken: '${r['resetToken']}')));
       if (done == true && mounted) Navigator.of(context).pop(true);
@@ -147,7 +155,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
   }
 
   Future<void> _resend() async {
-    final r = await ApiService.post({'action': 'forgot_password', 'identifier': widget.identifier});
+    final r = await (widget.resend?.call() ?? ApiService.post({'action': 'forgot_password', 'identifier': widget.identifier}));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('${r['message'] ?? ''}'),

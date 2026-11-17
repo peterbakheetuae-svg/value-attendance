@@ -17,6 +17,23 @@ export interface Actor {
   settled?: boolean;
   /** permission keys that exist in this database (a fine-grained key added by a migration not run yet is absent) */
   known?: ReadonlySet<string>;
+  /** a marketing company (079) looking at the sales pages read-only: its company id (also in `id`) — never an employee */
+  partner?: string;
+}
+
+/**
+ * The sales pages a marketing company opens exactly as the salesmen see them (read-only): every other route refuses its
+ * token. The handlers scope it to its own campaigns' leads (scopeSql) and give it no permission at all.
+ */
+export function partnerRoute(method: string, path: string): boolean {
+  if (method === 'GET') {
+    return /^\/leads(\/(meta|dashboard|config|calendar|targets\/me|[0-9a-f-]{36}(\/(extra|whatsapp))?))?$/.test(path)
+      || /^\/(tasks|integrations|integrations\/meta\/campaigns|notifications)$/.test(path);
+  }
+  if (method === 'POST') return path === '/leads' || /^\/notifications\/([0-9a-f-]{36}\/read|read-all)$/.test(path);
+  if (method === 'DELETE') return /^\/notifications(\/[0-9a-f-]{36})?$/.test(path);
+  if (method === 'PATCH') return /^\/leads\/campaigns\/[0-9a-f-]{36}\/partner$/.test(path);
+  return false;
 }
 
 // the permission keys of this database: read once a minute per instance (they only change with a migration)
@@ -55,7 +72,15 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
      GROUP BY s.id, e.id`, [sha256(token)]);
   if (!row) {
     // a marketing company's token (075): it is signed in, just not as an employee — refused, never signed out
-    const { isPartnerToken } = await import('./partner.ts');
+    const { isPartnerToken, partnerOf } = await import('./partner.ts');
+    if (partnerRoute(req.method, req.path)) {
+      const p = await partnerOf(q, req);
+      if (p) {
+        if (p.mustChangePassword) throw new AppError('forbidden', 'You must change your password first', { reason: 'must_change_password' });
+        return { id: p.companyId, code: '', fullName: p.name, role: 'marketing_partner', perms: new Set(), sessionId: p.sessionId,
+          mustChangePassword: false, partner: p.companyId, known: await dbPermissionKeys(q) };
+      }
+    }
     if (await isPartnerToken(q, token)) throw new AppError('forbidden', 'Marketing company accounts see only their own pages', { reason: 'partner_account' });
   }
   if (!row || row.status !== 'active') throw new AppError('unauthenticated', 'Session expired, sign in again');

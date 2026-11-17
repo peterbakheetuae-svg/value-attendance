@@ -11,6 +11,7 @@ import 'leads_api.dart';
 import 'leads_integrations.dart';
 import 'leads_permissions.dart';
 import 'leads_stages.dart';
+import '../../widgets/app_nav.dart';
 
 /// إعدادات الليدز: the channels (فيسبوك / تيك توك …), the campaigns (with their cost, for the report),
 /// the cancel reasons, and after how many minutes a lead nobody acted on rings the manager.
@@ -25,6 +26,9 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
   Map<String, dynamic> _d = {};
   int _tab = 0;
   bool _loading = true;
+
+  /// a marketing company: looks only (القنوات / الحملات / الربط), changes nothing but its campaigns' Meta campaigns
+  bool get _ro => AppNav.partner;
 
   @override
   void initState() {
@@ -48,7 +52,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
     return LeadsShell(
       isDark: isDark,
       title: tr('إعدادات الليدز'),
-      fab: _tab >= 4
+      fab: _tab >= 4 || _ro
           ? null
           : FloatingActionButton.extended(
               onPressed: () => _tab == 1
@@ -75,7 +79,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 // الإعدادات / التحكم في الوصول: the owner only
                 if (ApiService.can('roles.manage')) (tr('صلاحيات الأدوار'), Icons.admin_panel_settings_rounded),
               ].indexed)
-                Padding(
+                if (!_ro || const [0, 1, 7].contains(i)) Padding(
                   padding: const EdgeInsetsDirectional.only(end: 6),
                   child: ChoiceChip(
                     selected: _tab == i,
@@ -121,7 +125,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
             leading: Icon(icon, color: Ar.accent),
             title: Text('${c['name']}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
             subtitle: c['active'] == false ? Text(tr('موقوفة')) : null,
-            trailing: Switch(
+            trailing: _ro ? null : Switch(
               value: c['active'] != false,
               onChanged: (v) async {
                 final r = await lpost('/leads/$kind/${c['id']}', {'active': v}, method: 'patch');
@@ -129,7 +133,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 _load();
               },
             ),
-            onTap: () => _simple(isDark, kind, c),
+            onTap: _ro ? null : () => _simple(isDark, kind, c),
           ),
         ),
       );
@@ -255,7 +259,7 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
   Widget _campaignRow(bool isDark, Map<String, dynamic> c) => Opacity(
         opacity: c['active'] == false ? 0.5 : 1,
         child: GestureDetector(
-          onTap: () => _campaign(isDark, c),
+          onTap: _ro ? null : () => _campaign(isDark, c),
           child: Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(14),
@@ -276,10 +280,10 @@ class _LeadsSettingsPageState extends State<LeadsSettingsPage> {
                 ]),
               ),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(JphUi.money(c['cost']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                if (!_ro) Text(JphUi.money(c['cost']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                 Text('${c['leads']} ليد', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
               ]),
-              IconButton(
+              if (!_ro) IconButton(
                 tooltip: tr('صفحة الهبوط (لينك للإعلان)'),
                 onPressed: () => _form(isDark, c),
                 icon: Icon(Icons.link_rounded, color: c['formToken'] != null ? Ar.green : JphUi.sub(isDark)),

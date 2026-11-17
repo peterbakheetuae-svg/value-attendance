@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import '../../../core/save_file.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/app_nav.dart';
 import 'leads_api.dart';
 import 'quote_pdf.dart';
 
@@ -215,7 +216,7 @@ class _LeadWhatsAppState extends State<LeadWhatsApp> {
           ),
         ),
       const SizedBox(height: 6),
-      Row(children: [
+      if (!AppNav.partner) Row(children: [   // a marketing company reads the chat, writes nothing
         Expanded(child: JphUi.input(isDark: isDark, label: tr('الصق رد العميل هنا'), controller: _reply, icon: Icons.reply_rounded, big: false)),
         IconButton(
           tooltip: tr('حفظ'),

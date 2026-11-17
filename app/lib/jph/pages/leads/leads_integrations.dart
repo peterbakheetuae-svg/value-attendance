@@ -465,11 +465,13 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
     final projects = ll(_d['projects']);
     final shown = projects.where((p) => p['status'] == _filter).toList();
     final counts = {for (final s in ['new', 'adopted', 'ignored']) s: projects.where((p) => p['status'] == s).length};
+    // a marketing company: only Meta, and on its own campaigns only the choice of their Meta campaigns
+    final ro = _d['partner'] == true;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(tr('الربط'), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
       Text(tr('الليدز من فاليو عقار وإعلانات Meta بتنزل لوحدها، والمشاريع الواردة تختار منها اللي تسوقه أو حصري.'), style: TextStyle(color: JphUi.sub(isDark))),
       const SizedBox(height: 10),
-      _card(tr('فاليو عقار'), Icons.apartment_rounded, Ar.accent, [
+      if (!ro) _card(tr('فاليو عقار'), Icons.apartment_rounded, Ar.accent, [
         _status(va),
         const SizedBox(height: 8),
         _line(tr('رابط الـ Webhook'), '$kApiBaseUrl/public/hooks/valueaqar', copy: true, mono: true),
@@ -496,8 +498,10 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
       _card(tr('إعلانات Meta (فيسبوك وإنستجرام)'), Icons.facebook_rounded, const Color(0xFF1877F2), [
         _status(meta),
         const SizedBox(height: 8),
-        _line(tr('Callback URL'), '$kApiBaseUrl/public/hooks/meta', copy: true, mono: true),
-        _line(tr('Verify token'), '${meta['verifyToken'] ?? ''}', copy: true, mono: true),
+        if (!ro) ...[
+          _line(tr('Callback URL'), '$kApiBaseUrl/public/hooks/meta', copy: true, mono: true),
+          _line(tr('Verify token'), '${meta['verifyToken'] ?? ''}', copy: true, mono: true),
+        ],
         _line(tr('Access token'), meta['hasToken'] == true ? tr('متحفظ ✅') : tr('لسه متحطش')),
         Container(
           margin: const EdgeInsets.only(bottom: 8),
@@ -506,7 +510,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
           child: Text(tr('بيدخل بس ليدز حملات Meta اللي انت ربطتها بحملة من حملاتنا (تحت). أي حملة تانية على حافظة الأعمال مش بتدخل.'),
               style: TextStyle(fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
         ),
-        Wrap(spacing: 8, runSpacing: 8, children: [
+        if (!ro) Wrap(spacing: 8, runSpacing: 8, children: [
           dirBtn(isDark, meta['hasToken'] == true ? tr('غيّر التوكن') : tr('حط التوكن'), Icons.key_rounded, _token, primary: meta['hasToken'] != true),
           dirBtn(isDark, tr('Verify token جديد'), Icons.refresh_rounded, () => _patch('meta', {'newVerifyToken': true})),
           dirBtn(isDark, meta['active'] == true ? tr('إيقاف') : tr('تشغيل'), Icons.power_settings_new_rounded, () => _patch('meta', {'active': meta['active'] != true})),
@@ -528,15 +532,15 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
                   ? tr('حملات Meta: مش مربوطة')
                   : '${tr('حملات Meta')}: ${[for (final m in (c['metaCampaignIds'] as List)) _metaName('$m')].join('، ')}',
               if (c['metaFormId'] != null) 'Form ${c['metaFormId']}',
-              routeSummary('${c['mode']}', [for (final x in (c['assignees'] as List? ?? const [])) '$x'], _people),
+              if (!ro) routeSummary('${c['mode']}', [for (final x in (c['assignees'] as List? ?? const [])) '$x'], _people),
             ].join('\n')),
-            isThreeLine: true,
+            isThreeLine: !ro,
             trailing: Wrap(children: [
-              IconButton(tooltip: tr('التوزيع على السيلز'), icon: const Icon(Icons.group_rounded, size: 20), onPressed: () => _campaignRoute(c)),
+              if (!ro) IconButton(tooltip: tr('التوزيع على السيلز'), icon: const Icon(Icons.group_rounded, size: 20), onPressed: () => _campaignRoute(c)),
               IconButton(tooltip: tr('حملات Meta'), icon: const Icon(Icons.facebook_rounded, size: 20, color: Color(0xFF1877F2)), onPressed: () => _metaLink(c)),
-              IconButton(tooltip: tr('فورم Meta'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _form(c)),
+              if (!ro) IconButton(tooltip: tr('فورم Meta'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _form(c)),
             ]),
-            onTap: () => _campaignRoute(c),
+            onTap: () => ro ? _metaLink(c) : _campaignRoute(c),
           ),
       ]),
     ]);

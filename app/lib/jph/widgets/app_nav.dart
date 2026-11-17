@@ -50,7 +50,7 @@ class AppNav {
   static Widget? page(int index, {required String uid, required String name, required String role, String photo = ''}) =>
       partner ? switch (index) {
         3 => SettingsPage(uid: uid, name: name, role: role, partner: true),
-        6 => const PartnerLeadsPage(),
+        6 => const LeadsDashboardPage(tab: true),   // the sales dashboard itself, read-only (the server scopes it)
         4 => const PartnerProfilePage(),
         _ => null,
       } : settled && index != 1 && index != 3 ? null : switch (index) {

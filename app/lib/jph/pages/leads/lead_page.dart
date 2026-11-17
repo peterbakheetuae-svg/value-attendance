@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/app_nav.dart';
 import '../../widgets/side_sheet.dart';
 import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
@@ -335,7 +336,7 @@ class _LeadPageState extends State<LeadPage> {
                   Text('${rp['comment']}', style: TextStyle(color: JphUi.text(isDark))),
                 ]),
               ),
-            Align(
+            if (!AppNav.partner) Align(   // a marketing company reads the comments, never answers
               alignment: AlignmentDirectional.centerEnd,
               child: TextButton.icon(onPressed: () => _reply(isDark, x), icon: const Icon(Icons.reply_rounded, size: 18), label: Text(tr('رد'))),
             ),

@@ -1,6 +1,8 @@
 import { ok, type Module } from '../ctx.ts';
-import { one, type Q } from '../db.ts';
-import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { one, type Db, type Q } from '../db.ts';
+import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { emailChangeMail, mailEnabled, sendMail } from '../lib/mail.ts';
+import { createHash, randomInt } from 'node:crypto';
 import { date, isUuid, obj, str } from '../http/validate.ts';
 import { audit, authenticate, has } from '../auth/context.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
@@ -21,6 +23,7 @@ import { canOffice } from './cash.ts';
  */
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
 const META_ID = /^[0-9]{3,30}$/;
+const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /** SQL (aliases l = leads, cp = lead_campaigns) for the leads company $n sees */
 const SEES = (n: number) => `(cp.marketing_company_id = $${n} OR l.partner_company_id = $${n})`;
@@ -109,9 +112,12 @@ export const partnersModule: Module = (r, { db, clock }) => {
 
   /** which company runs one of our campaigns, and which Meta campaigns feed it */
   r.patch('/leads/campaigns/:id/partner', async (req) => {
-    const a = await admin(req);
+    // a marketing company (from «الربط») chooses only which Meta campaigns feed its own campaign
+    const a = await authenticate(db, req);
+    if (!a.partner && !has(a, 'leads.config') && !canOffice(a)) throw forbidden('شركات التسويق للمالك / المدير العام / إعدادات الليدز');
     if (!isUuid(req.params.id)) throw notFound();
     const b = obj(req.body);
+    if (a.partner && b.companyId !== undefined) throw forbidden('مش مسموح تغيّر الشركة');
     const set: Record<string, unknown> = {};
     if (b.companyId !== undefined) {
       const id = b.companyId === null || b.companyId === '' ? null : String(b.companyId);
@@ -128,15 +134,18 @@ export const partnersModule: Module = (r, { db, clock }) => {
     if (!keys.length) throw invalid('مفيش تغيير');
     const row = await db.tx(async (q) => {
       const before = await one(q, `SELECT id, name, marketing_company_id, meta_campaign_ids FROM lead_campaigns WHERE id = $1 FOR UPDATE`, [req.params.id]);
-      if (!before) throw notFound();
-      // a Meta campaign feeds one of our campaigns only
+      if (!before || (a.partner && before.marketing_company_id !== a.partner)) throw notFound();
+      // a Meta campaign feeds one of our campaigns only (a company cannot take one another campaign already has)
+      if (set.meta_campaign_ids && a.partner && await one(q, `SELECT 1 FROM lead_campaigns WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [before.id, set.meta_campaign_ids])) {
+        throw conflict('حملة Meta دي مربوطة بحملة تانية');
+      }
       if (set.meta_campaign_ids) {
         await q.query(`UPDATE lead_campaigns SET meta_campaign_ids = ARRAY(SELECT x FROM unnest(meta_campaign_ids) x WHERE NOT x = ANY($2::text[]))
                         WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [before.id, set.meta_campaign_ids]);
       }
       const after = await one(q, `UPDATE lead_campaigns SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1
                                    RETURNING id, name, marketing_company_id, meta_campaign_ids`, [before.id, ...keys.map((k) => set[k])]);
-      await audit(q, a.id, 'lead_campaign.partner_link', 'lead_campaign', before.id,
+      await audit(q, a.partner ? null : a.id, 'lead_campaign.partner_link', 'lead_campaign', before.id,
         { companyId: before.marketing_company_id, meta: before.meta_campaign_ids }, { companyId: after.marketing_company_id, meta: after.meta_campaign_ids });
       return after;
     });
@@ -318,6 +327,72 @@ export const partnersModule: Module = (r, { db, clock }) => {
     return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
   });
 
+  // ------------------------------------------------------------------ «تعديل الحساب»: its name, mobile, e-mail (by a code)
+  r.patch('/partner/account', async (req) => {
+    const p = await partner(req);
+    const b = obj(req.body);
+    const name = b.name === undefined ? undefined : (str(b, 'name', { max: 120 }) ?? '').trim();
+    if (name !== undefined && name.length < 2) throw invalid('اكتب اسم الشركة', { field: 'name' });
+    const phone = b.phone === undefined ? undefined : ((str(b, 'phone', { optional: true, max: 30 }) ?? '').trim() || null);
+    const norm = phone ? phoneNorm(phone) : null;
+    if (phone && norm!.length < 10) throw invalid('رقم الموبايل مش صحيح', { field: 'phone' });
+    const c = await db.tx(async (q) => {
+      const before = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 FOR UPDATE`, [p.companyId]);
+      if (phone === null && !before.login_email) throw invalid('لازم يفضل إيميل أو موبايل للدخول', { field: 'phone' });
+      if (phone !== undefined) await loginFree(q, null, norm, before.id);
+      const row = await one(q, `UPDATE marketing_companies SET name = COALESCE($2, name),
+                                  login_phone = CASE WHEN $3 THEN $4 ELSE login_phone END, login_phone_norm = CASE WHEN $3 THEN $5 ELSE login_phone_norm END
+                                 WHERE id = $1 RETURNING *`, [before.id, name ?? null, phone !== undefined, phone ?? null, norm]);
+      await audit(q, null, 'partner.account_edit', 'marketing_company', before.id, { name: before.name, phone: before.login_phone },
+        { name: row.name, phone: row.login_phone });
+      return row;
+    });
+    return ok({ account: { name: c.name, phone: c.login_phone, email: c.login_email } });
+  });
+
+  /** a new e-mail: a 4-digit code goes to it; it is kept only once the code is entered (POST …/email/verify) */
+  r.post('/partner/account/email', async (req) => {
+    const p = await partner(req);
+    const email = (str(obj(req.body), 'email', { max: 160 }) ?? '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalid('الإيميل مش صحيح', { field: 'email' });
+    await loginFree(db, email, null, p.companyId);
+    if (!mailEnabled()) throw new AppError('unprocessable', 'الإيميل مش متظبط لسه — كلّم الإدارة', { reason: 'mail_off' });
+    const recent = await one(db, `SELECT count(*)::int AS n FROM partner_email_otps WHERE company_id = $1 AND created_at > now() - interval '15 minutes'`, [p.companyId]);
+    if (recent.n >= 3) throw new AppError('conflict', 'طلبت أكواد كتير — استنى ربع ساعة', { reason: 'otp_rate_limited' });
+    const code = String(randomInt(0, 10_000)).padStart(4, '0');
+    await db.query(`UPDATE partner_email_otps SET expires_at = now() WHERE company_id = $1 AND verified_at IS NULL AND expires_at > now()`, [p.companyId]);
+    await db.query(`INSERT INTO partner_email_otps (company_id, new_email, code_hash, expires_at) VALUES ($1,$2,$3, now() + interval '10 minutes')`,
+      [p.companyId, email, sha(`${p.companyId}:${email}:${code}`)]);
+    const st = await one(db, `SELECT company_name_ar FROM company_settings`);
+    const sent = await sendMail({ to: email, toName: p.name, ...emailChangeMail({ name: p.name, code, company: st?.company_name_ar ?? 'VALUNIVO' }) });
+    if (!sent) throw new AppError('unprocessable', 'مقدرناش نبعت الكود دلوقتي — جرّب تاني', { reason: 'mail_failed' });
+    return ok({ ok: true, sentTo: email.replace(/^(.).*?(@.*)$/, '$1***$2') });
+  });
+
+  r.post('/partner/account/email/verify', async (req) => {
+    const p = await partner(req);
+    const code = String(obj(req.body).code ?? '');
+    const bad = () => new AppError('validation_failed', 'الكود غلط أو خلص وقته', { reason: 'otp_invalid', field: 'code' });
+    if (!/^\d{4}$/.test(code)) throw bad();
+    const email = await db.tx(async (q) => {
+      const o = await one(q, `SELECT * FROM partner_email_otps WHERE company_id = $1 AND verified_at IS NULL AND expires_at > now()
+                                ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [p.companyId]);
+      if (!o || o.attempts >= 5) return null;
+      if (o.code_hash !== sha(`${p.companyId}:${o.new_email}:${code}`)) {
+        await q.query(`UPDATE partner_email_otps SET attempts = attempts + 1 WHERE id = $1`, [o.id]);
+        return null;
+      }
+      await loginFree(q, o.new_email, null, p.companyId);
+      await q.query(`UPDATE partner_email_otps SET verified_at = now() WHERE id = $1`, [o.id]);
+      const before = await one(q, `SELECT login_email FROM marketing_companies WHERE id = $1`, [p.companyId]);
+      await q.query(`UPDATE marketing_companies SET login_email = $2 WHERE id = $1`, [p.companyId, o.new_email]);
+      await audit(q, null, 'partner.email_changed', 'marketing_company', p.companyId, { email: before.login_email }, { email: o.new_email });
+      return o.new_email as string;
+    });
+    if (!email) throw bad();
+    return ok({ email });
+  });
+
   // ------------------------------------------------------------------ its bell: what happened on its campaigns' leads
   r.get('/partner/notifications', async (req) => {
     const p = await partner(req);
@@ -466,14 +541,18 @@ export const partnersModule: Module = (r, { db, clock }) => {
   /** a lead the company adds to one of its campaigns: distributed as that campaign says (one / online / turn) */
   r.post('/partner/leads', async (req) => {
     const p = await partner(req);
-    const b = obj(req.body);
+    return partnerAddLead(db, p, obj(req.body), clock());
+  });
+};
+
+/** a lead the marketing company adds on one of its campaigns (its own page or the sales dashboard's «إنشاء عميل محتمل») */
+export async function partnerAddLead(db: Db, p: { companyId: string; name: string }, b: Record<string, unknown>, now: Date) {
     const campaignId = String(b.campaignId ?? '');
     if (!isUuid(campaignId)) throw invalid('اختار الحملة', { field: 'campaignId' });
     const c = await one(db, `SELECT * FROM lead_campaigns WHERE id = $1 AND marketing_company_id = $2 AND active`, [campaignId, p.companyId]);
     if (!c) throw invalid('اختار حملة من حملاتك', { field: 'campaignId' });
     const x = readLead({ fullName: b.fullName, phone: b.phone, email: b.email, notes: b.notes, kind: 'fresh' });
     x.campaignId = c.id; x.projectId = c.project_id ?? null; x.channelId = c.channel_id ?? null;
-    const now = clock();
     const lead = await db.tx(async (q) => {
       if (await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`, [c.id, phoneNorm(x.phone), now])) {
         throw conflict('الرقم ده اتضاف على الحملة دي النهارده');
@@ -495,8 +574,32 @@ export const partnersModule: Module = (r, { db, clock }) => {
       return l;
     });
     return ok({ lead: { id: lead.id, refNo: Number(lead.ref_no) } }, 201);
-  });
-};
+  }
+
+/**
+ * The company's notifications (the same page as everyone's): what happened on its campaigns' leads in the last 30 days
+ * (a new lead, a salesman's follow-up) is kept as rows it reads / deletes like an employee's; once deleted, never back.
+ */
+export async function syncPartnerNotifications(q: Q, companyId: string, now: Date) {
+  await q.query(`
+    INSERT INTO partner_notifications (company_id, key, type, title, body, entity, entity_id, created_at, read_at)
+    SELECT $1, z.key, z.type, z.title, z.body, 'lead', z.lead_id::text, z.at,
+           CASE WHEN mc.notifications_seen_at IS NOT NULL AND z.at <= mc.notifications_seen_at THEN mc.notifications_seen_at END
+      FROM (
+        SELECT 'lead:' || l.id AS key, 'lead_partner_new' AS type, 'ليد جديد: ' || l.full_name AS title, COALESCE(cp.name, '') AS body,
+               l.id AS lead_id, l.created_at AS at
+          FROM leads l LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
+         WHERE ${SEES(1)} AND l.created_at > $2::timestamptz - interval '30 days'
+        UNION ALL
+        SELECT 'action:' || a.id, 'lead_partner_action', l.full_name || ': ' || COALESCE(st.name_ar, 'متابعة'),
+               concat_ws(' — ', e.full_name, NULLIF(a.comment, '')), l.id, a.created_at
+          FROM lead_actions a JOIN leads l ON l.id = a.lead_id LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id
+          LEFT JOIN lead_stages st ON st.key = a.stage LEFT JOIN employees e ON e.id = a.by_id
+         WHERE ${SEES(1)} AND a.parent_id IS NULL AND NOT a.auto AND a.created_at > $2::timestamptz - interval '30 days'
+      ) z CROSS JOIN marketing_companies mc
+     WHERE mc.id = $1
+    ON CONFLICT (company_id, key) DO NOTHING`, [companyId, now]);
+}
 
 /** Meta campaign a lead came from: counted (and whether it was taken) so the settings can offer to link it */
 export async function seeMetaCampaign(q: Q, id: string, name: string, skipped: boolean) {

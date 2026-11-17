@@ -67,7 +67,8 @@ test('the company signs in (e-mail or mobile), must change the password, and is 
   const cp = await h.call(pt, 'POST', '/auth/change-password', { currentPassword: 'Start#2026x', newPassword: 'Mine#2026yy' });
   assert.equal(cp.status, 200, JSON.stringify(cp.body));
   // every employee endpoint: refused with 403 (the app keeps it signed in), never data
-  for (const [m, p] of [['GET', '/leads'], ['GET', '/employees'], ['GET', '/leads/dashboard'], ['GET', '/leads/partners'], ['POST', '/leads']] as const) {
+  for (const [m, p] of [['GET', '/employees'], ['GET', '/leads/partners'], ['GET', '/leads/reports'], ['GET', '/leads/permissions'],
+    ['POST', '/leads/import'], ['POST', '/leads/assign'], ['GET', '/notifications/sent'], ['POST', '/notifications/send'], ['GET', '/deals']] as const) {
     const x = await h.call(pt, m, p, m === 'POST' ? { fullName: 'x', phone: '01000000000' } : undefined);
     assert.equal(x.status, 403, `${m} ${p}`);
   }
@@ -260,4 +261,101 @@ test('the company\'s profile, its documents and its bell (its campaigns\' leads 
   assert.ok(n1.body.items.length > 0 && n1.body.unread > 0, 'its campaign already has leads');
   assert.equal((await h.call(tok, 'POST', '/partner/notifications/seen', {})).status, 200);
   assert.equal((await h.call(tok, 'GET', '/partner/notifications')).body.unread, 0);
+});
+
+test('the company opens the sales dashboard itself — read-only, its leads only — and the same notifications page', async () => {
+  await h.db.query(`UPDATE marketing_companies SET status = 'active', login_active = true, device_lock = false WHERE id = $1`, [companyId]);
+  pt = (await h.call(null, 'POST', '/auth/login', { identifier: 'ads@media.com', password: 'Mine#2026yy' })).body.token;
+  await h.db.query(`UPDATE lead_campaigns SET marketing_company_id = $2 WHERE id = ANY($1::uuid[])`, [[camp1, camp2], companyId]);
+  assert.ok(pt);
+  const lead1 = (await h.db.query(`SELECT id FROM leads WHERE full_name = 'عميل حملة 1'`)).rows[0].id;
+  const other1 = (await h.db.query(`SELECT id FROM leads WHERE full_name = 'عميل حملة تانية'`)).rows[0].id;
+  const meta = await h.call(pt, 'GET', '/leads/meta');
+  assert.equal(meta.status, 200, JSON.stringify(meta.body));
+  assert.equal(meta.body.can.create, true);
+  assert.equal(meta.body.can.distribute, false);
+  assert.ok(meta.body.campaigns.every((x: any) => [camp1, camp2].includes(x.id)), 'its campaigns only');
+  const dash = await h.call(pt, 'GET', '/leads/dashboard', undefined);
+  assert.equal(dash.status, 200, JSON.stringify(dash.body));
+  assert.ok(dash.body.counts.total >= 2, JSON.stringify(dash.body.counts));
+  const list = await h.call(pt, 'GET', '/leads');
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const ids = list.body.leads.map((x: any) => x.id);
+  assert.ok(ids.includes(lead1) && !ids.includes(other1));
+  const d = await h.call(pt, 'GET', `/leads/${lead1}`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(d.body.can.act, false); assert.equal(d.body.can.edit, false); assert.equal(d.body.can.reply, false);
+  assert.ok(d.body.actions.some((a: any) => a.comment === 'كلمته وهيرد'));
+  assert.equal((await h.call(pt, 'GET', `/leads/${other1}`)).status, 404);
+  assert.equal((await h.call(pt, 'GET', `/leads/${lead1}/extra`)).status, 200);
+  assert.equal((await h.call(pt, 'GET', '/tasks')).status, 200);
+  // writing anything: refused
+  assert.equal((await h.call(pt, 'POST', `/leads/${lead1}/actions`, { stage: 'cancelled', comment: 'x' })).status, 403);
+  assert.equal((await h.call(pt, 'PATCH', `/leads/${lead1}`, { fullName: 'y' })).status, 403);
+  assert.equal((await h.call(pt, 'POST', '/tasks', { title: 'x' })).status, 403);
+  assert.equal((await h.call(pt, 'PATCH', `/leads/campaigns/${camp1}`, { name: 'x' })).status, 403);
+  // adding from the dashboard's form: on its campaign
+  const add = await h.call(pt, 'POST', '/leads', { fullName: 'من اللوحة', phone: '01011119999', campaignId: camp1, projectId: pid });
+  assert.equal(add.status, 201, JSON.stringify(add.body));
+  assert.equal((await h.db.query(`SELECT partner_company_id FROM leads WHERE id = $1`, [add.body.lead.id])).rows[0].partner_company_id, companyId);
+  assert.equal((await h.call(pt, 'POST', '/leads', { fullName: 'غلط', phone: '01011119998', campaignId: other, projectId: pid })).status, 400);
+  // settings (read-only): its campaigns; الربط: its campaigns, no tokens / salesmen
+  const cfg = await h.call(pt, 'GET', '/leads/config');
+  assert.equal(cfg.status, 200, JSON.stringify(cfg.body));
+  assert.equal(cfg.body.readOnly, true);
+  assert.deepEqual(cfg.body.campaigns.map((x: any) => x.id).sort(), [camp1, camp2].sort());
+  const it = await h.call(pt, 'GET', '/integrations');
+  assert.equal(it.status, 200, JSON.stringify(it.body));
+  assert.equal(it.body.partner, true);
+  assert.ok(!('verifyToken' in it.body.meta) && it.body.people.length === 0 && it.body.campaigns.length === 2);
+  // it picks Meta campaigns for its own campaign only
+  const link = await h.call(pt, 'PATCH', `/leads/campaigns/${camp2}/partner`, { metaCampaignIds: ['5550001'] });
+  assert.equal(link.status, 200, JSON.stringify(link.body));
+  assert.equal((await h.call(pt, 'PATCH', `/leads/campaigns/${other}/partner`, { metaCampaignIds: ['5550002'] })).status, 404);
+  assert.equal((await h.call(pt, 'PATCH', `/leads/campaigns/${camp2}/partner`, { companyId: null })).status, 403);
+  // the notifications: the same endpoints as everyone's
+  const n = await h.call(pt, 'GET', '/notifications');
+  assert.equal(n.status, 200, JSON.stringify(n.body));
+  assert.ok(n.body.notifications.length > 0 && n.body.unread > 0);
+  const first = n.body.notifications[0];
+  assert.equal(first.entity, 'lead');
+  assert.equal((await h.call(pt, 'POST', `/notifications/${first.id}/read`, {})).status, 200);
+  assert.equal((await h.call(pt, 'DELETE', `/notifications/${first.id}`)).status, 200);
+  const n2 = await h.call(pt, 'GET', '/notifications');
+  assert.ok(!n2.body.notifications.some((x: any) => x.id === first.id), 'deleted stays deleted');
+  assert.equal((await h.call(pt, 'POST', '/notifications/read-all', {})).status, 200);
+  assert.equal((await h.call(pt, 'GET', '/notifications')).body.unread, 0);
+  // an employee's notifications are untouched by it
+  assert.equal((await h.call(c.t.e1, 'GET', '/notifications')).status, 200);
+});
+
+test('«تعديل الحساب»: name and mobile; a new e-mail only after its code', async () => {
+  const sent: any[] = [];
+  const prev = globalThis.fetch;
+  process.env.BREVO_API_KEY = 'k'; process.env.MAIL_FROM = 'hr@value.test';
+  globalThis.fetch = (async (url: any, init: any) => {
+    if (String(url).startsWith('https://api.brevo.com/')) { sent.push(JSON.parse(init.body)); return new Response('{}', { status: 201 }); }
+    return prev(url, init);
+  }) as typeof fetch;
+  try {
+    const ed = await h.call(pt, 'PATCH', '/partner/account', { name: 'آدز ميديا جروب', phone: '01234567899' });
+    assert.equal(ed.status, 200, JSON.stringify(ed.body));
+    assert.equal(ed.body.account.name, 'آدز ميديا جروب');
+    const empPhone = (await h.db.query(`SELECT phone FROM employees WHERE phone IS NOT NULL AND length(phone) >= 10 LIMIT 1`)).rows[0]?.phone;
+    if (empPhone) assert.equal((await h.call(pt, 'PATCH', '/partner/account', { phone: empPhone })).status, 409);
+    assert.equal((await h.call(null, 'POST', '/auth/login', { identifier: '01234567899', password: 'Mine#2026yy' })).status, 200, 'signs in with the new mobile');
+    const r = await h.call(pt, 'POST', '/partner/account/email', { email: 'new@ads.com' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(sent.at(-1).to[0].email, 'new@ads.com');
+    assert.equal((await h.db.query(`SELECT login_email FROM marketing_companies WHERE id = $1`, [companyId])).rows[0].login_email, 'ads@media.com', 'not yet');
+    const code = /(\d{4})/.exec(sent.at(-1).textContent)![1];
+    assert.equal((await h.call(pt, 'POST', '/partner/account/email/verify', { code: code === '0000' ? '1111' : '0000' })).status, 400);
+    const v = await h.call(pt, 'POST', '/partner/account/email/verify', { code });
+    assert.equal(v.status, 200, JSON.stringify(v.body));
+    assert.equal((await h.db.query(`SELECT login_email FROM marketing_companies WHERE id = $1`, [companyId])).rows[0].login_email, 'new@ads.com');
+    assert.equal((await h.call(pt, 'POST', '/partner/account/email/verify', { code })).status, 400, 'single use');
+    assert.equal((await h.call(c.t.e1, 'PATCH', '/partner/account', { name: 'x' })).status, 401, 'an employee is not a company');
+  } finally {
+    globalThis.fetch = prev; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
+  }
 });

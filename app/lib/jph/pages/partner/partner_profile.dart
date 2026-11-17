@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
-import '../../../pages/change_password_page.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/app_controller.dart';
 import '../../theme/app_colors.dart';
@@ -16,6 +15,9 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../leads/leads_api.dart';
+import '../login/otp_page.dart';
+import '../../services/api_service.dart';
+import '../notifications/notifications_page.dart';
 
 /// the company's logo (its «صورة الملف الشخصي»), loaded once
 class PartnerLogo {
@@ -43,7 +45,6 @@ class PartnerTopBar extends StatefulWidget {
 
 class _PartnerTopBarState extends State<PartnerTopBar> {
   Uint8List? _logo;
-  int _unread = 0;
 
   @override
   void initState() {
@@ -51,12 +52,6 @@ class _PartnerTopBarState extends State<PartnerTopBar> {
     PartnerLogo.load().then((b) {
       if (mounted) setState(() => _logo = b);
     });
-    _count();
-  }
-
-  Future<void> _count() async {
-    final r = await lget('/partner/notifications');
-    if (mounted && r['success'] != false) setState(() => _unread = (r['unread'] as num?)?.toInt() ?? 0);
   }
 
   String _today(BuildContext context) {
@@ -68,38 +63,21 @@ class _PartnerTopBarState extends State<PartnerTopBar> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        // the bell → the same «الإشعارات» page as everyone's
         GestureDetector(
-          onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const PartnerNotificationsPage()));
-            _count();
-          },
-          child: Stack(clipBehavior: Clip.none, children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDark ? Colors.white.withOpacity(0.15) : AppColors.primary.withOpacity(0.1),
-                border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : AppColors.primary.withOpacity(0.2), width: 1),
-              ),
-              child: const Icon(Icons.notifications, size: 24, color: Ar.info),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsPage(
+              uid: AppNav.uid ?? '', name: AppNav.name ?? widget.name, role: AppNav.role ?? 'marketing_partner'))),
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDark ? Colors.white.withOpacity(0.15) : AppColors.primary.withOpacity(0.1),
+              border: Border.all(color: isDark ? Colors.white.withOpacity(0.2) : AppColors.primary.withOpacity(0.2), width: 1),
             ),
-            if (_unread > 0)
-              PositionedDirectional(
-                top: -4,
-                end: -4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  constraints: const BoxConstraints(minWidth: 18),
-                  decoration: BoxDecoration(color: Ar.red, borderRadius: BorderRadius.circular(10)),
-                  child: Text(_unread > 99 ? '99+' : '$_unread', textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
-                ),
-              ),
-          ]),
+            child: const Icon(Icons.notifications, size: 24, color: Ar.info),
+          ),
         ),
         Column(children: [
           Text(_today(context), style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Ar.grey.shade700)),
@@ -124,74 +102,7 @@ class _PartnerTopBarState extends State<PartnerTopBar> {
             child: ClipOval(child: _logo != null ? Image.memory(_logo!, fit: BoxFit.cover) : const DefaultPhoto()),
           ),
         ),
-      ]),
-    );
-  }
-}
-
-/// «الإشعارات»: what happened on its campaigns' leads (new leads, the salesmen's follow-ups)
-class PartnerNotificationsPage extends StatefulWidget {
-  const PartnerNotificationsPage({super.key});
-
-  @override
-  State<PartnerNotificationsPage> createState() => _PartnerNotificationsPageState();
-}
-
-class _PartnerNotificationsPageState extends State<PartnerNotificationsPage> {
-  List<Map<String, dynamic>> _items = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final r = await lget('/partner/notifications');
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _items = ll(r['items']);
-    });
-    lpost('/partner/notifications/seen', {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = context.watch<AppController>().isDark;
-    return LeadsShell(
-      isDark: isDark,
-      title: 'الإشعارات',
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 40), children: [
-                if (_items.isEmpty)
-                  Padding(padding: const EdgeInsets.all(40), child: Center(child: Text('مفيش إشعارات', style: TextStyle(color: JphUi.sub(isDark))))),
-                for (final n in _items)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(14),
-                    decoration: JphUi.box(isDark),
-                    child: Row(children: [
-                      Icon(n['kind'] == 'lead' ? Icons.person_add_alt_1_rounded : Icons.forum_rounded,
-                          color: n['unread'] == true ? Ar.accent : JphUi.sub(isDark)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('${n['title']}', style: TextStyle(fontWeight: n['unread'] == true ? FontWeight.w900 : FontWeight.w700, color: JphUi.text(isDark))),
-                          if ('${n['body'] ?? ''}'.isNotEmpty) Text('${n['body']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
-                          Text(agoAr(n['at']), style: TextStyle(fontSize: 11.5, color: JphUi.sub(isDark))),
-                        ]),
-                      ),
-                      if (n['unread'] == true) Container(width: 9, height: 9, decoration: const BoxDecoration(color: Ar.red, shape: BoxShape.circle)),
-                    ]),
-                  ),
-              ]),
-            ),
-    );
+      ]);
   }
 }
 
@@ -303,9 +214,13 @@ class _PartnerProfilePageState extends State<PartnerProfilePage> {
                               SizedBox(
                                 height: 46,
                                 child: ElevatedButton.icon(
-                                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePasswordPage())),
-                                  icon: const Icon(Icons.lock_reset_rounded, size: 18, color: Colors.white),
-                                  label: const Text('تغيير كلمة المرور', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+                                  // «تعديل الحساب» like the employee's: name, mobile, e-mail (by a code) and the password
+                                  onPressed: () async {
+                                    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PartnerEditAccountPage(data: data)));
+                                    if (changed == true) _load();
+                                  },
+                                  icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.white),
+                                  label: Text(AppLocalizations.of(context, 'edit_account'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: primaryColor,
                                     elevation: 0,
@@ -367,5 +282,186 @@ class _PartnerProfilePageState extends State<PartnerProfilePage> {
         ),
       );
     });
+  }
+}
+
+/// «تعديل الحساب» of the company — the employee's edit page (edit_profile_page.dart): the same frame, card and fields,
+/// for its name, mobile and e-mail (a new e-mail is kept after the code sent to it, on the same OTP page as «نسيت كلمة
+/// المرور»), and its password on the same page.
+class PartnerEditAccountPage extends StatefulWidget {
+  final Map<String, dynamic> data;
+  const PartnerEditAccountPage({super.key, required this.data});
+
+  @override
+  State<PartnerEditAccountPage> createState() => _PartnerEditAccountPageState();
+}
+
+class _PartnerEditAccountPageState extends State<PartnerEditAccountPage> {
+  final _formKey = GlobalKey<FormState>();
+  late final _name = TextEditingController(text: '${widget.data['name'] ?? ''}');
+  late final _phone = TextEditingController(text: '${widget.data['phone'] ?? ''}');
+  late final _email = TextEditingController(text: '${widget.data['email'] ?? ''}');
+  final _current = TextEditingController(), _next = TextEditingController(), _confirm = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    for (final c in [_name, _phone, _email, _current, _next, _confirm]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _say(Object? m, {bool ok = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${m ?? ''}'), backgroundColor: ok ? Ar.green : Ar.red));
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    var changed = false;
+    try {
+      // 1) name / mobile
+      final body = <String, dynamic>{
+        if (_name.text.trim() != '${widget.data['name'] ?? ''}') 'name': _name.text.trim(),
+        if (_phone.text.trim() != '${widget.data['phone'] ?? ''}') 'phone': _phone.text.trim(),
+      };
+      if (body.isNotEmpty) {
+        final r = await lpost('/partner/account', body, method: 'patch');
+        if (r['success'] == false) return _say(r['message']);
+        changed = true;
+        if (body['name'] != null) AppNav.name = '${body['name']}';
+      }
+      // 2) a new e-mail: the code goes to it, entered on the OTP page
+      final email = _email.text.trim().toLowerCase();
+      if (email.isNotEmpty && email != '${widget.data['email'] ?? ''}'.toLowerCase()) {
+        final r = await lpost('/partner/account/email', {'email': email});
+        if (r['success'] == false) return _say(r['message']);
+        if (!mounted) return;
+        final done = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => OtpPage(
+              identifier: email,
+              sentTo: '${r['sentTo'] ?? email}',
+              verify: (code) => lpost('/partner/account/email/verify', {'code': code}),
+              resend: () => lpost('/partner/account/email', {'email': email}, ok: 'اتبعت كود جديد ✅'),
+            )));
+        if (done != true) return _say('الإيميل متغيرش — لازم تدخل الكود');
+        changed = true;
+      }
+      // 3) the password, on the same page
+      if (_next.text.isNotEmpty) {
+        final r = await ApiService.changePassword(uid: AppNav.uid ?? '', oldPass: _current.text, newPass: _next.text);
+        if (r['success'] == false) return _say(r['message']);
+        changed = true;
+      }
+      if (!mounted) return;
+      if (!changed) return _say('مفيش تغيير');
+      _say('اتحفظ ✅', ok: true);
+      Navigator.pop(context, true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  InputDecoration _deco(String label, IconData icon, Color primaryColor) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: primaryColor),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Provider.of<AppController>(context).isDark;
+    final primaryColor = isDark ? AppColors.primaryLight : AppColors.primary;
+    return AppBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(AppLocalizations.of(context, 'edit_account')),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(children: [
+              GlassCard(
+                radius: 24,
+                padding: const EdgeInsets.all(16),
+                child: Column(children: [
+                  TextFormField(
+                    controller: _name,
+                    decoration: _deco('اسم الشركة', Icons.business_rounded, primaryColor),
+                    validator: (v) => (v ?? '').trim().length < 2 ? 'اكتب اسم الشركة' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _phone,
+                    decoration: _deco(AppLocalizations.of(context, 'phone'), Icons.phone, primaryColor),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _email,
+                    decoration: _deco(AppLocalizations.of(context, 'email'), Icons.email, primaryColor),
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (v) => (v ?? '').isNotEmpty && !(v ?? '').contains('@') ? 'Enter a valid email' : null,
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              GlassCard(
+                radius: 24,
+                padding: const EdgeInsets.all(16),
+                child: Column(children: [
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text('تغيير كلمة المرور (اختياري)', style: TextStyle(fontWeight: FontWeight.w800, color: isDark ? Colors.white : Colors.black87)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _current,
+                    obscureText: true,
+                    decoration: _deco('كلمة المرور الحالية', Icons.lock_outline_rounded, primaryColor),
+                    validator: (v) => _next.text.isNotEmpty && (v ?? '').isEmpty ? 'اكتب كلمة المرور الحالية' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _next,
+                    obscureText: true,
+                    decoration: _deco('كلمة المرور الجديدة', Icons.lock_reset_rounded, primaryColor),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirm,
+                    obscureText: true,
+                    decoration: _deco('تأكيد كلمة المرور الجديدة', Icons.lock_rounded, primaryColor),
+                    validator: (v) => (v ?? '') != _next.text ? 'كلمتين المرور مش زي بعض' : null,
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _loading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(AppLocalizations.of(context, 'save_changes'),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }
