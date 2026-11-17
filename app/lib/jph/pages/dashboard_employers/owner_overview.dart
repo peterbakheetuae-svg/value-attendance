@@ -105,7 +105,7 @@ class _OwnerOverviewState extends State<OwnerOverview> {
     });
     final ids = _l(_m(r['presence'])['rows']).map((x) => '${x['id']}').where((x) => x.isNotEmpty).toList();
     if (r['success'] == true && ids.isNotEmpty) {
-      final ph = await ApiService.photosOf(ids);
+      final ph = await JphRouter.photosOf(ids);
       if (mounted) setState(() => _photos = ph);
     }
   }
