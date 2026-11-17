@@ -16,6 +16,8 @@ dependencies:
   provider: ^6.1.2
   http: ^1.2.2
   shared_preferences: ^2.3.2
+  # the session token on Android: Android Keystore-backed storage (VA-04)
+  flutter_secure_storage: ^9.2.4
   geolocator: ^13.0.1
   # in-shift follow-up keeps running with the app closed (foreground service with its own engine)
   flutter_background_service: ^5.1.0

@@ -367,3 +367,31 @@ test('«تعديل الحساب»: name and mobile; a new e-mail only after its 
     globalThis.fetch = prev; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;
   }
 });
+
+test('VA-11: company B never sees the Meta campaigns already feeding company A (seen list and ad-account list)', async () => {
+  const mkB = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة ب', kind: 'fixed', monthlyFee: 1000 });
+  const idB = mkB.body.company.id;
+  await h.call(c.t.owner, 'PATCH', `/leads/partners/${idB}/login`, { email: 'b@co.com', password: 'Start#2026x' });
+  await h.db.query(`UPDATE marketing_companies SET must_change_password = false, device_lock = false WHERE id = $1`, [idB]);
+  const tokB = (await h.call(null, 'POST', '/auth/login', { identifier: 'b@co.com', password: 'Start#2026x' })).body.token;
+  // A's campaign (camp2) feeds from Meta 5550001; Meta has also shown 5550001 and a free one 5559999
+  await h.db.query(`UPDATE lead_campaigns SET marketing_company_id = $2, meta_campaign_ids = '{5550001}' WHERE id = $1`, [camp2, companyId]);
+  await h.db.query(`INSERT INTO meta_seen_campaigns (campaign_id, name, leads, skipped, last_at) VALUES ('5550001','A only',1,0,now()), ('5559999','free',1,1,now())
+                    ON CONFLICT (campaign_id) DO NOTHING`);
+  const itB = await h.call(tokB, 'GET', '/integrations');
+  assert.equal(itB.status, 200, JSON.stringify(itB.body));
+  const seenB = itB.body.metaSeen.map((x: any) => x.id);
+  assert.ok(!seenB.includes('5550001') && seenB.includes('5559999'));
+  assert.equal(itB.body.campaigns.length, 0, 'B has no campaign of A');
+  const prevLead = metaLead;
+  metaLead = { data: [{ name: 'acc', campaigns: { data: [{ id: '5550001', name: 'A' }, { id: '5559999', name: 'free' }] } }] };
+  try {
+    const lsB = await h.call(tokB, 'GET', '/integrations/meta/campaigns');
+    assert.deepEqual(lsB.body.campaigns.map((x: any) => x.id), ['5559999']);
+    const lsA = await h.call(pt, 'GET', '/integrations/meta/campaigns');
+    assert.deepEqual(lsA.body.campaigns.map((x: any) => x.id).sort(), ['5550001', '5559999'], 'A sees its own');
+  } finally { metaLead = prevLead; }
+  // B cannot take A's Meta campaign nor touch A's campaign by id
+  assert.equal((await h.call(tokB, 'PATCH', `/leads/campaigns/${camp2}/partner`, { metaCampaignIds: ['5559999'] })).status, 404);
+  assert.equal((await h.call(tokB, 'GET', `/leads?campaignId=${camp2}`)).body.leads?.length ?? 0, 0, 'no A lead through a filter');
+});

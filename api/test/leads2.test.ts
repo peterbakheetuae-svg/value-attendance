@@ -48,8 +48,31 @@ test('files, the client\'s request and the matching units, the check-in', async 
   assert.equal(rq.status, 200, JSON.stringify(rq.body));
   assert.deepEqual(rq.body.matches.map((m: any) => m.unitNo), ['A-1']);
   assert.equal((await h.call(c.t.e1, 'POST', `/leads/${l.id}/request`, { unitType: 'محل' })).status, 404, 'not his');
-  const f = await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: 'بطاقة.jpg', mime: 'image/jpeg', data: Buffer.from('x'.repeat(500)).toString('base64') });
-  assert.equal(f.status, 201);
+  // a real JPEG (its signature) — the server decides the type from the content (VA-07)
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('x'.repeat(496))]);
+  const f = await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: 'بطاقة.jpg', mime: 'image/jpeg', data: jpeg.toString('base64') });
+  assert.equal(f.status, 201, JSON.stringify(f.body));
+  // VA-07: executables, HTML, scripts, APKs, spoofed types — refused
+  const bad: [string, Buffer, string][] = [
+    ['tool.exe', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]), 'application/octet-stream'],
+    ['page.html', Buffer.from('<html><script>alert(1)</script></html>'), 'text/html'],
+    ['fake.jpg', Buffer.from('<script>alert(1)</script>xxxxxxxx'), 'image/jpeg'],
+    ['app.apk', Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.from('AndroidManifest.xml classes.dex')]), 'application/vnd.android.package-archive'],
+    ['report.pdf.exe', Buffer.concat([Buffer.from('%PDF-1.4 '), Buffer.alloc(20)]), 'application/pdf'],
+    ['x.docx', Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.from('payload.js')]), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ];
+  for (const [name, buf, mime] of bad) {
+    const r = await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: name, mime, data: buf.toString('base64') });
+    assert.equal(r.status, 400, `${name} must be refused`);
+  }
+  const pdf = await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: '../../عقد.pdf', mime: 'text/html', data: Buffer.concat([Buffer.from('%PDF-1.4 '), Buffer.alloc(20)]).toString('base64') });
+  assert.equal(pdf.status, 201, 'a real PDF is kept (its declared mime ignored)');
+  const stored = (await h.db.query(`SELECT file_name, mime FROM lead_attachments WHERE id = $1`, [pdf.body.attachment.id])).rows[0];
+  assert.equal(stored.mime, 'application/pdf');
+  assert.ok(!stored.file_name.includes('/'), 'no path in the stored name');
+  const docx = Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.from('[Content_Types].xml word/document.xml')]);
+  assert.equal((await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: 'عرض.docx', data: docx.toString('base64') })).status, 201);
+  await h.db.query(`DELETE FROM lead_attachments WHERE lead_id = $1 AND id <> $2`, [l.id, f.body.attachment.id]);
   assert.equal((await h.call(c.t.e2, 'POST', `/leads/${l.id}/attachments`, { fileName: 'big.pdf', data: Buffer.alloc(3_100_000).toString('base64') })).status, 400);
   at('2026-11-14T12:00:00Z');
   await h.call(c.t.e2, 'POST', `/leads/${l.id}/actions`, { stage: 'meeting', comment: 'في المشروع', nextAt: '2026-11-14T13:00:00Z' });

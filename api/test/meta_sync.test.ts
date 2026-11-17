@@ -11,6 +11,7 @@ const lead = (id: string, campaignId: string, phone: string, name: string) => ({
   field_data: [{ name: 'full_name', values: [name] }, { name: 'phone_number', values: [phone] }],
 });
 before(async () => {
+  process.env.SECRETS_KEY = Buffer.alloc(32, 3).toString('base64');   // tokens sealed at rest (VA-05)
   h = await harness('2026-11-17T08:00:00Z'); c = await cast(h);
   await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج ميتا', ownerName: 'أ. سامي', ownerPhone: '0100' })).body.project.id;
@@ -45,7 +46,7 @@ before(async () => {
     return j({ error: { message: `unexpected ${path} ${tok}` } }, 400);
   }) as typeof fetch;
 });
-after(async () => { globalThis.fetch = realFetch; await h.close(); });
+after(async () => { globalThis.fetch = realFetch; delete process.env.SECRETS_KEY; await h.close(); });
 
 test('a user token adds all its pages (own page tokens, subscribed); tokens are never shown', async () => {
   assert.equal((await h.call(c.t.e1, 'POST', '/integrations/meta/pages', { accessToken: 'USER-TOKEN-xxxxxxxxxxxxxxxx' })).status, 403);
@@ -56,6 +57,8 @@ test('a user token adds all its pages (own page tokens, subscribed); tokens are 
   const it = (await h.call(c.t.acc, 'GET', '/integrations')).body;
   assert.equal(it.metaPages.length, 2);
   assert.ok(!JSON.stringify(it).includes('PAGE-A'));
+  const stored = (await h.db.query(`SELECT access_token FROM meta_pages`)).rows.map((x) => x.access_token);
+  assert.ok(stored.every((t: string) => t.startsWith('enc:v1:') && !t.includes('PAGE-')), 'page tokens encrypted at rest');
 });
 
 test('linking a Meta campaign pulls its leads from Meta (once); the webhook reads with the page\'s own token', async () => {
@@ -85,4 +88,23 @@ test('a token that reaches its pages through a business portfolio; a person\'s t
   const u = await h.call(c.t.acc, 'POST', '/integrations/meta/pages', { accessToken: 'PERSON-TOKEN-xxxxxxxxxxxxxx' });
   assert.equal(u.status, 400, JSON.stringify(u.body));
   assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM meta_pages WHERE page_id = '77777'`)).rows[0].n, 0);
+});
+
+test('VA-09: with the apps\' secrets configured, only deliveries signed by one of them are taken', async () => {
+  const { createHmac } = await import('node:crypto');
+  const body = { entry: [{ id: '1001', changes: [{ field: 'leadgen', value: { leadgen_id: '5001' } }] }] };
+  const raw = JSON.stringify(body);
+  const sig = (secret: string, b = raw) => 'sha256=' + createHmac('sha256', secret).update(b).digest('hex');
+  const post = (headers: Record<string, string>, b = raw) => fetch(h.base + '/public/hooks/meta', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: b });
+  process.env.META_APP_SECRETS = 'secret-app-one, secret-app-two';
+  try {
+    assert.equal((await post({})).status, 401, 'missing signature');
+    assert.equal((await post({ 'x-hub-signature-256': 'sha256=' + 'a'.repeat(64) })).status, 401, 'invalid signature');
+    assert.equal((await post({ 'x-hub-signature-256': sig('wrong-secret') })).status, 401, 'wrong app secret');
+    assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one') }, raw.replace('5001', '5009'))).status, 401, 'modified body');
+    assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one', '') }, '')).status, 401, 'empty body');
+    assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one') })).status, 200, 'app one');
+    assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-two') })).status, 200, 'app two (retries welcome: the lead comes in once)');
+  } finally { delete process.env.META_APP_SECRETS; }
+  assert.equal((await post({})).status, 200, 'not configured yet: unchanged behaviour');
 });

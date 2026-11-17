@@ -34,10 +34,18 @@ void main() {
       xml = xml.replaceFirst('<application', '<uses-permission android:name="$p"/>\n    <application');
     }
   }
-  // Local/LAN development API is plain http; production must use https.
+  // VA-03: the release app speaks HTTPS only (the API, the OTA update and every integration are https). Plain http for a
+  // local/LAN API is allowed in DEBUG builds only (src/debug manifest below), never in the release manifest.
+  xml = xml.replaceAll('android:usesCleartextTraffic="true"', 'android:usesCleartextTraffic="false"');
   if (!xml.contains('usesCleartextTraffic')) {
-    xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
+    xml = xml.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="false"');
   }
+  // VA-04: nothing of the app (the sign-in token, cached data) goes into Google / adb backups or device-to-device transfer
+  if (!xml.contains('android:allowBackup')) {
+    xml = xml.replaceFirst('<application', '<application\n        android:allowBackup="false"\n        android:fullBackupContent="false"'
+        '\n        android:dataExtractionRules="@xml/data_extraction_rules"');
+  }
+  xml = xml.replaceAll('android:allowBackup="true"', 'android:allowBackup="false"');
   // the app's name under its icon: فاليو نيفو on an Arabic phone, VALUNIVO otherwise
   xml = xml.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="@string/app_name"');
   for (final (dir, name) in const [('values', 'VALUNIVO'), ('values-ar', 'فاليو نيفو')]) {
@@ -79,12 +87,44 @@ void main() {
     </application>''');
   }
   Directory('android/app/src/main/res/xml').createSync(recursive: true);
+  // Android 12+: no cloud backup and no device transfer of any app data (VA-04)
+  File('android/app/src/main/res/xml/data_extraction_rules.xml').writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n'
+      '<data-extraction-rules>\n'
+      '    <cloud-backup>\n'
+      '        <exclude domain="root" path="."/>\n        <exclude domain="file" path="."/>\n        <exclude domain="database" path="."/>\n'
+      '        <exclude domain="sharedpref" path="."/>\n        <exclude domain="external" path="."/>\n'
+      '    </cloud-backup>\n'
+      '    <device-transfer>\n'
+      '        <exclude domain="root" path="."/>\n        <exclude domain="file" path="."/>\n        <exclude domain="database" path="."/>\n'
+      '        <exclude domain="sharedpref" path="."/>\n        <exclude domain="external" path="."/>\n'
+      '    </device-transfer>\n'
+      '</data-extraction-rules>\n');
+  // debug builds only: plain http to a local API (VA-03 — the release manifest above stays https-only)
+  final dbg = File('android/app/src/debug/AndroidManifest.xml');
+  if (dbg.existsSync()) {
+    var d = dbg.readAsStringSync();
+    if (!d.contains('usesCleartextTraffic')) {
+      if (!d.contains('xmlns:tools')) {
+        d = d.replaceFirst('xmlns:android="http://schemas.android.com/apk/res/android"',
+            'xmlns:android="http://schemas.android.com/apk/res/android"\n    xmlns:tools="http://schemas.android.com/tools"');
+      }
+      d = d.replaceFirst('</manifest>', '    <application android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic"/>\n</manifest>');
+      dbg.writeAsStringSync(d);
+    }
+  }
   File('android/app/src/main/res/xml/ota_filepaths.xml').writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>\n'
       '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
       '    <files-path name="internal_apk_storage" path="ota_update/"/>\n'
       '</paths>\n');
   f.writeAsStringSync(xml);
-  stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, cleartext (dev).');
+  // regression guard (VA-03 / VA-04): the build stops if the release manifest ever allows cleartext or backups again
+  final app = RegExp(r'<application[^>]*>', dotAll: true).firstMatch(xml)?.group(0) ?? '';
+  if (!app.contains('android:usesCleartextTraffic="false"') || !app.contains('android:allowBackup="false"') ||
+      xml.contains('usesCleartextTraffic="true"') || xml.contains('android:debuggable="true"')) {
+    stderr.writeln('SECURITY: release AndroidManifest must have usesCleartextTraffic="false" and allowBackup="false" (and no debuggable)');
+    exit(1);
+  }
+  stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, https only, no backup.');
 
   // flutter_local_notifications needs core library desugaring
   for (final path in ['android/app/build.gradle.kts', 'android/app/build.gradle']) {

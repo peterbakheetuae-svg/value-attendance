@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
@@ -10,6 +10,7 @@ import { assignable, phoneNorm, readLead } from './leads.ts';
 import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode } from './lead_routing.ts';
 import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
+import { seal, unseal } from '../lib/secretbox.ts';
 import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
 
 /**
@@ -47,6 +48,19 @@ const EMAIL = ['email', 'mail', 'contact_email'];
 const MSG = ['message', 'notes', 'note', 'details', 'body', 'comment', 'inquiry', 'description'];
 const PROJECT_NAME = ['project_name', 'project_title', 'compound_name', 'project'];
 
+/** true when no app secret is configured yet (backward compatible) or the body is signed by one of them */
+export function metaSignatureOk(raw: Buffer | undefined, header: unknown): boolean {
+  const secrets = (process.env.META_APP_SECRETS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!secrets.length) return true;
+  const h = typeof header === 'string' ? header.trim() : '';
+  if (!/^sha256=[0-9a-f]{64}$/i.test(h) || !raw?.length) return false;
+  const got = Buffer.from(h.slice(7).toLowerCase(), 'hex');
+  return secrets.some((s) => {
+    const want = createHmac('sha256', s).update(raw).digest();
+    return want.length === got.length && timingSafeEqual(want, got);
+  });
+}
+
 export const integrationsModule: Module = (r, { db, clock }) => {
   const admin = async (req: Req, partnerToo = false) => {
     const a = await authenticate(db, req);
@@ -67,6 +81,9 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   const noteError = (source: string, e: string) =>
     db.query(`UPDATE integrations SET last_error = $2 WHERE source = $1`, [source, e.slice(0, 300)]).catch(() => undefined);
 
+  /** Meta campaigns already feeding a campaign of ours that is not this company's (hidden from it) */
+  const partnerHidden = async (company: string) => new Set<string>((await db.query(
+    `SELECT DISTINCT unnest(meta_campaign_ids) AS id FROM lead_campaigns WHERE marketing_company_id IS DISTINCT FROM $1`, [company])).rows.map((x) => String(x.id)));
   const campaignOf = async (id: string | null) => (id ? one(db, `SELECT * FROM lead_campaigns WHERE id = $1 AND active`, [id]) : null);
 
   // ------------------------------------------------------------------ the settings
@@ -76,7 +93,8 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       // the company's view (read-only but for choosing its campaigns' Meta campaigns): no keys, tokens, salesmen or Value Aqar
       const meta = await ensure('meta');
       const mine = await db.query(`SELECT id, name, meta_campaign_ids FROM lead_campaigns WHERE active AND marketing_company_id = $1 ORDER BY created_at DESC`, [a.partner]);
-      const seen = await db.query(`SELECT * FROM meta_seen_campaigns ORDER BY last_at DESC LIMIT 200`);
+      const hidden = await partnerHidden(a.partner);
+      const seen = { rows: (await db.query(`SELECT * FROM meta_seen_campaigns ORDER BY last_at DESC LIMIT 200`)).rows.filter((x) => !hidden.has(String(x.campaign_id))) };
       return ok({
         partner: true,
         meta: { source: 'meta', active: meta.active, hasToken: !!meta.access_token, lastAt: iso(meta.last_at), lastError: null },
@@ -127,17 +145,20 @@ export const integrationsModule: Module = (r, { db, clock }) => {
 
   /** the Meta campaigns the saved token reaches (its ad accounts) — to pick which ones come in */
   r.get('/integrations/meta/campaigns', async (req) => {
-    await admin(req, true);
+    const a = await admin(req, true);
     const it = await row('meta');
-    if (!it?.access_token) return ok({ campaigns: [], error: 'حط توكن Meta الأول' });
+    const token = unseal(it?.access_token);
+    if (!token) return ok({ campaigns: [], error: 'حط توكن Meta الأول' });
+    // a marketing company sees only Meta campaigns no other company's campaign is linked to (VA-11)
+    const taken = a.partner ? await partnerHidden(a.partner) : new Set<string>();
     try {
-      const res = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(it.access_token)}`);
+      const res = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(token)}`);
       const g: any = await res.json();
       if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
       const out: any[] = [];
       for (const acc of Array.isArray(g.data) ? g.data : []) {
         for (const c of Array.isArray(acc?.campaigns?.data) ? acc.campaigns.data : []) {
-          if (/^[0-9]{3,30}$/.test(String(c.id))) out.push({ id: String(c.id), name: String(c.name ?? ''), status: String(c.effective_status ?? ''), account: String(acc.name ?? '') });
+          if (/^[0-9]{3,30}$/.test(String(c.id)) && !taken.has(String(c.id))) out.push({ id: String(c.id), name: String(c.name ?? ''), status: String(c.effective_status ?? ''), account: String(acc.name ?? '') });
         }
       }
       return ok({ campaigns: out });
@@ -195,7 +216,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       } catch (e: any) { err = String(e?.message ?? e).slice(0, 300); }
       await db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed, last_error, added_by) VALUES ($1,$2,$3,$4,$5,$6)
                       ON CONFLICT (page_id) DO UPDATE SET name = EXCLUDED.name, access_token = EXCLUDED.access_token,
-                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, p.token, subscribed, err, a.id]);
+                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, seal(p.token), subscribed, err, a.id]);
       out.push({ id: p.id, name: p.name, subscribed, lastError: err });
     }
     await audit(db, a.id, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
@@ -252,7 +273,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     if (b.active !== undefined) set.active = b.active === true;
     if (source === 'meta' && b.accessToken !== undefined) {
       const t = (str(b, 'accessToken', { optional: true, max: 2000 }) ?? '').trim();
-      set.access_token = t || null;
+      set.access_token = seal(t || null);   // encrypted at rest when SECRETS_KEY is set
     }
     if (source === 'meta' && b.newVerifyToken === true) {
       // replacing one already in use: only with the code e-mailed to whoever does it (the first one needs none)
@@ -508,6 +529,9 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   });
 
   r.post('/public/hooks/meta', async (req) => {
+    // VA-09: Meta signs every delivery with the app secret (X-Hub-Signature-256 = sha256=HMAC(raw body)). Once the apps'
+    // secrets are configured (META_APP_SECRETS, comma-separated, one per Meta app) an unsigned / wrongly signed call is refused.
+    if (!metaSignatureOk(req.raw, req.headers['x-hub-signature-256'])) throw new AppError('unauthenticated', 'Bad signature');
     const it = await row('meta');
     if (!it?.active || (!it.access_token && !(await one(db, `SELECT 1 FROM meta_pages LIMIT 1`)))) return ok({ ok: true, skipped: 'off' });
     const b = obj(req.body);

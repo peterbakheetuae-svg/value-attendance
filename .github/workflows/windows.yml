@@ -36,8 +36,8 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       public_key: ${{ steps.key.outputs.public_key }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - name: Version (Windows' own numbering)
         id: v
@@ -161,10 +161,10 @@ jobs:
           cp build/installer/VALUNIVO-Setup-$V.exe ../windows-out/
           (cd build/windows/x64/runner/Release && 7z a -tzip -bso0 ../../../../../../windows-out/VALUNIVO-$V-windows-x64.zip .)
           (cd ../windows-out && sha256sum *) ; ls -la ../windows-out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with: { name: VALUNIVO-windows-screenshot, path: win-shots, if-no-files-found: ignore, retention-days: 30 }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: { name: windows-out, path: windows-out, retention-days: 30 }
 
   # Real in-app update test (feature branch only — never part of a release run): three builds 1.0.A, 1.0.A+1 and a
@@ -176,8 +176,8 @@ jobs:
     defaults: { run: { working-directory: app, shell: bash } }
     env: { E2E_BASE: 'https://localhost:8443/' }
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - name: Throw-away keys + test HTTPS certificate (test only, discarded with the runner)
         run: |
@@ -361,7 +361,7 @@ jobs:
           Get-ChildItem $s -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
           Get-ChildItem $s -Filter *.json -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
           Get-ChildItem $s -Filter *.txt -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with: { name: update-e2e-logs, path: e2e-logs, if-no-files-found: ignore, retention-days: 30 }
 
@@ -379,9 +379,9 @@ jobs:
       SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
       SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with: { name: windows-out, path: win }
       - name: Never overwrite an existing Windows release
         run: |
@@ -423,7 +423,7 @@ jobs:
       SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
       SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
       - name: Earlier installer (from its permanent release) + checks
         run: |

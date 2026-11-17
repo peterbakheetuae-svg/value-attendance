@@ -3,6 +3,7 @@ import { one } from '../db.ts';
 import { phoneNorm, readLead } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
+import { unseal } from '../lib/secretbox.ts';
 
 /**
  * Meta lead ads (db/migrations/081_meta_pages_sync.sql):
@@ -58,9 +59,9 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
 export async function pageToken(db: Db, pageId: string | null): Promise<string | null> {
   if (pageId) {
     const p = await one(db, `SELECT access_token FROM meta_pages WHERE page_id = $1`, [pageId]);
-    if (p) return p.access_token;
+    if (p) return unseal(p.access_token);
   }
-  return (await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token ?? null;
+  return unseal((await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token);
 }
 
 /**
@@ -93,9 +94,9 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
     }
   };
   const pages = (await db.query(`SELECT page_id, access_token FROM meta_pages ORDER BY added_at`)).rows;
-  const office = (await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token ?? null;
+  const office = unseal((await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token);
   // 1) every page's lead forms (a page token reads its own forms' leads)
-  const sources = [...pages.map((p) => ({ id: String(p.page_id), token: String(p.access_token) })), ...(office && !pages.length ? [{ id: 'me', token: office }] : [])];
+  const sources = [...pages.map((p) => ({ id: String(p.page_id), token: unseal(p.access_token) ?? '' })).filter((p) => p.token), ...(office && !pages.length ? [{ id: 'me', token: office }] : [])];
   for (const p of sources) {
     if (Date.now() >= stop) break;
     try {

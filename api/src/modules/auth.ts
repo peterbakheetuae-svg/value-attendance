@@ -11,6 +11,7 @@ import { notify } from './notify.ts';
 import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
 import { partnerOf } from '../auth/partner.ts';
+import { withIpLimit } from '../auth/ratelimit.ts';
 
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 
@@ -20,7 +21,7 @@ const LOCK_MINUTES = 15;
 let dummyHash: Promise<string> | null = null;
 
 export const authModule: Module = (r, { db }) => {
-  r.post('/auth/login', async (req) => {
+  r.post('/auth/login', async (req) => withIpLimit(db, req, 'login', async () => {
     const b = obj(req.body);
     const identifier = reqStr(b, 'identifier', { max: 120 });
     const password = reqStr(b, 'password', { max: 128 });
@@ -138,7 +139,7 @@ export const authModule: Module = (r, { db }) => {
       await audit(q, emp.id, 'auth.login', 'employee', emp.id);
     });
     return ok({ token, mustChangePassword: emp.must_change_password, expiresInHours: SESSION_TTL_HOURS });
-  });
+  }));
 
   r.post('/auth/logout', async (req) => {
     const p = await partnerOf(db, req);
@@ -198,28 +199,32 @@ export const authModule: Module = (r, { db }) => {
   };
   const GENERIC = 'If the account has an email, a 4-digit code was sent to it';
 
-  r.post('/auth/forgot', async (req) => {
+  r.post('/auth/forgot', async (req) => withIpLimit(db, req, 'forgot', async () => {
     const b = obj(req.body);
     const identifier = reqStr(b, 'identifier', { max: 120 });
     if (!mailEnabled()) throw new AppError('unprocessable', 'Email is not set up yet — ask HR to reset your password', { reason: 'mail_off' });
     const e = await findAccount(identifier);
+    // VA-10: the same reply whatever happens below (no account, no e-mail, too many codes, mail refused) — the caller
+    // can never learn whether an employee code / phone / e-mail exists or has an e-mail
     if (e?.email) {
       const recent = await one(db, `SELECT count(*)::int AS n FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [e.id]);
-      if (recent.n >= 3) throw new AppError('conflict', 'Too many codes requested — wait 15 minutes', { reason: 'otp_rate_limited' });
+      if (recent.n >= 3) {
+        await audit(db, e.id, 'auth.otp_rate_limited', 'employee', e.id);
+        return ok({ ok: true, message: GENERIC });
+      }
       const code = String(randomInt(0, 10_000)).padStart(4, '0');
       await db.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
       await db.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
       const st = await one(db, `SELECT company_name_ar FROM company_settings`);
       const sent = await sendMail({ to: e.email, toName: e.full_name, ...otpMail({ name: e.full_name, code, company: st.company_name_ar }) });
       await audit(db, e.id, sent ? 'auth.otp_sent' : 'auth.otp_send_failed', 'employee', e.id, undefined, sent ? undefined : { reason: lastMailError });
-      if (!sent) throw new AppError('unprocessable', 'The code could not be emailed right now — try again or ask HR', { reason: 'mail_failed' });
-      return ok({ ok: true, message: GENERIC, sentTo: e.email.replace(/^(.).*?(@.*)$/, '$1***$2') });
+    } else if (e) {
+      await audit(db, e.id, 'auth.otp_no_email', 'employee', e.id);
     }
-    if (e && !e.email) throw new AppError('unprocessable', 'No email is registered for this account — ask HR to add one or reset your password', { reason: 'no_email' });
     return ok({ ok: true, message: GENERIC });
-  });
+  }, true));
 
-  r.post('/auth/forgot/verify', async (req) => {
+  r.post('/auth/forgot/verify', async (req) => withIpLimit(db, req, 'otp', async () => {
     const b = obj(req.body);
     const identifier = reqStr(b, 'identifier', { max: 120 });
     const code = reqStr(b, 'code', { pattern: /^\d{4}$/ });
@@ -241,9 +246,9 @@ export const authModule: Module = (r, { db }) => {
     });
     if (!okRow) throw bad();
     return ok({ resetToken: token });
-  });
+  }));
 
-  r.post('/auth/forgot/reset', async (req) => {
+  r.post('/auth/forgot/reset', async (req) => withIpLimit(db, req, 'otp', async () => {
     const b = obj(req.body);
     const token = reqStr(b, 'resetToken', { max: 200 });
     const next = b.newPassword;
@@ -262,7 +267,7 @@ export const authModule: Module = (r, { db }) => {
       return true;
     });
     return ok({ ok: done });
-  });
+  }));
 
   r.post('/auth/change-password', async (req) => {
     const p = await partnerOf(db, req);
