@@ -11,6 +11,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../services/api_service.dart';
 import '../../widgets/glass_ui.dart';
+import 'package:flutter/widgets.dart' as fw;
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// Company information & office location — same glass UI as the original company screen,
@@ -245,7 +246,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
           for (final p in points) Marker(point: p, width: 36, height: 36, child: const Icon(Icons.location_on, color: AppColors.primary, size: 36)),
           if (pick != null) Marker(point: pick, width: 36, height: 36, child: const Icon(Icons.location_on, color: AppColors.secondary, size: 36)),
         ]),
-        const SimpleAttributionWidget(source: Text('OpenStreetMap')),
+        const SimpleAttributionWidget(source: fw.Text('OpenStreetMap')),
       ],
     );
   }

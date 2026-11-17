@@ -83,7 +83,7 @@ class _PermissionsPageState extends State<PermissionsPage> with SingleTickerProv
           title: const Text('الصلاحيات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.of(context).pop()),
           actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
-          bottom: TabBar(controller: _tabs, isScrollable: true, labelColor: AppColors.primary, tabs: const [
+          bottom: TabBar(controller: _tabs, isScrollable: true, labelColor: AppColors.primary, tabs: [
             Tab(text: txs('المسميات الوظيفية')),
             Tab(text: txs('الموظفين')),
             Tab(text: txs('مقارنة')),
