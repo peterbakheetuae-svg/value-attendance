@@ -155,18 +155,34 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
     if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
     let found: { id: string; name: string; token: string }[] = [];
-    try {
-      const acc = await graph('me/accounts?fields=id,name,access_token&limit=100', t);
-      found = (Array.isArray(acc.data) ? acc.data : []).filter((p: any) => /^[0-9]{3,30}$/.test(String(p.id)) && p.access_token)
-        .map((p: any) => ({ id: String(p.id), name: String(p.name ?? ''), token: String(p.access_token) }));
-    } catch { /* a page token has no «accounts» */ }
+    const add = (list: any) => {
+      for (const p of Array.isArray(list?.data) ? list.data : []) {
+        if (/^[0-9]{3,30}$/.test(String(p.id)) && p.access_token && !found.some((f) => f.id === String(p.id))) {
+          found.push({ id: String(p.id), name: String(p.name ?? ''), token: String(p.access_token) });
+        }
+      }
+    };
+    // a user token: the pages it manages itself, then the ones it reaches through a business portfolio
+    try { add(await graph('me/accounts?fields=id,name,access_token&limit=100', t)); } catch { /* a page token has no «accounts» */ }
     if (!found.length) {
       try {
-        const me = await graph('me?fields=id,name', t);
-        if (/^[0-9]{3,30}$/.test(String(me.id))) found = [{ id: String(me.id), name: String(me.name ?? ''), token: t }];
-      } catch (e: any) {
+        const biz = await graph('me/businesses?fields=id&limit=50', t);
+        for (const b of Array.isArray(biz.data) ? biz.data : []) {
+          if (!/^[0-9]{3,30}$/.test(String(b.id))) continue;
+          for (const edge of ['owned_pages', 'client_pages']) {
+            try { add(await graph(`${b.id}/${edge}?fields=id,name,access_token&limit=100`, t)); } catch { /* not allowed on this portfolio */ }
+          }
+        }
+      } catch { /* no business_management */ }
+    }
+    if (!found.length) {
+      // a page token itself (a page has a category; a person does not — a user token is never kept as a «page»)
+      let me: any;
+      try { me = await graph('me?fields=id,name,category', t); } catch (e: any) {
         throw invalid(`Meta رفض التوكن: ${String(e?.message ?? e).slice(0, 200)}`, { field: 'accessToken' });
       }
+      if (/^[0-9]{3,30}$/.test(String(me.id)) && me.category) found = [{ id: String(me.id), name: String(me.name ?? ''), token: t }];
+      else throw invalid('التوكن ده بتاع حسابك ومش بيوصل لأي صفحة — اعمله بصلاحية business_management (أو pages_show_list) واختار الصفحة', { field: 'accessToken' });
     }
     if (!found.length) throw invalid('التوكن ده مش بيوصل لأي صفحة', { field: 'accessToken' });
     const out: any[] = [];

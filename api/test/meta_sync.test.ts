@@ -27,6 +27,11 @@ before(async () => {
     const tok = new URL(u).searchParams.get('access_token');
     const path = new URL(u).pathname.replace('/v21.0/', '');
     const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
+    if (path === 'me/accounts' && tok === 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx') return j({ data: [] });
+    if (path === 'me/businesses' && tok === 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx') return j({ data: [{ id: '4242' }] });
+    if (path === '4242/owned_pages' && tok === 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx') return j({ data: [{ id: '1003', name: 'Biz Page', access_token: 'PAGE-C' }] });
+    if (path === '4242/client_pages') return j({ data: [] });
+    if (path === 'me' && tok === 'PERSON-TOKEN-xxxxxxxxxxxxxx') return j({ id: '77777', name: 'Peter' });
     if (path === 'me/accounts' && tok === 'USER-TOKEN-xxxxxxxxxxxxxxxx') {
       return j({ data: [{ id: '1001', name: 'Value Group', access_token: 'PAGE-A' }, { id: '1002', name: 'Value Square', access_token: 'PAGE-B' }] });
     }
@@ -71,4 +76,13 @@ test('linking a Meta campaign pulls its leads from Meta (once); the webhook read
   // a page removed: its token is gone
   assert.equal((await h.call(c.t.acc, 'POST', '/integrations/meta/pages/1002/remove', {})).status, 200);
   assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM meta_pages`)).rows[0].n, 1);
+});
+
+test('a token that reaches its pages through a business portfolio; a person\'s token is never kept as a page', async () => {
+  const b = await h.call(c.t.acc, 'POST', '/integrations/meta/pages', { accessToken: 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx' });
+  assert.equal(b.status, 200, JSON.stringify(b.body));
+  assert.deepEqual(b.body.pages.map((p: any) => p.id), ['1003']);
+  const u = await h.call(c.t.acc, 'POST', '/integrations/meta/pages', { accessToken: 'PERSON-TOKEN-xxxxxxxxxxxxxx' });
+  assert.equal(u.status, 400, JSON.stringify(u.body));
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM meta_pages WHERE page_id = '77777'`)).rows[0].n, 0);
 });
