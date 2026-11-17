@@ -14,6 +14,7 @@ import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/glass_ui_widgets.dart';
+import '../../widgets/jph_form_ui.dart';
 import '../leads/leads_api.dart';
 
 /// the company's logo (its «صورة الملف الشخصي»), loaded once
