@@ -161,10 +161,10 @@ jobs:
           cp build/installer/VALUNIVO-Setup-$V.exe ../windows-out/
           (cd build/windows/x64/runner/Release && 7z a -tzip -bso0 ../../../../../../windows-out/VALUNIVO-$V-windows-x64.zip .)
           (cd ../windows-out && sha256sum *) ; ls -la ../windows-out
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: { name: VALUNIVO-windows-screenshot, path: win-shots, if-no-files-found: ignore, retention-days: 30 }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: windows-out, path: windows-out, retention-days: 30 }
 
   # Real in-app update test (feature branch only — never part of a release run): three builds 1.0.A, 1.0.A+1 and a
@@ -361,7 +361,7 @@ jobs:
           Get-ChildItem $s -Filter *.log -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
           Get-ChildItem $s -Filter *.json -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
           Get-ChildItem $s -Filter *.txt -ErrorAction SilentlyContinue | Copy-Item -Destination "$env:GITHUB_WORKSPACE\e2e-logs"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with: { name: update-e2e-logs, path: e2e-logs, if-no-files-found: ignore, retention-days: 30 }
 
