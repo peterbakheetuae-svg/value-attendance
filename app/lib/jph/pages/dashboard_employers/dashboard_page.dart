@@ -655,6 +655,16 @@ class _DashboardPageState extends State<DashboardPage>
 
   void setTab(DashMode m) => setState(() => mode = m);
 
+  /// a swipe on the attendance box: the next / previous tab, the way the finger went (like the bar above)
+  void _swipeTabs(DragEndDetails d) {
+    final v = d.primaryVelocity ?? 0;
+    if (v.abs() < 250) return;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    const order = [DashMode.check, DashMode.breakTime, DashMode.leave];
+    final i = order.indexOf(mode) + ((rtl ? v < 0 : v > 0) ? 1 : -1);
+    if (i >= 0 && i < order.length) setTab(order[i]);
+  }
+
   Future<void> onFingerSuccess() async {
     final currentContext = context;
     final config = _getFingerConfig(currentContext);
@@ -1665,7 +1675,11 @@ class _DashboardPageState extends State<DashboardPage>
                       TopTabs(mode: mode, onTap: setTab),
 
                       const SizedBox(height: 18),
-                      Row(
+                      // the box beside the fingerprint swipes too: right / left → the next tab (حضور / إذن / إجازة)
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onHorizontalDragEnd: _swipeTabs,
+                        child: Row(
                         children: [
                           Expanded(
                             child: Column(
@@ -1691,6 +1705,7 @@ class _DashboardPageState extends State<DashboardPage>
                             ),
                           ),
                         ],
+                      ),
                       ),
                       ],
 
