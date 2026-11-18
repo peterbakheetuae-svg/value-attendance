@@ -215,6 +215,9 @@ class AlertCenter with WidgetsBindingObserver {
         if (!_ringing.contains(n['type'])) _seen.add('${n['id']}');
       }
       for (final n in fresh) {
+        // «المتابعة مش شغالة على الموبايل ده»: rung by push on the one phone of the account that sends no location —
+        // never shown on the phone that is open (that one is followed already)
+        if (n['type'] == 'tracking_phone_off') continue;
         if (!_ringing.contains(n['type'])) {
           // normal notification: a quiet banner while the app is open (no ringing)
           // normal notification: the app's own banner at the top — swipe it away, or tap it to open what it's about

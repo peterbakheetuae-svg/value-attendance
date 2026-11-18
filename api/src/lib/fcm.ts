@@ -47,7 +47,7 @@ async function accessToken(a: ServiceAccount): Promise<string> {
 /** Alerts that ring (full-screen, insistent) instead of a normal notification. */
 export const RING_TYPES = new Set([
   'outing_awaiting', 'outing_extension_awaiting', 'outing_overdue', 'outing_overdue_watch',
-  'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self',
+  'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self', 'tracking_phone_off',
 ]);
 
 /** What a push did, device by device (diagnostics: dispatch ≠ delivery ≠ sound). */
@@ -57,19 +57,24 @@ export interface PushResult {
 }
 
 /** Push one notification to every live device of an employee. Never throws (push is best-effort). */
-export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }): Promise<PushResult> {
+export async function pushTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null },
+  only?: { sessionIds: string[] }): Promise<PushResult> {
+  // [only]: just those signed-in phones (a phone of the account that is not being followed) — never the browser
+  if (only) return { fcm: await fcmTo(q, employeeId, m, only.sessionIds), web: { devices: 0, sent: 0, failed: 0, removed: 0 } };
   const [fcm, web] = await Promise.all([fcmTo(q, employeeId, m), webPushTo(q, employeeId, { ...m, ring: RING_TYPES.has(m.type) })]);
   return { fcm, web };
 }
 
-async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null }): Promise<PushResult['fcm']> {
+async function fcmTo(q: Q, employeeId: string, m: { id: string; type: string; title: string; body: string; entityId?: string | null },
+  sessionIds: string[] | null = null): Promise<PushResult['fcm']> {
   const out: PushResult['fcm'] = { devices: 0, sent: 0, failed: 0, removed: 0 };
   const a = sa();
   if (!a) return { ...out, off: true };
   try {
     const rows = await q.query<{ token: string }>(`
       SELECT p.token FROM push_tokens p JOIN sessions s ON s.id = p.session_id
-       WHERE p.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > now()`, [employeeId]);
+       WHERE p.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
+         AND ($2::uuid[] IS NULL OR s.id = ANY($2::uuid[]))`, [employeeId, sessionIds]);
     out.devices = rows.rows.length;
     if (!rows.rows.length) return out;
     const bearer = await accessToken(a);

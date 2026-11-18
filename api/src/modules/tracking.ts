@@ -8,7 +8,7 @@ import { local, timeToMinutes, actionTime } from '../lib/time.ts';
 import { haversineM } from './attendance.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
 import { WORK_TRACKING_SQL } from './employees.ts';
-import type { PushResult } from '../lib/fcm.ts';
+import { pushTo, type PushResult } from '../lib/fcm.ts';
 import { leadsSweep } from './leads.ts';
 import { leadsAutoReassign } from './leads2.ts';
 import { activeOuting, markReturned } from './outings.ts';
@@ -80,7 +80,7 @@ export async function sweep(q: Q, now: Date) {
   const claimed = await one(q, `
     UPDATE company_settings SET last_sweep_at = $1
      WHERE last_sweep_at IS NULL OR last_sweep_at < $1::timestamptz - make_interval(secs => $2)
-     RETURNING checkin_reminder_minutes, tracking_enabled, tracking_stale_minutes`, [now, SWEEP_EVERY_MS / 1000]);
+     RETURNING checkin_reminder_minutes, tracking_enabled, tracking_stale_minutes, tracking_interval_minutes`, [now, SWEEP_EVERY_MS / 1000]);
   if (!claimed) return;
   // abandoned staged uploads (employee never created) are discarded after a day
   await q.query(`DELETE FROM employee_documents WHERE employee_id IS NULL AND created_at < $1::timestamptz - interval '1 day'`, [now]);
@@ -93,7 +93,7 @@ export async function sweep(q: Q, now: Date) {
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`
     SELECT e.id, e.full_name, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time, ws.weekend_days,
-           a.id AS att_id, a.check_out_at,
+           a.id AS att_id, a.check_in_at, a.check_out_at,
            EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved'
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
            EXISTS (SELECT 1 FROM attendance_breaks b WHERE b.attendance_id = a.id AND b.ended_at IS NULL) AS on_break,
@@ -142,6 +142,38 @@ export async function sweep(q: Q, now: Date) {
           `آخر موقع من ${silentMin} دقيقة (قفل التطبيق أو الـ GPS أو النت).`, `tracking_stopped:${r.id}:${l.date}:${Math.floor(last! / 3_600_000)}`);
       }
     }
+    // the account is open on more than one phone: EVERY phone must be followed, so whichever one leaves the office rings.
+    // A signed-in Android phone that sends no location → that phone alone rings «افتح التطبيق» (opening it starts its follow-up)
+    if (claimed.tracking_enabled && r.work_tracking && r.att_id && r.check_in_at && !r.check_out_at && !r.on_break) {
+      // never shorter than two of the phone's own reporting intervals (a working phone is never rung)
+      const grace = Math.max(10, stale > 0 ? stale : 15, 2 * (claimed.tracking_interval_minutes ?? 5) + 2);
+      if (now.getTime() - new Date(r.check_in_at).getTime() >= grace * 60000) await nudgeSilentPhones(q, r.id, l.date, now, grace);
+    }
+  }
+}
+
+/** each signed-in Android phone of the employee that sent no location for [grace] minutes: rings on that phone only
+ *  (at most once every 3 hours per phone) */
+async function nudgeSilentPhones(q: Q, employeeId: string, date: string, now: Date, grace: number) {
+  const phones = await q.query<{ session_id: string; label: string | null }>(`
+    SELECT DISTINCT ON (COALESCE(s.device_id, s.id::text)) s.id AS session_id, d.label
+      FROM sessions s JOIN push_tokens p ON p.session_id = s.id AND p.platform = 'android'
+      LEFT JOIN employee_devices d ON d.employee_id = s.employee_id AND d.device_id = s.device_id
+     WHERE s.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > $2
+       AND NOT EXISTS (SELECT 1 FROM tracking_state t WHERE t.employee_id = s.employee_id AND t.device_key = COALESCE(s.device_id, '')
+                         AND t.work_date = $3 AND t.last_ping_at > $2::timestamptz - make_interval(mins => $4))
+     ORDER BY COALESCE(s.device_id, s.id::text), s.last_seen_at DESC`, [employeeId, now, date, grace]);
+  for (const ph of phones.rows) {
+    const title = 'المتابعة مش شغالة على الموبايل ده ⚠️';
+    const body = `افتح التطبيق دلوقتي — حسابك مفتوح على الموبايل ده${ph.label ? ` (${ph.label})` : ''}، وكل موبايل عليه حسابك لازم يكون متابَع أثناء الشغل.`;
+    const n = await q.query<{ id: string }>(`
+      INSERT INTO notifications (recipient_id, type, title, body, entity, entity_id, dedupe_key)
+      SELECT $1, 'tracking_phone_off', $2, $3, 'employee', $5, $4 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
+      ON CONFLICT (recipient_id, dedupe_key) DO NOTHING RETURNING id`,
+      [employeeId, title, body, `tracking_phone_off:${ph.session_id}:${date}:${Math.floor(now.getTime() / 10_800_000)}`, employeeId]);
+    if (!n.rows[0]) continue;
+    const res = await pushTo(q, employeeId, { id: n.rows[0].id, type: 'tracking_phone_off', title, body, entityId: employeeId }, { sessionIds: [ph.session_id] });
+    await audit(q, employeeId, 'tracking.phone_nudged', 'employee', employeeId, undefined, { device: ph.label, fcm: res.fcm });
   }
 }
 
