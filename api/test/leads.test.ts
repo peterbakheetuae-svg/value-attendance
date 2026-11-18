@@ -287,6 +287,12 @@ test('tasks', async () => {
   assert.equal((await h.db.query(`SELECT 1 FROM notifications WHERE type = 'task_done' AND recipient_id = $1`, [c.ids.sm1])).rowCount, 1);
   const team = (await h.call(c.t.sm1, 'GET', '/tasks?view=team&status=all')).body;
   assert.ok(team.tasks.some((x: any) => x.id === t.body.task.id));
+  // the owner / general manager see everyone's tasks under «الفريق» (it used to fail: an unused $1)
+  for (const st of ['open', 'all', 'done']) {
+    const all = await h.call(c.t.owner, 'GET', `/tasks?view=team&status=${st}`);
+    assert.equal(all.status, 200, JSON.stringify(all.body));
+  }
+  assert.ok((await h.call(c.t.owner, 'GET', '/tasks?view=team&status=all')).body.tasks.some((x: any) => x.id === t.body.task.id));
 });
 
 test('settings: channels and cancel reasons', async () => {

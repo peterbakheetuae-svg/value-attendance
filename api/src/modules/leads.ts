@@ -1133,7 +1133,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     if (a.partner) where.push(`$1::uuid IS NOT NULL AND k.lead_id IS NOT NULL AND ${await scopeSql(db, a, params)}`);   // a marketing company: its leads' tasks
     else if (view === 'created') where.push(`k.created_by = $1`);
     else if (view === 'team' && canGiveTasks(a)) {
-      if (canAll(a) || has(a, 'employee.read_all')) where.push(`TRUE`);
+      // everyone's tasks: $1 is still sent, so it's used (an unused parameter fails in Postgres: «could not determine data type»)
+      if (canAll(a) || has(a, 'employee.read_all')) where.push(`$1::uuid IS NOT NULL`);
       else { params.push([a.id, ...await teamMemberIds(db, a.id)]); where.push(`(k.assigned_to = ANY($${params.length}::uuid[]) OR k.created_by = $1)`); }
     } else where.push(`k.assigned_to = $1`);
     if (status === 'open') where.push(`k.status IN ('open','doing')`);
