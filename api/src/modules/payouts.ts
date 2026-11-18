@@ -87,8 +87,9 @@ export const payoutsModule: Module = (r, { db, clock }) => {
       // the same payment twice (a double tap, two people at once): the same employee, kind, amount and month within two
       // minutes, not cancelled → refused (a real second payment is simply made after that)
       const twin = await one(q, `SELECT id FROM payouts WHERE employee_id = $1 AND kind = $2 AND amount_egp = $3 AND period = $4
+                                   AND advance_id IS NOT DISTINCT FROM $5 AND commission_entitlement_id IS NOT DISTINCT FROM $6
                                    AND status <> 'cancelled' AND created_at > now() - interval '2 minutes'`,
-        [employeeId, kind, amount, period]);
+        [employeeId, kind, amount, period, advanceId, entitlementId]);
       if (twin) throw new AppError('conflict', 'This exact payment was just made — check the list before paying again', { reason: 'duplicate_payout' });
       if (kind === 'fund') {
         if (!has(a, 'finance.fund')) throw forbidden('Only the manager or the owner hands cash to HR');

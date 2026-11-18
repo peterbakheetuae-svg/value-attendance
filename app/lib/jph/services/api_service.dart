@@ -649,6 +649,8 @@ class JphRouter {
     if (e.details?['reason'] == 'device_rejected') return 'طلب الدخول من الجهاز ده اترفض. كلّم الإدارة';
     if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
     if (e.details?['reason'] == 'mock_location') return 'الموقع جاي من برنامج تغيير الموقع (Fake GPS) — اقفله وجرّب تاني';
+    if (e.details?['reason'] == 'offline_other_day') return 'ده تسجيل من غير نت ليوم فات — اتبعت للـ HR يصححه من سجل الحضور';
+    if (e.details?['reason'] == 'duplicate_payout') return 'نفس الصرف ده اتعمل من شوية — راجع القائمة قبل ما تصرف تاني';
     if (e.details?['distanceOutsideM'] != null) return 'إنت بعيد عن المكتب بحوالي ${e.details!['distanceOutsideM']} متر';
     if (e.details?['reason'] == 'pending_exists') {
       final what = '${e.details?['what'] ?? 'طلب'}';

@@ -3,7 +3,7 @@ import { pushEnabled } from '../lib/fcm.ts';
 import { webPushPublicKey } from '../lib/webpush.ts';
 import { lastMailError, mailEnabled, otpMail, sendMail } from '../lib/mail.ts';
 import { createHash, randomInt } from 'node:crypto';
-import { one } from '../db.ts';
+import { one, type Q } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
 import { deviceApprovers } from './devices.ts';
@@ -19,6 +19,26 @@ const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 const MAX_FAILS = 5;
 /** password-reset codes: per account per 24 hours — codes sent, and wrong codes over all of them (then 24 h off) */
 const OTP_CODES_PER_DAY = 8, OTP_WRONG_PER_DAY = 10;
+
+/**
+ * One sign-in attempt is reserved BEFORE the password is checked (atomically, in the database): parallel attempts can
+ * not all slip in before the lock — at most MAX_FAILS are ever checked per lock window (one more right after a lock ends).
+ * Returns the attempt number, or null when the account is locked now.
+ */
+async function reserveAttempt(q: Q, table: 'employees' | 'marketing_companies', id: string): Promise<number | null> {
+  const r = await one(q, `
+    UPDATE ${table} SET
+      failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN $2::int ELSE failed_logins + 1 END,
+      locked_until = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN NULL ELSE locked_until END
+     WHERE id = $1 AND (locked_until IS NULL OR locked_until <= now())
+     RETURNING failed_logins`, [id, MAX_FAILS]);
+  if (!r) return null;
+  if (r.failed_logins > MAX_FAILS) {
+    await q.query(`UPDATE ${table} SET locked_until = COALESCE(locked_until, now() + make_interval(mins => $2)) WHERE id = $1`, [id, LOCK_MINUTES]);
+    return null;
+  }
+  return r.failed_logins;
+}
 const LOCK_MINUTES = 15;
 // Constant-time-ish path for unknown users: verify against a fixed dummy hash.
 let dummyHash: Promise<string> | null = null;
@@ -46,16 +66,17 @@ export const authModule: Module = (r, { db }) => {
                                  WHERE password_hash IS NOT NULL AND (lower(login_email) = lower(trim($1)) OR (length($2) >= 10 AND right(login_phone_norm, 10) = right($2, 10)))
                                  LIMIT 1`, [identifier.trim(), digits]);
       if (co) {
-        if (co.locked_until && new Date(co.locked_until) > new Date()) {
+        const attempt = await reserveAttempt(db, 'marketing_companies', co.id);
+        if (attempt === null) {
           throw new AppError('locked', `Too many failed attempts. Try again after ${LOCK_MINUTES} minutes`);
         }
         if (!(await verifyPassword(password, co.password_hash))) {
-          const fails = co.failed_logins + 1;
-          await db.query(`UPDATE marketing_companies SET failed_logins = $2::int,
-                            locked_until = CASE WHEN $2::int >= $3::int THEN now() + make_interval(mins => $4) ELSE locked_until END
-                          WHERE id = $1`, [co.id, fails, MAX_FAILS, LOCK_MINUTES]);
+          if (attempt >= MAX_FAILS) {
+            await db.query(`UPDATE marketing_companies SET locked_until = now() + make_interval(mins => $2) WHERE id = $1`, [co.id, LOCK_MINUTES]);
+          }
           throw new AppError('unauthenticated', 'Wrong employee ID or password');
         }
+        await db.query(`UPDATE marketing_companies SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [co.id]);
         if (!co.active) throw new AppError('forbidden', 'This account is deactivated');
         // «ربط الحساب بالجهاز»: the first device is its device; another one is refused until the administration frees it
         if (co.device_lock) {
@@ -81,16 +102,16 @@ export const authModule: Module = (r, { db }) => {
       await verifyPassword(password, await dummyHash);
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
-    if (emp.locked_until && new Date(emp.locked_until) > new Date()) {
+    const attempt = await reserveAttempt(db, 'employees', emp.id);
+    if (attempt === null) {
       throw new AppError('locked', `Too many failed attempts. Try again after ${LOCK_MINUTES} minutes`);
     }
     const good = await verifyPassword(password, emp.password_hash);
     if (!good) {
-      const fails = emp.failed_logins + 1;
-      await db.query(`UPDATE employees SET failed_logins = $2::int,
-                        locked_until = CASE WHEN $2::int >= $3::int THEN now() + make_interval(mins => $4) ELSE locked_until END
-                      WHERE id = $1`, [emp.id, fails, MAX_FAILS, LOCK_MINUTES]);
-      if (fails === MAX_FAILS) {
+      if (attempt >= MAX_FAILS) {
+        await db.query(`UPDATE employees SET locked_until = now() + make_interval(mins => $2) WHERE id = $1`, [emp.id, LOCK_MINUTES]);
+      }
+      if (attempt === MAX_FAILS) {
         // suspicious: the account is locked now — the owners hear about it (once per lock)
         await audit(db, emp.id, 'auth.locked', 'employee', emp.id);
         const n = await one(db, `SELECT full_name FROM employees WHERE id = $1`, [emp.id]);
@@ -99,6 +120,8 @@ export const authModule: Module = (r, { db }) => {
       }
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
+    // the right password: the reserved attempt is given back (a phone waiting for approval is not a failure)
+    await db.query(`UPDATE employees SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [emp.id]);
     if (emp.status !== 'active') throw new AppError('forbidden', 'This account is deactivated');
     // «ربط الحساب بالجهاز» (never for owners): the first phone is linked by itself, any other phone waits for the
     // general manager / administrative officer to approve it — only approved phones sign in

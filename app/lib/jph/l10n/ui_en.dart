@@ -3605,4 +3605,6 @@ const Map<String, String> uiEn = {
   'الرسالة': 'Message',
   'التمرير لأعلى للرد': 'Swipe up to answer',
   'الموقع جاي من برنامج تغيير الموقع (Fake GPS) — اقفله وجرّب تاني': 'The location comes from a fake-location app (Fake GPS) — turn it off and try again',
+  'ده تسجيل من غير نت ليوم فات — اتبعت للـ HR يصححه من سجل الحضور': 'This is an offline record from an earlier day — HR was told to correct it from the attendance log',
+  'نفس الصرف ده اتعمل من شوية — راجع القائمة قبل ما تصرف تاني': 'This exact payment was just made — check the list before paying again',
 };

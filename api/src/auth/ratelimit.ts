@@ -28,15 +28,15 @@ export function clientIp(req: Req): string | null {
 
 async function failures(q: Q, ip: string, kind: string, minutes: number): Promise<number> {
   // entity / entity_id = 'auth_ip' / the IP: served by the existing audit_entity index
-  const r = await one(q, `SELECT count(*)::int AS n FROM audit_log
-      WHERE entity = 'auth_ip' AND entity_id = $1 AND action = 'auth.ip_failed' AND after->>'kind' = $2
+  // an attempt is noted before it runs; one that was not a failure is noted back («auth.ip_returned» — the audit log is
+  // append-only, nothing is ever deleted from it)
+  const r = await one(q, `SELECT GREATEST(0, count(*) FILTER (WHERE action = 'auth.ip_failed') - count(*) FILTER (WHERE action = 'auth.ip_returned'))::int AS n
+      FROM audit_log
+      WHERE entity = 'auth_ip' AND entity_id = $1 AND action IN ('auth.ip_failed', 'auth.ip_returned') AND after->>'kind' = $2
         AND at > now() - make_interval(mins => $3)`, [ip, kind, minutes]);
   return r?.n ?? 0;
 }
 
-const note = (q: Q, ip: string, kind: string) =>
-  q.query(`INSERT INTO audit_log (actor_id, action, entity, entity_id, after) VALUES (NULL, 'auth.ip_failed', 'auth_ip', $1, $2)`,
-    [ip, JSON.stringify({ ip, kind })]).catch(() => undefined);
 
 /**
  * runs [fn]; a 401 / 400 (wrong password / wrong code) it throws is counted against the caller's IP. [countAll]: every
@@ -45,17 +45,25 @@ const note = (q: Q, ip: string, kind: string) =>
 export async function withIpLimit<T>(q: Q, req: Req, kind: keyof typeof IP_LIMITS, fn: () => Promise<T>, countAll = false): Promise<T> {
   const ip = clientIp(req);
   const lim = IP_LIMITS[kind];
-  if (ip && await failures(q, ip, kind, lim.minutes) >= lim.max) {
+  if (!ip) return fn();
+  // the attempt is counted BEFORE it runs (then given back if it was not a failure): parallel attempts from one network
+  // can not all pass the check together
+  const mine = await one(q, `INSERT INTO audit_log (actor_id, action, entity, entity_id, after) VALUES (NULL, 'auth.ip_failed', 'auth_ip', $1, $2)
+                               RETURNING id`, [ip, JSON.stringify({ ip, kind })]).catch(() => null);
+  const giveBack = () => (mine ? q.query(`INSERT INTO audit_log (actor_id, action, entity, entity_id, after) VALUES (NULL, 'auth.ip_returned', 'auth_ip', $1, $2)`,
+    [ip, JSON.stringify({ ip, kind })]).catch(() => undefined) : undefined);
+  if (await failures(q, ip, kind, lim.minutes) > lim.max) {
     // suspicious: a network guessing passwords / codes — the owners hear about it once an hour per network
     await securityAlert(q, `ip:${kind}:${ip}:${Math.floor(Date.now() / 3600000)}`, 'تنبيه أمان: محاولات دخول كتير',
       `شبكة ${ip} عملت محاولات ${kind === 'login' ? 'دخول' : 'استرجاع'} غلط كتير واتوقفت مؤقتًا`);
     throw new AppError('rate_limited', 'Too many attempts from this network. Try again later', { reason: 'ip_rate_limited' });
   }
-  if (ip && countAll) await note(q, ip, kind);
   try {
-    return await fn();
+    const out = await fn();
+    if (!countAll) await giveBack();
+    return out;
   } catch (e: any) {
-    if (ip && !countAll && e instanceof AppError && (e.code === 'unauthenticated' || e.code === 'validation_failed')) await note(q, ip, kind);
+    if (!countAll && !(e instanceof AppError && (e.code === 'unauthenticated' || e.code === 'validation_failed'))) await giveBack();
     throw e;
   }
 }

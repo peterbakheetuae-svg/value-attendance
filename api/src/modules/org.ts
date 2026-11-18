@@ -352,6 +352,9 @@ export const orgModule: Module = (r, { db }) => {
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY l.id DESC LIMIT ${limit}`, vals);
     // salary values are visible only to salary readers
     const canSalary = has(a, 'employee.salary_read');
-    return ok({ entries: rows.rows.map((e) => e.action === 'employee.salary_set' && !canSalary ? { ...e, before: null, after: null } : e) });
+    // older «settings.update» rows still hold the media-link key: never shown (it is not usable alone any more either)
+    const scrub = (v: any) => (v && typeof v === 'object' && 'media_secret' in v ? publicSettings(v) : v);
+    return ok({ entries: rows.rows.map((e) => e.action === 'employee.salary_set' && !canSalary ? { ...e, before: null, after: null }
+      : { ...e, before: scrub(e.before), after: scrub(e.after) }) });
   });
 };

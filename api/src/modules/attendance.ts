@@ -12,12 +12,25 @@ import { notify } from './notify.ts';
  * the server has no sign the phone was online after it:
  *  - this session talked to the server after the claimed time (+5 min) but well before this record (−5 min) → the phone
  *    was online and did not send it: the claim is ignored and the server's time is used (audited);
- *  - a record that reaches the server more than 15 minutes after its claimed time → HR is told (who, which step, the time
+ *  - a record of an earlier day → refused, HR is told (corrects it from the attendance log);
+ *  - a record that reaches the server more than 5 minutes after its claimed time → HR is told (who, which step, the time
  *    claimed and the time it arrived), so a back-dated record is always seen.
  */
 export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>, now: Date, step: string) {
   const t = actionTime(body, now);
   if (!t.offline) return t;
+  // an offline record belongs to today: a day already over is corrected by HR (who is told), never by the phone's clock —
+  // otherwise yesterday's absence could be turned into a full day by two back-dated records
+  if (local(t.at).date !== local(now).date) {
+    const hr = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'hr_manager' AND status = 'active' AND id <> $1`, [a.id]);
+    for (const x of hr.rows) {
+      await notify(q, { to: x.id, type: 'offline_attendance', title: `${step} من غير نت ليوم فات — ${a.fullName}`,
+        body: `متسجل بتاريخ ${local(t.at).date} ووصل النهارده — اترفض، صححه من سجل الحضور لو صحيح`,
+        entity: 'employee', entityId: a.id, dedupeKey: `offline_old:${a.id}:${step}:${local(t.at).date}` });
+    }
+    await audit(q, a.id, 'attendance.offline_old_refused', 'employee', a.id, undefined, { step, claimed: t.at.toISOString() });
+    throw new AppError('conflict', 'An offline record from an earlier day is not accepted — HR corrects it', { reason: 'offline_other_day' });
+  }
   const seen = a.prevSeenAt ? a.prevSeenAt.getTime() : null;
   if (seen !== null && seen > t.at.getTime() + 5 * 60_000 && seen < now.getTime() - 5 * 60_000) {
     await audit(q, a.id, 'attendance.offline_time_refused', 'employee', a.id, undefined,
@@ -30,7 +43,7 @@ export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>,
 /** an offline record that arrived late: HR is told (once per record) */
 export async function tellHrLateOffline(q: Q, a: Actor, step: string, at: Date, now: Date, entityId: string) {
   const lateMin = Math.round((now.getTime() - at.getTime()) / 60_000);
-  if (lateMin < 15) return;
+  if (lateMin < 5) return;
   const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
   const hr = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'hr_manager' AND status = 'active' AND id <> $1`, [a.id]);
   for (const x of hr.rows) {

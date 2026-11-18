@@ -5,7 +5,7 @@ import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, type Actor, notSettled } from '../auth/context.ts';
 import { cairoInstant, local } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
-import { geofence, trustedTime } from './attendance.ts';
+import { geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
 
@@ -231,9 +231,11 @@ export const outingsModule: Module = (r, { db, clock }) => {
     await db.tx(async (q) => {
       const x = await activeOuting(q, a.id, l.date, now);
       if (!x) throw new AppError('conflict', 'You are not out on a permission or visit');
-      // "I'm back" counts only from inside the office (when the company uses GPS); offline returns are checked later by tracking
-      if (!offline) await geofence(q, body);
+      // "I'm back" counts only from inside the office (when the company uses GPS) — an offline one too: its place was
+      // read on the phone when the button was pressed, and is checked the same way
+      await geofence(q, body);
       await markReturned(q, x, now, a.id, 'button');
+      if (offline) await tellHrLateOffline(q, a, 'رجوع من إذن', now, clock(), x.id);
     });
     return ok({ ok: true, returnedAt: now });
   });

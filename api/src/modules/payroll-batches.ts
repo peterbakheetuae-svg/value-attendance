@@ -302,7 +302,12 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
       const l = await one(q, `SELECT * FROM payroll_batch_lines WHERE id = $1 AND batch_id = $2 FOR UPDATE`, [req.params.lineId, b.id]);
       if (!l) throw notFound();
       if (l.employee_id === a.id) throw forbidden('You cannot pay your own salary');
-      const paid = await one(q, `SELECT COALESCE(sum(amount_egp),0) AS s FROM payouts WHERE batch_line_id = $1 AND status <> 'cancelled'`, [l.id]);
+      // one salary payment at a time per employee (as صرف الراتب), and everything already paid as this month's salary counts —
+      // also what was paid outside this sheet (صرف الراتب / صرف مالية): a month's salary is never paid twice
+      await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [l.employee_id]);
+      const paid = await one(q, `SELECT COALESCE(sum(amount_egp),0) AS s FROM payouts
+                                  WHERE status <> 'cancelled' AND (batch_line_id = $1 OR (employee_id = $2 AND kind = 'salary' AND period = $3::date))`,
+        [l.id, l.employee_id, String(b.period).slice(0, 10)]);
       const left = Math.round(Number(l.net_egp) * 100) - Math.round(Number(paid.s) * 100);
       if (left <= 0) throw new AppError('conflict', 'This salary was already paid', { reason: 'already_paid' });
       const amount = num(body, 'amount', { optional: true, min: 0.01, max: 10_000_000 }) ?? left / 100;
