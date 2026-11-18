@@ -1114,7 +1114,12 @@ export const leadsModule: Module = (r, { db, clock }) => {
     assignedTo: { id: k.assigned_to, name: k.assigned_name }, createdBy: { id: k.created_by, name: k.created_name },
     lead: k.lead_id ? { id: k.lead_id, name: k.lead_name } : null, dueAt: iso(k.due_at), doneAt: iso(k.done_at), createdAt: iso(k.created_at),
     late: !!(k.due_at && ['open', 'doing'].includes(k.status) && new Date(k.due_at) < now),
-    can: { edit: k.created_by === a.id || canAll(a), status: k.assigned_to === a.id || k.created_by === a.id || canAll(a) },
+    // start / done: the one it is for; edit / cancel / «تذكير»: whoever gave it (or the managers above)
+    can: {
+      edit: k.created_by === a.id || canAll(a),
+      status: k.assigned_to === a.id,
+      remind: k.assigned_to !== a.id && ['open', 'doing'].includes(k.status) && (k.created_by === a.id || canAll(a) || canGiveTasks(a)),
+    },
   });
   const canGiveTasks = (a: Actor) => canAll(a) || canTeam(a) || has(a, 'employee.read_all') || has(a, 'leads.tasks');
   async function taskPeople(q: Q, a: Actor): Promise<any[]> {
@@ -1188,6 +1193,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       if (!editor && !worker) throw notFound();
       const status = oneOf(b, 'status', ['open', 'doing', 'done', 'cancelled'] as const, true);
       if (status === 'cancelled' && !editor) throw forbidden('الإلغاء للي عمل المهمة');
+      // «بدأت فيها» / «خلصت»: the one the task is for — the one who gave it reminds him instead
+      if (status && status !== 'cancelled' && !worker) throw forbidden('المهمة بيعلّم عليها اللي متوجهة له');
       const set: string[] = [], vals: unknown[] = [k.id];
       const put = (col: string, v: unknown) => { vals.push(v); set.push(`${col} = $${vals.length}`); };
       if (status) { put('status', status); put('done_at', status === 'done' ? now : null); }
@@ -1217,6 +1224,26 @@ export const leadsModule: Module = (r, { db, clock }) => {
     });
     const [k] = (await db.query(`${TASK_SELECT} WHERE k.id = $1`, [req.params.id])).rows;
     return ok({ task: shapeTask(k, a, now) });
+  });
+
+  /** «تذكير»: the one who gave the task (or a manager over it) reminds its employee — a notification, once per 10 minutes */
+  r.post('/tasks/:id/remind', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const now = clock();
+    const k = await one(db, `SELECT * FROM tasks WHERE id = $1`, [req.params.id]);
+    if (!k) throw notFound();
+    const over = k.created_by === a.id || canAll(a) || has(a, 'employee.read_all')
+      || (canGiveTasks(a) && (await teamMemberIds(db, a.id)).includes(k.assigned_to));
+    if (!over || k.assigned_to === a.id) throw notFound();
+    if (!['open', 'doing'].includes(k.status)) throw invalid('المهمة مش مفتوحة', { field: 'status' });
+    const due = k.due_at ? ` — معادها ${new Date(k.due_at).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', dateStyle: 'short', timeStyle: 'short' })}` : '';
+    const sent = await db.tx((q) => notify(q, { to: k.assigned_to, type: 'task_reminder', title: `تذكير بمهمة: ${k.title}`,
+      body: `${a.fullName} بيفكّرك بالمهمة${due}`, entity: 'task', entityId: k.id,
+      dedupeKey: `task:${k.id}:remind:${Math.floor(now.getTime() / 600_000)}` }));
+    if (!sent) throw invalid('اتبعت تذكير من شوية — استنى ١٠ دقايق', { field: 'remind' });
+    await audit(db, a.id, 'task.remind', 'task', k.id);
+    return ok({ ok: true });
   });
 };
 

@@ -280,6 +280,17 @@ test('tasks', async () => {
   at('2026-11-15T09:01:00Z');
   await h.db.tx((q) => leadsSweep(q, h.now.value));
   assert.equal((await h.db.query(`SELECT 1 FROM notifications WHERE type = 'task_due' AND recipient_id = $1`, [c.ids.e1])).rowCount, 1);
+  // the one who gave it doesn't start / finish it — he reminds the employee instead (once per 10 minutes)
+  assert.equal((await h.call(c.t.sm1, 'PATCH', `/tasks/${t.body.task.id}`, { status: 'doing' })).status, 403);
+  const given = (await h.call(c.t.sm1, 'GET', '/tasks?view=created')).body.tasks.find((x: any) => x.id === t.body.task.id);
+  assert.equal(given.can.status, false);
+  assert.equal(given.can.remind, true);
+  assert.equal((await h.call(c.t.e1, 'GET', '/tasks')).body.tasks.find((x: any) => x.id === t.body.task.id).can.status, true);
+  const rem = await h.call(c.t.sm1, 'POST', `/tasks/${t.body.task.id}/remind`, {});
+  assert.equal(rem.status, 200, JSON.stringify(rem.body));
+  assert.equal((await h.db.query(`SELECT 1 FROM notifications WHERE type = 'task_reminder' AND recipient_id = $1`, [c.ids.e1])).rowCount, 1);
+  assert.equal((await h.call(c.t.sm1, 'POST', `/tasks/${t.body.task.id}/remind`, {})).status, 400, 'not twice in 10 minutes');
+  assert.equal((await h.call(c.t.e2, 'POST', `/tasks/${t.body.task.id}/remind`, {})).status, 404, 'not someone else');
   const done = await h.call(c.t.e1, 'PATCH', `/tasks/${t.body.task.id}`, { status: 'done' });
   assert.equal(done.status, 200);
   assert.equal(done.body.task.status, 'done');

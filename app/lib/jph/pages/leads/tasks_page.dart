@@ -21,6 +21,7 @@ class TasksPage extends StatefulWidget {
 class _TasksPageState extends State<TasksPage> {
   String _view = 'mine', _status = 'open';
   bool _loading = true, _others = false;
+  String? _error;
   List<Map<String, dynamic>> _tasks = [];
 
   @override
@@ -30,13 +31,29 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
-    final r = await lget('/tasks', {'view': _view, 'status': _status});
-    if (!mounted) return;
+    final view = _view, status = _status;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    Map<String, dynamic> r;
+    try {
+      r = await lget('/tasks', {'view': view, 'status': status});
+    } catch (e) {
+      r = {'success': false, 'message': '$e'};
+    }
+    // a tab tapped while this one loaded: only the last one counts
+    if (!mounted || view != _view || status != _status) return;
     setState(() {
       _loading = false;
-      _tasks = ll(r['tasks']);
-      _others = r['canAssignOthers'] == true;
+      if (r['success'] == false) {
+        _error = '${r['message'] ?? tr('حصل خطأ')}';
+        _tasks = [];
+      } else {
+        _tasks = ll(r['tasks']);
+        // once «الفريق» is offered it stays (an error never takes the tab away from under the finger)
+        _others = _others || r['canAssignOthers'] == true;
+      }
     });
   }
 
@@ -60,7 +77,7 @@ class _TasksPageState extends State<TasksPage> {
       ),
       child: RefreshIndicator(
         onRefresh: _load,
-        child: ListView(padding: const EdgeInsets.fromLTRB(14, 6, 14, 100), children: [
+        child: ListView(padding: const EdgeInsets.fromLTRB(14, 6, 14, 100), physics: const AlwaysScrollableScrollPhysics(), children: [
           JphUi.tabs(isDark, [for (final v in views) (v.$2, v.$3)], views.indexWhere((v) => v.$1 == _view).clamp(0, views.length - 1), (i) {
             _view = views[i].$1;
             _load();
@@ -75,7 +92,16 @@ class _TasksPageState extends State<TasksPage> {
           ]),
           const SizedBox(height: 10),
           if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-          if (!_loading && _tasks.isEmpty)
+          if (!_loading && _error != null)
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(children: [
+                Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Ar.red.shade400, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                TextButton.icon(onPressed: _load, icon: const Icon(Icons.refresh_rounded), label: Text(tr('حاول تاني'))),
+              ]),
+            ),
+          if (!_loading && _error == null && _tasks.isEmpty)
             Padding(padding: const EdgeInsets.all(30), child: Text(tr('مفيش مهام'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
           for (final t in _tasks) _card(isDark, t),
         ]),
@@ -122,12 +148,24 @@ class _TasksPageState extends State<TasksPage> {
         ),
         Row(children: [
           if (t['lead'] != null)
-            TextButton.icon(
-              onPressed: () => openLead(context, '${lm(t['lead'])['id']}'),
-              icon: const Icon(Icons.person_search_rounded, size: 18),
-              label: Text('${lm(t['lead'])['name']}'),
+            Flexible(
+              child: TextButton.icon(
+                onPressed: () => openLead(context, '${lm(t['lead'])['id']}'),
+                icon: const Icon(Icons.person_search_rounded, size: 18),
+                label: Text('${lm(t['lead'])['name']}', maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
             ),
           const Spacer(),
+          // «تذكير»: whoever gave the task reminds the one it is for (a notification)
+          if (can['remind'] == true)
+            TextButton.icon(
+              onPressed: () async {
+                final r = await lpost('/tasks/${t['id']}/remind', {}, ok: tr('اتبعت التذكير 🔔'));
+                if (mounted) JphUi.toast(context, r);
+              },
+              icon: const Icon(Icons.notifications_active_rounded, size: 18),
+              label: Text(tr('تذكير')),
+            ),
           if (can['status'] == true && t['status'] == 'open')
             TextButton(
               onPressed: () async {
