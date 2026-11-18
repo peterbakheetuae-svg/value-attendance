@@ -2,10 +2,43 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { date, imageType, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
-import { assertCanRead, audit, authenticate, can, has, notSettled, readableIds, requirePerm } from '../auth/context.ts';
+import { assertCanRead, audit, authenticate, can, has, notSettled, readableIds, requirePerm, type Actor } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
+
+/**
+ * The time of a check-in / check-out / «I'm back» — with an offline record's own time (`offlineAt`) trusted only when
+ * the server has no sign the phone was online after it:
+ *  - this session talked to the server after the claimed time (+5 min) but well before this record (−5 min) → the phone
+ *    was online and did not send it: the claim is ignored and the server's time is used (audited);
+ *  - a record that reaches the server more than 15 minutes after its claimed time → HR is told (who, which step, the time
+ *    claimed and the time it arrived), so a back-dated record is always seen.
+ */
+export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>, now: Date, step: string) {
+  const t = actionTime(body, now);
+  if (!t.offline) return t;
+  const seen = a.prevSeenAt ? a.prevSeenAt.getTime() : null;
+  if (seen !== null && seen > t.at.getTime() + 5 * 60_000 && seen < now.getTime() - 5 * 60_000) {
+    await audit(q, a.id, 'attendance.offline_time_refused', 'employee', a.id, undefined,
+      { step, claimed: t.at.toISOString(), seenOnline: a.prevSeenAt!.toISOString(), used: now.toISOString() });
+    return { at: now, offline: false, overridden: true };
+  }
+  return t;
+}
+
+/** an offline record that arrived late: HR is told (once per record) */
+export async function tellHrLateOffline(q: Q, a: Actor, step: string, at: Date, now: Date, entityId: string) {
+  const lateMin = Math.round((now.getTime() - at.getTime()) / 60_000);
+  if (lateMin < 15) return;
+  const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+  const hr = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'hr_manager' AND status = 'active' AND id <> $1`, [a.id]);
+  for (const x of hr.rows) {
+    await notify(q, { to: x.id, type: 'offline_attendance', title: `${step} من غير نت — ${a.fullName}`,
+      body: `متسجل بتوقيت ${hhmm(at)} ووصل للسيستم ${hhmm(now)} (بعد ${lateMin} دقيقة) — راجعه لو محتاج`,
+      entity: 'employee', entityId: a.id, dedupeKey: `offline_att:${entityId}:${step}` });
+  }
+}
 
 export function haversineM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000, rad = Math.PI / 180;
@@ -26,6 +59,8 @@ export async function geofence(q: Q, body: Record<string, unknown>, opts: { enfo
   // no office saved yet, or a step that only records the place (check-out): never blocks
   if (!locs.length || opts.enforce === false) return { status: 'not_required' as const, lat: lat ?? null, lng: lng ?? null, acc: acc ?? null };
   if (lat === undefined || lng === undefined || acc === undefined) throw invalid('Location is required to record attendance', { field: 'lat' });
+  // the phone itself says the location comes from a fake-location app (Android «mock location»)
+  if (body.mocked === true) throw new AppError('unprocessable', 'The location comes from a fake-location app — turn it off and try again', { reason: 'mock_location' });
   if (acc > MAX_ACCURACY_M) throw unprocessable('Location signal is too weak. Move near a window and try again');
   const nearest = Math.min(...locs.map((l) => haversineM(lat, lng, l.lat, l.lng) - l.radius_m));
   if (nearest > 0) throw new AppError('unprocessable', 'You are outside the office area', { distanceOutsideM: Math.round(nearest) });
@@ -114,7 +149,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-in', async (req) => {
     const a = await authenticate(db, req);
     const b = obj(req.body ?? {});
-    const { at: now, offline } = actionTime(b, clock()); const l = local(now);
+    const { at: now, offline } = await trustedTime(db, a, b, clock(), 'حضور'); const l = local(now);
     const row = await db.tx(async (q) => {
       // serialize per employee so two taps cannot both pass the duplicate check
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
@@ -140,6 +175,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       // retention: old selfies are removed as part of normal use (no scheduler needed on the free plan)
       await q.query(`DELETE FROM attendance_selfies WHERE taken_at < $1::timestamptz - make_interval(days => $2)`, [clock(), cfg.selfie_retention_days]);
       await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status, selfie: !!selfie, offline });
+      if (offline) await tellHrLateOffline(q, a, 'حضور', now, clock(), inserted.id);
       return inserted;
     });
     // the account open on other phones too: they ring like a call so each is opened and followed
@@ -151,7 +187,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-out', async (req) => {
     const a = await authenticate(db, req);
     const b = obj(req.body ?? {});
-    const { at: now, offline } = actionTime(b, clock()); const l = local(now);
+    const { at: now, offline } = await trustedTime(db, a, b, clock(), 'انصراف'); const l = local(now);
     const row = await db.tx(async (q) => {
       const open = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
       if (!open) throw conflict('You must check in first');
@@ -164,6 +200,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
           check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5, check_out_offline = $6 WHERE id = $1 RETURNING *`,
         [open.id, now, g.lat, g.lng, g.acc, offline]);
       await audit(q, a.id, 'attendance.check_out', 'attendance', open.id, undefined, { at: now, offline });
+      if (offline) await tellHrLateOffline(q, a, 'انصراف', now, clock(), open.id);
       return updated;
     });
     return ok({ attendance: shape(row, l.date) });

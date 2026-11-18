@@ -19,6 +19,9 @@ export interface Actor {
   known?: ReadonlySet<string>;
   /** a marketing company (079) looking at the sales pages read-only: its company id (also in `id`) — never an employee */
   partner?: string;
+  /** when this session last talked to the server BEFORE this request (written every ≤ 5 minutes) — an offline record
+   *  claiming an earlier time while the phone was online after it is not trusted */
+  prevSeenAt?: Date | null;
 }
 
 /**
@@ -76,7 +79,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
   if (!token || token.length > 200) throw new AppError('unauthenticated', 'Sign in required');
   const row = await one(q, `
     SELECT s.id AS session_id, (s.last_seen_at IS NULL OR s.last_seen_at < now() - interval '5 minutes') AS stale,
-           e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password, e.legacy_fields->>'status' AS work_status,
+           s.last_seen_at AS prev_seen, e.id, e.code, e.full_name, e.role_key, e.status, e.must_change_password, e.legacy_fields->>'status' AS work_status,
            COALESCE(array_agg(rp.perm_key) FILTER (WHERE rp.perm_key IS NOT NULL), '{}') AS perms,
            (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS plus,
            (SELECT COALESCE(array_agg(x.perm_key) FILTER (WHERE NOT x.allow), '{}') FROM employee_permissions x WHERE x.employee_id = e.id) AS minus
@@ -84,7 +87,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
       JOIN employees e ON e.id = s.employee_id
       LEFT JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key)
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
-     GROUP BY s.id, e.id`, [sha256(token)]);
+     GROUP BY s.id, s.last_seen_at, e.id`, [sha256(token)]);
   if (!row) {
     // a marketing company's token (075): it is signed in, just not as an employee — refused, never signed out
     const { isPartnerToken, partnerOf } = await import('./partner.ts');
@@ -113,6 +116,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
     perms: new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
       && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
     sessionId: row.session_id, mustChangePassword: row.must_change_password,
+    prevSeenAt: row.prev_seen ? new Date(row.prev_seen) : null,
     known: await dbPermissionKeys(q),
   };
   // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own

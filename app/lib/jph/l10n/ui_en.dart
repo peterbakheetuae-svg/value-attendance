@@ -3604,4 +3604,5 @@ const Map<String, String> uiEn = {
   'خرجت بدون إذن': 'You left without permission',
   'الرسالة': 'Message',
   'التمرير لأعلى للرد': 'Swipe up to answer',
+  'الموقع جاي من برنامج تغيير الموقع (Fake GPS) — اقفله وجرّب تاني': 'The location comes from a fake-location app (Fake GPS) — turn it off and try again',
 };

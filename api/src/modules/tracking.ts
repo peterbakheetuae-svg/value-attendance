@@ -222,7 +222,15 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const locs = (await db.query(`SELECT * FROM work_locations WHERE active`)).rows;
     const outside = locs.length ? Math.min(...locs.map((x) => haversineM(lat, lng, x.lat, x.lng) - x.radius_m)) : null;
     // poor GPS fixes never count as "left the office"
-    const inside = outside === null ? null : (acc !== null && acc > 200) ? null : outside <= cfg.away_margin_m;
+    // a location from a fake-location app counts as «not in the office» (the alarm runs as for a real exit) and the
+    // owners are told once a day per employee
+    const mocked = b.mocked === true;
+    if (mocked) {
+      const { securityAlert } = await import('../auth/alerts.ts');
+      await securityAlert(db, `mock:${a.id}:${l.date}`, 'تنبيه: موقع متزيّف', `${a.fullName} — الموبايل بيبعت موقع من برنامج تغيير الموقع أثناء الشغل`);
+      await audit(db, a.id, 'tracking.mock_location', 'employee', a.id, undefined, { lat, lng });
+    }
+    const inside = mocked ? false : outside === null ? null : (acc !== null && acc > 200) ? null : outside <= cfg.away_margin_m;
     // every phone of the account is followed on its own: any phone that leaves the office raises the alert
     const dv = await one(db, `
       SELECT COALESCE(s.device_id, '') AS key, d.label,

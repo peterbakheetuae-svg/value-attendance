@@ -648,6 +648,7 @@ class JphRouter {
     if (e.details?['reason'] == 'device_pending') return 'الجهاز ده جديد على حسابك 📱 — اتبعت طلب للمدير العام / المسؤول الإداري، وأول ما يوافق تقدر تدخل منه';
     if (e.details?['reason'] == 'device_rejected') return 'طلب الدخول من الجهاز ده اترفض. كلّم الإدارة';
     if (e.details?['reason'] == 'selfie_required') return 'لازم صورة سيلفي عشان تسجل حضور';
+    if (e.details?['reason'] == 'mock_location') return 'الموقع جاي من برنامج تغيير الموقع (Fake GPS) — اقفله وجرّب تاني';
     if (e.details?['distanceOutsideM'] != null) return 'إنت بعيد عن المكتب بحوالي ${e.details!['distanceOutsideM']} متر';
     if (e.details?['reason'] == 'pending_exists') {
       final what = '${e.details?['what'] ?? 'طلب'}';
@@ -881,7 +882,7 @@ class JphRouter {
       if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return {};
       final p = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)));
-      return {'lat': p.latitude, 'lng': p.longitude, 'accuracyM': p.accuracy};
+      return {'lat': p.latitude, 'lng': p.longitude, 'accuracyM': p.accuracy, if (p.isMocked) 'mocked': true};
     } catch (_) {
       return {};
     }

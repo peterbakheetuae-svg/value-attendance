@@ -31,11 +31,6 @@ function authorized(req: Req): boolean {
   return timingSafeEqual(a, b);
 }
 
-function plain(v: unknown): unknown {
-  if (Buffer.isBuffer(v)) return { $base64: v.toString('base64') };
-  if (v instanceof Date) return v.toISOString();
-  return v;
-}
 
 export const backupModule: Module = (r, { db, clock }) => {
   const guard = (req: Req) => { if (!authorized(req)) throw new AppError('unauthenticated', 'Backup token required'); };
@@ -72,11 +67,13 @@ export const backupModule: Module = (r, { db, clock }) => {
     const name = req.params.name;
     if (!(await tables()).includes(name)) throw notFound();
     const offset = Math.max(0, Number(req.query.get('offset') ?? 0) || 0);
-    const res = await db.query(`SELECT * FROM "${name}" ORDER BY ctid OFFSET $1 LIMIT 2000`, [offset]);
+    // to_jsonb: every value exactly as stored (times to the microsecond, numbers in full, files as \\x hex) — a restore
+    // gives back the same rows, not rounded copies
+    const res = await db.query(`SELECT to_jsonb(x) AS j FROM "${name}" x ORDER BY ctid OFFSET $1 LIMIT 2000`, [offset]);
     const rows: unknown[] = []; let size = 0;
-    for (const row of res.rows) {
+    for (const { j: row } of res.rows) {
       const o: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(row)) o[k] = SECRET_COLUMN.test(k) ? null : plain(v);
+      for (const [k, v] of Object.entries(row as Record<string, unknown>)) o[k] = SECRET_COLUMN.test(k) ? null : v;
       const len = JSON.stringify(o).length;
       if (rows.length && size + len > MAX_CHUNK) break;
       rows.push(o); size += len;

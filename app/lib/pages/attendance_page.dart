@@ -62,7 +62,7 @@ class _TodayAttendanceCardState extends State<TodayAttendanceCard> {
     if (p == LocationPermission.denied || p == LocationPermission.deniedForever) throw ApiException(0, 'gps', t('gps_permission_denied'));
     final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 25)));
-    return {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy};
+    return {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (pos.isMocked) 'mocked': true};
   }
 
   Future<void> _act(bool checkIn) async {

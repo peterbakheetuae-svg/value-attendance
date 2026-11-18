@@ -17,6 +17,8 @@ import { securityAlert } from '../auth/alerts.ts';
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 
 const MAX_FAILS = 5;
+/** password-reset codes: per account per 24 hours — codes sent, and wrong codes over all of them (then 24 h off) */
+const OTP_CODES_PER_DAY = 8, OTP_WRONG_PER_DAY = 10;
 const LOCK_MINUTES = 15;
 // Constant-time-ish path for unknown users: verify against a fixed dummy hash.
 let dummyHash: Promise<string> | null = null;
@@ -215,14 +217,23 @@ export const authModule: Module = (r, { db }) => {
     // VA-10: the same reply whatever happens below (no account, no e-mail, too many codes, mail refused) — the caller
     // can never learn whether an employee code / phone / e-mail exists or has an e-mail
     if (e?.email) {
-      const recent = await one(db, `SELECT count(*)::int AS n FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [e.id]);
-      if (recent.n >= 3) {
+      // one request at a time per account (parallel requests can not slip past the limits), at most 3 codes in 15
+      // minutes and 8 a day, and none while the account's daily wrong-code budget is used up
+      const code = String(randomInt(0, 10_000)).padStart(4, '0');
+      const made = await db.tx(async (q) => {
+        await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [e.id]);
+        const n = await one(q, `SELECT count(*) FILTER (WHERE created_at > now() - interval '15 minutes')::int AS recent,
+                                       count(*)::int AS day, COALESCE(sum(attempts), 0)::int AS wrong
+                                  FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '24 hours'`, [e.id]);
+        if (n.recent >= 3 || n.day >= OTP_CODES_PER_DAY || n.wrong >= OTP_WRONG_PER_DAY) return false;
+        await q.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
+        await q.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
+        return true;
+      });
+      if (!made) {
         await audit(db, e.id, 'auth.otp_rate_limited', 'employee', e.id);
         return ok({ ok: true, message: GENERIC });
       }
-      const code = String(randomInt(0, 10_000)).padStart(4, '0');
-      await db.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
-      await db.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
       const st = await one(db, `SELECT company_name_ar FROM company_settings`);
       const sent = await sendMail({ to: e.email, toName: e.full_name, ...otpMail({ name: e.full_name, code, company: st.company_name_ar }) });
       await audit(db, e.id, sent ? 'auth.otp_sent' : 'auth.otp_send_failed', 'employee', e.id, undefined, sent ? undefined : { reason: lastMailError });
@@ -244,8 +255,18 @@ export const authModule: Module = (r, { db }) => {
       const o = await one(q, `SELECT * FROM password_otps WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()
                                 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [e.id]);
       if (!o || o.attempts >= 5) return null;
+      // the account's wrong codes over the last day (all its codes): a 4-digit code can not be guessed by asking again
+      const day = await one(q, `SELECT COALESCE(sum(attempts), 0)::int AS wrong FROM password_otps
+                                 WHERE employee_id = $1 AND created_at > now() - interval '24 hours'`, [e.id]);
+      if (day.wrong >= OTP_WRONG_PER_DAY) return null;
       if (o.code_hash !== sha(`${e.id}:${code}`)) {
         await q.query(`UPDATE password_otps SET attempts = attempts + 1 WHERE id = $1`, [o.id]);
+        if (day.wrong + 1 === OTP_WRONG_PER_DAY) {
+          await audit(q, e.id, 'auth.otp_locked_day', 'employee', e.id);
+          const { securityAlert } = await import('../auth/alerts.ts');
+          await securityAlert(q, `otpday:${e.id}:${new Date().toISOString().slice(0, 10)}`, 'تنبيه أمان: محاولات كود استرجاع كتير',
+            `${e.full_name ?? ''} — ${OTP_WRONG_PER_DAY} أكواد غلط النهارده، استرجاع الباسورد اتقفل للحساب ده 24 ساعة`);
+        }
         return null;
       }
       await q.query(`UPDATE password_otps SET verified_at = now(), reset_token_hash = $2, reset_expires_at = now() + interval '15 minutes' WHERE id = $1`,

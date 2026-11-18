@@ -173,7 +173,7 @@ class _Worker {
     if (!rang && _lastSent != null && DateTime.now().difference(_lastSent!) < every) return;
     _lastSent = DateTime.now();
     await _flush(p);
-    final body = {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true};
+    final body = {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true, if (pos.isMocked) 'mocked': true};
     try {
       final r = await api.post('/tracking/ping', body);
       // following was turned off for this employee (or the company): the service stops

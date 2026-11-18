@@ -168,7 +168,7 @@ class ShiftTracker {
       await _api?.flushQueue();
       // no internet: the point is kept with its time and sent later (offline tracking)
       final r = await _api?.postOrQueue('/tracking/ping',
-          {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true}, label: 'موقع');
+          {'lat': pos.latitude, 'lng': pos.longitude, 'accuracyM': pos.accuracy, if (rang) 'localAlarm': true, if (pos.isMocked) 'mocked': true}, label: 'موقع');
       // following was turned off for this employee (or the company): stop
       if (r != null && r['tracking'] == false) {
         final p = await SharedPreferences.getInstance();

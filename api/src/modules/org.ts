@@ -31,6 +31,14 @@ function tiers(b: Record<string, unknown>, field: string) {
   return out;
 }
 
+/** the company settings as any signed-in employee may read them: never the key that signs media links (with it, a
+ *  link to anyone's photo / selfie could be made for any viewer) */
+function publicSettings<T extends Record<string, unknown> | null>(row: T): T {
+  if (!row) return row;
+  const { media_secret: _hidden, ...rest } = row as Record<string, unknown>;
+  return rest as T;
+}
+
 export const orgModule: Module = (r, { db }) => {
   // ---------------------------------------------------------------- departments
   r.get('/departments', async (req) => {
@@ -193,7 +201,7 @@ export const orgModule: Module = (r, { db }) => {
   // ---------------------------------------------------------------- settings
   r.get('/settings', async (req) => {
     await authenticate(db, req);
-    return ok({ settings: await one(db, `SELECT * FROM company_settings`) });
+    return ok({ settings: publicSettings(await one(db, `SELECT * FROM company_settings`)) });
   });
   r.patch('/settings', async (req) => {
     const a = await authenticate(db, req); requirePerm(a, 'settings.manage');
@@ -239,8 +247,8 @@ export const orgModule: Module = (r, { db }) => {
     const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3,
         early_deduction = $4, weekend_absence_rule = $5 RETURNING *`,
       [...lateRule, bool(b, 'earlyDeduction') ?? before.early_deduction, bool(b, 'weekendAbsenceRule') ?? before.weekend_absence_rule]);
-    await audit(db, a.id, 'settings.update', 'settings', null, before, s2);
-    return ok({ settings: s2 });
+    await audit(db, a.id, 'settings.update', 'settings', null, publicSettings(before), publicSettings(s2));
+    return ok({ settings: publicSettings(s2) });
   });
 
   // ---------------------------------------------------------------- roles & permissions

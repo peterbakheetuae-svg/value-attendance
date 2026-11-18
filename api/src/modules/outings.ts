@@ -3,9 +3,9 @@ import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, type Actor, notSettled } from '../auth/context.ts';
-import { cairoInstant, local, actionTime } from '../lib/time.ts';
+import { cairoInstant, local } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
-import { geofence } from './attendance.ts';
+import { geofence, trustedTime } from './attendance.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
 
@@ -227,7 +227,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
   r.post('/outings/return', async (req) => {
     const a = await authenticate(db, req);
     const body = obj(req.body ?? {});
-    const { at: now, offline } = actionTime(body, clock()); const l = local(now);
+    const { at: now, offline } = await trustedTime(db, a, body, clock(), 'رجوع من إذن'); const l = local(now);
     await db.tx(async (q) => {
       const x = await activeOuting(q, a.id, l.date, now);
       if (!x) throw new AppError('conflict', 'You are not out on a permission or visit');

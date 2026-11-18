@@ -76,16 +76,16 @@ function backup() {
   const list = call_('/backup/tables');
   const summary = [];
   list.tables.forEach(function (t) {
-    let offset = 0, part = 1, total = 0;
+    let offset = 0, part = 1;
     do {
       const page = call_('/backup/table/' + encodeURIComponent(t.table) + '?offset=' + offset);
       const name = t.table + (page.next !== null || part > 1 ? '.part' + part : '') + '.json';
       dir.createFile(name, JSON.stringify(page.rows), MimeType.PLAIN_TEXT);
-      total += page.rows.length;
       offset = page.next;
       part++;
     } while (offset !== null);
-    summary.push({ table: t.table, rows: total });
+    // the rows are encrypted in the files: the count is the one the API gave for the table
+    summary.push({ table: t.table, rows: t.rows });
   });
   dir.createFile('_summary.json', JSON.stringify({ generatedAt: list.generatedAt, tables: summary }, null, 2), MimeType.PLAIN_TEXT);
 
