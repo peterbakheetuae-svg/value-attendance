@@ -267,7 +267,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
  */
 async function employeesPresence(db: Db, t: string, now: Date) {
   const rows = (await db.query(`
-    SELECT e.id, e.full_name, e.job_title,
+    SELECT e.id, e.full_name, e.job_title, e.attendance_exempt,
            EXISTS (SELECT 1 FROM sessions s WHERE s.employee_id = e.id AND s.revoked_at IS NULL
                     AND s.last_seen_at > $2::timestamptz - interval '10 minutes') AS online,
            at.check_in_at, at.check_out_at,
@@ -291,6 +291,8 @@ async function employeesPresence(db: Db, t: string, now: Date) {
     if (x.outing) return { status: x.outing === 'visit' ? 'خارج المكتب بإذن معاينة' : 'خارج المكتب بإذن ساعات', tone: 'warn' };
     if (x.check_in_at && !x.check_out_at) return { status: 'داخل المكتب', tone: 'good' };
     if (x.check_out_at) return { status: 'انصرف', tone: 'muted' };
+    // no check-in for him (no attendance: the owner, a manager …): only whether he is online
+    if (x.attendance_exempt) return x.online ? { status: 'متصل', tone: 'good' } : { status: 'مش متصل', tone: 'muted' };
     return { status: 'لسه مسجلش حضور', tone: 'bad' };
   };
   const list = rows.map((x) => ({ id: x.id, name: x.full_name, job: x.job_title ?? '', online: !!x.online, inHours: !!x.in_hours, ...where(x) }));
@@ -644,6 +646,15 @@ function short(v: number) {
 }
 
 export const ownerDashboardModule: Module = (r, { db, clock }) => {
+  /** «الموظفين دلوقتي» at the end of the attendance page: for HR and the admin officer (the owner / GM have it on their dashboard) */
+  r.get('/dashboard/presence', async (req) => {
+    const a = await authenticate(db, req);
+    const me = await one(db, `SELECT role_key, COALESCE(position_key, role_key) AS position FROM employees WHERE id = $1`, [a.id]);
+    const allowed = !!me && (me.role_key === 'hr_manager' || me.position === 'admin_officer' || canOffice(a));
+    if (!allowed) throw forbidden();
+    return ok({ presence: await employeesPresence(db, local(clock()).date, clock()), hr: me.role_key === 'hr_manager' || me.position === 'admin_officer' });
+  });
+
   r.get('/dashboard/owner', async (req) => {
     const a = await authenticate(db, req);
     if (!canOffice(a)) throw forbidden();

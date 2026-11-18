@@ -174,7 +174,9 @@ test('«إضافة أكشن», the follow-up reminder and the 25 minutes alert',
   }
   assert.ok(dash.counts.delay >= 1);
   assert.equal(dash.delayByStage.meeting, 1);
-  assert.ok(dash.best.some((b: any) => b.me && b.actions === 2));
+  // «الأفضل» is the managers': the salesman doesn't see it, the owner sees him with his 2 actions
+  assert.equal(dash.best.length, 0);
+  assert.ok((await h.call(c.t.owner, 'GET', '/leads/dashboard')).body.best.some((b: any) => b.id === c.ids.e2 && b.actions === 2));
 });
 
 test('re-assign, share and cancel', async () => {

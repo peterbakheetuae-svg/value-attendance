@@ -43,6 +43,7 @@ import '../../widgets/payouts_widgets.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
 import '../../widgets/windows_attendance_card.dart';
+import '../../widgets/presence_box.dart';
 import '../../../core/platform_info.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -1733,6 +1734,9 @@ class _DashboardPageState extends State<DashboardPage>
                       // طلبات مستنية قرار (بتظهر بس لو فيه طلبات)
                       _buildLeaveRequestsCard(context),
                       _buildLoanRequestsCard(context),
+
+                      // «الموظفين دلوقتي»: HR and the admin officer only (shows nothing for anyone else)
+                      PresenceBox(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 90),
                     ],

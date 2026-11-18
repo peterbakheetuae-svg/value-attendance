@@ -94,3 +94,16 @@ test('sales view (لوحة السيلز): new leads, late follow-ups, actions, r
   assert.equal(r.body.chart.series.new.length, 14);
   assert.ok(r.body.attention.rows.some((x: any) => /مش متوزعين/.test(x.title)));
 });
+
+test('«الموظفين دلوقتي»: no attendance → online / offline; HR and the admin officer get it on the attendance page', async () => {
+  await h.db.query(`UPDATE employees SET attendance_exempt = true WHERE id = $1`, [c.ids.e2]);
+  const r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=employees');
+  const x = r.body.presence.rows.find((p: any) => p.id === c.ids.e2);
+  assert.ok(['متصل', 'مش متصل'].includes(x.status), x.status);
+  const hr = await h.call(c.t.hr, 'GET', '/dashboard/presence');
+  assert.equal(hr.status, 200, JSON.stringify(hr.body));
+  assert.equal(hr.body.hr, true);
+  assert.ok(hr.body.presence.rows.length > 0);
+  assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/presence')).status, 403);
+  await h.db.query(`UPDATE employees SET attendance_exempt = false WHERE id = $1`, [c.ids.e2]);
+});

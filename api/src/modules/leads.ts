@@ -674,6 +674,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
       : period === 'week' ? `$1::timestamptz - interval '7 days'` : period === 'month' ? `date_trunc('month', $1::timestamptz AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'` : `($1::timestamptz - interval '200 years')`;   // «الكل» (uses $1 too: an unused parameter is an error)
     // every salesman (the ones who hold leads) — not the general manager / owner / admin officer, and not «تم التصفيه» —
     // the best first: the done deals (his leads closed «صفقة مكتملة» in the period), then the actions
+    // «الأفضل» and «المهام اليومية» are the managers': a salesman sees neither; a sales manager sees his team only
+    const manager = canAll(a) || canTeam(a) || !!a.partner;
+    const bestOf: string[] | null = canAll(a) || a.partner ? null : canTeam(a) ? await teamMemberIds(db, a.id) : [];
     const best = await db.query(`
       SELECT e.id, e.full_name,
              (SELECT count(*) FROM lead_actions x WHERE x.by_id = e.id AND x.parent_id IS NULL AND NOT x.auto AND x.created_at >= ${since})::int AS actions,
@@ -683,7 +686,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
         FROM employees e
        WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
          AND e.role_key NOT IN ('owner', 'manager') AND COALESCE(e.position_key, '') <> 'admin_officer'
-       ORDER BY deals DESC, actions DESC, e.full_name`, [now]);
+         AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       ORDER BY deals DESC, actions DESC, e.full_name`, [now, bestOf]);
     const tasks = await one(db, `SELECT count(*) FILTER (WHERE status IN ('open','doing'))::int AS open,
                                         count(*) FILTER (WHERE status IN ('open','doing') AND due_at < $2)::int AS late FROM tasks WHERE assigned_to = $1`, [a.id, now]);
     // ---------------------------------------------------------------- the extra cards (like the Elite / Engaz boards)
@@ -699,7 +703,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         FROM lead_actions x JOIN leads l ON l.id = x.lead_id LEFT JOIN employees e ON e.id = x.by_id
        WHERE ${scope} AND NOT x.auto ORDER BY x.created_at DESC LIMIT 10`, params);
     // النشاط: actions + assignments + new leads, newest first
-    const activity = await db.query(`
+    const activity = !manager ? { rows: [] as any[] } : await db.query(`
       SELECT * FROM (
         SELECT 'action' AS kind, x.created_at AS at, x.stage AS what, l.id AS lead_id, l.full_name AS lead_name, e.full_name AS by_name
           FROM lead_actions x JOIN leads l ON l.id = x.lead_id LEFT JOIN employees e ON e.id = x.by_id

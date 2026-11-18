@@ -195,8 +195,9 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                         cards.pipeline((s) => _open(LeadsListPage(stage: s))),
                         cards.delayList(),
                         _due(isDark),
-                        _best(isDark),
-                        cards.activity(),
+                        // «الأفضل» / «المهام اليومية»: the managers' (a sales manager: his team) — not a salesman's
+                        if (manager || AppNav.partner) _best(isDark),
+                        if (manager || AppNav.partner) cards.activity(),
                         cards.todo(),
                         // on the computer «المستخدمون المتصلون» sits beside «أحدث العملاء المحتملين»
                         cards.latest(),

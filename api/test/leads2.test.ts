@@ -159,6 +159,12 @@ test('the sales board cards: delay list, latest, comments, activity, calls / Wha
   assert.ok(d.online.some((x: any) => x.me), 'the accountant who just called is online');
   const mine = (await h.call(c.t.e1, 'GET', '/leads/dashboard')).body;
   assert.ok(mine.latest.every((x: any) => x.assignedTo?.id === c.ids.e1), 'a salesman sees only his own');
+  // «الأفضل» / «المهام اليومية»: not a salesman's; a sales manager sees his team only
+  assert.equal(mine.best.length, 0);
+  assert.equal(mine.activity.length, 0);
+  const sm = (await h.call(c.t.sm1, 'GET', '/leads/dashboard')).body;
+  const team = (await h.db.query(`SELECT e.id FROM employees e JOIN teams t ON t.id = e.team_id WHERE t.manager_id = $1`, [c.ids.sm1])).rows.map((x) => x.id);
+  assert.ok(sm.best.every((x: any) => team.includes(x.id)), JSON.stringify(sm.best));
 });
 
 test('صلاحيات الأدوار: the owner turns a leads permission off for a role, then gives it back to one employee', async () => {

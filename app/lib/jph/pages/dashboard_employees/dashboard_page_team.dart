@@ -39,6 +39,7 @@ import '../../../core/shift_tracker.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
 import '../../widgets/windows_attendance_card.dart';
+import '../../widgets/presence_box.dart';
 import '../../../core/platform_info.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -1066,6 +1067,9 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       const SizedBox(height: 8),
                       MonthStats(monthData: monthData),
                       ],
+
+                      // «الموظفين دلوقتي»: HR and the admin officer only (shows nothing for anyone else)
+                      PresenceBox(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 90),
                     ],
