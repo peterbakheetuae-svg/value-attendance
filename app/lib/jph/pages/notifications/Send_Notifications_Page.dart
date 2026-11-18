@@ -9,6 +9,7 @@ import '../../widgets/app_background.dart';
 import '../../theme/app_colors.dart';
 import 'View_Notifications_Page.dart';
 import '../../widgets/glass_ui.dart';
+import '../../widgets/jph_form_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 class SendNotificationsPage extends StatefulWidget {
@@ -32,22 +33,18 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
 
-  // قائمة الفئات الرئيسية
-  final List<String> _categories = [
-    'CEO',
-    'Managers',
-    'Accountants',
-    'Employees',
-    'الجميع'
-  ];
+  // الفئة المستهدفة: «الجميع», «اختار بالاسم» (any employee), and each job title the company has (from the employees)
+  static const _pick = '__pick__';
+  List<String> get _categories {
+    final jobs = <String>{
+      for (final e in _employees)
+        if ('${e['position'] ?? ''}'.trim().isNotEmpty) '${e['position']}'.trim(),
+    }.toList()
+      ..sort();
+    return ['الجميع', _pick, ...jobs];
+  }
 
-  final Map<String, String> _categoryLabels = {
-    'CEO': 'المالك',
-    'Managers': 'المديرين',
-    'Accountants': 'المحاسبين',
-    'Employees': 'الموظفين',
-    'الجميع': 'الجميع'
-  };
+  String _labelOf(String c) => c == _pick ? 'اختار موظفين بالاسم' : c;
 
   String _selectedCategory = 'الجميع';
   List<Map<String, dynamic>> _employees = [];
@@ -68,7 +65,10 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
       final result = await EmployeesApi.getAllEmployees();
       if (result["success"] == true) {
         setState(() {
-          _employees = List<Map<String, dynamic>>.from(result["employees"] ?? []);
+          // an account whose sign-in is turned off can't get notifications: it isn't offered
+          _employees = List<Map<String, dynamic>>.from(result["employees"] ?? [])
+              .where((e) => e['active'] != false)
+              .toList();
         });
       } else {
         _showErrorSnackbar(result["message"] ?? "فشل في تحميل الموظفين");
@@ -80,32 +80,10 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
     }
   }
 
-  // تصفية الموظفين حسب الفئة
+  // تصفية الموظفين حسب الفئة (the job title)
   List<Map<String, dynamic>> _getFilteredEmployees() {
-    if (_selectedCategory == 'الجميع') return _employees;
-
-    return _employees.where((employee) {
-      final role = employee['role']?.toString().toLowerCase() ?? '';
-      switch (_selectedCategory) {
-        case 'CEO':
-          return role.contains('ceo') || role.contains('المالك');
-        case 'Managers':
-          return role.contains('مدير');
-        case 'Accountants':
-          return role.contains('accountant') || role.contains('محاسب');
-        case 'Employees':
-          return role.contains('employee') ||
-              role.contains('موظف') ||
-              role.contains('مستشار') ||
-              (!role.contains('ceo') &&
-                  !role.contains('المالك') &&
-                  !role.contains('مدير') &&
-                  !role.contains('accountant') &&
-                  !role.contains('محاسب'));
-        default:
-          return true;
-      }
-    }).toList();
+    if (_selectedCategory == 'الجميع' || _selectedCategory == _pick) return _employees;
+    return _employees.where((e) => '${e['position'] ?? ''}'.trim() == _selectedCategory).toList();
   }
 
   void _toggleEmployee(String uid, String name) {
@@ -155,7 +133,7 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
         senderId: widget.uid,
         senderName: widget.name,
         recipients: recipients,
-        category: _selectedCategory,
+        category: _selectedCategory == _pick ? 'عام' : _selectedCategory,
         title: _titleController.text.trim(),
         content: _contentController.text.trim(),
       );
@@ -373,51 +351,36 @@ class _SendNotificationsPageState extends State<SendNotificationsPage> {
                               ),
                               const SizedBox(height: 8),
 
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 16),
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                decoration: Glass.panel(isDark, r: 20),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _selectedCategory,
-                                    isExpanded: true,
-                                    items: _categories.map((category) {
-                                      return DropdownMenuItem<String>(
-                                        value: category,
-                                        child: Text(
-                                          _categoryLabels[category] ?? category,
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                            color: textColor,
-                                          ),
+                              // the app's own picker (the same as every list in the app)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: JphUi.picker(
+                                  isDark: isDark,
+                                  icon: Icons.groups_rounded,
+                                  iconColor: primaryColor,
+                                  label: 'الفئة المستهدفة',
+                                  value: _labelOf(_selectedCategory),
+                                  onTap: () async {
+                                    final v = await JphUi.sheet<String>(context, isDark, 'الفئة المستهدفة', [
+                                      for (final c in _categories)
+                                        (
+                                          c,
+                                          _labelOf(c),
+                                          c == 'الجميع'
+                                              ? Icons.campaign_rounded
+                                              : c == _pick
+                                                  ? Icons.how_to_reg_rounded
+                                                  : Icons.badge_rounded
                                         ),
-                                      );
-                                    }).toList(),
-                                    onChanged: (String? newValue) {
-                                      if (newValue != null) {
-                                        setState(() {
-                                          _selectedCategory = newValue;
-                                          _selectedEmployeeIds.clear();
-                                          _selectedEmployeeNames.clear();
-                                        });
-                                      }
-                                    },
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: textColor,
-                                    ),
-                                    dropdownColor: isDark
-                                        ? const Color(0xFF262624)
-                                        : Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                    icon: Icon(
-                                      Icons.arrow_drop_down_rounded,
-                                      color: primaryColor,
-                                      size: 28,
-                                    ),
-                                  ),
+                                    ], selected: _selectedCategory);
+                                    if (v != null && v != _selectedCategory) {
+                                      setState(() {
+                                        _selectedCategory = v;
+                                        _selectedEmployeeIds.clear();
+                                        _selectedEmployeeNames.clear();
+                                      });
+                                    }
+                                  },
                                 ),
                               ),
 
