@@ -36,7 +36,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       public_key: ${{ steps.key.outputs.public_key }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - name: Version (Windows' own numbering)
@@ -176,7 +176,7 @@ jobs:
     defaults: { run: { working-directory: app, shell: bash } }
     env: { E2E_BASE: 'https://localhost:8443/' }
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
       - name: Throw-away keys + test HTTPS certificate (test only, discarded with the runner)
@@ -379,7 +379,7 @@ jobs:
       SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
       SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with: { name: windows-out, path: win }
@@ -423,7 +423,7 @@ jobs:
       SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
       SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { sparse-checkout: "app/deploy/hostinger\napp/tool/release" }
       - name: Earlier installer (from its permanent release) + checks
         run: |
