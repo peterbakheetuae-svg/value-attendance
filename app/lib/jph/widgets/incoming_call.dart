@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -167,7 +168,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> with SingleTickerPr
   }
 
   Widget _logo() => ClipOval(
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Container(
             width: 132,

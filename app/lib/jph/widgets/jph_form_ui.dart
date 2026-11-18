@@ -238,7 +238,9 @@ class JphUi {
     );
     if (url == null || url.isEmpty) return fallback;
     return ClipOval(
-      child: Image.network(url, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback),
+      child: Image.network(url, width: size, height: size, fit: BoxFit.cover,
+          // decoded at the size it is shown (a full-size camera photo is ~50 MB in memory per avatar)
+          cacheWidth: (size * 3).round(), errorBuilder: (_, __, ___) => fallback),
     );
   }
 

@@ -211,6 +211,8 @@ class _AddEmployeePageState extends State<AddEmployeePage> {
       final pickedFile = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 80,
+        maxWidth: 800, // a profile photo: never the camera's full size
+        maxHeight: 800,
       );
 
       if (pickedFile != null) {

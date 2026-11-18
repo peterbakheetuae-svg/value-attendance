@@ -7,6 +7,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart' hide Text;
 import 'app_colors.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 
 bool isDarkOf(BuildContext c) => Theme.of(c).brightness == Brightness.dark;
 
@@ -90,7 +91,7 @@ class GlassCard extends StatelessWidget {
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma), child: body),
+      child: GlassBlur(filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma), child: body),
     );
   }
 }

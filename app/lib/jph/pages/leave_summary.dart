@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'dart:ui';
@@ -1643,6 +1644,7 @@ class _LeaveSummaryPageState extends State<LeaveSummaryPage> {
     child: Image.network(
     imageUrl!,
     fit: BoxFit.cover,
+    cacheWidth: 600, // a thumbnail
     loadingBuilder: (context, child, loadingProgress) {
     if (loadingProgress == null) return child;
     return Center(
@@ -1826,7 +1828,7 @@ void _showImageDialog(BuildContext context, String imageUrl, bool isDark) {
       insetPadding: const EdgeInsets.all(20),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: Glass.sheet(isDark, r: 24),

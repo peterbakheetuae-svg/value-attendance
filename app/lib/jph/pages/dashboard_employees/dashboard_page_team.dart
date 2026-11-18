@@ -1271,6 +1271,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                   child: photo.isNotEmpty
                       ? Image.network(
                     photo,
+                    cacheWidth: 360, // decoded at avatar size, not the photo's full size
                     fit: BoxFit.cover,
                     loadingBuilder: (context, child, loadingProgress) {
                       if (loadingProgress == null) return child;

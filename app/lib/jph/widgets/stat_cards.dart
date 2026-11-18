@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart' hide Text;
@@ -174,7 +175,7 @@ class _StatRightCardContent extends StatelessWidget {
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(
             sigmaX: isDark ? 12 : 10,
             sigmaY: isDark ? 12 : 10,
@@ -435,7 +436,7 @@ class _StatMiniCardContent extends StatelessWidget {
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(22),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(
             sigmaX: isDark ? 10 : 8,
             sigmaY: isDark ? 10 : 8,

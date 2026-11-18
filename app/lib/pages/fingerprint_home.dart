@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
@@ -626,7 +627,7 @@ class StatRightCard extends StatelessWidget {
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(sigmaX: isDark ? 12 : 10, sigmaY: isDark ? 12 : 10),
           child: DecoratedBox(
             decoration: BoxDecoration(

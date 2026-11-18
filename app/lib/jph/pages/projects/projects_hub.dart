@@ -390,7 +390,7 @@ class _ProjectsListState extends State<ProjectsList> {
 
   Widget _heroPill(String t, Color c) => ClipRRect(
         borderRadius: BorderRadius.circular(99),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4), // 24px

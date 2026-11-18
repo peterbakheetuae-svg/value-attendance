@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
@@ -78,7 +79,7 @@ class GlassCard extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
+      child: GlassBlur(
         filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
         child: Container(
           padding: padding,

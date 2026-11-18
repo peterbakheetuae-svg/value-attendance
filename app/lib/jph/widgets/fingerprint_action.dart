@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart' hide Text;
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
@@ -26,7 +27,7 @@ class FingerprintAction extends StatelessWidget {
           borderRadius: BorderRadius.circular(60),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(60),
-            child: BackdropFilter(
+            child: GlassBlur(
               filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
               child: Container(
                 width: 120,

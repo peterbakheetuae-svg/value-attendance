@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide Text;
 import 'app_colors.dart';
 import 'glass.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 
 class NavItem {
   final IconData icon;
@@ -34,7 +35,7 @@ class GlassBottomNav extends StatelessWidget {
             child: RepaintBoundary(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(40),
-                child: BackdropFilter(
+                child: GlassBlur(
                   filter: ImageFilter.blur(sigmaX: isDark ? 14.0 : 12.0, sigmaY: isDark ? 14.0 : 12.0),
                   child: DecoratedBox(
                     decoration: BoxDecoration(

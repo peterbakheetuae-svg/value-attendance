@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -110,7 +111,7 @@ class _BannerState extends State<_Banner> with SingleTickerProviderStateMixin {
                   onTap: widget.onTap,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    child: BackdropFilter(
+                    child: GlassBlur(
                       filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                       child: Container(
                         decoration: Glass.panel(d, r: 20).copyWith(

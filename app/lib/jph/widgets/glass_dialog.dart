@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -35,7 +36,7 @@ class GlassAlertDialog extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 460),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
-          child: BackdropFilter(
+          child: GlassBlur(
             filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
             child: Container(
               decoration: BoxDecoration(
@@ -108,7 +109,7 @@ class GlassDialogPanel extends StatelessWidget {
       insetPadding: insetPadding,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
           child: Container(
             decoration: BoxDecoration(

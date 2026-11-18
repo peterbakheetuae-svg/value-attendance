@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'package:flutter/material.dart';
 import 'core/app_updater.dart';
 import 'core/push.dart';
@@ -35,6 +36,8 @@ import 'jph/widgets/app_nav.dart';
 /// running on the Value Attendance API through `jph/services/api_service.dart`.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // weak phones: the glass cards drop their own blur once the phone is seen missing frames (remembered)
+  await GlassPerf.init();
 
   final session = Session(ApiClient());
   JphBridge.session = session;

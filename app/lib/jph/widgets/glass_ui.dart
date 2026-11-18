@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart' hide Text;
@@ -98,7 +99,7 @@ class _GlassBoxState extends State<GlassBox> {
       transform: Matrix4.translationValues(0, _hover ? -3 : 0, 0),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(widget.radius),
-        child: BackdropFilter(
+        child: GlassBlur(
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 350),

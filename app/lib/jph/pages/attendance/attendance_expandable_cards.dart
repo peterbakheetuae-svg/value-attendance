@@ -190,7 +190,7 @@ class AttendanceExpandableCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           image: DecorationImage(
-                            image: NetworkImage(imageUrl!),
+                            image: ResizeImage(NetworkImage(imageUrl!), width: 300), // a 100 px thumbnail
                             fit: BoxFit.cover,
                           ),
                         ),

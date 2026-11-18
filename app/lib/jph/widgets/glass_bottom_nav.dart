@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
@@ -66,7 +67,7 @@ class GlassBottomNav extends StatelessWidget {
         child: RepaintBoundary(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(26),
-            child: BackdropFilter(
+            child: GlassBlur(
               filter: ImageFilter.blur(
                 sigmaX: 24,
                 sigmaY: 24,

@@ -422,7 +422,7 @@ class _ProgressRingAvatar extends StatelessWidget {
               ),
               child: ClipOval(
                 child: hasPhoto
-                    ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _InitialsCircle(initials: initials, size: inner, color: initialsColor))
+                    ? Image.network(imageUrl, fit: BoxFit.cover, cacheWidth: 600, errorBuilder: (_, __, ___) => _InitialsCircle(initials: initials, size: inner, color: initialsColor))
                     : _InitialsCircle(initials: initials, size: inner, color: initialsColor),
               ),
             ),

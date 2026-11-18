@@ -65,7 +65,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final XFile? picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final XFile? picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70, maxWidth: 800, maxHeight: 800);
     if (picked != null) {
       final bytes = await picked.readAsBytes();
       final base64 = base64Encode(bytes);

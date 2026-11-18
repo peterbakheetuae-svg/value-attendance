@@ -1,3 +1,4 @@
+import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'side_sheet.dart';
 import 'dart:ui' as ui;
 
@@ -240,7 +241,7 @@ class _MoreSheet extends StatelessWidget {
         margin: const EdgeInsets.only(top: 40),
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: BackdropFilter(
+          child: GlassBlur(
             filter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
             child: DecoratedBox(
               decoration: Glass.panel(d, r: 28).copyWith(
