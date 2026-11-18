@@ -47,7 +47,7 @@ async function accessToken(a: ServiceAccount): Promise<string> {
 /** Alerts that ring (full-screen, insistent) instead of a normal notification. */
 export const RING_TYPES = new Set([
   'outing_awaiting', 'outing_extension_awaiting', 'outing_overdue', 'outing_overdue_watch',
-  'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self', 'tracking_phone_off',
+  'outing_approved', 'outing_rejected', 'unauthorized_exit', 'unauthorized_exit_self', 'tracking_phone_off', 'checkin_other_phone',
 ]);
 
 /** What a push did, device by device (diagnostics: dispatch ≠ delivery ≠ sound). */

@@ -30,6 +30,13 @@ test('a second signed-in phone that sends no location is rung once (that phone o
   await h.call(phoneB, 'POST', '/me/push-token', { token: 'tokenB'.padEnd(40, 'b'), platform: 'android' });
   at('2026-03-10T08:00:00Z');
   assert.equal((await h.call(phoneA, 'POST', '/attendance/check-in', {})).status, 201);
+  // checked in on phone A → phone B (only) rings like a call at once: «ابدأ عملك الآن»
+  const call = (await h.db.query(`SELECT n.dedupe_key, n.body FROM notifications n WHERE n.recipient_id = $1 AND n.type = 'checkin_other_phone'`,
+    [c.ids.e1])).rows;
+  const sessB = (await h.db.query(`SELECT id FROM sessions WHERE device_id = 'phone-b-000000000002'`)).rows[0].id;
+  assert.equal(call.length, 1, JSON.stringify(call));
+  assert.ok(call[0].dedupe_key.includes(sessB), 'rung on phone B, not on phone A');
+  assert.equal(call[0].body, 'ابدأ عملك الآن');
   // phone A reports every few minutes; phone B (left signed in) never opened the app
   for (const t of ['08:01', '08:06', '08:11', '08:16', '08:21', '08:26']) {
     at(`2026-03-10T${t}:00Z`);

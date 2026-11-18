@@ -16,6 +16,8 @@ import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 import '../widgets/top_banner.dart';
+import '../widgets/incoming_call.dart';
+import '../../core/ring_alert.dart';
 import '../pages/leave_summary.dart';
 import '../pages/advance_request_page.dart';
 import '../pages/commissions/commissions_page.dart';
@@ -170,13 +172,21 @@ class AlertCenter with WidgetsBindingObserver {
     _restoreSeen();
     _timer = Timer.periodic(const Duration(seconds: 20), (_) => poll());
     Push.onMessage = poll; // a phone push while the app is open → ring + dialog now
+    // «Valunivo Call»: rung while the app is open → its call screen now; rung before (opened the app / screen locked) → on start
+    RingAlert.onCall = (kind) => IncomingCall.show(nav, kind);
+    Future.delayed(const Duration(milliseconds: 600), () => IncomingCall.check(nav));
     Future.delayed(const Duration(seconds: 3), poll);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground) poll();
+    if (_foreground) {
+      // brought up by a ringing «Valunivo Call» (over the lock screen): its call screen
+      final nav = _nav;
+      if (nav != null) IncomingCall.check(nav);
+      poll();
+    }
   }
 
   Future<void> _restoreSeen() async {
@@ -217,7 +227,7 @@ class AlertCenter with WidgetsBindingObserver {
       for (final n in fresh) {
         // «المتابعة مش شغالة على الموبايل ده»: rung by push on the one phone of the account that sends no location —
         // never shown on the phone that is open (that one is followed already)
-        if (n['type'] == 'tracking_phone_off') continue;
+        if (n['type'] == 'tracking_phone_off' || n['type'] == 'checkin_other_phone') continue;
         if (!_ringing.contains(n['type'])) {
           // normal notification: a quiet banner while the app is open (no ringing)
           // normal notification: the app's own banner at the top — swipe it away, or tap it to open what it's about
@@ -295,6 +305,14 @@ class AlertCenter with WidgetsBindingObserver {
       if (Push.active) return; // the phone push already rang for this one
       // app in the background (Android shift service keeps it alive): system notification with sound
       await NotificationService().showCustomNotification(title: '${n['title']}', body: '${n['body'] ?? ''}', type: '${n['type']}');
+      return;
+    }
+    // left the office with no permission, app open: the «Valunivo Call» screen («خرجت بدون إذن»)
+    final call = RingAlert.callKind('${n['type']}');
+    final nav = _nav;
+    if (call != null && nav != null) {
+      await IncomingCall.show(nav, call);
+      try { await JphBridge.api.post('/notifications/${n['id']}/read', {}); } catch (_) {}
       return;
     }
     await _ring();

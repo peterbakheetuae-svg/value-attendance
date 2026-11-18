@@ -152,29 +152,54 @@ export async function sweep(q: Q, now: Date) {
   }
 }
 
-/** each signed-in Android phone of the employee that sent no location for [grace] minutes: rings on that phone only
- *  (at most once every 3 hours per phone) */
-async function nudgeSilentPhones(q: Q, employeeId: string, date: string, now: Date, grace: number) {
-  const phones = await q.query<{ session_id: string; label: string | null }>(`
+/** the employee's signed-in Android phones (one row per phone) — optionally only those that sent no location for [grace]
+ *  minutes today, and never [except] (the phone the employee is using right now) */
+async function androidPhones(q: Q, employeeId: string, now: Date, opts: { date?: string; grace?: number; except?: string | null } = {}) {
+  return (await q.query<{ session_id: string; label: string | null }>(`
     SELECT DISTINCT ON (COALESCE(s.device_id, s.id::text)) s.id AS session_id, d.label
       FROM sessions s JOIN push_tokens p ON p.session_id = s.id AND p.platform = 'android'
       LEFT JOIN employee_devices d ON d.employee_id = s.employee_id AND d.device_id = s.device_id
      WHERE s.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > $2
-       AND NOT EXISTS (SELECT 1 FROM tracking_state t WHERE t.employee_id = s.employee_id AND t.device_key = COALESCE(s.device_id, '')
-                         AND t.work_date = $3 AND t.last_ping_at > $2::timestamptz - make_interval(mins => $4))
-     ORDER BY COALESCE(s.device_id, s.id::text), s.last_seen_at DESC`, [employeeId, now, date, grace]);
-  for (const ph of phones.rows) {
-    const title = 'المتابعة مش شغالة على الموبايل ده ⚠️';
-    const body = `افتح التطبيق دلوقتي — حسابك مفتوح على الموبايل ده${ph.label ? ` (${ph.label})` : ''}، وكل موبايل عليه حسابك لازم يكون متابَع أثناء الشغل.`;
+       AND ($5::uuid IS NULL OR (s.id <> $5 AND COALESCE(s.device_id, '') IS DISTINCT FROM
+                                  (SELECT COALESCE(x.device_id, '') FROM sessions x WHERE x.id = $5 AND x.device_id IS NOT NULL)))
+       AND ($4::int IS NULL OR NOT EXISTS (SELECT 1 FROM tracking_state t WHERE t.employee_id = s.employee_id
+              AND t.device_key = COALESCE(s.device_id, '') AND t.work_date = $3 AND t.last_ping_at > $2::timestamptz - make_interval(mins => $4)))
+     ORDER BY COALESCE(s.device_id, s.id::text), s.last_seen_at DESC`,
+    [employeeId, now, opts.date ?? null, opts.grace ?? null, opts.except ?? null])).rows;
+}
+
+/** «Valunivo Call»: rings like an incoming call on those phones only (the app shows its own call screen); one notification
+ *  row per phone and [bucket] so it never rings twice for the same thing */
+async function callPhones(q: Q, employeeId: string, phones: { session_id: string; label: string | null }[], type: string,
+  title: string, body: string, bucket: string, auditAction: string) {
+  for (const ph of phones) {
     const n = await q.query<{ id: string }>(`
       INSERT INTO notifications (recipient_id, type, title, body, entity, entity_id, dedupe_key)
-      SELECT $1, 'tracking_phone_off', $2, $3, 'employee', $5, $4 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
+      SELECT $1, $6, $2, $3, 'employee', $5, $4 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
       ON CONFLICT (recipient_id, dedupe_key) DO NOTHING RETURNING id`,
-      [employeeId, title, body, `tracking_phone_off:${ph.session_id}:${date}:${Math.floor(now.getTime() / 10_800_000)}`, employeeId]);
+      [employeeId, title, body, `${type}:${ph.session_id}:${bucket}`, employeeId, type]);
     if (!n.rows[0]) continue;
-    const res = await pushTo(q, employeeId, { id: n.rows[0].id, type: 'tracking_phone_off', title, body, entityId: employeeId }, { sessionIds: [ph.session_id] });
-    await audit(q, employeeId, 'tracking.phone_nudged', 'employee', employeeId, undefined, { device: ph.label, fcm: res.fcm });
+    const res = await pushTo(q, employeeId, { id: n.rows[0].id, type, title, body, entityId: employeeId }, { sessionIds: [ph.session_id] });
+    await audit(q, employeeId, auditAction, 'employee', employeeId, undefined, { device: ph.label, fcm: res.fcm });
   }
+}
+
+/** each signed-in Android phone of the employee that sent no location for [grace] minutes: rings on that phone only
+ *  (at most once every 3 hours per phone) */
+async function nudgeSilentPhones(q: Q, employeeId: string, date: string, now: Date, grace: number) {
+  const phones = await androidPhones(q, employeeId, now, { date, grace });
+  await callPhones(q, employeeId, phones, 'tracking_phone_off', 'Valunivo Call', 'ابدأ عملك الآن',
+    `${date}:${Math.floor(now.getTime() / 10_800_000)}`, 'tracking.phone_nudged');
+}
+
+/** right after check-in on one phone: every OTHER signed-in Android phone of the account rings like a call («ابدأ عملك
+ *  الآن»); answering it opens the app there, so that phone is followed too. Only when he is followed during work. */
+export async function ringOtherPhonesAtCheckIn(q: Q, employeeId: string, exceptSession: string, date: string, now: Date) {
+  try {
+    if (!(await trackingEligibility(q, employeeId)).on) return;
+    const phones = await androidPhones(q, employeeId, now, { except: exceptSession });
+    await callPhones(q, employeeId, phones, 'checkin_other_phone', 'Valunivo Call', 'ابدأ عملك الآن', date, 'tracking.checkin_call');
+  } catch { /* a ring must never undo a check-in */ }
 }
 
 export const trackingModule: Module = (r, { db, clock }) => {

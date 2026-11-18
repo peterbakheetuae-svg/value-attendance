@@ -3600,4 +3600,8 @@ const Map<String, String> uiEn = {
   '❌ فشل التحديث: {0}': '❌ Update failed: {0}',
   '❌ لا': '❌ No',
   '🗑️ تم مسح جميع الإشعارات المحلية': '🗑️ All local notifications were cleared',
+  'ابدأ عملك الآن': 'Start your work now',
+  'خرجت بدون إذن': 'You left without permission',
+  'الرسالة': 'Message',
+  'التمرير لأعلى للرد': 'Swipe up to answer',
 };

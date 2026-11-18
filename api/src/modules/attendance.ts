@@ -142,6 +142,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       await audit(q, a.id, 'attendance.check_in', 'attendance', inserted.id, undefined, { at: now, geofence: g.status, selfie: !!selfie, offline });
       return inserted;
     });
+    // the account open on other phones too: they ring like a call so each is opened and followed
+    const { ringOtherPhonesAtCheckIn } = await import('./tracking.ts');
+    await ringOtherPhonesAtCheckIn(db, a.id, a.sessionId, l.date, now);
     return ok({ attendance: shape(row, l.date) }, 201);
   });
 
