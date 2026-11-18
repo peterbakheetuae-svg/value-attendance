@@ -27,6 +27,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
   Map<String, dynamic> _company = {};
   List<Map<String, dynamic>> _offices = [];
   bool _canEdit = false;
+  bool _tracking = false;
   bool _loading = true;
   bool _error = false;
   String _errorMessage = '';
@@ -50,6 +51,7 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
         _company = ((res['data'] as Map?) ?? {}).cast<String, dynamic>();
         _offices = ((res['offices'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
         _canEdit = res['canEdit'] == true;
+        _tracking = res['trackingEnabled'] == true;
       } else {
         _error = true;
         _errorMessage = res['message']?.toString() ?? '';
@@ -168,6 +170,31 @@ class _CompanyInfoPageState extends State<CompanyInfoPage> {
             ]),
           ),
           const SizedBox(height: 20),
+          // the company's switch for following the employees during the shift and ringing on an exit without permission
+          if (_canEdit && ApiService.can('settings.manage')) ...[
+            GlassCard(
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _tracking,
+                secondary: Icon(Icons.share_location_rounded, color: _tracking ? Ar.green : Ar.grey),
+                title: const Text('متابعة الموظفين أثناء الشغل', style: TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(
+                  _offices.isEmpty
+                      ? 'حدد مكان المكتب الأول تحت — من غيره مفيش متابعة'
+                      : 'بعد تسجيل الحضور بنتابع مكان الموظف، ولو خرج من دايرة المكتب من غير إذن ساعات أو معاينة معتمدة '
+                          'الموبايل بتاعه بيرن، وبيوصل تنبيه لمديره العام والمسؤول الإداري. المتابعة بتقف لوحدها بعد الانصراف. '
+                          'ولكل موظف «التتبع أثناء الشغل» في ملفه.',
+                  style: const TextStyle(height: 1.45),
+                ),
+                onChanged: (v) async {
+                  final r = await ApiService.post({'action': 'set_tracking', 'enabled': v});
+                  if (r['success'] == true) setState(() => _tracking = v);
+                  _snack(r);
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           const Text('موقع المكتب ودايرة الحضور', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
           GlassCard(

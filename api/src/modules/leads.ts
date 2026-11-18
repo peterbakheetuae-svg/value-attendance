@@ -676,7 +676,9 @@ export const leadsModule: Module = (r, { db, clock }) => {
     // the best first: the done deals (his leads closed «صفقة مكتملة» in the period), then the actions
     // «الأفضل» and «المهام اليومية» are the managers': a salesman sees neither; a sales manager sees his team only
     const manager = canAll(a) || canTeam(a) || !!a.partner;
-    const bestOf: string[] | null = canAll(a) || a.partner ? null : canTeam(a) ? await teamMemberIds(db, a.id) : [];
+    // «الأفضل»: everyone sees the ranking; its numbers (actions / meetings / deals) are for the managers — all of them for
+    // the owner / GM, his team's for a sales manager, none for a salesman
+    const numbersOf: Set<string> | null = canAll(a) || a.partner ? null : new Set(canTeam(a) ? await teamMemberIds(db, a.id) : []);
     const best = await db.query(`
       SELECT e.id, e.full_name,
              (SELECT count(*) FROM lead_actions x WHERE x.by_id = e.id AND x.parent_id IS NULL AND NOT x.auto AND x.created_at >= ${since})::int AS actions,
@@ -686,8 +688,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         FROM employees e
        WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
          AND e.role_key NOT IN ('owner', 'manager') AND COALESCE(e.position_key, '') <> 'admin_officer'
-         AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
-       ORDER BY deals DESC, actions DESC, e.full_name`, [now, bestOf]);
+       ORDER BY deals DESC, actions DESC, e.full_name`, [now]);
     const tasks = await one(db, `SELECT count(*) FILTER (WHERE status IN ('open','doing'))::int AS open,
                                         count(*) FILTER (WHERE status IN ('open','doing') AND due_at < $2)::int AS late FROM tasks WHERE assigned_to = $1`, [a.id, now]);
     // ---------------------------------------------------------------- the extra cards (like the Elite / Engaz boards)
@@ -778,7 +779,11 @@ export const leadsModule: Module = (r, { db, clock }) => {
       view, counts: c, stages: Object.fromEntries(stages.rows.map((x) => [x.stage, x.n])),
       delayByStage: Object.fromEntries(delay.rows.map((x) => [x.stage, x.n])),
       due: due.rows.map((l) => shape(l, now, pm)),
-      best: best.rows.map((x, i) => ({ rank: i + 1, id: x.id, name: x.full_name, actions: x.actions, meetings: x.meetings, deals: x.deals, me: x.id === a.id })),
+      best: best.rows.map((x, i) => {
+        const shown = numbersOf === null || numbersOf.has(x.id);
+        return { rank: i + 1, id: x.id, name: x.full_name, actions: shown ? x.actions : null, meetings: shown ? x.meetings : null,
+          deals: shown ? x.deals : null, me: x.id === a.id };
+      }),
       period, tasks,
     });
   });

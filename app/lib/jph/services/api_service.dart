@@ -250,7 +250,13 @@ class JphRouter {
             'data': {...c, 'name': c['nameAr'] ?? c['nameEn']},
             'offices': _list(r['offices']),
             'canEdit': r['canEdit'] == true,
+            'trackingEnabled': r['trackingEnabled'] == true,
           });
+        // «متابعة الموظفين أثناء الشغل»: the location during the shift + a ring when someone leaves the office with no
+        // permission / site visit (each employee's own «التتبع أثناء الشغل» in his file still applies)
+        case 'set_tracking':
+          await _api.patch('/settings', {'trackingEnabled': p['enabled'] == true});
+          return _ok({'message': p['enabled'] == true ? 'المتابعة اتفتحت ✅' : 'المتابعة اتقفلت'});
         case 'update_company':
           await _api.put('/company', {
             for (final k in const ['nameAr', 'nameEn', 'description', 'address', 'phone', 'email'])

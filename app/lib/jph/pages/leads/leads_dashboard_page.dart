@@ -196,7 +196,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                         cards.delayList(),
                         _due(isDark),
                         // «الأفضل» / «المهام اليومية»: the managers' (a sales manager: his team) — not a salesman's
-                        if (manager || AppNav.partner) _best(isDark),
+                        _best(isDark),   // the ranking for everyone; its numbers only where the server sends them
                         if (manager || AppNav.partner) cards.activity(),
                         cards.todo(),
                         // on the computer «المستخدمون المتصلون» sits beside «أحدث العملاء المحتملين»
@@ -362,14 +362,15 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                 padding: EdgeInsets.only(top: b['rank'] == 1 ? 10 : 0),
                 child: Stack(clipBehavior: Clip.none, alignment: Alignment.topCenter, children: [
                   JphUi.personAvatar('${b['name']}', _photos['${b['id']}'], size: b['rank'] == 1 ? 46 : 38),
-                  if (b['rank'] == 1 && ((b['actions'] ?? 0) as num) + ((b['deals'] ?? 0) as num) > 0)
+                  if (b['rank'] == 1 && (b['actions'] == null || ((b['actions'] ?? 0) as num) + ((b['deals'] ?? 0) as num) > 0))
                     const Positioned(top: -17, child: Text('👑', style: TextStyle(fontSize: 20))),
                 ]),
               ),
               const SizedBox(width: 10),
               Expanded(child: Text('${b['name']}${b['me'] == true ? ' (إنت)' : ''}', style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text('${b['actions']} ${tr('أكشن')}', style: TextStyle(fontWeight: FontWeight.w900, color: Ar.accent.shade700)),
+                if (b['actions'] != null)
+                  Text('${b['actions']} ${tr('أكشن')}', style: TextStyle(fontWeight: FontWeight.w900, color: Ar.accent.shade700)),
                 if (((b['deals'] ?? 0) as num) > 0)
                   Text('${b['deals']} ${tr('صفقة')}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.green.shade700)),
               ]),

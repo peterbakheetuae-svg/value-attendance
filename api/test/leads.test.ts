@@ -174,8 +174,8 @@ test('«إضافة أكشن», the follow-up reminder and the 25 minutes alert',
   }
   assert.ok(dash.counts.delay >= 1);
   assert.equal(dash.delayByStage.meeting, 1);
-  // «الأفضل» is the managers': the salesman doesn't see it, the owner sees him with his 2 actions
-  assert.equal(dash.best.length, 0);
+  // «الأفضل»'s numbers are the managers': the salesman sees the ranking without them, the owner sees his 2 actions
+  assert.ok(dash.best.every((b: any) => b.actions === null));
   assert.ok((await h.call(c.t.owner, 'GET', '/leads/dashboard')).body.best.some((b: any) => b.id === c.ids.e2 && b.actions === 2));
 });
 
