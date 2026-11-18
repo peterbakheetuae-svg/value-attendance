@@ -360,8 +360,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
     const where = [...base];
     where.push(TABS[tab]);
     if (stage && (STAGES as readonly string[]).includes(stage)) { params.push(stage); where.push(`l.stage = $${params.length}`); }
-    const size = Math.min(Math.max(Number(qs.get('size')) || 25, 5), 200);
-    const page = Math.max(Number(qs.get('page')) || 1, 1);
+    const size = Math.min(Math.max(Math.trunc(Number(qs.get('size'))) || 25, 5), 200);
+    const page = Math.min(Math.max(Math.trunc(Number(qs.get('page'))) || 1, 1), 10000);
     const sortKey = qs.get('sort') ?? (canAll(a) || canTeam(a) ? 'created' : 'next');
     const ORDER: Record<string, string> = {
       created: 'l.created_at DESC',

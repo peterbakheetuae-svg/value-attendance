@@ -9,8 +9,10 @@ DirectoryIndex index.html
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /valunivo/
-  # (http → https: done by the host's own HTTPS setting / the site root; a redirect here could loop behind the host's
-  #  proxy, so this folder relies on that plus HSTS below — see PRODUCTION_ACTIONS_REQUIRED)
+  # http → https, forced here too. Loop-safe behind the host's proxy: only when neither Apache nor the proxy saw https.
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [L]
@@ -64,3 +66,8 @@ DirectoryIndex index.html
 <FilesMatch "^\.">
   Require all denied
 </FilesMatch>
+# nor source maps, sources, backups, logs or config left over by a build
+<FilesMatch "\.(map|dart|ts|yaml|yml|lock|bak|old|orig|swp|sql|log|ini|env|sh|php)$">
+  Require all denied
+</FilesMatch>
+

@@ -339,7 +339,7 @@ export const orgModule: Module = (r, { db }) => {
     const vals: unknown[] = []; const where: string[] = [];
     const entity = req.query.get('entity'); if (entity) { vals.push(entity); where.push(`l.entity = $${vals.length}`); }
     const entityId = req.query.get('entityId'); if (entityId) { vals.push(entityId); where.push(`l.entity_id = $${vals.length}`); }
-    const limit = Math.min(Number(req.query.get('limit') ?? 100) || 100, 500);
+    const limit = Math.min(Math.max(Math.trunc(Number(req.query.get('limit') ?? 100)) || 100, 1), 500);
     const rows = await db.query(`SELECT l.*, x.full_name AS actor_name FROM audit_log l LEFT JOIN employees x ON x.id = l.actor_id
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY l.id DESC LIMIT ${limit}`, vals);
     // salary values are visible only to salary readers

@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
 import { local } from '../lib/time.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
-import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
+import { imageAttachment, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, can, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 
@@ -57,9 +57,7 @@ function attachment(b: Record<string, unknown>): Buffer | null {
   const v = b.attachment;
   if (v === undefined || v === null || v === '') return null;
   if (typeof v !== 'string') throw invalid('attachment must be base64', { field: 'attachment' });
-  const buf = Buffer.from(v.replace(/^data:[^,]*,/, ''), 'base64');
-  if (!buf.length || buf.length > 600_000) throw invalid('The attachment must be an image under 600 KB', { field: 'attachment' });
-  return buf;
+  return imageAttachment(v, 'attachment', 600_000, 'The attachment must be an image under 600 KB');
 }
 
 function clientRef(b: Record<string, unknown>): string | null {
@@ -1048,9 +1046,9 @@ export const cashModule: Module = (r, { db, clock }) => {
     await attachmentAccess(a, req.params.entity, req.params.id, true);
     const b = obj(req.body);
     const raw = String(b.attachment ?? '');
-    const buf = Buffer.from(raw, 'base64');
-    if (!raw || buf.length < 100) throw invalid('الصورة مش واضحة', { field: 'attachment' });
-    if (buf.length > 700_000) throw invalid('الصورة كبيرة — اختار صورة أصغر', { field: 'attachment' });
+    if (raw.length > 1_000_000) throw invalid('الصورة كبيرة — اختار صورة أصغر', { field: 'attachment' });
+    const buf = imageAttachment(raw, 'attachment', 700_000, 'الصورة مش واضحة');
+    if (buf.length < 100) throw invalid('الصورة مش واضحة', { field: 'attachment' });
     await db.query(`INSERT INTO cash_attachments (entity, entity_id, attachment, updated_by, updated_at) VALUES ($1,$2,$3,$4,$5)
                     ON CONFLICT (entity, entity_id) DO UPDATE SET attachment = EXCLUDED.attachment, updated_by = EXCLUDED.updated_by,
                       updated_at = EXCLUDED.updated_at`, [req.params.entity, req.params.id, buf, a.id, clock()]);

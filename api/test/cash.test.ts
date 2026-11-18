@@ -163,7 +163,7 @@ test('السجل: «الكل» for the office, each payout names who got it; tra
   assert.ok(all.entries.some((x: any) => x.cashbox === 'office') && all.entries.some((x: any) => x.cashbox === 'hr'));
   assert.equal((await h.call(c.t.hr, 'GET', '/cash/ledger?cashbox=all')).status, 403, 'the accountant sees his box only');
   const tr = all.entries.find((x: any) => x.source === 'cash_transfers');
-  const png = Buffer.alloc(400, 7).toString('base64');
+  const png = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 7)]).toString('base64');
   assert.equal((await h.call(c.t.hr, 'POST', `/cash/attachments/transfer/${tr.sourceId}`, { attachment: png })).status, 200);
   assert.equal((await h.call(tGm, 'GET', `/cash/attachments/transfer/${tr.sourceId}`)).body.attachment, png);
   const again = (await h.call(tGm, 'GET', '/cash/ledger?cashbox=all')).body.entries.find((x: any) => x.sourceId === tr.sourceId);
@@ -185,7 +185,7 @@ test('the existing صرف مالية payments count against the HR cashbox', asy
   assert.equal(led.type, 'payout_salary');
   assert.ok(led.toName, 'لمين');
   assert.equal(led.payoutKind, 'salary');
-  const png = Buffer.alloc(400, 9).toString('base64');
+  const png = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 9)]).toString('base64');
   assert.equal((await h.call(c.t.hr, 'POST', `/cash/attachments/payout/${p.body.payout.id}`, { attachment: png })).status, 200);
   assert.equal((await h.call(c.t.e1, 'GET', `/cash/attachments/payout/${p.body.payout.id}`)).status, 200, 'the employee sees his own');
   assert.equal((await h.call(c.t.e2, 'GET', `/cash/attachments/payout/${p.body.payout.id}`)).status, 403);

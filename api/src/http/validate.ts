@@ -82,3 +82,25 @@ export function monthParam(v: string | null, field = 'month'): string {
   if (!v || !/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) throw invalid(`${field} must be YYYY-MM`, { field });
   return `${v}-01`;
 }
+
+/** What a file really is, by its first bytes (never by the name / the mime the client sent): a photo, or null. */
+export function imageType(buf: Buffer): string | null {
+  const s = buf.subarray(0, 12);
+  if (s[0] === 0xff && s[1] === 0xd8 && s[2] === 0xff) return 'image/jpeg';
+  if (s.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (s.subarray(0, 4).toString('latin1') === 'RIFF' && s.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  if (s.subarray(0, 4).toString('latin1') === 'GIF8') return 'image/gif';
+  if (s.subarray(4, 8).toString('latin1') === 'ftyp' && /^(heic|heix|mif1|msf1|hevc)$/.test(s.subarray(8, 12).toString('latin1'))) return 'image/heic';
+  return null;
+}
+
+/** an attachment that must be a photo: [field] base64 (a data: prefix is allowed), at most [max] bytes */
+export function imageAttachment(v: unknown, field: string, max: number, msg = 'The attachment must be a photo'): Buffer {
+  if (typeof v !== 'string') throw invalid(`${field} must be base64`, { field });
+  const raw = v.replace(/^data:[^,]*,/, '');
+  if (!/^[A-Za-z0-9+/=\s]*$/.test(raw)) throw invalid(`${field} must be base64`, { field });
+  const buf = Buffer.from(raw, 'base64');
+  if (buf.length > max) throw invalid('Attachment is too large', { field });
+  if (!buf.length || !imageType(buf)) throw invalid(msg, { field });
+  return buf;
+}

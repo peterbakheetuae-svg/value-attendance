@@ -1,7 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
-import { date, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
+import { date, imageAttachment, isUuid, num, obj, oneOf, reqStr, str } from '../http/validate.ts';
 import { actorById, audit, authenticate, can, canOwnerOnly, has, readableIds, requirePerm, notSettled } from '../auth/context.ts';
 import { photoScope, selfieScope } from '../auth/media-scope.ts';
 import { daysBetween, local } from '../lib/time.ts';
@@ -75,9 +75,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
     if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1 AND status = 'active'`, [employeeId]))) throw notFound('Employee not found');
     let attachment: Buffer | null = null;
     if (typeof b.attachment === 'string' && b.attachment.length) {
-      const raw = b.attachment.replace(/^data:[^;]+;base64,/, '');
-      attachment = Buffer.from(raw, 'base64');
-      if (attachment.length > 600_000) throw invalid('Attachment is too large', { field: 'attachment' });
+      attachment = imageAttachment(b.attachment, 'attachment', 600_000);
     }
     const row = await db.tx(async (q) => {
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [employeeId]);

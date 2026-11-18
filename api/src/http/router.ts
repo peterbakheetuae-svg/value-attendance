@@ -86,7 +86,8 @@ async function handle(router: Router, opts: Opts, method: string, rawUrl: string
   headers: IncomingMessage['headers'], getBody: () => Promise<Buffer>): Promise<Out> {
   // no API answer (JSON, files, the public lead form page) may be framed by another site; no referrer leaves it (VA-08)
   const h: Record<string, string> = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY',
-    'Content-Security-Policy': "frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer' };
+    'Content-Security-Policy': "frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' };
   const origin = headers.origin as string | undefined;
   if (origin && opts.corsOrigins.includes(origin)) {
     h['Access-Control-Allow-Origin'] = origin;

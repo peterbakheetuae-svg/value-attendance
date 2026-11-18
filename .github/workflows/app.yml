@@ -105,6 +105,8 @@ jobs:
           done
           # nothing secret may ship in the public folder
           if find build/hostinger -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in build"; exit 1; fi
+          # no debug leftovers: source maps / Dart sources never ship
+          if find build/hostinger -name '*.map' -o -name '*.dart' | grep -q .; then echo "::error::source map / source file in build"; exit 1; fi
           du -sh build/hostinger; find build/hostinger -type f -size +300k -exec ls -la {} \;
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: { name: hostinger-web, path: app/build/hostinger, include-hidden-files: true, retention-days: 14 }

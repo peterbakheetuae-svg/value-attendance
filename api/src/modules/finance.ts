@@ -1,7 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { one } from '../db.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
-import { monthParam, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
+import { imageAttachment, monthParam, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { audit, authenticate, requirePerm } from '../auth/context.ts';
 import { holdersOf, notify } from './notify.ts';
 
@@ -41,8 +41,7 @@ export const financeModule: Module = (r, { db }) => {
     if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1`, [employeeId]))) throw notFound('Employee not found');
     let attachment: Buffer | null = null;
     if (typeof b.attachment === 'string' && b.attachment.length) {
-      attachment = Buffer.from(b.attachment.replace(/^data:[^;]+;base64,/, ''), 'base64');
-      if (attachment.length > 600_000) throw invalid('Attachment is too large', { field: 'attachment' });
+      attachment = imageAttachment(b.attachment, 'attachment', 600_000);
     }
     const kind = oneOf(b, 'kind', ['deduction', 'bonus', 'raise'] as const)!;
     const row = await db.tx(async (q) => {

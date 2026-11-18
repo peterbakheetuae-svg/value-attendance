@@ -9,7 +9,7 @@ import { forgetPermissionKeys } from '../src/auth/context.ts';
 // exactly as today before migration 066 (throwaway database; the 066 keys are added below only for the last test).
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 let tGm = ''; let gmId = ''; let expenseId = '';
-const IMG = Buffer.alloc(200, 7).toString('base64');
+const IMG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]).toString('base64');
 
 before(async () => {
   h = await harness('2026-11-10T08:00:00Z'); c = await cast(h);

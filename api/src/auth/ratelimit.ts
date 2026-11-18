@@ -2,6 +2,7 @@ import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { AppError } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
+import { securityAlert } from './alerts.ts';
 
 /**
  * VA-06 — per-IP throttling of the sign-in / recovery endpoints, shared by every serverless instance (the counts live in
@@ -45,6 +46,9 @@ export async function withIpLimit<T>(q: Q, req: Req, kind: keyof typeof IP_LIMIT
   const ip = clientIp(req);
   const lim = IP_LIMITS[kind];
   if (ip && await failures(q, ip, kind, lim.minutes) >= lim.max) {
+    // suspicious: a network guessing passwords / codes — the owners hear about it once an hour per network
+    await securityAlert(q, `ip:${kind}:${ip}:${Math.floor(Date.now() / 3600000)}`, 'تنبيه أمان: محاولات دخول كتير',
+      `شبكة ${ip} عملت محاولات ${kind === 'login' ? 'دخول' : 'استرجاع'} غلط كتير واتوقفت مؤقتًا`);
     throw new AppError('rate_limited', 'Too many attempts from this network. Try again later', { reason: 'ip_rate_limited' });
   }
   if (ip && countAll) await note(q, ip, kind);

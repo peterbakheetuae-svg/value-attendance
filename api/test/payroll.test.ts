@@ -106,7 +106,7 @@ test('approved tier policy: up to 15 min nothing, then 25 / 50 / 100 once per da
 test('علاوة / خصم: HR records a raise with a photo; the owner approves; it goes into الزيادة and the salary', async () => {
   await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 5000, $2) ON CONFLICT (employee_id) DO NOTHING`, [c.ids.e2, c.ids.owner]);
   const r = await h.call(c.t.hr, 'POST', '/finance/adjustments', { employeeId: c.ids.e2, month: '2026-03', kind: 'raise', amountEgp: 500,
-    reason: 'زيادة سنوية', attachment: Buffer.from('img').toString('base64') });
+    reason: 'زيادة سنوية', attachment: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(8, 1)]).toString('base64') });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const list = (await h.call(c.t.owner, 'GET', '/finance/adjustments?kind=raise')).body.adjustments;
   assert.equal(list[0].has_attachment, true);

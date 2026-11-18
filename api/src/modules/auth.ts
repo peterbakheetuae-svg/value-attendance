@@ -12,6 +12,7 @@ import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '..
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
 import { partnerOf } from '../auth/partner.ts';
 import { withIpLimit } from '../auth/ratelimit.ts';
+import { securityAlert } from '../auth/alerts.ts';
 
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 
@@ -87,6 +88,13 @@ export const authModule: Module = (r, { db }) => {
       await db.query(`UPDATE employees SET failed_logins = $2::int,
                         locked_until = CASE WHEN $2::int >= $3::int THEN now() + make_interval(mins => $4) ELSE locked_until END
                       WHERE id = $1`, [emp.id, fails, MAX_FAILS, LOCK_MINUTES]);
+      if (fails === MAX_FAILS) {
+        // suspicious: the account is locked now — the owners hear about it (once per lock)
+        await audit(db, emp.id, 'auth.locked', 'employee', emp.id);
+        const n = await one(db, `SELECT full_name FROM employees WHERE id = $1`, [emp.id]);
+        await securityAlert(db, `lock:${emp.id}:${Math.floor(Date.now() / (LOCK_MINUTES * 60000))}`, 'تنبيه أمان: حساب اتقفل',
+          `${n?.full_name ?? ''} — ${MAX_FAILS} محاولات دخول غلط، الحساب اتقفل ${LOCK_MINUTES} دقيقة`);
+      }
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
     if (emp.status !== 'active') throw new AppError('forbidden', 'This account is deactivated');

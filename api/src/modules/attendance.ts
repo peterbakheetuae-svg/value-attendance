@@ -1,7 +1,7 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
-import { date, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
+import { date, imageType, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, can, has, notSettled, readableIds, requirePerm } from '../auth/context.ts';
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
@@ -97,7 +97,10 @@ function selfieFrom(b: Record<string, unknown>): { buf: Buffer; mime: string } |
   const buf = Buffer.from(b.selfie, 'base64');
   if (!buf.length) throw invalid('selfie is empty', { field: 'selfie' });
   if (buf.length > 400_000) throw invalid('selfie is too large (max 400 KB)', { field: 'selfie' });
-  return { buf, mime };
+  // the real content decides (a mislabelled file is stored with what it really is; anything not a photo is refused)
+  const real = imageType(buf);
+  if (!real) throw invalid('selfie must be a JPEG, PNG or WebP image', { field: 'selfie' });
+  return { buf, mime: real };
 }
 
 function breakShape(b: any, now: Date) {
