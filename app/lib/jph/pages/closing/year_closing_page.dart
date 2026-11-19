@@ -819,7 +819,7 @@ class _TransactionsPageState extends State<_TransactionsPage> {
                       style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
                 ]),
               ),
-              Text(JphUi.money(x['amount']),
+              Text(x['redacted'] == true ? 'محجوب' : JphUi.money(x['amount']),
                   style: TextStyle(fontWeight: FontWeight.w900, color: (_n(x['amount']) ?? 0) < 0 ? Ar.red : JphUi.text(isDark))),
             ]),
           ),
@@ -1058,7 +1058,7 @@ class _RecsPageState extends State<_RecsPage> {
                         const SizedBox(width: 8),
                         JphUi.chip((_recStatus[x['status']] ?? ('', Ar.grey)).$1, (_recStatus[x['status']] ?? ('', Ar.grey)).$2),
                         const Spacer(),
-                        Text(JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                        Text(x['redacted'] == true ? 'محجوب' : JphUi.money(x['amount']), style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
                       ]),
                       const SizedBox(height: 4),
                       Text('${x['reason']}', style: TextStyle(color: JphUi.text(isDark))),
@@ -1661,7 +1661,8 @@ class _ReportExport {
       out.add(['المشاكل', '#${i['refNo']} ${i['description']}', '${(_issueStatus[i['status']] ?? ('${i['status']}', Ar.grey)).$1}${i['amount'] != null ? ' • ${i['amount']}' : ''}']);
     }
     for (final r in _l(d['reconciliations'])) {
-      out.add(['التسويات', '#${r['refNo']} ${_recTypes[r['type']] ?? r['type']} — ${r['reason']}', '${r['amount']} • ${(_recStatus[r['status']] ?? ('${r['status']}', Ar.grey)).$1}']);
+      out.add(['التسويات', '#${r['refNo']} ${_recTypes[r['type']] ?? r['type']} — ${r['reason']}',
+        '${r['redacted'] == true ? 'محجوب' : r['amount']} • ${(_recStatus[r['status']] ?? ('${r['status']}', Ar.grey)).$1}']);
     }
     for (final o in _l(_m(d['snapshot'])['openingBalances'])) out.add(['الأرصدة المرحّلة', '${o['label']}', '${o['carryBalance']}']);
     if (d['snapshot'] != null) out.add(['التقفيل', 'بصمة اللقطة', '${_m(d['snapshot'])['hash']}']);

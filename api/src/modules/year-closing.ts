@@ -336,15 +336,47 @@ export function redactFigures(f0: any, a: Actor) {
   }
   return f;
 }
-const PER_EMPLOYEE_SOURCES = new Set(['payouts', 'salary_adjustments', 'advance_requests']);
+/**
+ * The closing's own records carry owner-level detail too (a partner's reconciliation, a note on the office's profit, an
+ * employee's payout). Each record belongs to an area; an area a person may not see shows its record without the detail
+ * (no amount, no reason / note) — the stored record is never changed.
+ */
+type Area = 'partners' | 'profit' | 'employees' | 'projects' | null;
+const AREA_ASK: Record<Exclude<Area, null>, string> = {
+  partners: '«ضخ وسحب أموال الملاك»', profit: '«دخل وربح المكتب»', employees: '«عرض المرتبات»', projects: '«ماليات المشاريع الحصرية»',
+};
+export function mayArea(area: Area, a: Actor) {
+  switch (area) {
+    case 'partners': return can(a, 'cash.owner_funds', 'cash.office');
+    case 'profit': return can(a, 'finance.company_income', 'cash.office');
+    case 'employees': return has(a, 'employee.salary_read');
+    case 'projects': return can(a, 'exclusive.view_finance', 'cash.office');
+    default: return true;
+  }
+}
+const PER_EMPLOYEE_SOURCES = new Set(['payouts', 'salary_adjustments', 'advance_requests', 'advance_deductions', 'commission_entitlements']);
+const issueArea = (i: any): Area => (PER_EMPLOYEE_SOURCES.has(i.source) || i.category === 'employees' ? 'employees'
+  : i.category === 'partners' ? 'partners' : i.category === 'profit' ? 'profit' : i.category === 'projects' ? 'projects' : null);
+const recArea = (type: string): Area => (type === 'partner' ? 'partners' : type === 'employee' ? 'employees' : type === 'project' ? 'projects' : null);
+const itemArea = (key: string): Area => {
+  const c = key.split('.')[0];
+  return c === 'partners' ? 'partners' : c === 'profit' ? 'profit' : c === 'employees' ? 'employees' : c === 'projects' ? 'projects' : null;
+};
+const hiddenText = (area: Exclude<Area, null>) => `(التفاصيل محتاجة صلاحية ${AREA_ASK[area]})`;
 function redactIssue(i: any, a: Actor) {
-  if (PER_EMPLOYEE_SOURCES.has(i.source) && !has(a, 'employee.salary_read')) {
-    return { ...i, description: 'بند مالي لموظف (التفاصيل محتاجة صلاحية «عرض المرتبات»)', amount: null };
-  }
-  if (i.category === 'partners' && !can(a, 'cash.owner_funds', 'cash.office')) {
-    return { ...i, description: 'ملاحظة على حسابات الشركاء (التفاصيل محتاجة صلاحية «ضخ وسحب أموال الملاك»)', amount: null };
-  }
-  return i;
+  const area = issueArea(i);
+  if (!area || mayArea(area, a)) return i;
+  return { ...i, description: `ملاحظة ${hiddenText(area)}`, amount: null, sourceId: null, resolutionNote: i.resolutionNote ? hiddenText(area) : '', resolutionRef: null, redacted: true };
+}
+function redactRec(x: any, a: Actor) {
+  const area = recArea(x.type);
+  if (!area || mayArea(area, a)) return x;
+  return { ...x, amount: null, reason: hiddenText(area), notes: '', sourceId: null, decisionNote: '', redacted: true };
+}
+function redactItem(i: any, a: Actor) {
+  const area = itemArea(i.key);
+  if (!area || mayArea(area, a)) return i;
+  return { ...i, note: i.note ? hiddenText(area) : '', redacted: true };
 }
 /** the carried balances a person may see (partners: cash.owner_funds; per employee: employee.salary_read) */
 export function visibleOpening(entityType: string, a: Actor) {
@@ -355,6 +387,8 @@ export function visibleOpening(entityType: string, a: Actor) {
 function redactState(st: any, a: Actor) {
   const out = { ...st, figures: redactFigures(st.figures, a) };
   if (Array.isArray(st.issues)) out.issues = st.issues.map((i: any) => redactIssue(i, a));
+  if (Array.isArray(st.reconciliations)) out.reconciliations = st.reconciliations.map((x: any) => redactRec(x, a));
+  if (Array.isArray(st.checklist)) out.checklist = st.checklist.map((c: any) => ({ ...c, items: (c.items ?? []).map((i: any) => redactItem(i, a)) }));
   if (Array.isArray(st.preview)) out.preview = st.preview.map((i: any) => redactIssue({ ...i, source: i.source }, a));
   if (st.snapshot) out.snapshot = { ...st.snapshot, openingBalances: (st.snapshot.openingBalances ?? []).filter((o: any) => visibleOpening(o.entityType, a)) };
   return out;
@@ -666,13 +700,24 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
     const vals: unknown[] = [`${y}-01-01`, `${y + 1}-01-01`];
     const boxSql = (col: string) => (box === 'office' || box === 'hr' ? (vals.push(box), ` AND ${col} = $${vals.length}`) : '');
     let sql: string;
+    // each row's area: an owner's injection / withdrawal (partners), an exclusive project's money (projects), a payment to an
+    // employee (employees) — shown without amount and label to whoever may not see that area
+    const AREA_SQL = (r: string, x: string, p: string) => `CASE WHEN ${r}.kind = 'injection' OR ${x}.owner_draw_id IS NOT NULL THEN 'partners'
+                                                              WHEN ${x}.ex_kind IS NOT NULL THEN 'projects'
+                                                              WHEN ${p}.id IS NOT NULL AND ${p}.kind <> 'fund' THEN 'employees' END`;
     if (kind === 'ledger') {
-      sql = `SELECT source, source_id AS id, ref_no, type, cashbox, amount, at, label FROM cash_ledger WHERE at >= ${at('$1')} AND at < ${at('$2')}${boxSql('cashbox')} ORDER BY at`;
+      sql = `SELECT l.source, l.source_id AS id, l.ref_no, l.type, l.cashbox, l.amount, l.at, l.label, ${AREA_SQL('r', 'x', 'p')} AS area FROM cash_ledger l
+               LEFT JOIN cash_receipts r ON l.source = 'cash_receipts' AND r.id = l.source_id
+               LEFT JOIN cash_expenses x ON l.source = 'cash_expenses' AND x.id = l.source_id
+               LEFT JOIN payouts p ON l.source = 'payouts' AND p.id = l.source_id
+              WHERE l.at >= ${at('$1')} AND l.at < ${at('$2')}${boxSql('l.cashbox')} ORDER BY l.at`;
     } else if (kind === 'receipts') {
-      sql = `SELECT 'cash_receipts' AS source, id, ref_no, kind AS type, cashbox, amount_egp AS amount, occurred_at AS at, purpose AS label, status, payment_method FROM cash_receipts
+      sql = `SELECT 'cash_receipts' AS source, id, ref_no, kind AS type, cashbox, amount_egp AS amount, occurred_at AS at, purpose AS label, status, payment_method,
+                    CASE WHEN kind = 'injection' THEN 'partners' END AS area FROM cash_receipts
               WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at`;
     } else if (kind === 'expenses') {
-      sql = `SELECT 'cash_expenses' AS source, id, ref_no, category AS type, cashbox, amount_egp AS amount, COALESCE(approved_at, occurred_at) AS at, reason AS label, status, payment_method
+      sql = `SELECT 'cash_expenses' AS source, id, ref_no, category AS type, cashbox, amount_egp AS amount, COALESCE(approved_at, occurred_at) AS at, reason AS label, status, payment_method,
+                    CASE WHEN owner_draw_id IS NOT NULL THEN 'partners' WHEN ex_kind IS NOT NULL THEN 'projects' END AS area
                FROM cash_expenses WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at`;
     } else if (kind === 'payouts') {
       // what each employee was paid: the same permission as his account page (/finance/employee-account)
@@ -687,7 +732,11 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
     vals.push(offset);
     const rows = await db.query(`${sql} LIMIT 101 OFFSET $${vals.length}`, vals);
     return ok({ kind, offset, next: rows.rows.length > 100 ? offset + 100 : null,
-      rows: rows.rows.slice(0, 100).map((x) => ({ ...x, amount: N(x.amount), refNo: x.ref_no == null ? null : Number(x.ref_no) })) });
+      rows: rows.rows.slice(0, 100).map((x) => {
+        const { area, ...row } = x;
+        const out = { ...row, amount: N(x.amount), refNo: x.ref_no == null ? null : Number(x.ref_no) };
+        return area && !mayArea(area as Area, a) ? { ...out, amount: null, label: hiddenText(area as Exclude<Area, null>), redacted: true } : out;
+      }) });
   });
 
   r.get('/closing/:year/audit', async (req) => {
@@ -697,7 +746,23 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
     const ev = await db.query(`SELECT l.id, l.at, l.action, l.entity_id, l.before, l.after, COALESCE(e.full_name, 'السيستم') AS by
         FROM audit_log l LEFT JOIN employees e ON e.id = l.actor_id
        WHERE l.entity = 'fy_closing' AND l.entity_id IN (SELECT id::text FROM fy_closings WHERE fiscal_year = $1) ORDER BY l.at DESC LIMIT 500`, [y]);
-    return ok({ events: ev.rows });
+    // the area of each event: from the item key, or from the issue / reconciliation it is about (the log itself never changes)
+    const ids = await db.query(`SELECT 'issue' AS k, i.id::text AS id, i.category, i.source_module AS source FROM fy_issues i JOIN fy_closings c ON c.id = i.closing_id WHERE c.fiscal_year = $1
+                                UNION ALL
+                                SELECT 'rec', x.id::text, x.rec_type, x.source_module FROM fy_reconciliations x JOIN fy_closings c ON c.id = x.closing_id WHERE c.fiscal_year = $1`, [y]);
+    const areaOf = new Map<string, Area>(ids.rows.map((x) => [x.id, x.k === 'rec' ? recArea(x.category) : issueArea({ category: x.category, source: x.source })]));
+    const events = ev.rows.map((e) => {
+      const after = e.after ?? {};
+      const area: Area = e.action === 'closing.item' ? itemArea(String(after.item ?? ''))
+        : e.action.startsWith('closing.issue_') && e.action !== 'closing.issues_detected' ? (after.issue ? areaOf.get(after.issue) ?? (after.category ? issueArea({ category: after.category }) : null) : null)
+        : e.action.startsWith('closing.reconciliation') ? (after.reconciliation ? areaOf.get(after.reconciliation) ?? (after.type ? recArea(after.type) : null) : null)
+        : null;
+      if (!area || mayArea(area, a)) return e;
+      // what happened and to what stays visible; the amounts / notes / reasons do not
+      const keep = Object.fromEntries(Object.entries(after).filter(([k]) => ['item', 'status', 'issue', 'reconciliation', 'action', 'decision', 'type', 'category', 'severity'].includes(k)));
+      return { ...e, before: null, after: { ...keep, redacted: hiddenText(area) } };
+    });
+    return ok({ events });
   });
 
   r.get('/closing/:year/opening-balances', async (req) => {
