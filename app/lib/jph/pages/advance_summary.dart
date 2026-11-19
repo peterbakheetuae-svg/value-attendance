@@ -1,4 +1,5 @@
 // lib/pages/financial/financial_summary.dart
+import '../widgets/payment_code.dart';
 import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
@@ -1508,6 +1509,11 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
         content: Text('${r['message'] ?? (r['success'] == true ? 'تم ✅' : 'حصلت مشكلة')}'),
         backgroundColor: r['success'] == true ? Ar.green : const Color(0xFFE5604F),
       ));
+      // a payment just made: straight to entering the recipient's code
+      final pay = r['payout'] is Map ? (r['payout'] as Map) : null;
+      if (r['success'] == true && pay != null && pay['canVerify'] == true && mounted) {
+        await PaymentVerify.payout(context, '${pay['id']}', who: '${pay['employee_name'] ?? 'الموظف'}');
+      }
       if (r['success'] == true) await _loadFinancialRequests();
     } finally {
       if (mounted) setState(() => _busyPayout = false);
@@ -1517,17 +1523,13 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
   Future<void> _pay(Map<String, dynamic> r) async {
     final amount = (r['amount'] as num?) ?? 0;
     if (!await _confirm('صرف ${r['requestType'] ?? ''}', '${r['employeeName'] ?? ''} — ${_fmtAmount(amount)} جنيه\n'
-        'هيظهر عنده "تم الاستلام"، والمبلغ بيتخصم من الخزنة لما يأكد.')) return;
+        'هيظهرله كود من 4 أرقام، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
     await _runPayout({
       'action': 'payout_create', 'employeeId': r['employeeUuid'], 'kind': r['kind'], 'amount': amount,
       'month': r['periodMonth'], 'advanceId': r['id'],
     });
   }
 
-  Future<void> _receive(Map<String, dynamic> r) async {
-    if (!await _confirm('تأكيد الاستلام', 'استلمت ${_fmtAmount((r['amount'] as num?) ?? 0)} جنيه؟')) return;
-    await _runPayout({'action': 'payout_receive', 'id': r['payoutId']});
-  }
 
   /// The advance's repayment plan: by default the whole advance comes off its own month's salary;
   /// HR can split it (two months at most) — never more than the advance, never in a month already paid.
@@ -1828,8 +1830,12 @@ class _FinancialSummaryPageState extends State<FinancialSummaryPage> {
             ],
             if (request['canPay'] == true)
               _payoutButton('صرف', Icons.payments_rounded, AppColors.primary, () => _pay(request)),
-            if (request['canReceive'] == true)
-              _payoutButton('تم الاستلام', Icons.check_circle_rounded, Ar.green, () => _receive(request)),
+            if (request['awaitingMyCode'] == true && '${request['payoutId']}'.isNotEmpty)
+              paymentCodeButton(context, mine: true, id: '${request['payoutId']}', title: '${request['requestType'] ?? 'السلفة'}',
+                  amount: request['amount'], after: _loadFinancialRequests),
+            if (request['canVerify'] == true && '${request['payoutId']}'.isNotEmpty)
+              paymentCodeButton(context, mine: false, id: '${request['payoutId']}', title: '${request['requestType'] ?? 'السلفة'}',
+                  who: '${request['employeeName'] ?? 'الموظف'}', after: _loadFinancialRequests),
             // خصم السلفة من المرتب: بيتحدد هنا من الطلبات المالية (الطريقة الوحيدة)
             if (rawStatus == 'مؤكد' && request['kind'] == 'advance' && ApiService.can('payroll.prepare'))
               Align(

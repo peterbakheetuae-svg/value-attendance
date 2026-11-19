@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, insertEmployee, PW, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /**
  * db/ops/2026-11-18-keep-active-employees.sql on a database with every kind of record: the activity goes, the employees
@@ -22,7 +22,7 @@ before(async () => {
   await h.call(c.t.e1, 'POST', '/requests', { type: 'full_day_absence', startDate: '2026-03-20', endDate: '2026-03-20', absenceType: 'annual', reason: 'ظرف' });
   await h.call(c.t.e2, 'POST', '/advances', { kind: 'advance', amount: 1500, period: '2026-03-01', note: 'سلفة', attachment: JPG });
   const fund = await h.call(c.t.owner, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 9000 });
-  await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.hr, c.t.owner, fund.body.payout.id);
   await h.call(c.t.e1, 'POST', '/leads', { name: 'عميل', phone: '01000000001', projectLater: true });
   await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 9000, $2)`, [c.ids.e1, c.ids.owner]);
   // a document and custody of an employee on the job

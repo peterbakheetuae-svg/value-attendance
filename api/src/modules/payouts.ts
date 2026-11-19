@@ -1,3 +1,4 @@
+import { createHash, randomInt } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
@@ -6,6 +7,7 @@ import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
+import { companySalaryRows } from './company-payouts.ts';
 
 const KINDS = ['salary', 'advance', 'commission', 'work_expense'] as const;
 export const PAYOUT_AR: Record<string, string> = {
@@ -28,10 +30,34 @@ const COLS = `p.*, e.full_name AS employee_name, e.code AS employee_code, c.full
 const FROM = `FROM payouts p JOIN employees e ON e.id = p.employee_id JOIN employees c ON c.id = p.created_by`;
 
 function shape(p: any, a: Actor) {
+  const open = p.status === 'pending' || p.status === 'disputed';
   return { ...p, kindAr: PAYOUT_AR[p.kind] ?? p.kind,
-    canReceive: (p.status === 'pending' || p.status === 'disputed') && p.employee_id === a.id,
+    // «تم الاستلام» is gone: the recipient shows the 4-digit code, the payer enters it (POST /payouts/:id/verify)
+    canReceive: false,
+    awaitingMyCode: open && p.employee_id === a.id,
+    canVerify: open && p.created_by === a.id,
     canDispute: p.status === 'pending' && p.employee_id === a.id,
-    canCancel: (p.status === 'pending' || p.status === 'disputed') && p.created_by === a.id };
+    canCancel: open && p.created_by === a.id };
+}
+
+// ------------------------------------------------------------------ the disbursement code (OTP)
+/**
+ * Every payment to an employee (salary, advance, commission, work expense, cash handed to HR) is confirmed by a 4-digit
+ * code: the RECIPIENT's app asks for it (POST /payouts/:id/code — only he can) and shows it; he tells it to the person
+ * paying, who enters it (POST /payouts/:id/verify). Only a hash is stored (action_otps, action «payout:<id>»): nobody —
+ * the payer included — can read a code back. A new code ends the previous one; 5 wrong tries end a code; 15 wrong tries
+ * on one payment within an hour stop it for an hour; at most 5 codes per payment in 15 minutes. Codes live
+ * PAYOUT_OTP_TTL_MIN minutes (default 10, 2–30).
+ */
+export const PAYOUT_OTP_TTL_MIN = Math.min(30, Math.max(2, Number(process.env.PAYOUT_OTP_TTL_MIN ?? 10) || 10));
+const otpAction = (id: string) => `payout:${id}`;
+const otpHash = (recipient: string, id: string, code: string) => createHash('sha256').update(`${recipient}:${otpAction(id)}:${code}`).digest('hex');
+const OPEN = ['pending', 'disputed'];
+
+/** the recipient is told a payment waits for his code — the code itself never travels in a notification */
+export async function tellRecipient(q: Q, x: { id: string; employee_id: string; kind: string; amount_egp: unknown }, payerName: string) {
+  await notify(q, { to: x.employee_id, type: 'payout_otp', title: `${PAYOUT_AR[x.kind] ?? 'صرف'}: ${Math.round(Number(x.amount_egp) * 100) / 100} جنيه — مستني تأكيدك`,
+    body: `افتح التطبيق: هيظهرلك كود من 4 أرقام، قوله لـ ${payerName} وهو يكتبه`, entity: 'payout', entityId: x.id, dedupeKey: `payout:${x.id}:otp` });
 }
 
 /**
@@ -122,8 +148,7 @@ export const payoutsModule: Module = (r, { db, clock }) => {
       const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, advance_id, created_by, commission_entitlement_id)
                               VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [employeeId, kind, amount, period, note, advanceId, a.id, entitlementId]);
       await audit(q, a.id, 'payout.create', 'payout', p.id, undefined, { kind, amount, employeeId, period });
-      await notify(q, { to: employeeId, type: 'payout_pending', title: `${PAYOUT_AR[kind]}: ${amount} جنيه — أكّد الاستلام`,
-        body: `من ${a.fullName}${note ? ' — ' + note : ''}`, entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}:pending` });
+      await tellRecipient(q, p, a.fullName);
       return p;
     });
     return ok({ payout: shape(row, a) }, 201);
@@ -138,7 +163,7 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const p: any = await computePayroll(q, e.id, period, t, rules);
     if (p?.net == null) return null;
     const due = Math.round((Number(p.net) - Number(p.commissions) - Number(p.workExpenses)) * 100) / 100;
-    const pays = await q.query(`SELECT id, amount_egp, status, created_at, received_at FROM payouts
+    const pays = await q.query(`SELECT id, amount_egp, status, created_at, received_at, created_by FROM payouts
                                  WHERE employee_id = $1 AND period = $2 AND kind = 'salary' AND status <> 'cancelled'
                                  ORDER BY created_at`, [e.id, period]);
     const paid = Math.round(pays.rows.reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
@@ -149,7 +174,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     return { employeeId: e.id, employeeName: e.full_name, employeeCode: e.code ?? null, month: period.slice(0, 7), due, paid, received, awaiting, remaining,
       complete: !!p.complete,
       status: remaining > 0.009 ? (paid > 0 ? 'partly_paid' : 'unpaid') : waiting ? 'awaiting_receipt' : paid > 0 ? 'received' : 'nothing_due',
-      payments: pays.rows.map((x) => ({ id: x.id, amount: Number(x.amount_egp), status: x.status, createdAt: x.created_at, receivedAt: x.received_at })) };
+      payments: pays.rows.map((x) => ({ id: x.id, amount: Number(x.amount_egp), status: x.status, createdAt: x.created_at, receivedAt: x.received_at,
+        createdBy: x.created_by })) };
   }
 
   r.get('/payouts/salaries', async (req) => {
@@ -168,13 +194,17 @@ export const payoutsModule: Module = (r, { db, clock }) => {
         const i = next++;
         const e = emps.rows[i];
         const x = await salaryRow(db, e, period, rules, t);
-        out[i] = x ? { ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id } : null;
+        out[i] = x ? { ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id,
+          // the payment waiting for the code this person must enter (he paid it)
+          verifyPayoutId: x.payments.find((p) => OPEN.includes(p.status) && p.createdBy === a.id)?.id ?? null } : null;
       }
     }));
     const rows: any[] = out.filter(Boolean);
     const sum = (k: 'due' | 'paid' | 'received' | 'awaiting' | 'remaining') =>
       Math.round(rows.reduce((s, x) => s + Math.max(0, x[k]), 0) * 100) / 100;
-    return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, canPay: paysSalaries(a),
+    // the fixed («راتب ثابت») marketing companies' monthly fee, paid the same way (with the company's code) — once 084 runs
+    const companies = await companySalaryRows(db, a, period);
+    return ok({ currency: 'EGP', month: period.slice(0, 7), salaries: rows, canPay: paysSalaries(a), companies,
       totals: { due: sum('due'), paid: sum('paid'), received: sum('received'), awaiting: sum('awaiting'), remaining: sum('remaining') } });
   });
 
@@ -198,29 +228,79 @@ export const payoutsModule: Module = (r, { db, clock }) => {
                               VALUES ($1,'salary',$2,$3,$4,$5) RETURNING *`,
         [employeeId, x.remaining, period, `مرتب ${period.slice(0, 7)}`, a.id]);
       await audit(q, a.id, 'payout.salary', 'payout', p.id, undefined, { employeeId, period, amount: x.remaining, due: x.due });
-      await notify(q, { to: employeeId, type: 'payout_pending', title: `مرتب ${period.slice(0, 7)}: ${x.remaining} جنيه — أكّد الاستلام`,
-        body: `من ${a.fullName}`, entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}:pending` });
+      await tellRecipient(q, p, a.fullName);
       return p;
     });
     return ok({ payout: shape(row, a) }, 201);
   });
 
+  /** «تم الاستلام» by the employee is replaced by the code the payer enters (any payment, the ones waiting from before too). */
   r.post('/payouts/:id/receive', async (req) => {
+    await authenticate(db, req);
+    throw new AppError('conflict', 'تأكيد الاستلام بقى بالكود: افتح التطبيق، هيظهرلك كود من 4 أرقام، قوله للي بيصرفلك', { reason: 'otp_required' });
+  });
+
+  /** the recipient's code for one of his payments (a new one each time; the previous one ends) */
+  r.post('/payouts/:id/code', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const now = clock();
-    const p = await db.tx(async (q) => {
-      const x = await one(q, `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`, [req.params.id]);
-      if (!x || x.employee_id !== a.id) throw notFound();
-      // a disputed payment can still be confirmed once the problem is settled
-      if (x.status !== 'pending' && x.status !== 'disputed') throw conflict('Already confirmed or cancelled');
-      const y = await one(q, `UPDATE payouts SET status = 'received', received_at = $2 WHERE id = $1 RETURNING *`, [x.id, now]);
-      await audit(q, a.id, 'payout.received', 'payout', x.id);
-      await notify(q, { to: x.created_by, type: 'payout_received', title: `${a.fullName} استلم ${PAYOUT_AR[x.kind]} (${x.amount_egp} جنيه)`,
-        entity: 'payout', entityId: x.id, dedupeKey: `payout:${x.id}:received` });
-      return y;
+    const out = await db.tx(async (q) => {
+      const x = await one(q, `SELECT p.*, c.full_name AS payer FROM payouts p JOIN employees c ON c.id = p.created_by WHERE p.id = $1 FOR UPDATE OF p`, [req.params.id]);
+      if (!x || x.employee_id !== a.id) throw notFound(); // only the recipient — the payer never sees it
+      if (!OPEN.includes(x.status)) throw conflict('الصرف ده اتأكد أو اتلغى');
+      const act = otpAction(x.id);
+      const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND action = $2 AND created_at > now() - interval '15 minutes'`, [a.id, act]);
+      if (recent.n >= 5) throw new AppError('rate_limited', 'طلبت أكواد كتير للصرف ده — استنى ربع ساعة', { reason: 'otp_rate_limited' });
+      const code = String(randomInt(0, 10_000)).padStart(4, '0');
+      await q.query(`UPDATE action_otps SET expires_at = now() WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()`, [a.id, act]);
+      const o = await one(q, `INSERT INTO action_otps (employee_id, action, code_hash, expires_at) VALUES ($1, $2, $3, now() + make_interval(mins => $4))
+                              RETURNING expires_at`, [a.id, act, otpHash(a.id, x.id, code), PAYOUT_OTP_TTL_MIN]);
+      await audit(q, a.id, 'payout.code_issued', 'payout', x.id, undefined, { expiresAt: o.expires_at }); // never the code
+      return { code, expiresAt: o.expires_at, amount: Number(x.amount_egp), kind: x.kind, kindAr: PAYOUT_AR[x.kind] ?? x.kind, payerName: x.payer,
+        period: String(x.period).slice(0, 7) };
     });
-    return ok({ payout: shape(p, a) });
+    return ok(out);
+  });
+
+  /** the payer enters the code the recipient told him: only then the payment counts as received (and leaves the cashbox) */
+  r.post('/payouts/:id/verify', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const code = obj(req.body).code;
+    const bad = (reason = 'otp_invalid') => new AppError('validation_failed',
+      reason === 'otp_locked' ? 'اتكتب كود غلط كتير — استنى ساعة أو اطلب من الموظف كود جديد بعدها' : 'الكود غلط أو خلص وقته — اطلب من الموظف الكود اللي ظاهر عنده دلوقتي',
+      { reason, field: 'code' });
+    if (typeof code !== 'string' || !/^\d{4}$/.test(code)) throw bad();
+    const now = clock();
+    const res = await db.tx(async (q) => {
+      const x = await one(q, `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!x || x.created_by !== a.id) throw notFound(); // the payer of this very payment
+      if (!has(a, x.kind === 'fund' ? 'finance.fund' : 'finance.disburse')) throw forbidden();
+      if (!OPEN.includes(x.status)) throw new AppError('conflict', 'الصرف ده اتأكد أو اتلغى', { reason: 'not_open' });
+      const act = otpAction(x.id);
+      const tries = await one(q, `SELECT COALESCE(sum(attempts), 0)::int AS n FROM action_otps WHERE employee_id = $1 AND action = $2 AND created_at > now() - interval '1 hour'`,
+        [x.employee_id, act]);
+      if (tries.n >= 15) return { fail: 'otp_locked' as const };
+      const o = await one(q, `SELECT * FROM action_otps WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()
+                               ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [x.employee_id, act]);
+      if (!o || o.attempts >= 5) return { fail: 'otp_invalid' as const };
+      if (o.code_hash !== otpHash(x.employee_id, x.id, code)) return { fail: 'otp_invalid' as const, wrong: o.id as string };
+      await q.query(`UPDATE action_otps SET used_at = now() WHERE id = $1`, [o.id]);
+      const y = await one(q, `UPDATE payouts SET status = 'received', received_at = $2 WHERE id = $1 RETURNING *`, [x.id, now]);
+      await audit(q, a.id, 'payout.verified', 'payout', x.id, { status: x.status }, { status: 'received', by: 'otp', recipient: x.employee_id });
+      await notify(q, { to: x.employee_id, type: 'payout_received', title: `اتأكد استلامك ${PAYOUT_AR[x.kind] ?? ''} (${Math.round(Number(x.amount_egp) * 100) / 100} جنيه)`,
+        body: `بالكود اللي اديته لـ ${a.fullName}`, entity: 'payout', entityId: x.id, dedupeKey: `payout:${x.id}:received` });
+      return { payout: y };
+    });
+    if ('fail' in res) {
+      // a wrong try is counted on its own (outside the refused step, so it is never rolled back)
+      if (res.wrong) {
+        await db.query(`UPDATE action_otps SET attempts = attempts + 1 WHERE id = $1`, [res.wrong]);
+        await audit(db, a.id, 'payout.code_wrong', 'payout', req.params.id);
+      }
+      throw bad(res.fail);
+    }
+    return ok({ payout: shape(res.payout, a) });
   });
 
   r.post('/payouts/:id/cancel', async (req) => {
@@ -234,6 +314,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
       // a disputed payment may be cancelled by whoever paid it (the money is back in the HR cashbox)
       if (x.status !== 'pending' && x.status !== 'disputed') throw conflict('Only a payout that was not received yet can be cancelled');
       await q.query(`UPDATE payouts SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [x.id]);
+      await q.query(`UPDATE action_otps SET expires_at = now() WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()`,
+        [x.employee_id, otpAction(x.id)]);
       await audit(q, a.id, 'payout.cancel', 'payout', x.id);
     });
     return ok({ ok: true });

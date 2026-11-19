@@ -408,7 +408,7 @@ async function detect(q: Q, y: number, f: any, items: Map<string, any>, recs: an
   const s = `${y}-01-01`, e = `${y + 1}-01-01`;
   const out: Det[] = [];
   const add = (d: Det) => out.push(d);
-  const pe = await q.query(`SELECT id, ref_no, amount_egp, category FROM cash_expenses WHERE status = 'pending_approval' AND occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}`, [s, e]);
+  const pe = await q.query(`SELECT id, ref_no, amount_egp, category FROM cash_expenses WHERE status IN ('pending_approval','awaiting_otp') AND occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}`, [s, e]);
   for (const x of pe.rows) add({ key: `pending_expense:${x.id}`, category: 'incomplete', source: 'cash_expenses', sourceId: x.id, amount: r2(N(x.amount_egp)), severity: 'blocking',
     description: `مصروف رقم ${x.ref_no} (${x.category}) لسه مستني اعتماد — لازم يتعتمد أو يترفض قبل التقفيل` });
   const tr = await q.query(`SELECT id, ref_no, status, COALESCE(amount_executed, amount_requested) AS a FROM cash_transfers WHERE status IN ('requested','approved','executed')

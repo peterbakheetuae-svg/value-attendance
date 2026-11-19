@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 /**
@@ -98,14 +98,14 @@ test('recording past advances (a request and the owner\'s «سلفة قديمة�
 test('December\'s salary handed over in January: paid and received (a payment of the open year)', async () => {
   const p = await h.call(c.t.hr, 'POST', '/payouts/salary', { employeeId: c.ids.e1, month: '2025-12' });
   assert.equal(p.status, 201, JSON.stringify(p.body));
-  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${p.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, p.body.payout.id)).status, 200);
   const x = (await h.db.query(`SELECT to_char(period, 'YYYY-MM') AS m, status, (received_at AT TIME ZONE 'Africa/Cairo')::date::text AS d FROM payouts WHERE id = $1`,
     [p.body.payout.id])).rows[0];
   assert.deepEqual([x.m, x.status, x.d.slice(0, 4)], ['2025-12', 'received', '2026'], 'December\'s salary, dated when received');
   // a payment that belongs to an open month (a work expense of January) — as before
   const j = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 300, month: '2026-01', note: 'مواصلات' });
   assert.equal(j.status, 201, JSON.stringify(j.body));
-  assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${j.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, j.body.payout.id)).status, 200);
 });
 
 test('a closed year\'s records by permission: reconciliations, notes, issues, the closing log, cash lines', async () => {

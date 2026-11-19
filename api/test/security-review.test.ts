@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /**
  * Security review (2026-11-18): attacks tried directly on the API, the way an employee with a script would — each one
@@ -102,12 +102,14 @@ test('password-reset codes: parallel requests can not make more than 3 codes; 10
 test('money: the same payout twice (double tap / two people) is refused; a payout is received once even in parallel', async () => {
   at('2026-03-10T11:00:00Z');
   const fund = await h.call(c.t.owner, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 50000 });
-  await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.hr, c.t.owner, fund.body.payout.id);
   const twice = await Promise.all([1, 2, 3].map(() =>
     h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 750, month: '2026-03' })));
   assert.deepEqual(twice.map((x) => x.status).sort(), [201, 409, 409], JSON.stringify(twice.map((x) => x.body)));
   const p = twice.find((x) => x.status === 201)!.body.payout;
-  const rec = await Promise.all([1, 2, 3, 4].map(() => h.call(c.t.e2, 'POST', `/payouts/${p.id}/receive`, {})));
+  // one code from the employee; the payer's 4 parallel entries of it confirm the payment once
+  const code = (await h.call(c.t.e2, 'POST', `/payouts/${p.id}/code`, {})).body.code;
+  const rec = await Promise.all([1, 2, 3, 4].map(() => h.call(c.t.hr, 'POST', `/payouts/${p.id}/verify`, { code })));
   assert.deepEqual(rec.map((x) => x.status).sort(), [200, 409, 409, 409]);
   const bal = (await h.call(c.t.hr, 'GET', '/payouts')).body.balance;
   assert.equal(bal, 50000 - 750, 'out of the cashbox once');

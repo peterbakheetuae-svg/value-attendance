@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /** Financial system phase 3: hand-set advance deductions (≤ 2 stages) and monthly payroll batches. */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
@@ -78,11 +78,11 @@ test('paying a line: HR cashbox payout, partial allowed, never more than the net
   // the employee disputes one payment, confirms the other
   const [p1, p2] = line.payments;
   assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${p1.id}/dispute`, { reason: 'استلمت 900 بس' })).status, 200);
-  assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${p2.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, p2.id)).status, 200);
   line = (await h.call(c.t.hr, 'GET', `/payroll-batches/${batchId}`)).body.lines.find((l: any) => l.id === e2.id);
   assert.equal(line.status, 'disputed');
   // settled: the employee confirms the disputed one
-  assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${p1.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, p1.id)).status, 200);
   line = (await h.call(c.t.hr, 'GET', `/payroll-batches/${batchId}`)).body.lines.find((l: any) => l.id === e2.id);
   assert.equal(line.status, 'confirmed');
   // own records for the employee

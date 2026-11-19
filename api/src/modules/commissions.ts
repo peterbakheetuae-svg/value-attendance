@@ -4,6 +4,7 @@ import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors
 import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, can, canOwnerOnly, has, type Actor } from '../auth/context.ts';
+import { companyCommissionRows } from './company-payouts.ts';
 import { holdersOf, notify } from './notify.ts';
 import { resolveDeveloper } from './exclusive.ts';
 
@@ -100,7 +101,7 @@ const REQ_FROM = `FROM commission_requests cr
 async function attachPayroll(q: Q, rows: any[], a: Actor) {
   if (!rows.length) return rows;
   const ents = await q.query(`
-    SELECT ce.*, e.full_name AS employee_name, po.id AS payout_id, po.status AS payout_status, po.received_at
+    SELECT ce.*, e.full_name AS employee_name, po.id AS payout_id, po.status AS payout_status, po.received_at, po.created_by AS payout_created_by
       FROM commission_entitlements ce
       JOIN employees e ON e.id = ce.employee_id
       LEFT JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
@@ -109,20 +110,22 @@ async function attachPayroll(q: Q, rows: any[], a: Actor) {
   for (const x of ents.rows) {
     if (!canAll(a) && x.employee_id !== a.id) continue; // own entitlements only
     const list = by.get(x.request_id) ?? [];
-    list.push(shapeEntitlement(x));
+    list.push(shapeEntitlement(x, a));
     by.set(x.request_id, list);
   }
   for (const r of rows) r.payroll = by.get(r.id) ?? [];
   return rows;
 }
 
-function shapeEntitlement(x: any) {
+function shapeEntitlement(x: any, a?: Actor) {
   return {
     id: x.id, requestId: x.request_id, employeeId: x.employee_id, employeeName: x.employee_name, role: x.role,
     amount: Number(x.amount_egp), period: String(x.period).slice(0, 7), status: x.status,
     includedAt: x.included_at, payrollIncluded: x.status === 'active',
     payment: x.status !== 'active' ? 'cancelled' : !x.payout_id ? 'unpaid' : x.payout_status === 'received' ? 'paid' : 'handed',
     payoutId: x.payout_id ?? null, receivedAt: x.received_at ?? null,
+    canVerify: !!a && !!x.payout_id && ['pending', 'disputed'].includes(x.payout_status) && x.payout_created_by === a.id,
+    awaitingMyCode: !!a && !!x.payout_id && ['pending', 'disputed'].includes(x.payout_status) && x.employee_id === a.id,
     projectName: x.project_name, unitNo: x.unit_no, approvedAt: x.decided_at,
   };
 }
@@ -489,7 +492,7 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     if (all && e && isUuid(e)) { vals.push(e); where.push(`ce.employee_id = $${vals.length}`); }
     const rows = await db.query(`
       SELECT ce.*, e.full_name AS employee_name, p.name AS project_name, cr.unit_no, cr.decided_at,
-             po.id AS payout_id, po.status AS payout_status, po.received_at
+             po.id AS payout_id, po.status AS payout_status, po.received_at, po.created_by AS payout_created_by
         FROM commission_entitlements ce
         JOIN employees e ON e.id = ce.employee_id
         JOIN commission_requests cr ON cr.id = ce.request_id
@@ -497,9 +500,11 @@ export const commissionsModule: Module = (r, { db, clock }) => {
         LEFT JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY ce.period DESC, e.full_name LIMIT 1000`, vals);
-    const list = rows.rows.map(shapeEntitlement);
+    const list = rows.rows.map((x) => shapeEntitlement(x, a));
     const active = list.filter((x) => x.status === 'active');
-    return ok({ currency: 'EGP', entitlements: list, totals: {
+    // the commission marketing companies (what they earned, on their payment day) — paid with the company's code, once 084 runs
+    const companies = await companyCommissionRows(db, a, local(clock()).date);
+    return ok({ currency: 'EGP', companies, entitlements: list, totals: {
       amount: Math.round(active.reduce((s, x) => s + x.amount, 0) * 100) / 100,
       unpaid: Math.round(active.filter((x) => x.payment === 'unpaid').reduce((s, x) => s + x.amount, 0) * 100) / 100,
     } });

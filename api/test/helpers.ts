@@ -128,3 +128,13 @@ export async function cast(h: Harness) {
   }
   return { ids: { owner, hr, acc, sm1, sm2, e1, e2, e3, solo, teamA, teamB }, t };
 }
+
+/**
+ * A payment confirmed the way the app does it now (no more «تم الاستلام»): the recipient's app gets the 4-digit code,
+ * the person who paid enters it. Returns the verify answer (or the code request's, when that failed).
+ */
+export async function confirmPayout(h: Harness, recipientToken: string, payerToken: string, payoutId: string) {
+  const c = await h.call(recipientToken, 'POST', `/payouts/${payoutId}/code`, {});
+  if (c.status !== 200) return c;
+  return h.call(payerToken, 'POST', `/payouts/${payoutId}/verify`, { code: c.body.code });
+}

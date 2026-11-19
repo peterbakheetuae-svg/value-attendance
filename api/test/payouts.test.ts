@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 let gmId = ''; let tGm = '';
@@ -20,7 +20,7 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   const fund = await h.call(tGm, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 5000, note: 'عهدة مارس' });
   assert.equal(fund.status, 201);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 0, 'not counted until HR confirms');
-  assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.hr, tGm, fund.body.payout.id)).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 5000);
 
   const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
@@ -33,11 +33,11 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   // the employee sees it, confirms receipt; others cannot
   const mine = (await h.call(c.t.e1, 'GET', '/payouts?scope=mine')).body.payouts;
   assert.equal(mine.length, 1);
-  assert.equal(mine[0].canReceive, true);
-  assert.equal((await h.call(c.t.e2, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 404);
-  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 200);
+  assert.equal(mine[0].awaitingMyCode, true); assert.equal(mine[0].canReceive, false);
+  assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, pay.body.payout.id)).status, 404);
+  assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, pay.body.payout.id)).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000, 'out of HR cash once received');
-  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/receive`, {})).status, 409);
+  assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, pay.body.payout.id)).status, 409);
   // shows on the monthly payroll as paid
   const p = (await h.call(c.t.e1, 'GET', `/payroll/employee/${c.ids.e1}?month=2026-03`)).body.payroll;
   assert.equal(p.salaryPaid, 3000);

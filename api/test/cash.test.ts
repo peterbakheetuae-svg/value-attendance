@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /** Financial system phase 1: office cashbox + HR cashbox, transfers, expenses, receipts, permissions, audit. */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
@@ -177,7 +177,7 @@ test('the existing صرف مالية payments count against the HR cashbox', asy
   const p = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
   assert.equal(p.status, 201);
   assert.equal((await sum(c.t.hr)).hr.bookBalance, before, 'not out of the cashbox until the employee confirms');
-  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${p.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, p.body.payout.id)).status, 200);
   assert.equal((await sum(c.t.hr)).hr.bookBalance, before - 3000);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, before - 3000);
   // السجل says who got it, and the payout keeps its signed receipt photo

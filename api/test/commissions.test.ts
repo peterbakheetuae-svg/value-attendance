@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /**
  * Project commission management — acceptance scenarios 1–15.
@@ -236,7 +236,7 @@ test('14. changing the project split later never changes approved commissions', 
 test('paying a commission through صرف مالية; a paid month is closed; a solo salesperson has no manager share; owner void', async () => {
   // cash for HR
   const fund = await h.call(tGm, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 100000 });
-  await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.hr, tGm, fund.body.payout.id);
   const ent = (await h.call(c.t.hr, 'GET', '/commissions/entitlements?scope=all')).body.entitlements.find((x: any) => x.role === 'sales');
   // amount and month must match the approved entitlement
   assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'commission', amount: 20000, month: '2026-04', entitlementId: ent.id })).status, 400);
@@ -246,7 +246,7 @@ test('paying a commission through صرف مالية; a paid month is closed; a s
   assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'commission', amount: 13500, month: '2026-04', entitlementId: ent.id })).status, 409, 'paid once');
   let e = (await h.call(c.t.hr, 'GET', '/commissions/entitlements?scope=all')).body.entitlements.find((x: any) => x.id === ent.id);
   assert.equal(e.payment, 'handed');
-  await h.call(c.t.e1, 'POST', `/payouts/${p.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.e1, c.t.hr, p.body.payout.id);
   e = (await h.call(c.t.hr, 'GET', '/commissions/entitlements?scope=all')).body.entitlements.find((x: any) => x.id === ent.id);
   assert.equal(e.payment, 'paid');
   // a paid commission can't be voided
@@ -254,7 +254,7 @@ test('paying a commission through صرف مالية; a paid month is closed; a s
 
   // March salary of e2 handed over and received → March is closed for him
   const sal = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'salary', amount: 5000, month: '2026-03' });
-  await h.call(c.t.e2, 'POST', `/payouts/${sal.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.e2, c.t.hr, sal.body.payout.id);
   const d1 = (await h.call(c.t.e2, 'GET', '/commissions/requests')).body.requests.find((x: any) => x.unitNo === 'D-1');
   const closed = await h.call(tGm, 'POST', `/commissions/requests/${d1.id}/decision`, { decision: 'approve', month: '2026-03' });
   assert.equal(closed.status, 422);

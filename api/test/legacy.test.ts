@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 before(async () => {
@@ -41,9 +41,9 @@ test('advances: the general manager (or the owner) approves — final; HR then p
   assert.equal(po.status, 201);
   assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'advance', amount: 1000, advanceId: id })).status, 409);
   const mineRow = (await h.call(c.t.e1, 'GET', '/advances?scope=mine')).body.advances.find((x: any) => x.id === id);
-  assert.equal(mineRow.canReceive, true);
+  assert.equal(mineRow.awaitingMyCode, true); assert.equal(mineRow.canReceive, false, 'no more «تم الاستلام»');
   assert.equal((await h.call(c.t.hr, 'GET', '/cash/summary')).body.hr.bookBalance, 0, 'not out until received');
-  assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${po.body.payout.id}/receive`, {})).status, 200);
+  assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, po.body.payout.id)).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/cash/summary')).body.hr.bookBalance, -1000);
   assert.equal((await h.call(c.t.e1, 'GET', '/advances?scope=mine')).body.advances.find((x: any) => x.id === id).payment, 'received');
 

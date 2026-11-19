@@ -21,7 +21,12 @@ class OtpPage extends StatefulWidget {
   /// it closes with true instead of asking for a new password
   final Future<Map<String, dynamic>> Function(String code)? verify;
   final Future<Map<String, dynamic>> Function()? resend;
-  const OtpPage({super.key, required this.identifier, this.sentTo = '', this.verify, this.resend});
+  /// another use of the same page (e.g. the disbursement code the payer enters): its own texts; no «ابعت تاني» when null
+  final String? hint;
+  final String? successHint;
+  final bool showResend;
+  const OtpPage({super.key, required this.identifier, this.sentTo = '', this.verify, this.resend, this.hint, this.successHint,
+      this.showResend = true});
 
   @override
   State<OtpPage> createState() => _OtpPageState();
@@ -167,9 +172,11 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
 
   (String, String) get _texts => switch (_stage) {
         _Stage.loading || _Stage.orbit => ('جاري التحقق…', 'بنراجع الكود بأمان.'),
-        _Stage.success => ('تم التحقق', 'تمام — هنكمّل لتغيير كلمة المرور…'),
+        _Stage.success => ('تم التحقق', widget.successHint ?? 'تمام — هنكمّل لتغيير كلمة المرور…'),
         _Stage.error => ('التحقق فشل', 'الكود اللي كتبته مش صحيح.'),
-        _Stage.input => ('اكتب كود التحقق', widget.sentTo.isNotEmpty
+        _Stage.input => ('اكتب كود التحقق', widget.hint != null
+            ? widget.hint!
+            : widget.sentTo.isNotEmpty
             ? 'اتبعتلك كود من 4 أرقام على ${widget.sentTo} — صالح 10 دقايق (بص في الـ Spam لو مش لاقيه).'
             : 'اتبعتلك كود من 4 أرقام على إيميلك المسجّل، صالح 10 دقايق.'),
       };
@@ -237,7 +244,7 @@ class _OtpPageState extends State<OtpPage> with TickerProviderStateMixin {
                               style: const TextStyle(color: _red, fontWeight: FontWeight.w600)),
                         ),
                       ),
-                      if (_stage != _Stage.success)
+                      if (_stage != _Stage.success && widget.showResend)
                         TextButton(
                           onPressed: _resendIn > 0 || _busy ? null : _resend,
                           child: Text.rich(TextSpan(children: [

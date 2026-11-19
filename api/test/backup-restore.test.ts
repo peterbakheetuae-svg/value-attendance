@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, type Harness, confirmPayout } from './helpers.ts';
 import { SECRET_COLUMN } from '../src/modules/backup.ts';
 
 /**
@@ -25,7 +25,7 @@ before(async () => {
   await src.call(c.t.e1, 'POST', '/requests', { type: 'full_day_absence', startDate: '2026-03-20', endDate: '2026-03-20', absenceType: 'annual', reason: 'ظرف' });
   await src.call(c.t.e2, 'POST', '/advances', { kind: 'advance', amount: 1500, period: '2026-03-01', note: 'سلفة', attachment: JPG });
   const fund = await src.call(c.t.owner, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 9000 });
-  await src.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {});
+  await confirmPayout(src, c.t.hr, c.t.owner, fund.body.payout.id);
   await src.call(c.t.e1, 'POST', '/leads', { name: 'عميل تجربة', phone: '01000000001', projectLater: true });
   await src.call(c.t.owner, 'PATCH', '/settings', { breakMinutes: 40 });
   dir = mkdtempSync(join(tmpdir(), 'va-backup-'));

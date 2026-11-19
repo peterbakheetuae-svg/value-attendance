@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
 
 /**
  * Independent review (2026-11-18): each finding reproduced exactly as the reviewer ran it — now refused.
@@ -86,7 +86,7 @@ test('#5 a month\'s salary is never paid twice (صرف الراتب then the app
   at('2026-04-02T09:00:00Z');
   await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 8000, $2)`, [c.ids.e2, c.ids.owner]);
   const fund = await h.call(tGm, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 100000 });
-  await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/receive`, {});
+  await confirmPayout(h, c.t.hr, tGm, fund.body.payout.id);
   const first = await h.call(c.t.hr, 'POST', '/payouts/salary', { employeeId: c.ids.e2, month: '2026-03' });
   assert.equal(first.status, 201, JSON.stringify(first.body));
   const b = await h.call(c.t.hr, 'POST', '/payroll-batches', { month: '2026-03' });

@@ -11,6 +11,7 @@ import '../advance_summary.dart';
 import '../attendance/attendance_report_page.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
+import '../../widgets/payment_code.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// الخزنة ← الطلبات: شريط تاني تحت شريط الصفحة — سلف | مرتبات | عمولات.
@@ -122,6 +123,15 @@ abstract class _MonthTabState<T extends StatefulWidget> extends State<T> {
       final r = await ApiService.post(body);
       if (!mounted) return;
       JphUi.toast(context, {...r, 'message': r['message'] ?? (r['success'] == true ? 'تم ✅' : 'حصلت مشكلة')});
+      // a payment just made: straight to entering the recipient's code
+      final pay = r['payout'] is Map ? (r['payout'] as Map) : null;
+      if (r['success'] == true && pay != null && pay['canVerify'] == true && mounted) {
+        await PaymentVerify.payout(context, '${pay['id']}', who: '${pay['employee_name'] ?? 'المستلم'}');
+      }
+      final cp = r['payment'] is Map ? (r['payment'] as Map) : null;
+      if (r['success'] == true && cp != null && cp['status'] == 'awaiting_otp' && mounted) {
+        await PaymentVerify.expense(context, '${cp['id']}');
+      }
       if (r['success'] == true) await load();
     } finally {
       if (mounted) setState(() => busy = false);
@@ -163,6 +173,8 @@ class SalariesPayTab extends StatefulWidget {
 class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
   List<Map<String, dynamic>> _rowsAll = [];
   List<Map<String, dynamic>> _mine = [];
+  /// the fixed («راتب ثابت») marketing companies' monthly fee (paid with the company's code)
+  List<Map<String, dynamic>> _companies = [];
   Map<String, dynamic> _totals = {};
 
   @override
@@ -184,6 +196,7 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
         loading = false;
         if (r['success'] != true) error = '${r['message'] ?? 'مش قادر أحمّل المرتبات'}';
         _rowsAll = _rows(r, 'salaries');
+        _companies = _rows(r, 'companies');
         _totals = ((r['totals'] as Map?) ?? const {}).cast<String, dynamic>();
       });
     } else {
@@ -218,15 +231,11 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
   Future<void> _pay(Map<String, dynamic> x) async {
     final m = _ym(widget.month.value);
     if (!await _confirm(context, 'صرف الراتب', '${x['employeeName']} — ${JphUi.money(x['remaining'])}\n'
-        'مرتب ${JphUi.monthAr(m)} — هيظهر عنده "تم الاستلام"، والمبلغ بيتخصم من الخزنة لما يأكد.')) return;
+        'مرتب ${JphUi.monthAr(m)} — هيظهرله كود من 4 أرقام، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
     await run({'action': 'cash_post', 'path': '/payouts/salary', 'body': {'employeeId': x['employeeId'], 'month': m},
-      'ok': 'تم صرف الراتب — مستني الموظف يأكد الاستلام'});
+      'ok': 'اتصرف الراتب — اكتب كود الاستلام'});
   }
 
-  Future<void> _receive(String payoutId, Object? amount) async {
-    if (!await _confirm(context, 'تأكيد الاستلام', 'استلمت ${JphUi.money(amount)}؟')) return;
-    await run({'action': 'payout_receive', 'id': payoutId});
-  }
 
   (String, Color) _status(String? s) => switch (s) {
         'unpaid' => ('لم يُصرف', Ar.amber),
@@ -257,6 +266,12 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
       const SizedBox(height: 12),
       if (_rowsAll.isEmpty) _empty(isDark, 'مفيش مرتبات للشهر ده'),
       for (final x in _rowsAll) _row(isDark, x, me),
+      if (_companies.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text('شركات التسويق (راتب ثابت)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
+        for (final c in _companies) companyPayCard(context, isDark, c, busy: busy, onPay: () => _payCompany(c), after: load),
+      ],
     ]);
   }
 
@@ -303,14 +318,24 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
               ],
               for (final p in mineToConfirm) ...[
                 const SizedBox(height: 10),
-                _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green,
-                    busy ? null : () => _receive('${p['id']}', p['amount'])),
+                paymentCodeButton(context, mine: true, id: '${p['id']}', title: 'المرتب', amount: p['amount'], after: load),
+              ],
+              if ((x['verifyPayoutId'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                paymentCodeButton(context, mine: false, id: '${x['verifyPayoutId']}', title: 'المرتب', who: '${x['employeeName'] ?? 'الموظف'}', after: load),
               ],
             ]),
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _payCompany(Map<String, dynamic> c) async {
+    final m = _ym(widget.month.value);
+    if (!await _confirm(context, 'صرف راتب الشركة', '${c['name']} — ${JphUi.money(c['left'])}\n'
+        'راتب ${JphUi.monthAr(m)} — هيظهر للشركة كود من 4 أرقام على التطبيق، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
+    await run({'action': 'cash_post', 'path': '/marketing-companies/${c['companyId']}/pay', 'body': {'month': m}, 'ok': 'اتصرف — اكتب كود الشركة'});
   }
 
   Widget _myPayout(bool isDark, Map<String, dynamic> p) {
@@ -334,10 +359,9 @@ class _SalariesPayTabState extends _MonthTabState<SalariesPayTab> {
           CountUpText(JphUi.money(p['amount_egp']),
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
         ]),
-        if (p['canReceive'] == true) ...[
+        if (p['awaitingMyCode'] == true) ...[
           const SizedBox(height: 10),
-          _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green,
-              busy ? null : () => _receive('${p['id']}', p['amount_egp'])),
+          paymentCodeButton(context, mine: true, id: '${p['id']}', title: 'المرتب', amount: p['amount_egp'], payer: p['created_by_name'], after: load),
         ],
       ]),
     );
@@ -359,6 +383,8 @@ class CommissionsPayTab extends StatefulWidget {
 
 class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
   List<Map<String, dynamic>> _items = [];
+  /// the commission marketing companies: what they earned, payable on their payment day (paid with the company's code)
+  List<Map<String, dynamic>> _companies = [];
   Map<String, dynamic> _totals = {};
 
   @override
@@ -382,22 +408,25 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
       loading = false;
       if (r['success'] != true) error = '${r['message'] ?? 'مش قادر أحمّل العمولات'}';
       _items = _rows(r, 'entitlements').where((x) => x['status'] == 'active').toList();
+      _companies = _rows(r, 'companies');
       _totals = ((r['totals'] as Map?) ?? const {}).cast<String, dynamic>();
     });
   }
 
   Future<void> _pay(Map<String, dynamic> x) async {
     if (!await _confirm(context, 'صرف العمولة', '${x['employeeName']} — ${JphUi.money(x['amount'])}\n'
-        '${x['projectName'] ?? ''} ${x['unitNo'] ?? ''}\nهيظهر عنده "تم الاستلام"، والمبلغ بيتخصم من الخزنة لما يأكد.')) return;
+        '${x['projectName'] ?? ''} ${x['unitNo'] ?? ''}\nهيظهرله كود من 4 أرقام، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
     await run({
       'action': 'payout_create', 'employeeId': x['employeeId'], 'kind': 'commission', 'amount': x['amount'],
       'month': x['period'], 'entitlementId': x['id'],
     });
   }
 
-  Future<void> _receive(Map<String, dynamic> x) async {
-    if (!await _confirm(context, 'تأكيد الاستلام', 'استلمت ${JphUi.money(x['amount'])}؟')) return;
-    await run({'action': 'payout_receive', 'id': x['payoutId']});
+
+  Future<void> _payCompany(Map<String, dynamic> c) async {
+    if (!await _confirm(context, 'صرف عمولة الشركة', '${c['name']} — ${JphUi.money(c['left'])}\n'
+        'هيظهر للشركة كود من 4 أرقام على التطبيق، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
+    await run({'action': 'cash_post', 'path': '/marketing-companies/${c['companyId']}/pay', 'body': <String, dynamic>{}, 'ok': 'اتصرف — اكتب كود الشركة'});
   }
 
   @override
@@ -413,6 +442,12 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
       const SizedBox(height: 12),
       if (_items.isEmpty) _empty(isDark, 'مفيش عمولات للشهر ده'),
       for (final x in _items) _card(isDark, x, me, canPay),
+      if (_companies.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text('شركات التسويق (عمولة)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+        const SizedBox(height: 8),
+        for (final c in _companies) companyPayCard(context, isDark, c, busy: busy, onPay: () => _payCompany(c), after: load),
+      ],
     ]);
   }
 
@@ -445,11 +480,57 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
           const SizedBox(height: 10),
           _actionButton('صرف العمولة', Icons.payments_rounded, JphUi.primary(isDark), busy ? null : () => _pay(x)),
         ],
-        if (mine && x['payment'] == 'handed' && (x['payoutId'] ?? '').toString().isNotEmpty) ...[
+        if (x['awaitingMyCode'] == true && (x['payoutId'] ?? '').toString().isNotEmpty) ...[
           const SizedBox(height: 10),
-          _actionButton('تم الاستلام', Icons.check_circle_rounded, Ar.green, busy ? null : () => _receive(x)),
+          paymentCodeButton(context, mine: true, id: '${x['payoutId']}', title: 'العمولة', amount: x['amount'], after: load),
+        ],
+        if (x['canVerify'] == true && (x['payoutId'] ?? '').toString().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          paymentCodeButton(context, mine: false, id: '${x['payoutId']}', title: 'العمولة', who: '${x['employeeName'] ?? 'الموظف'}', after: load),
         ],
       ]),
     );
   }
+}
+
+/// a marketing company's row (salary or commission): what is due, its payment day, صرف, and the code entry when it waits
+Widget companyPayCard(BuildContext context, bool isDark, Map<String, dynamic> c,
+    {required bool busy, required VoidCallback onPay, required Future<void> Function() after}) {
+  final fixed = c['kind'] == 'fixed';
+  final status = '${c['status'] ?? ''}';
+  return Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.all(14),
+    decoration: JphUi.box(isDark),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        JphUi.iconTile(isDark, Icons.campaign_rounded, Ar.accent),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${c['name'] ?? ''}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+            Text(fixed
+                    ? (status == 'received' ? 'اتصرف ✅' : status == 'awaiting_receipt' ? 'مستني كود الشركة' : 'راتب الشهر')
+                    : (c['payableNow'] == true ? 'مستحق الصرف' : 'ميعاد الصرف ${c['nextPaymentDate'] ?? ''}'),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: JphUi.sub(isDark))),
+            if ((c['waiting'] as num? ?? 0) > 0)
+              Text('مستني الكود: ${JphUi.money(c['waiting'])}', style: TextStyle(fontSize: 12, color: Ar.amber)),
+            if (c['hasApp'] != true)
+              Text('الشركة ملهاش دخول على التطبيق — فعّل حسابها عشان يوصلها الكود', style: TextStyle(fontSize: 12, color: Ar.red)),
+          ]),
+        ),
+        CountUpText(JphUi.money(fixed ? c['due'] : c['left']),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
+      ]),
+      if (c['canPay'] == true && c['hasApp'] == true) ...[
+        const SizedBox(height: 10),
+        _actionButton(fixed ? 'صرف الراتب' : 'صرف العمولة', Icons.payments_rounded, JphUi.primary(isDark), busy ? null : onPay),
+      ],
+      if ((c['verifyExpenseId'] ?? '').toString().isNotEmpty) ...[
+        const SizedBox(height: 10),
+        paymentCodeButton(context, mine: false, company: true, id: '${c['verifyExpenseId']}', title: fixed ? 'الراتب' : 'العمولة',
+            who: '${c['name'] ?? 'الشركة'}', after: after),
+      ],
+    ]),
+  );
 }

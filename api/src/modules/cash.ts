@@ -6,6 +6,7 @@ import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors
 import { imageAttachment, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, can, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
+import { companyForPayment, companyOtpInstalled, tellCompany } from './company-payouts.ts';
 
 /**
  * Financial system, phase 1 — the office cashbox and the HR cashbox.
@@ -768,6 +769,9 @@ export const cashModule: Module = (r, { db, clock }) => {
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
     const out = await db.tx(async (q) => {
       if (mkId && !(await one(q, `SELECT 1 FROM marketing_companies WHERE id = $1`, [mkId]))) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
+      // a marketing company's money waits for the company's code once 084 runs (the same rule as «صرف» from its page)
+      const companyOtp = !!mkId && await companyOtpInstalled(q);
+      if (companyOtp) await companyForPayment(q, mkId!);
       if (ref) {
         const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
         if (dup) return { id: dup.id, duplicate: true };
@@ -776,14 +780,16 @@ export const cashModule: Module = (r, { db, clock }) => {
       const threshold = Number(s?.expense_approval_threshold ?? 1000);
       // HR records directly; above the threshold the manager approves first. Office expenses are the manager's own.
       const needsApproval = box === 'hr' && !canOffice(a) && amount > threshold;
+      const status = needsApproval ? 'pending_approval' : companyOtp ? 'awaiting_otp' : 'posted';
       const x = await one(q, `
         INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, attachment, client_ref, occurred_at, recorded_by,
                status, approved_by, approved_at, payment_method, marketing_company_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, ref_no`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, ref_no, marketing_company_id, amount_egp`,
         [box, amount, category, reason, beneficiary, notes, att, ref, occurred, a.id,
-          needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock(), method, mkId]);
+          status, status === 'posted' ? a.id : null, status === 'posted' ? clock() : null, method, mkId]);
+      if (status === 'awaiting_otp') await tellCompany(q, x, a.fullName, category);
       await audit(q, a.id, 'cash.expense', 'cash_expense', x.id, undefined,
-        { cashbox: box, amount, category, reason, beneficiary, status: needsApproval ? 'pending_approval' : 'posted', threshold });
+        { cashbox: box, amount, category, reason, beneficiary, status, threshold });
       if (needsApproval) {
         for (const m of await cashOfficers(q, a.id)) {
           await notify(q, { to: m, type: 'cash_expense_awaiting', title: `مصروف محتاج موافقتك: ${fmt(amount)}`,
@@ -993,7 +999,12 @@ export const cashModule: Module = (r, { db, clock }) => {
       if (x.status !== 'pending_approval') throw conflict('This expense is not waiting for approval');
       if (x.recorded_by === a.id) throw forbidden('You cannot approve your own expense');
       if (x.owner_draw_id && !(await ownerIds(q)).includes(a.id)) throw forbidden('سحب الأرباح يوافق عليه مالك تاني');
-      if (decision === 'approve') {
+      if (decision === 'approve' && x.marketing_company_id && await companyOtpInstalled(q)) {
+        // approved, and now waits for the company's code (posted — out of the cashbox — when the payer enters it)
+        await q.query(`UPDATE cash_expenses SET status = 'awaiting_otp', approved_by = $2, reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [x.id, a.id]);
+        const payer = await one(q, `SELECT full_name FROM employees WHERE id = $1`, [x.recorded_by]);
+        await tellCompany(q, x, payer?.full_name ?? '', x.category);
+      } else if (decision === 'approve') {
         await q.query(`UPDATE cash_expenses SET status = 'posted', approved_by = $2, approved_at = now(), reviewed_by = $2, reviewed_at = now() WHERE id = $1`, [x.id, a.id]);
       } else {
         await q.query(`UPDATE cash_expenses SET status = 'rejected', approved_by = $2, approved_at = now(), reject_reason = $3 WHERE id = $1`, [x.id, a.id, reason]);

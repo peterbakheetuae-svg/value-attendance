@@ -5,6 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
+import { tellRecipient } from './payouts.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 
 /**
@@ -314,11 +315,10 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
       if (Math.round(amount * 100) > left) throw new AppError('unprocessable', `Only ${left / 100} is left`, { reason: 'over_pay', remaining: left / 100 });
       const method = oneOf(body, 'method', ['cash', 'bank_transfer', 'wallet', 'cheque'] as const, true) ?? 'cash';
       const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, created_by, batch_line_id)
-                              VALUES ($1,'salary',$2,$3,$4,$5,$6) RETURNING id`,
+                              VALUES ($1,'salary',$2,$3,$4,$5,$6) RETURNING id, employee_id, kind, amount_egp`,
         [l.employee_id, amount, String(b.period).slice(0, 10), `مرتب ${String(b.period).slice(0, 7)} — ${method}`, a.id, l.id]);
       await audit(q, a.id, 'payroll.pay', 'payroll_batch', b.id, undefined, { lineId: l.id, payoutId: p.id, amount, method });
-      await notify(q, { to: l.employee_id, type: 'payout', title: `اتصرفلك مرتب ${String(b.period).slice(0, 7)}: ${r2(amount)} جنيه`,
-        body: 'افتح التطبيق وأكّد الاستلام أو بلّغ عن مشكلة', entity: 'payout', entityId: p.id, dedupeKey: `payout:${p.id}` });
+      await tellRecipient(q, p, a.fullName);
     });
   });
 

@@ -475,14 +475,15 @@ class JphRouter {
         case 'payout_cashiers':
           return _ok((await _api.get('/payouts/cashiers')).cast<String, dynamic>());
         case 'payout_create':
-          await _api.post('/payouts', {
+          final created = await _api.post('/payouts', {
             'employeeId': p['employeeId'], 'kind': p['kind'], 'amount': p['amount'],
             if ((p['month'] ?? '').toString().isNotEmpty) 'month': p['month'],
             if ((p['note'] ?? '').toString().isNotEmpty) 'note': p['note'],
             if (p['advanceId'] != null) 'advanceId': p['advanceId'],
             if (p['entitlementId'] != null) 'entitlementId': p['entitlementId'],
           });
-          return _ok({'message': p['kind'] == 'fund' ? 'تم صرف الأموال — مستنية تأكيد الاستلام' : 'تم الصرف — مستني الموظف يأكد الاستلام'});
+          // the payment waits for the recipient's 4-digit code (the payer enters it next)
+          return _ok({...created.cast<String, dynamic>(), 'message': 'اتصرف — اكتب كود الاستلام اللي هيقولهولك المستلم'});
         case 'payout_receive':
           await _api.post('/payouts/${p['id']}/receive', {});
           return _ok({'message': 'تم تأكيد الاستلام ✅'});
@@ -1097,6 +1098,8 @@ class JphRouter {
         'payment': _s(x['payment'], ''),
         'canPay': x['canPay'] == true,
         'canReceive': x['canReceive'] == true,
+        'awaitingMyCode': x['awaitingMyCode'] == true,
+        'canVerify': x['canVerify'] == true,
         'payoutId': _s(x['payout_id'], ''),
         'employeeUuid': _s(x['employee_id'], ''),
         'kind': _s(x['kind'], 'advance'),

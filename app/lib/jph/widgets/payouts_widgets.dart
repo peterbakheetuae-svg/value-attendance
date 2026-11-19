@@ -1,3 +1,4 @@
+import 'payment_code.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
@@ -51,13 +52,9 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
     setState(() => _items = ((r['payouts'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList());
   }
 
+  /// «تم الاستلام» is now the code: show it, the payer enters it
   Future<void> _receive(Map<String, dynamic> p) async {
-    setState(() => _busy.add('${p['id']}'));
-    final r = await ApiService.post({'action': 'payout_receive', 'id': p['id']});
-    if (!mounted) return;
-    _busy.remove('${p['id']}');
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
+    await PaymentCode.show(context, '${p['id']}', title: PaymentCode.payoutKindAr(p['kind']), amount: p['amount_egp'], payer: p['created_by_name']);
     await _load();
   }
 
@@ -74,7 +71,7 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
           Row(children: [
             const Icon(Icons.payments_rounded, color: Ar.green),
             const SizedBox(width: 8),
-            const Expanded(child: Text('فلوس اتصرفتلك — أكّد الاستلام', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            const Expanded(child: Text('فلوس اتصرفتلك — اعرض الكود للي بيصرفلك', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
           ]),
           const SizedBox(height: 8),
           for (final p in _items)
@@ -92,7 +89,7 @@ class _PendingPayoutsCardState extends State<PendingPayoutsCard> {
                   onPressed: _busy.contains('${p['id']}') ? null : () => _receive(p),
                   style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                  child: const Text('تم الاستلام'),
+                  child: const Text('اعرض الكود'),
                 ),
               ]),
             ),
@@ -146,7 +143,7 @@ class PayoutsList extends StatelessWidget {
               ].join(' • '),
               style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54),
             ),
-            if (p['canReceive'] == true || p['canCancel'] == true || p['canDispute'] == true)
+            if (p['awaitingMyCode'] == true || p['canVerify'] == true || p['canCancel'] == true || p['canDispute'] == true)
               Align(
                 alignment: AlignmentDirectional.centerEnd,
                 child: Wrap(spacing: 8, children: [
@@ -187,18 +184,24 @@ class PayoutsList extends StatelessWidget {
                       },
                       child: const Text('إلغاء'),
                     ),
-                  if (p['canReceive'] == true)
+                  if (p['awaitingMyCode'] == true)
                     ElevatedButton(
                       onPressed: () async {
-                        final r = await ApiService.post({'action': 'payout_receive', 'id': p['id']});
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text('${r['message'] ?? ''}'), backgroundColor: r['success'] == true ? Ar.green : Ar.red));
-                        }
+                        await PaymentCode.show(context, '${p['id']}', title: PaymentCode.payoutKindAr(p['kind']), amount: p['amount_egp'],
+                            payer: p['created_by_name']);
                         await reload();
                       },
                       style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white),
-                      child: const Text('تم الاستلام'),
+                      child: const Text('اعرض الكود'),
+                    ),
+                  if (p['canVerify'] == true)
+                    ElevatedButton(
+                      onPressed: () async {
+                        await PaymentVerify.payout(context, '${p['id']}', who: '${p['employee_name'] ?? 'المستلم'}');
+                        await reload();
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: Ar.green, foregroundColor: Colors.white),
+                      child: const Text('اكتب الكود'),
                     ),
                 ]),
               ),

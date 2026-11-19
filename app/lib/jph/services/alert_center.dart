@@ -1,3 +1,4 @@
+import '../widgets/payment_code.dart';
 import 'dart:async';
 import '../pages/leads/lead_page.dart';
 import '../pages/leads/tasks_page.dart';
@@ -176,6 +177,8 @@ class AlertCenter with WidgetsBindingObserver {
     RingAlert.onCall = (kind) => IncomingCall.show(nav, kind);
     Future.delayed(const Duration(milliseconds: 600), () => IncomingCall.check(nav));
     Future.delayed(const Duration(seconds: 3), poll);
+    // a payment waiting for my disbursement code (opened from its push, or waiting since before): its code now
+    Future.delayed(const Duration(seconds: 2), () => PaymentCode.check(nav));
   }
 
   @override
@@ -185,6 +188,8 @@ class AlertCenter with WidgetsBindingObserver {
       // brought up by a ringing «Valunivo Call» (over the lock screen): its call screen
       final nav = _nav;
       if (nav != null) IncomingCall.check(nav);
+      PaymentCode.resumed();
+      if (nav != null) PaymentCode.check(nav);
       poll();
     }
   }
@@ -228,6 +233,12 @@ class AlertCenter with WidgetsBindingObserver {
         // «المتابعة مش شغالة على الموبايل ده»: rung by push on the one phone of the account that sends no location —
         // never shown on the phone that is open (that one is followed already)
         if (n['type'] == 'tracking_phone_off' || n['type'] == 'checkin_other_phone') continue;
+        // a payment waits for my code: the code dialog itself (not a banner) — the notification never holds the code
+        if (n['type'] == 'payout_otp' || n['type'] == 'payment_otp') {
+          final nav = _nav;
+          if (_foreground && nav != null) await PaymentCode.check(nav);
+          continue;
+        }
         if (!_ringing.contains(n['type'])) {
           // normal notification: a quiet banner while the app is open (no ringing)
           // normal notification: the app's own banner at the top — swipe it away, or tap it to open what it's about

@@ -18,7 +18,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
   // ------------------------------------------------------------------ advances (سلفة / مصاريف عمل)
   const ADV = `SELECT x.*, e.full_name AS employee_name, e.code AS employee_code, d.full_name AS decided_by_name,
                       g.full_name AS gm_name, ga.full_name AS gm_approved_by_name,
-                      po.id AS payout_id, po.status AS payout_status, po.created_at AS paid_at, po.received_at AS payout_received_at,
+                      po.id AS payout_id, po.status AS payout_status, po.created_by AS payout_created_by, po.created_at AS paid_at, po.received_at AS payout_received_at,
                       pb.full_name AS paid_by_name
                  FROM advance_requests x JOIN employees e ON e.id = x.employee_id LEFT JOIN employees d ON d.id = x.decided_by
                  LEFT JOIN employees g ON g.id = x.gm_id LEFT JOIN employees ga ON ga.id = x.gm_approved_by
@@ -47,7 +47,8 @@ export const legacyModule: Module = (r, { db, clock }) => {
       payment: x.paid_outside ? 'received' : x.payout_status === 'received' ? 'received' : live ? 'awaiting_receipt' : x.status === 'confirmed' ? 'unpaid' : null,
       paidOutside: x.paid_outside === true,
       canPay: x.status === 'confirmed' && !x.paid_outside && !x.payout_id && has(a, 'finance.disburse') && x.employee_id !== a.id,
-      canReceive: live && x.employee_id === a.id };
+      // the code replaces «تم الاستلام»: the employee shows it, whoever paid enters it
+      canReceive: false, awaitingMyCode: live && x.employee_id === a.id, canVerify: live && x.payout_created_by === a.id };
   };
 
   r.get('/advances', async (req) => {
