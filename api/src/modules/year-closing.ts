@@ -3,9 +3,9 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, can, isOwner, type Actor } from '../auth/context.ts';
+import { audit, authenticate, can, has, isOwner, type Actor } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
-import { canOffice, cashOverview } from './cash.ts';
+import { canOffice, cashOverview, ownerBalancesAt, ownerIds } from './cash.ts';
 
 /**
  * تقفيل السنة المالية — a review / closing layer OVER the existing financial records (db/proposed/083).
@@ -244,38 +244,35 @@ export async function yearFigures(q: Q, a: Actor, y: number) {
     salariesUnpaid: { available: false },
   };
 
-  // ------------------------------------------------ partners (the owners' accounts the existing model keeps)
+  // ------------------------------------------------ partners: the owners' accounts exactly as ownerAccounts defines them
+  // (cash.ts ownerBalancesAt): injected + نسبة الملكية × the office's net of every month so far − approved withdrawals,
+  // read at the end of the previous year (opening) and at 31/12 (closing). The year's share = the difference (a loss too).
   let partners: any = { available: false, reason: 'permission' };
   let profit: any = { available: false, reason: ov.result ? 'no_rules' : 'permission' };
   if (can(a, 'cash.owner_funds', 'cash.office')) {
-    const ps = await q.query(`
-      SELECT e.id, e.full_name, COALESCE(o.pct, 0) AS pct,
-        COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id AND r.occurred_at < ${at('$1')}), 0) AS inj_before,
-        COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id AND r.occurred_at >= ${at('$1')} AND r.occurred_at < ${at('$2')}), 0) AS inj,
-        COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'posted' AND COALESCE(x.approved_at, x.occurred_at) < ${at('$1')}), 0) AS draw_before,
-        COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'posted' AND COALESCE(x.approved_at, x.occurred_at) >= ${at('$1')} AND COALESCE(x.approved_at, x.occurred_at) < ${at('$2')}), 0) AS draw,
-        COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'pending_approval' AND x.occurred_at < ${at('$2')}), 0) AS draw_pending
-        FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id
-       WHERE e.role_key = 'owner' OR COALESCE(o.pct, 0) > 0 ORDER BY COALESCE(o.pct, 0) DESC, e.full_name`, [s, e]);
+    const ids = await ownerIds(q);
+    const endPrev = await ownerBalancesAt(q, a, ids, `${y - 1}-12-31`);
+    const endYear = await ownerBalancesAt(q, a, ids, to);
     const carried = await carriedFrom(q, y);
     const net = ov.result ? N(ov.result.net) : null;
-    const pctTotal = r2(ps.rows.reduce((t, x) => t + N(x.pct), 0));
+    const pctTotal = r2(endYear.owners.reduce((t, x) => t + x.pct, 0));
     const canAllocate = net !== null && pctTotal > 0 && pctTotal <= 100;
-    const list = ps.rows.map((x) => {
+    const list = endYear.owners.map((x) => {
+      const p0 = endPrev.owners.find((o) => o.id === x.id)!;
       const c = carried.get(`partner:${x.id}`);
-      const opening = c !== undefined ? c : r2(N(x.inj_before) - N(x.draw_before));
-      const allocated = canAllocate ? r2(Math.max(net!, 0) * N(x.pct) / 100) : null;
-      const withdrawn = r2(N(x.draw));
-      return { id: x.id, name: x.full_name, pct: N(x.pct), opening, openingSource: c !== undefined ? 'closing' : 'history',
-        contributions: r2(N(x.inj)), withdrawals: withdrawn, pendingWithdrawals: r2(N(x.draw_pending)), allocated,
-        outstandingDistribution: allocated === null ? null : r2(Math.max(allocated - withdrawn, 0)),
-        closing: allocated === null ? null : r2(opening + N(x.inj) + allocated - withdrawn) };
+      const withdrawals = r2(x.withdrawn - p0.withdrawn);
+      const allocated = x.profit === null || p0.profit === null ? null : r2(x.profit - p0.profit);
+      return { id: x.id, name: x.name, pct: x.pct, opening: p0.book, openingSource: c !== undefined ? 'closing' : 'history', carriedOpening: c ?? null,
+        contributions: r2(x.injected - p0.injected), withdrawals, pendingWithdrawals: x.pending, allocated,
+        // information only (never carried on its own: it is already inside the balance)
+        outstandingDistribution: allocated === null ? null : r2(Math.max(allocated - withdrawals, 0)),
+        closing: x.book, available: x.balance };
     });
-    partners = { available: true, pctTotal, list, openingFromClosing: carried.size > 0 };
+    partners = { available: true, pctTotal, list, openingFromClosing: carried.size > 0, definition: 'ownerAccounts' };
     if (net !== null) {
       profit = { available: canAllocate, result: net, commissions: ov.result.commissions, costs: ov.result.costs,
-        distributable: canAllocate ? r2(Math.max(net, 0)) : null, basis: 'نسب الملكية الحالية × صافي المكتب للسنة (لو موجب)',
-        retained: canAllocate ? r2(Math.max(net, 0) * (100 - pctTotal) / 100) : null, pctTotal,
+        distributable: canAllocate ? net : null, basis: 'نسبة الملكية × صافي المكتب للسنة (بنفس حساب «حسابات الملاك»، والخسارة بتتوزع كمان)',
+        retained: canAllocate ? r2(net * (100 - pctTotal) / 100) : null, pctTotal,
         reason: canAllocate ? null : (pctTotal === 0 ? 'no_rules' : pctTotal > 100 ? 'pct_over_100' : null),
         loss: net < 0 ? r2(-net) : 0,
         allocations: list.map((p) => ({ id: p.id, name: p.name, pct: p.pct, allocated: p.allocated, paid: p.withdrawals, outstanding: p.outstandingDistribution })) };
@@ -307,6 +304,60 @@ export async function yearFigures(q: Q, a: Actor, y: number) {
     treasury, receivables, payables, employees, partners, profit, assets,
     cashFlow: { receipts: r2(treasury.office.receipts + treasury.hr.receipts), payments: r2(treasury.office.payments + treasury.hr.payments) },
   };
+}
+
+/**
+ * What a person may see of the figures — applied to every answer, the frozen snapshot of a closed year included (it was
+ * taken with the owner's view): the office's profit needs finance.company_income, the owners' accounts cash.owner_funds,
+ * the exclusive projects' money exclusive.view_finance, anything per employee employee.salary_read. Hidden = «غير متاح».
+ */
+export function redactFigures(f0: any, a: Actor) {
+  if (!f0) return f0;
+  const f = structuredClone(f0);
+  const hidden = { available: false, reason: 'permission' };
+  if (!can(a, 'finance.company_income', 'cash.office')) {
+    f.result = null; f.commissionSplit = null;
+    if (f.revenue) { delete f.revenue.commissions; delete f.revenue.commissionReceived; delete f.revenue.trust; }
+    f.profit = { ...hidden };
+  }
+  if (!can(a, 'cash.owner_funds', 'cash.office')) {
+    f.partners = { ...hidden };
+    if (f.profit && f.profit.allocations) { delete f.profit.allocations; delete f.profit.retained; }
+  }
+  if (!can(a, 'exclusive.view_finance', 'cash.office')) {
+    if (f.payables) f.payables.ownersTrust = null;
+    if (f.projects) f.projects.box = null;
+    if (f.revenue) delete f.revenue.trust;
+  }
+  if (!has(a, 'employee.salary_read')) {
+    for (const k of ['advancesOutstanding', 'commissionsUnpaid']) {
+      if (f.employees?.[k]) { f.employees[k].byEmployee = []; f.employees[k].byEmployeeHidden = true; }
+    }
+  }
+  return f;
+}
+const PER_EMPLOYEE_SOURCES = new Set(['payouts', 'salary_adjustments', 'advance_requests']);
+function redactIssue(i: any, a: Actor) {
+  if (PER_EMPLOYEE_SOURCES.has(i.source) && !has(a, 'employee.salary_read')) {
+    return { ...i, description: 'بند مالي لموظف (التفاصيل محتاجة صلاحية «عرض المرتبات»)', amount: null };
+  }
+  if (i.category === 'partners' && !can(a, 'cash.owner_funds', 'cash.office')) {
+    return { ...i, description: 'ملاحظة على حسابات الشركاء (التفاصيل محتاجة صلاحية «ضخ وسحب أموال الملاك»)', amount: null };
+  }
+  return i;
+}
+/** the carried balances a person may see (partners: cash.owner_funds; per employee: employee.salary_read) */
+export function visibleOpening(entityType: string, a: Actor) {
+  if (entityType.startsWith('partner')) return can(a, 'cash.owner_funds', 'cash.office');
+  if (entityType.startsWith('employee_')) return has(a, 'employee.salary_read');
+  return true;
+}
+function redactState(st: any, a: Actor) {
+  const out = { ...st, figures: redactFigures(st.figures, a) };
+  if (Array.isArray(st.issues)) out.issues = st.issues.map((i: any) => redactIssue(i, a));
+  if (Array.isArray(st.preview)) out.preview = st.preview.map((i: any) => redactIssue({ ...i, source: i.source }, a));
+  if (st.snapshot) out.snapshot = { ...st.snapshot, openingBalances: (st.snapshot.openingBalances ?? []).filter((o: any) => visibleOpening(o.entityType, a)) };
+  return out;
 }
 
 /** the balances a closed previous year carried to this one: `${entity_type}:${entity_id}` → carry_balance */
@@ -385,6 +436,12 @@ async function detect(q: Q, y: number, f: any, items: Map<string, any>, recs: an
     }
   }
   if (f.partners.available) {
+    for (const p of f.partners.list) {
+      if (p.carriedOpening !== null && p.opening !== null && Math.abs(p.carriedOpening - p.opening) >= 0.01) {
+        add({ key: `partner_opening_mismatch:${p.id}`, category: 'partners', source: 'fy_opening_balances', sourceId: p.id, amount: r2(p.opening - p.carriedOpening),
+          severity: 'blocking', description: `رصيد أول السنة للشريك ${p.name} (${p.opening}) مختلف عن المرحّل من تقفيل السنة اللي فاتت (${p.carriedOpening})` });
+      }
+    }
     if (f.partners.pctTotal > 100) add({ key: 'partner_pct', category: 'partners', source: 'company_owners', sourceId: null, amount: null, severity: 'blocking',
       description: `مجموع نسب الملكية ${f.partners.pctTotal}% أكتر من 100%` });
     else if (f.partners.pctTotal === 0 && f.partners.list.length) add({ key: 'partner_pct', category: 'partners', source: 'company_owners', sourceId: null, amount: null, severity: 'info',
@@ -522,8 +579,10 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
 
   async function orderBlockers(q: Q, y: number) {
     const b: { code: string; message: string }[] = [];
-    const prev = await one(q, `SELECT status FROM fy_closings WHERE fiscal_year = $1 AND status IN ('in_review','approved') LIMIT 1`, [y - 1]);
-    if (prev) b.push({ code: 'previous_year_open', message: `مراجعة سنة ${y - 1} لسه مفتوحة — السنين بتتقفل بالترتيب` });
+    // the previous year's latest version: under review / approved, or reopened and not closed again → this year waits
+    const prev = await one(q, `SELECT status FROM fy_closings WHERE fiscal_year = $1 ORDER BY version DESC LIMIT 1`, [y - 1]);
+    if (prev && (prev.status === 'in_review' || prev.status === 'approved')) b.push({ code: 'previous_year_open', message: `مراجعة سنة ${y - 1} لسه مفتوحة — السنين بتتقفل بالترتيب` });
+    if (prev?.status === 'reopened') b.push({ code: 'previous_year_reopened', message: `سنة ${y - 1} اتفتحت تاني ولسه متقفلتش — اقفلها الأول` });
     const next = await one(q, `SELECT 1 FROM fy_closings WHERE fiscal_year = $1 AND status IN ('approved','closed') LIMIT 1`, [y + 1]);
     if (next) b.push({ code: 'next_year_closed', message: `سنة ${y + 1} معتمدة أو مقفولة بالفعل` });
     return b;
@@ -558,7 +617,7 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
   }
 
   const can4 = (a: Actor) => ({ review: canOffice(a), decide: decider(a), owner: isOwner(a),
-    partners: can(a, 'cash.owner_funds', 'cash.office'), profit: can(a, 'finance.company_income', 'cash.office') });
+    partners: can(a, 'cash.owner_funds', 'cash.office'), profit: can(a, 'finance.company_income', 'cash.office'), salaries: has(a, 'employee.salary_read') });
 
   // ------------------------------------------------------------------ read
   r.get('/closing/years', async (req) => {
@@ -594,7 +653,7 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
     const y = yearParam(req.params.year);
     if (y > Number(today().slice(0, 4))) throw notFound('Invalid year');
     const st = await db.tx((q) => state(q, a, y, true));
-    return ok({ year: y, currency: 'EGP', ...st, can: can4(a), limitations: LIMITATIONS });
+    return ok({ year: y, currency: 'EGP', ...redactState(st, a), can: can4(a), limitations: LIMITATIONS });
   });
 
   /** the source records behind a figure (paged; no attachments, no phone numbers) */
@@ -616,6 +675,8 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
       sql = `SELECT 'cash_expenses' AS source, id, ref_no, category AS type, cashbox, amount_egp AS amount, COALESCE(approved_at, occurred_at) AS at, reason AS label, status, payment_method
                FROM cash_expenses WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at`;
     } else if (kind === 'payouts') {
+      // what each employee was paid: the same permission as his account page (/finance/employee-account)
+      if (!has(a, 'employee.salary_read')) throw forbidden('صرف الموظفين محتاج صلاحية «عرض المرتبات»');
       sql = `SELECT 'payouts' AS source, p.id, NULL::bigint AS ref_no, p.kind AS type, 'hr' AS cashbox, p.amount_egp AS amount, COALESCE(p.received_at, p.created_at) AS at,
                     e.full_name AS label, p.status FROM payouts p JOIN employees e ON e.id = p.employee_id
               WHERE p.created_at >= ${at('$1')} AND p.created_at < ${at('$2')} ORDER BY p.created_at`;
@@ -649,7 +710,8 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
     const m = (x: any) => ({ id: x.id, closingId: x.closing_id, version: x.version, fromYear: x.from_year, toYear: x.to_year, entityType: x.entity_type,
       entityId: x.entity_id, label: x.label, sourceBalance: N(x.source_balance), carryBalance: N(x.carry_balance), classification: x.classification,
       status: x.status, createdAt: x.created_at });
-    return ok({ carriedOut: out.rows.map(m), carriedIn: inn.rows.map(m) });
+    const vis = (x: any) => visibleOpening(x.entity_type, a);
+    return ok({ carriedOut: out.rows.filter(vis).map(m), carriedIn: inn.rows.filter(vis).map(m) });
   });
 
   // ------------------------------------------------------------------ the review
@@ -873,8 +935,8 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
       for (const x of f.employees.commissionsUnpaid.byEmployee) push('employee_commission', x.id, `عمولة مستحقة: ${x.name}`, x.amount, 'payable');
       if (f.partners.available) {
         for (const p of f.partners.list) {
-          push('partner', p.id, `شريك: ${p.name}`, p.closing ?? r2(p.opening + p.contributions - p.withdrawals), 'equity', true);
-          push('partner_distribution', p.id, `أرباح لم تُصرف: ${p.name}`, p.outstandingDistribution, 'payable');
+          // the balance already holds his undistributed share — it is carried once, inside it
+          if (p.closing !== null) push('partner', p.id, `شريك: ${p.name}`, p.closing, 'equity', true);
         }
       }
       const review = { checklist: st.checklist, issues: st.issues, reconciliations: st.reconciliations, summary: st.summary };

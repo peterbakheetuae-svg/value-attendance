@@ -1,8 +1,10 @@
 -- 083 (PROPOSED — not in db/migrations, so no build runs it; it needs the owner's approval first).
 -- تقفيل السنة المالية: a review / closing layer OVER the existing financial records. It adds five tables of its own and
 -- never changes a row of any existing table. Nothing existing is altered or dropped; the only effect on the existing
--- tables is one guard: once a year is CLOSED, a new receipt / expense dated inside that year is refused (a back-dated
--- entry would change a closed year's figures). Rollback: 083_rollback.sql.
+-- tables is guards: once a year is CLOSED, a new receipt / expense dated inside it, and any change to an employee money record
+-- of a month inside it (penalties, bonuses, advances, instalments, commissions, payroll sheets), is refused.
+-- Rollback: 083_rollback.sql. Applied by the migration runner each file runs in one transaction; by hand, run it between
+-- BEGIN; … COMMIT; (the file holds no transaction statements of its own so the runner can wrap it).
 --
 --  fy_closings          one row per closing attempt of a year (version 1, 2… after a reopening). The closing snapshot (the
 --                       figures, checklist, issues, reconciliations, approvals, carry-forward) is frozen here at closing.
@@ -193,3 +195,34 @@ BEGIN
 END $$;
 CREATE TRIGGER cash_receipts_closed_year BEFORE INSERT ON cash_receipts FOR EACH ROW EXECUTE FUNCTION fy_closed_year_guard();
 CREATE TRIGGER cash_expenses_closed_year BEFORE INSERT ON cash_expenses FOR EACH ROW EXECUTE FUNCTION fy_closed_year_guard();
+
+-- the employees' money of a closed year is final too: penalties / bonuses, advances, advance instalments, commissions due
+-- and payroll sheets belong to a month (period = its first day). Once that month's year is closed, no row is added there,
+-- moved into or out of it, changed in amount / status, or deleted. (payouts are NOT guarded: the money of December is often
+-- handed over in January, and that payment is dated when it is received — in the open year, like every cash movement.)
+CREATE FUNCTION fy_closed_period_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  y_new int := CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN extract(year FROM NEW.period)::int END;
+  y_old int := CASE WHEN TG_OP IN ('UPDATE','DELETE') THEN extract(year FROM OLD.period)::int END;
+  hit int;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- only what changes the money matters: the month, the amount, the status (a note / a decision stamp alone is fine)
+    IF (to_jsonb(NEW) - ARRAY['note','reason','decided_at','decided_by','cancelled_at','cancelled_by','included_at','submitted_at','return_reason'])
+       IS NOT DISTINCT FROM (to_jsonb(OLD) - ARRAY['note','reason','decided_at','decided_by','cancelled_at','cancelled_by','included_at','submitted_at','return_reason'])
+       AND NEW.period IS NOT DISTINCT FROM OLD.period THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  SELECT fiscal_year INTO hit FROM fy_closings
+   WHERE status = 'closed' AND fiscal_year IN (y_new, y_old) ORDER BY fiscal_year LIMIT 1;
+  IF hit IS NOT NULL THEN
+    RAISE EXCEPTION 'السنة المالية % مقفولة — مينفعش تضيف أو تعدّل أو تمسح سجل مالي لشهر جواها', hit USING ERRCODE = '42501';
+  END IF;
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+CREATE TRIGGER salary_adjustments_closed_period BEFORE INSERT OR UPDATE OR DELETE ON salary_adjustments FOR EACH ROW EXECUTE FUNCTION fy_closed_period_guard();
+CREATE TRIGGER advance_requests_closed_period BEFORE INSERT OR UPDATE OR DELETE ON advance_requests FOR EACH ROW EXECUTE FUNCTION fy_closed_period_guard();
+CREATE TRIGGER advance_deductions_closed_period BEFORE INSERT OR UPDATE OR DELETE ON advance_deductions FOR EACH ROW EXECUTE FUNCTION fy_closed_period_guard();
+CREATE TRIGGER commission_entitlements_closed_period BEFORE INSERT OR UPDATE OR DELETE ON commission_entitlements FOR EACH ROW EXECUTE FUNCTION fy_closed_period_guard();
+CREATE TRIGGER payroll_batches_closed_period BEFORE INSERT OR UPDATE OR DELETE ON payroll_batches FOR EACH ROW EXECUTE FUNCTION fy_closed_period_guard();

@@ -236,7 +236,7 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
 }
 
 /** the company's owners: role owner, or anyone with a نسبة ملكية */
-async function ownerIds(q: Q): Promise<string[]> {
+export async function ownerIds(q: Q): Promise<string[]> {
   const r = await q.query(`SELECT e.id FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id
                             WHERE e.status = 'active' AND (e.role_key = 'owner' OR COALESCE(o.pct, 0) > 0)`);
   return r.rows.map((x) => x.id as string);
@@ -254,22 +254,45 @@ async function officeParts(q: Q) {
 }
 
 /**
+ * Each owner's account up to a day (null = until now — what ownerAccounts shows): what he injected + his share (نسبة
+ * الملكية) of the office's net profit of every month up to that day − what he withdrew (approved); `pending` = withdrawals
+ * waiting for approval (the balance he can still withdraw subtracts them). The one definition — the year closing reads it too.
+ * `net` is null when this person may not see the office's profit (finance.company_income).
+ */
+export async function ownerBalancesAt(q: Q, a: Actor, ids: string[], to: string | null) {
+  const ov = await cashOverview(q, a, null, to);
+  const net = (ov.result as any)?.net == null ? null : Number((ov.result as any).net);
+  const before = to ? ` AND %s < (($2::date + 1) AT TIME ZONE 'Africa/Cairo')` : '';
+  const cut = (col: string) => before.replace('%s', col);
+  const rows = (await q.query(`SELECT e.id, e.full_name, COALESCE(o.pct, 0) AS pct,
+      COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id${cut('r.occurred_at')}), 0) AS injected,
+      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'posted'${cut('COALESCE(x.approved_at, x.occurred_at)')}), 0) AS drawn,
+      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'pending_approval'${cut('x.occurred_at')}), 0) AS pending
+      FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id WHERE e.id = ANY($1::uuid[]) ORDER BY COALESCE(o.pct, 0) DESC, e.full_name`,
+    to ? [ids, to] : [ids])).rows;
+  return {
+    net,
+    owners: rows.map((x) => {
+      const injected = r2(Number(x.injected)), withdrawn = r2(Number(x.drawn)), pending = r2(Number(x.pending)), pct = Number(x.pct);
+      const profit = net === null ? null : r2(net * pct / 100);
+      return { id: x.id as string, name: x.full_name as string, pct, injected, profit, withdrawn, pending,
+        book: profit === null ? null : r2(injected + profit - withdrawn), balance: profit === null ? null : r2(injected + profit - withdrawn - pending) };
+    }),
+  };
+}
+
+/**
  * Each owner's account (all months): what he injected + his share (نسبة الملكية) of the office's net profit
  * − what he already withdrew (approved) − what is waiting for approval = what he can still withdraw.
  */
 export async function ownerAccounts(q: Q, a: Actor) {
   const ids = await ownerIds(q);
-  const ov = await cashOverview(q, a, null, null);
-  const net = Number((ov.result as any)?.net ?? 0);
-  const rows = (await q.query(`SELECT e.id, COALESCE(o.pct, 0) AS pct,
-      COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.kind = 'injection' AND r.status = 'posted' AND r.recorded_by = e.id), 0) AS injected,
-      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'posted'), 0) AS drawn,
-      COALESCE((SELECT sum(x.amount_egp) FROM cash_expenses x WHERE x.owner_draw_id = e.id AND x.status = 'pending_approval'), 0) AS pending
-      FROM employees e LEFT JOIN company_owners o ON o.employee_id = e.id WHERE e.id = ANY($1::uuid[])`, [ids])).rows;
+  const { owners } = await ownerBalancesAt(q, a, ids, null);
   const out: Record<string, { injected: number; profit: number; withdrawn: number; pending: number; balance: number }> = {};
-  for (const x of rows) {
-    const injected = r2(Number(x.injected)), profit = r2(net * Number(x.pct) / 100), withdrawn = r2(Number(x.drawn)), pending = r2(Number(x.pending));
-    out[x.id] = { injected, profit, withdrawn, pending, balance: r2(injected + profit - withdrawn - pending) };
+  for (const x of owners) {
+    // without the office's profit in view it counts as 0 here (as it always did)
+    const profit = x.profit ?? 0;
+    out[x.id] = { injected: x.injected, profit, withdrawn: x.withdrawn, pending: x.pending, balance: r2(x.injected + profit - x.withdrawn - x.pending) };
   }
   return out;
 }

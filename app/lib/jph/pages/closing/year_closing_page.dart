@@ -435,10 +435,11 @@ class _OverviewCard extends StatelessWidget {
     final rc = _m(_m(f['receivables'])['installments']);
     final emp = _m(f['employees']);
     final partners = _m(f['partners']);
-    final commissions = rev['commissions'] ?? rev['commissionReceived'];
+    final commissions = rev['commissions'];
     return _card(isDark, [
       _title(isDark, 'نظرة مالية على السنة', icon: Icons.account_balance_rounded),
-      _row(isDark, 'الإيرادات (عمولات المكتب)', _money(commissions), color: Ar.green),
+      // revenue is the office's whole commission income or nothing: never a partial figure in its place
+      _row(isDark, 'الإيرادات (عمولات المكتب)', commissions == null ? 'غير متاح (محتاج صلاحية «دخل وربح المكتب»)' : _money(commissions), color: Ar.green),
       _row(isDark, 'المصروفات', _money(exp['total']), color: Ar.red),
       _row(isDark, 'نتيجة السنة (صافي المكتب)', res == null ? 'غير متاح' : _money(res['net']), strong: true),
       const Divider(),
@@ -638,7 +639,7 @@ class _CategoryFigures extends StatelessWidget {
         final rev = _m(f['revenue']);
         final sales = _m(rev['sales']);
         rows.addAll([
-          _row(isDark, 'عمولات المكتب', _money(rev['commissions'] ?? rev['commissionReceived']), strong: true),
+          _row(isDark, 'عمولات المكتب', _money(rev['commissions']), strong: true),
           _row(isDark, 'عمولات مستلمة', _money(rev['commissionReceived'])),
           _row(isDark, 'مبيعات (حجز/مقدم/أقساط) — مش إيراد للمكتب', _money(sales['total'])),
           _row(isDark, 'ضخ من الملاك — مش إيراد', _money(rev['injection'])),
@@ -731,7 +732,7 @@ class _PartnersView extends StatelessWidget {
     final reason = '${pr['reason'] ?? ''}';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _row(isDark, 'نتيجة السنة (صافي المكتب)', _money(pr['result']), strong: true),
-      _row(isDark, 'القابل للتوزيع', pr['available'] == true ? _money(pr['distributable']) : 'غير متاح'),
+      _row(isDark, 'القابل للتوزيع (الخسارة بتتوزع كمان)', pr['available'] == true ? _money(pr['distributable']) : 'غير متاح'),
       _row(isDark, 'محتجز في الشركة', pr['available'] == true ? _money(pr['retained']) : 'غير متاح'),
       if (_n(pr['loss']) != null && _n(pr['loss'])! > 0) _row(isDark, 'خسارة السنة', _money(pr['loss']), color: Ar.red),
       _row(isDark, 'مجموع نسب الملكية', '${p['pctTotal']}%'),
@@ -751,8 +752,9 @@ class _PartnersView extends StatelessWidget {
             _row(isDark, 'مسحوبات خلال السنة', _money(x['withdrawals'])),
             if ((_n(x['pendingWithdrawals']) ?? 0) > 0) _row(isDark, 'مسحوبات مستنية اعتماد', _money(x['pendingWithdrawals']), color: Ar.amber),
             _row(isDark, 'نصيبه من ربح السنة', _money(x['allocated'])),
-            _row(isDark, 'أرباح لسه متصرفتش', _money(x['outstandingDistribution'])),
+            _row(isDark, 'أرباح السنة اللي لسه متسحبتش (جوه الرصيد)', _money(x['outstandingDistribution'])),
             _row(isDark, 'رصيده في 31/12', _money(x['closing']), strong: true),
+            _row(isDark, 'المتاح للسحب (بعد المسحوبات المستنية)', _money(x['available'])),
           ]),
         ),
     ]);
@@ -772,6 +774,7 @@ class _TransactionsPageState extends State<_TransactionsPage> {
   final _rows = <Map<String, dynamic>>[];
   int? _next = 0;
   bool _loading = false;
+  String? _error;
 
   @override
   void initState() {
@@ -788,6 +791,8 @@ class _TransactionsPageState extends State<_TransactionsPage> {
       _loading = false;
       _rows.addAll(cashList(r, 'rows'));
       _next = r['success'] == true ? _n(r['next'])?.toInt() : null;
+      // e.g. the employees' payouts without «عرض المرتبات»: the server's reason, not an empty list
+      _error = r['success'] == true ? null : '${r['message'] ?? 'مش متاح'}';
     });
   }
 
@@ -797,7 +802,8 @@ class _TransactionsPageState extends State<_TransactionsPage> {
     return _Sub(
       title: widget.title,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 6, 16, 60), children: [
-        if (!_loading && _rows.isEmpty) _empty(isDark, 'مفيش حركات'),
+        if (!_loading && _error != null) _empty(isDark, _error!),
+        if (!_loading && _error == null && _rows.isEmpty) _empty(isDark, 'مفيش حركات'),
         for (final x in _rows)
           Container(
             margin: const EdgeInsets.only(bottom: 6),
@@ -1344,7 +1350,7 @@ class _ReportTabState extends State<_ReportTab> {
         title: const Text('الإيرادات', style: TextStyle(fontWeight: FontWeight.w900)),
         children: [
           _card(isDark, [
-            _row(isDark, 'عمولات المكتب', _money(rev['commissions'] ?? rev['commissionReceived']), strong: true),
+            _row(isDark, 'عمولات المكتب', _money(rev['commissions']), strong: true),
             _row(isDark, 'عمولات مستلمة', _money(rev['commissionReceived'])),
             _row(isDark, 'تحصيلات أخرى', _money(rev['other'])),
             _row(isDark, 'مبيعات الوحدات (أموال العملاء)', _money(_m(rev['sales'])['total'])),
@@ -1384,6 +1390,8 @@ class _ReportTabState extends State<_ReportTab> {
         children: [
           _CategoryFigures(isDark: isDark, category: 'employees', f: f, year: '${d['year']}'),
           _card(isDark, [
+            if (_m(_m(f['employees'])['advancesOutstanding'])['byEmployeeHidden'] == true)
+              _note(isDark, 'التفاصيل بالموظف محتاجة صلاحية «عرض المرتبات» — الإجماليات بس.'),
             _title(isDark, 'سلف لسه هتتخصم'),
             for (final x in _l(_m(_m(f['employees'])['advancesOutstanding'])['byEmployee'])) _row(isDark, '${x['name']}', JphUi.money(x['amount'])),
             _title(isDark, 'عمولات مستحقة'),
@@ -1437,7 +1445,7 @@ class _Compare extends StatelessWidget {
   const _Compare({required this.isDark, required this.a, required this.b, required this.aYear, required this.bYear});
 
   static List<(String, Object? Function(Map<String, dynamic>))> metrics = [
-    ('الإيرادات', (f) => _m(f['revenue'])['commissions'] ?? _m(f['revenue'])['commissionReceived']),
+    ('الإيرادات', (f) => _m(f['revenue'])['commissions']),
     ('المصروفات', (f) => _m(f['expenses'])['total']),
     ('نتيجة السنة', (f) => f['result'] == null ? null : _m(f['result'])['net']),
     ('المقبوضات', (f) => _m(f['cashFlow'])['receipts']),
@@ -1615,7 +1623,7 @@ class _ReportExport {
     final rev = _m(f['revenue']), exp = _m(f['expenses']), t = _m(f['treasury']);
     final out = <List<String>>[];
     void add(String section, String item, Object? v) => out.add([section, item, _n(v) == null ? 'غير متاح' : '${_n(v)}']);
-    add('ملخص', 'الإيرادات (عمولات المكتب)', rev['commissions'] ?? rev['commissionReceived']);
+    add('ملخص', 'الإيرادات (عمولات المكتب)', rev['commissions']);
     add('ملخص', 'المصروفات', exp['total']);
     add('ملخص', 'نتيجة السنة', f['result'] == null ? null : _m(f['result'])['net']);
     add('ملخص', 'المقبوضات', _m(f['cashFlow'])['receipts']);
