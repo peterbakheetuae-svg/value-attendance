@@ -4,7 +4,7 @@ import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors
 import { emailChangeMail, mailEnabled, sendMail } from '../lib/mail.ts';
 import { createHash, randomInt } from 'node:crypto';
 import { date, isUuid, obj, str } from '../http/validate.ts';
-import { audit, authenticate, has } from '../auth/context.ts';
+import { adminOfficerSql, audit, authenticate, has } from '../auth/context.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
 import { hashPassword, passwordPolicyError } from '../auth/password.ts';
 import type { Req } from '../http/router.ts';
@@ -185,11 +185,11 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
   /** the choices of a company's file: المدير العام (a general manager / the owner), المدير المباشر (an «مسؤول إداري»), the campaigns */
   async function companyOptions() {
     const campaigns = await db.query(`SELECT id, name, active, marketing_company_id FROM lead_campaigns ORDER BY active DESC, created_at DESC`);
-    const people = await db.query(`SELECT id, full_name, role_key, position_key FROM employees
-                                    WHERE status = 'active' AND (legacy_fields->>'status') IS DISTINCT FROM 'تم التصفيه' ORDER BY full_name`);
+    const people = await db.query(`SELECT e.id, e.full_name, e.role_key, e.position_key, ${adminOfficerSql('e')} AS admin_officer FROM employees e
+                                    WHERE e.status = 'active' AND (e.legacy_fields->>'status') IS DISTINCT FROM 'تم التصفيه' ORDER BY e.full_name`);
     return {
       generalManagers: people.rows.filter((e) => ['manager', 'owner'].includes(e.role_key)).map((e) => ({ id: e.id, name: e.full_name })),
-      managers: people.rows.filter((e) => e.position_key === 'admin_officer').map((e) => ({ id: e.id, name: e.full_name })),
+      managers: people.rows.filter((e) => e.admin_officer === true).map((e) => ({ id: e.id, name: e.full_name })),
       campaigns: campaigns.rows.map((x) => ({ id: x.id, name: x.name, active: x.active, companyId: x.marketing_company_id })),
     };
   }
@@ -233,12 +233,13 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
       if (b[k] === undefined) return undefined;
       if (b[k] === null || b[k] === '') return null;
       const id = String(b[k]);
-      const e = isUuid(id) ? await one(db, `SELECT id, role_key, position_key FROM employees WHERE id = $1 AND status = 'active'`, [id]) : null;
+      const e = isUuid(id) ? await one(db, `SELECT e.id, e.role_key, e.position_key, ${adminOfficerSql('e')} AS admin_officer FROM employees e
+                                             WHERE e.id = $1 AND e.status = 'active'`, [id]) : null;
       if (!e || !ok(e)) throw invalid(msg, { field: k });
       return id;
     };
     const gm = await person('generalManagerId', (e) => ['manager', 'owner'].includes(e.role_key), 'المدير العام لازم يكون مدير عام أو المالك');
-    const mgr = await person('managerId', (e) => e.position_key === 'admin_officer', 'المدير المباشر لازم يكون مسؤول إداري');
+    const mgr = await person('managerId', (e) => e.admin_officer === true, 'المدير المباشر لازم يكون مسؤول إداري');
     const contract = b.contractDate === null || b.contractDate === '' ? null : date(b, 'contractDate', true);
     let campaigns: string[] | undefined;
     if (b.campaignIds !== undefined) {

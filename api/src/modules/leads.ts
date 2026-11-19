@@ -3,7 +3,7 @@ import { one, type Q } from '../db.ts';
 import { AppError } from '../http/errors.ts';
 import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { bool, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
+import { adminOfficerSql, audit, authenticate, has, teamMemberIds, type Actor } from '../auth/context.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 
@@ -216,7 +216,7 @@ async function findDuplicate(q: Q, phones: string[]) {
 }
 
 /** who may know which salesman has a repeated lead: المالك / المدير العام / مدير المبيعات / المسؤول الإداري */
-const WATCHERS_SQL = `e.status = 'active' AND (e.role_key IN ('owner', 'manager', 'sales_manager') OR e.position_key = 'admin_officer')`;
+const WATCHERS_SQL = `e.status = 'active' AND (e.role_key IN ('owner', 'manager', 'sales_manager') OR ${adminOfficerSql('e')})`;
 export async function seesDuplicates(q: Q, id: string | null) {
   return !!id && !!(await one(q, `SELECT 1 FROM employees e WHERE e.id = $1 AND ${WATCHERS_SQL}`, [id]));
 }
@@ -687,7 +687,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
              (SELECT count(*) FROM leads l WHERE l.assigned_to = e.id AND l.stage = 'done_deal' AND l.stage_changed_at >= ${since})::int AS deals
         FROM employees e
        WHERE ${empHas('e', 'leads.own')} AND e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
-         AND e.role_key NOT IN ('owner', 'manager') AND COALESCE(e.position_key, '') <> 'admin_officer'
+         AND e.role_key NOT IN ('owner', 'manager') AND NOT ${adminOfficerSql('e')}
        ORDER BY deals DESC, actions DESC, e.full_name`, [now]);
     const tasks = await one(db, `SELECT count(*) FILTER (WHERE status IN ('open','doing'))::int AS open,
                                         count(*) FILTER (WHERE status IN ('open','doing') AND due_at < $2)::int AS late FROM tasks WHERE assigned_to = $1`, [a.id, now]);

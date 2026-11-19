@@ -2,7 +2,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Db } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
-import { authenticate, can, notSettled, type Actor } from '../auth/context.ts';
+import { adminOfficerSql, authenticate, can, notSettled, type Actor } from '../auth/context.ts';
 import { cashSummary, canOffice } from './cash.ts';
 import { computePayroll, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
@@ -649,10 +649,11 @@ export const ownerDashboardModule: Module = (r, { db, clock }) => {
   /** «الموظفين دلوقتي» at the end of the attendance page: for HR and the admin officer (the owner / GM have it on their dashboard) */
   r.get('/dashboard/presence', async (req) => {
     const a = await authenticate(db, req);
-    const me = await one(db, `SELECT role_key, COALESCE(position_key, role_key) AS position FROM employees WHERE id = $1`, [a.id]);
-    const allowed = !!me && (me.role_key === 'hr_manager' || me.position === 'admin_officer' || canOffice(a));
-    if (!allowed) throw forbidden();
-    return ok({ presence: await employeesPresence(db, local(clock()).date, clock()), hr: me.role_key === 'hr_manager' || me.position === 'admin_officer' });
+    // the administrative officer by his position (whatever its key — adminOfficerSql), not by a fixed key
+    const me = await one(db, `SELECT e.role_key, ${adminOfficerSql('e')} AS admin_officer FROM employees e WHERE e.id = $1`, [a.id]);
+    const hrSide = !!me && (me.role_key === 'hr_manager' || me.admin_officer === true);
+    if (!hrSide && !canOffice(a)) throw forbidden();
+    return ok({ presence: await employeesPresence(db, local(clock()).date, clock()), hr: hrSide });
   });
 
   r.get('/dashboard/owner', async (req) => {

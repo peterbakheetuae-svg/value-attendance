@@ -51,6 +51,14 @@ async function dbPermissionKeys(q: Q): Promise<ReadonlySet<string>> {
 /** drops the cached key list (the next request reads it again) — for the throwaway test databases */
 export function forgetPermissionKeys() { knownKeys = null; }
 
+/**
+ * SQL: the employee (alias) holds the «مسؤول إداري» (administrative officer) position — whatever its key is in this
+ * database: migration 057 created it as «admin_officer» or renamed an existing «HR ومحاسب» position, keeping that key.
+ * The position is resolved the way permissions are (COALESCE(position_key, role_key)).
+ */
+export const adminOfficerSql = (e = 'e') => `EXISTS (SELECT 1 FROM roles ao_r WHERE ao_r.key = COALESCE(${e}.position_key, ${e}.role_key)
+  AND (ao_r.key = 'admin_officer' OR ao_r.name_ar = 'مسؤول إداري'))`;
+
 /** an employee whose work status is «تم التصفيه» (settled / finished) */
 export const SETTLED = 'تم التصفيه';
 /** SQL: the employee (alias) is not «تم التصفيه» — he is out of the attendance boards, the presence list and the counts */

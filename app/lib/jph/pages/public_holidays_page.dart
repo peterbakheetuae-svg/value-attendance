@@ -1,3 +1,4 @@
+import '../services/api_service.dart';
 import '../widgets/side_sheet.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart' hide Text;
@@ -30,6 +31,9 @@ class PublicHolidaysPage extends StatefulWidget {
 }
 
 class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
+  /// add / edit / delete: whoever holds «إعدادات الحضور» (attendance.config) — the same permission the server checks
+  bool get _canEdit => ApiService.can('attendance.config');
+
   bool _loading = true;
   bool _hasError = false;
   String _errorMessage = '';
@@ -1049,7 +1053,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
                               ),
                             ),
                           ),
-                          if (widget.role == 'admin' || widget.role == 'المالك')
+                          if (_canEdit)
                             IconButton(
                               onPressed: () => _showAddEditForm(),
                               icon: Container(
@@ -1634,7 +1638,7 @@ class _PublicHolidaysPageState extends State<PublicHolidaysPage> {
               ),
 
             // Action Buttons (for admin/ceo)
-            if (widget.role == 'admin' || widget.role == 'المالك') ...[
+            if (_canEdit) ...[
               const SizedBox(height: 12),
               Row(
                 children: [

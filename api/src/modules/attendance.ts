@@ -6,6 +6,7 @@ import { assertCanRead, audit, authenticate, can, has, notSettled, readableIds, 
 import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
+import { effectiveSql } from '../auth/permission-admin.ts';
 
 /**
  * The time of a check-in / check-out / «I'm back» — with an offline record's own time (`offlineAt`) trusted only when
@@ -16,15 +17,27 @@ import { notify } from './notify.ts';
  *  - a record that reaches the server more than 5 minutes after its claimed time → HR is told (who, which step, the time
  *    claimed and the time it arrived), so a back-dated record is always seen.
  */
+/**
+ * Who is told about offline attendance records: the HR desk that corrects attendance — whoever holds both «تصحيح الحضور»
+ * (attendance.correct) and the HR approval stage (request.approve_hr), by his position's grant or an individual one: HR,
+ * the administrative officer, any position given both. The owner keeps not being told (as before); the person himself never.
+ */
+export async function hrAttendanceDesk(q: Q, exceptId: string): Promise<string[]> {
+  const r = await q.query<{ id: string }>(`
+    SELECT e.id FROM employees e
+     WHERE e.status = 'active' AND ${notSettled('e')} AND e.id <> $1 AND e.role_key <> 'owner'
+       AND ${effectiveSql('e', "'attendance.correct'")} AND ${effectiveSql('e', "'request.approve_hr'")}`, [exceptId]);
+  return r.rows.map((x) => x.id);
+}
+
 export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>, now: Date, step: string) {
   const t = actionTime(body, now);
   if (!t.offline) return t;
   // an offline record belongs to today: a day already over is corrected by HR (who is told), never by the phone's clock —
   // otherwise yesterday's absence could be turned into a full day by two back-dated records
   if (local(t.at).date !== local(now).date) {
-    const hr = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'hr_manager' AND status = 'active' AND id <> $1`, [a.id]);
-    for (const x of hr.rows) {
-      await notify(q, { to: x.id, type: 'offline_attendance', title: `${step} من غير نت ليوم فات — ${a.fullName}`,
+    for (const id of await hrAttendanceDesk(q, a.id)) {
+      await notify(q, { to: id, type: 'offline_attendance', title: `${step} من غير نت ليوم فات — ${a.fullName}`,
         body: `متسجل بتاريخ ${local(t.at).date} ووصل النهارده — اترفض، صححه من سجل الحضور لو صحيح`,
         entity: 'employee', entityId: a.id, dedupeKey: `offline_old:${a.id}:${step}:${local(t.at).date}` });
     }
@@ -45,9 +58,8 @@ export async function tellHrLateOffline(q: Q, a: Actor, step: string, at: Date, 
   const lateMin = Math.round((now.getTime() - at.getTime()) / 60_000);
   if (lateMin < 5) return;
   const hhmm = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
-  const hr = await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'hr_manager' AND status = 'active' AND id <> $1`, [a.id]);
-  for (const x of hr.rows) {
-    await notify(q, { to: x.id, type: 'offline_attendance', title: `${step} من غير نت — ${a.fullName}`,
+  for (const id of await hrAttendanceDesk(q, a.id)) {
+    await notify(q, { to: id, type: 'offline_attendance', title: `${step} من غير نت — ${a.fullName}`,
       body: `متسجل بتوقيت ${hhmm(at)} ووصل للسيستم ${hhmm(now)} (بعد ${lateMin} دقيقة) — راجعه لو محتاج`,
       entity: 'employee', entityId: a.id, dedupeKey: `offline_att:${entityId}:${step}` });
   }
