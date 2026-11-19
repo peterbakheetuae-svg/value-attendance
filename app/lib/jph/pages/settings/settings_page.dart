@@ -4,6 +4,7 @@ import '../../../core/app_updater.dart';
 import '../cash/cashbox_hub_page.dart';
 import '../../forms/custody_receipt_page.dart';
 import '../sales/sales_page.dart';
+import '../closing/year_closing_page.dart';
 import '../cash/cash_page.dart';
 import '../exclusive/exclusive_projects_page.dart';
 import '../commissions/commissions_page.dart';
@@ -649,6 +650,7 @@ class _SettingsPageState extends State<SettingsPage> {
         (CashboxHubPage.canCash ? 'المالية' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             () => CashboxHubPage(uid: widget.uid, name: widget.name, role: widget.role)),
         if (ApiService.can('sales.view')) ('الأقساط', Icons.event_note_rounded, () => const SalesPage()),
+        if (YearClosingPage.canOpen) ('تقفيل السنة', Icons.lock_clock_rounded, () => const YearClosingPage()),
       ];
 
   /// المشاريع (حصري + تسويق) والمبيعات (حجز / تعاقد) والخزنة والملاك والعملاء.

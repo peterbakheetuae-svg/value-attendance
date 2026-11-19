@@ -10,6 +10,7 @@ import '../forms/client_intro_page.dart';
 import '../forms/custody_receipt_page.dart';
 import '../pages/advance_request_page.dart';
 import '../pages/cash/cashbox_hub_page.dart';
+import '../pages/closing/year_closing_page.dart';
 import '../pages/commissions/commissions_page.dart';
 import '../pages/custody/custody_assets_page.dart';
 import '../pages/exclusive/exclusive_projects_page.dart';
@@ -70,6 +71,8 @@ class AppMenu {
         MenuEntry('cashbox', CashboxHubPage.canCash ? 'المالية' : 'ملخص المالية', Icons.account_balance_wallet_rounded,
             page: () => CashboxHubPage(uid: uid, name: name, role: role)),
         if (ApiService.can('sales.view')) MenuEntry('installments', 'الأقساط', Icons.event_note_rounded, page: () => const SalesPage()),
+        // تقفيل السنة: right after الأقساط, for whoever holds the main cashbox (the server checks the same)
+        if (YearClosingPage.canOpen) MenuEntry('year_closing', 'تقفيل السنة', Icons.lock_clock_rounded, page: () => const YearClosingPage()),
       ];
 
   static List<MenuEntry> projectItems() {
