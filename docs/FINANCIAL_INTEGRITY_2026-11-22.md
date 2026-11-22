@@ -46,18 +46,25 @@ Local numbers (same machine, ~0.2 ms per query). Not production benchmarks.
 ## Migrations (prepared in `db/proposed/` only — never run on Neon without the owner's approval)
 
 **Dependency order: 066 → 083 → 084 → 085 → 086** (each file in one transaction, as the runner applies it; by hand `psql -1`).
-Each is additive, has a rollback file and is exercised by the test suite on throw-away databases. If the 2026-11-18
+Each is additive and is exercised **forward-only** by the test suite on throw-away databases (install, second run, existing
+records untouched). Rollback scripts exist but are **never executed** — not by tests, not in release validation; their
+scope is checked as text only (`api/test/migration-rollback-static.test.ts`: each may remove only what its own migration
+adds; no TRUNCATE, no DELETE without WHERE; and no test file may name a rollback script). If the 2026-11-18
 clean-up is ever approved, it goes **before 085 / 086** (see below).
 
-* Chain check (scratch PostgreSQL 16, 2026-11-22): 066 → 083 → 084 → 085 → 086 each apply cleanly; rollbacks 086 → 066
-  return the database to exactly its starting schema / permissions. **066, 085, 086 are safe to re-run; 083 and 084 are
+* Chain check (throw-away scratch PostgreSQL 16, forward-only): the 73 official migrations on an empty database, then
+  066 → 083 → 084 → 085 → 086 each apply cleanly. **066, 085, 086 are safe to re-run; 083 and 084 are
   NOT** (a second run stops at «already exists» — harmless, each runs in one transaction, but apply them only once:
   check `schema_migrations` / the object first).
-* **085** refuses to install (and names them) if any request already has two live payouts. Copies today's
-  `company_owners` into the history as in force from the **operational baseline**: the first month (Cairo time) with
-  a recorded cash receipt, cash expense or payout — or, on a database with none yet (after the pre-launch clean-up),
-  the month 085 runs. No earlier history is invented; months before the baseline carry no share. Tested in
-  `api/test/085-baseline.test.ts` (both cases fail on the earlier fixed 2000-01 date).
+* **085** refuses to install (and names them) if any request already has two live payouts. The month from which
+  today's `company_owners` shares are in force is a **business fact the owner states** — no record proves it (the first
+  receipt or payout says when money was first recorded, not when a share began), so 085 neither invents one (the old
+  fixed 2000-01) nor infers one. It is stated when 085 is applied, in the same session:
+  `psql -1 -v ON_ERROR_STOP=1 -c "SET valunivo.owner_share_baseline = 'YYYY-MM-01'" -f db/proposed/085_financial_integrity.sql`.
+  Without it 085 refuses and changes nothing whenever there are shares to copy; a date that is not a month start, is in
+  the future or is not a date is refused. The stated month goes into the audit log (`owners.share_baseline`); a WARNING
+  says if money is recorded before it (those months carry no owner share). With no owners yet (after the pre-launch
+  clean-up) or on a re-run, nothing is copied and nothing is asked. Tested in `api/test/085-baseline.test.ts`.
 * **086** adds three tables and two nullable columns on `cash_expenses` / `fixed_expenses`. No back-fill.
 * ⚠ **If the 2026-11-18 clean-up script (`db/ops/2026-11-18-keep-active-employees.sql`) is still planned, run it before 085 / 086**:
   after them, the new tables reference employees, and deleting a former employee / company owner they point to is refused.
@@ -79,7 +86,8 @@ The rollback files are for a failed install on a test copy, **not** an undo butt
   after 085) is lost and payouts become editable again.
 * `066_rollback.sql` removes the fine-grained permissions → per-key grants made after 066 are lost.
 
-Back up (Neon branch) before any rollback; never run one against production without the owner's explicit decision.
+They are not executed anywhere as part of this release (tests included). Back up (Neon branch) before any rollback;
+never run one against production without the owner's explicit decision.
 
 ## clientRef retries are answered only to their sender (release review, 2026-11-22)
 

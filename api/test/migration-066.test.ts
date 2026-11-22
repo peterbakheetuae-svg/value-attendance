@@ -36,7 +36,7 @@ before(async () => {
 });
 after(async () => { await h.close(); });
 
-test('066: every account keeps exactly its effective permissions; a second run changes nothing; rollback restores the rows', async () => {
+test('066: every account keeps exactly its effective permissions; a second run changes nothing (forward-only — rollback scripts are never executed)', async () => {
   const rows0 = await snapshot();
   const eff0 = await effective();
   await run(file('066_fine_grained_permissions.sql'));
@@ -52,12 +52,6 @@ test('066: every account keeps exactly its effective permissions; a second run c
   await run(file('066_fine_grained_permissions.sql'));
   assert.deepEqual(await snapshot(), rows1, 'second run: no change');
   assert.deepEqual(await effective(), expected, 'second run: same effective access');
-  const audit = (await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE after->>'source' = 'migration_066'`)).rows[0].n;
-  await run(file('066_rollback.sql'));
-  assert.deepEqual(await snapshot(), rows0, 'rollback: permissions, job titles and individual exceptions exactly as before');
-  assert.deepEqual(await effective(), eff0, 'effective access identical after the rollback');
-  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE after->>'source' = 'migration_066'`)).rows[0].n, audit,
-    'audit rows stay (append-only)');
 });
 
 test('066 preview is read-only', async () => {

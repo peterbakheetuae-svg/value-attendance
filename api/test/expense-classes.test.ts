@@ -34,8 +34,16 @@ test('086: groups and categories — create, edit, archive, reactivate, search, 
   await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow) VALUES ($1, 'cash.office', true)`, [c.ids.acc]);
   forgetPermissionKeys();
   const before = { owner: (await h.call(c.t.owner, 'GET', '/me')).body.permissions as string[], hr: (await h.call(c.t.hr, 'GET', '/me')).body.permissions as string[] };
+  // the expenses recorded before 086 — every column they had and the balances — must be exactly the same after it
+  const recs = () => h.db.query(`SELECT to_jsonb(e) - 'expense_group_id' - 'expense_category_id' AS row FROM cash_expenses e ORDER BY id`).then((r) => r.rows.map((x) => x.row));
+  const old = { rows: await recs(), office: await bal('office'), hr: await bal('hr') };
+  assert.ok(old.rows.length >= 1, 'there is an expense recorded before 086');
   await run(file('086_expense_classification.sql'));
   await run(file('086_expense_classification.sql')); // a second run changes nothing
+  assert.deepEqual(await recs(), old.rows, '086 changes no existing expense');
+  assert.equal(await bal('office'), old.office); assert.equal(await bal('hr'), old.hr);
+  assert.equal(Number((await h.db.query(`SELECT count(*) n FROM cash_expenses WHERE expense_group_id IS NOT NULL OR expense_category_id IS NOT NULL`)).rows[0].n), 0,
+    'nothing is classified by the migration — every existing expense reads «غير مصنف»');
   forgetPermissionKeys();
   // the two keys are split from cash.office: whoever had it has them, nobody else gained anything
   const owner = (await h.call(c.t.owner, 'GET', '/me')).body.permissions as string[];
@@ -159,15 +167,4 @@ test('086: an archived (no longer available) group / category never corrupts the
   assert.equal((await h.call(c.t.e1, 'POST', '/cash/expense-classes/categories', { name: 'دخيل' })).status, 403);
   assert.equal((await h.call(c.t.e1, 'GET', '/cash/expense-classes/report')).status, 403);
   assert.equal((await h.call(c.t.owner, 'PATCH', `/cash/expense-classes/groups/${office.id}`, { isActive: true })).status, 200);
-});
-
-test('086 rollback: removes only what 086 added — every expense and amount stays', async () => {
-  const n0 = (await h.db.query(`SELECT count(*)::int n, sum(amount_egp) s FROM cash_expenses`)).rows[0];
-  await run(file('086_rollback.sql').replace(/^BEGIN;|COMMIT;\s*$/gm, ''));
-  forgetPermissionKeys();
-  assert.equal((await h.db.query(`SELECT count(*)::int n FROM permissions WHERE key LIKE 'expense.%'`)).rows[0].n, 0);
-  const n1 = (await h.db.query(`SELECT count(*)::int n, sum(amount_egp) s FROM cash_expenses`)).rows[0];
-  assert.deepEqual(n1, n0);
-  assert.equal((await h.call(c.t.owner, 'GET', '/cash/expense-classes')).body.installed, false);
-  assert.equal((await h.call(c.t.owner, 'GET', '/cash/expenses')).status, 200, 'the expense list works as before');
 });

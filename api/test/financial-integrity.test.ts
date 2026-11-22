@@ -183,7 +183,7 @@ test('F5: an advance paid through the cashbox is a receivable — out of the pro
   h.now.value = new Date('2026-03-10T08:00:00Z');
 });
 
-test('085: one live payout per request; a payout\'s money is fixed; ownership-share history; second run changes nothing; rollback', async () => {
+test('085: one live payout per request; a payout\'s money is fixed; ownership-share history; second run changes nothing (forward-only)', async () => {
   await run(file('085_financial_integrity.sql'));
   await run(file('085_financial_integrity.sql')); // idempotent
   const p = (await h.db.query(`SELECT id FROM payouts WHERE status = 'received' LIMIT 1`)).rows[0];
@@ -211,7 +211,4 @@ test('085: one live payout per request; a payout\'s money is fixed; ownership-sh
   assert.equal(Math.round((after - before) * 100) / 100, Math.round(fromMay * -0.1 * 100) / 100, 'earlier months keep the 60% share');
   h.now.value = new Date('2026-03-10T08:00:00Z');
 
-  await run(file('085_rollback.sql').replace(/^BEGIN;|COMMIT;\s*$/gm, ''));
-  assert.equal((await h.db.query(`SELECT to_regclass('public.company_owner_shares') t`)).rows[0].t, null);
-  await h.db.query(`UPDATE payouts SET note = note WHERE id = $1`, [p.id]); // no guard left
 });
