@@ -82,7 +82,8 @@ Back up (Neon branch) before any rollback; never run one against production with
 
 Before: a form retry (same `clientRef`) returned the existing receipt / expense to **whoever** presented the reference —
 `POST /cash/receipts` answered with the full receipt (payer, phone, amount, number) without checking the caller's
-cashbox scope; expenses, owner draws, transfers, sale and exclusive-unit collections had the same lookup.
+cashbox scope; expenses, owner draws, capital injections, sale and exclusive-unit collections had the same lookup.
+Only `cash_receipts` and `cash_expenses` store a `client_ref`; every route that accepts one is in the table below.
 Exploitability was low (the reference is a random UUIDv4 the API never returns), but the authorization check was missing.
 Now every `client_ref` lookup (`priorByClientRef` in `cash.ts`, used by `sales.ts`; `sameRetry` in `exclusive.ts`)
 returns the earlier record only when **the same person** retries **the same operation on the same target**:
@@ -91,8 +92,8 @@ returns the earlier record only when **the same person** retries **the same oper
 | --- | --- |
 | `POST /cash/receipts` (and every `recordReceipt` caller) | kind, cashbox, recipient, amount, sale / installment / project (none for a plain receipt), not an exclusive unit |
 | `POST /sales/:id/collect` | this sale, this installment line, kind, cashbox, amount |
-| `POST /sales/:id/collect-auto` | this sale, cashbox, kind (installment vs reservation / down payment), first receipt ≤ the amount sent |
-| `POST /exclusive/units/:id/receipts` | this unit, kind, and — when the form names them — installment and amount |
+| `POST /sales/:id/collect-auto` | this sale, cashbox, kind (installment vs reservation / down payment), and the **total** of the whole split (every receipt written by the first send — same sale, recorder, cashbox, transaction time) equal to the amount sent |
+| `POST /exclusive/units/:id/receipts` | this unit, kind, and — when the form names them — installment and amount (a form without an amount means «the rest» and has none to compare) |
 | `POST /cash/expenses` | cashbox, amount, category, payment method, marketing company, not an owner draw |
 | `POST /cash/owner-draws` | the sender's own draw, office box, method, amount |
 | `POST /cash/injections` | an injection, the same target box, method, amount |
@@ -100,9 +101,12 @@ returns the earlier record only when **the same person** retries **the same oper
 Anything else — another user, sale, line, unit, kind, cashbox, operation or amount — gets `409 client_ref_reused` and
 nothing of the row. Concurrent identical sends are serialised on the reference with a transaction-scoped advisory lock
 (no schema change): one record, the others get it back as the duplicate (before: the UNIQUE violation surfaced as 409
-to a legitimate retry). Response shapes are unchanged (`collect-auto`'s retry still lists the first receipt only, as
-before). Regression tests: `api/test/client-ref-scope.test.ts` and the exclusive amount case in
-`phase6-corrections.test.ts` — they fail on the previous code and pass on the new.
+to a legitimate retry); exclusive units are serialised by the unit's row lock, and two units racing on one reference end
+as one receipt + one 409 (UNIQUE backstop). Response shapes are unchanged; `collect-auto`'s retry now lists **every**
+receipt of the first send, in order — the same `receiptIds` the first answer gave (before: the first one only).
+Regression tests: `api/test/client-ref-scope.test.ts` and the exclusive cases (other unit / kind / amount / person,
+cross-unit race) in `phase6-corrections.test.ts` — run against the previous code they fail (5 at `eb03e12`, the
+`collect-auto` total / full-set case at `6752a7d`) and pass on the new.
 
 ## Known limitations (reported, not changed — business decisions)
 

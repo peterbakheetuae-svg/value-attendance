@@ -81,7 +81,14 @@ test('sale collection split across installments: still split correctly; its retr
   assert.equal(first.body.receiptIds.length, 2, '30,000 on installment 1 + 15,000 on installment 2');
   assert.deepEqual((await receiptsOf(a.id)).map((r: any) => Number(r.amount_egp)), [30_000, 15_000]);
   const retry = await h.call(c.t.hr, 'POST', `/sales/${a.id}/collect-auto`, body);
-  assert.equal(retry.status, 200); assert.equal(retry.body.duplicate, true); assert.deepEqual(retry.body.receiptIds, [first.body.receiptIds[0]]);
+  assert.equal(retry.status, 200); assert.equal(retry.body.duplicate, true);
+  assert.deepEqual(retry.body.receiptIds, first.body.receiptIds, 'the retry answers with every receipt of the first send, in order');
+  // a different total under the same reference is another collection — even though its first line (30,000) would fit
+  for (const amount of [40_000, 50_000, 30_000]) {
+    const r = await h.call(c.t.hr, 'POST', `/sales/${a.id}/collect-auto`, { ...body, amount });
+    assert.equal(r.status, 409, `amount ${amount}: ${JSON.stringify(r.body)}`); assert.equal(reason(r), 'client_ref_reused');
+    assert.ok(!leaks(r.body, ...first.body.receiptIds), 'nothing of the original receipts');
+  }
   assert.equal((await receiptsOf(a.id)).length, 2, 'the retry recorded nothing');
   const other = await h.call(c.t.hr, 'POST', `/sales/${b.id}/collect-auto`, body);
   assert.equal(other.status, 409); assert.equal(reason(other), 'client_ref_reused'); assert.equal((await receiptsOf(b.id)).length, 0);

@@ -324,12 +324,23 @@ export const salesModule: Module = (r, { db, clock }) => {
       const base = parseReceipt({ ...b, kind: reqKind, payerName: b.payerName || s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
         purpose: b.purpose || `${p.name} — وحدة ${s.unit_no}` }, a, clock());
       if (base.ref) {
-        // the retry of THIS sale's collection: its first receipt (the one that carries the reference) belongs to this sale,
-        // cashbox and kind, and is no larger than the amount sent; the same reference for another sale / kind → 409
+        // the retry of THIS sale's collection. Only the first receipt of a split collection carries the reference; the
+        // others were written in the same transaction (same created_at), by the same person, on the same sale and cashbox.
+        // The retry answers with that whole set — in the order first sent — and only when the set is this request: same
+        // sale, cashbox, kind and the same total. Another sale / kind / box / total → 409, nothing of the original.
         const dup = await priorByClientRef(q, 'cash_receipts', base.ref, a.id, (r) => r.sale_id === s.id && r.cashbox === base.box
-          && (reqKind === 'installment' ? r.kind === 'installment' : r.kind === reqKind)
-          && Math.round(Number(r.amount_egp) * 100) <= Math.round(base.amount * 100));
-        if (dup) return { ids: [dup.id], duplicate: true };
+          && (reqKind === 'installment' ? r.kind === 'installment' : r.kind === reqKind));
+        if (dup) {
+          const set: { id: string; amount_egp: string }[] = (await q.query(`
+            SELECT r.id, r.amount_egp FROM cash_receipts r, cash_receipts f
+             WHERE f.id = $1 AND r.sale_id = f.sale_id AND r.recorded_by = f.recorded_by AND r.cashbox = f.cashbox
+               AND r.created_at = f.created_at AND (r.id = f.id OR r.client_ref IS NULL)
+             ORDER BY r.ref_no`, [dup.id])).rows;
+          if (!sameAmount(set.reduce((t, x) => t + Number(x.amount_egp), 0), base.amount)) {
+            throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+          }
+          return { ids: set.map((x) => x.id), duplicate: true };
+        }
       }
       const open = (await q.query(`
         SELECT i.*, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid

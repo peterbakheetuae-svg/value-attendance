@@ -256,6 +256,27 @@ describe('F4 exclusive collections under concurrency', () => {
     const x = await receipt(b, 10_000, ref);
     assert.equal(x.status, 409); assert.equal(x.body.error.details.reason, 'client_ref_reused');
     assert.equal(await total(b), 0);
+    const y = await receipt(a, 10_000, ref, 'down_payment'); // same unit, another payment kind
+    assert.equal(y.status, 409, JSON.stringify(y.body)); assert.equal(y.body.error.details.reason, 'client_ref_reused');
+    assert.equal(await total(a), 10_000);
+  });
+
+  test('another person presenting the reference (same unit, kind, amount) → 409 and nothing of the original receipt', async () => {
+    const u = await unit(30_000); const ref = uuid();
+    const first = await receipt(u, 10_000, ref); assert.equal(first.status, 201);
+    const x = await h.call(c.t.owner, 'POST', `/exclusive/units/${u}/receipts`, { kind: 'reservation', amount: 10_000, clientRef: ref });
+    assert.equal(x.status, 409, JSON.stringify(x.body)); assert.equal(x.body.error.details.reason, 'client_ref_reused');
+    const body = JSON.stringify(x.body);
+    assert.ok(!body.includes(first.body.receipt.id) && !body.includes(String(first.body.receipt.receiptNo)), 'no id, no receipt number');
+    assert.equal(await total(u), 10_000);
+  });
+
+  test('one reference racing on two different units at the same time → one receipt, the other 409 (never a 500)', async () => {
+    const a = await unit(30_000), b = await unit(30_000); const ref = uuid();
+    const rs = await Promise.all([receipt(a, 10_000, ref), receipt(b, 10_000, ref)]);
+    assert.deepEqual(rs.map((r) => r.status).sort(), [201, 409], JSON.stringify(rs.map((r) => r.body?.error ?? r.status)));
+    assert.equal(N((await h.db.query(`SELECT count(*) c FROM cash_receipts WHERE client_ref = $1`, [ref])).rows[0].c), 1);
+    assert.equal((await total(a)) + (await total(b)), 10_000);
   });
 
   test('the same reference for the same unit and kind but another amount → refused, nothing recorded', async () => {
