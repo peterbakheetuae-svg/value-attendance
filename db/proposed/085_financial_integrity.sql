@@ -8,8 +8,10 @@
 --  • payouts_guard: a payout's money and identity never change (who, kind, amount, month, note, what it settles, who paid,
 --    created_at); its status only moves forward and stamps received_at / cancelled_at / the dispute exactly once; a received
 --    or cancelled payout is final in every column; a received payout is never deleted.
---  • company_owner_shares: نسبة الملكية with the month it applies from. Today's shares are copied in as in force since
---    2000-01 (so every past month keeps exactly today's figure until a share changes); a change applies from its month on.
+--  • company_owner_shares: نسبة الملكية with the month it applies from. Today's shares are copied in as in force from the
+--    operational baseline — the first month (Cairo time) with any recorded money movement (cash receipt, cash expense or
+--    payout), or, on a database with none yet (e.g. after the pre-launch clean-up), the month this migration runs. No
+--    earlier history is invented; a later change applies from its own month on.
 
 -- precondition: refuse (and name them) if two live payouts already settle the same request — nothing is changed then
 DO $$
@@ -89,9 +91,17 @@ CREATE TABLE IF NOT EXISTS company_owner_shares (
 );
 CREATE INDEX IF NOT EXISTS company_owner_shares_emp ON company_owner_shares (employee_id, effective_from);
 
--- today's shares, in force for every month so far (the figures shown today do not move)
+-- today's shares, in force from the operational baseline (see the header): every month with recorded money keeps
+-- exactly today's figure; nothing before the first recorded month is claimed. A re-run adds nothing (the history exists).
 INSERT INTO company_owner_shares (employee_id, pct, effective_from, created_by, created_at)
-SELECT employee_id, pct, DATE '2000-01-01', updated_by, updated_at FROM company_owners
+SELECT o.employee_id, o.pct, b.m, o.updated_by, o.updated_at
+  FROM company_owners o,
+       (SELECT COALESCE(LEAST(
+          (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_receipts),
+          (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_expenses),
+          (SELECT min(period) FROM payouts)
+        ), date_trunc('month', now() AT TIME ZONE 'Africa/Cairo')::date) AS m) b
+ WHERE NOT EXISTS (SELECT 1 FROM company_owner_shares s WHERE s.employee_id = o.employee_id)
 ON CONFLICT (employee_id, effective_from) DO NOTHING;
 
 -- validation (fails the transaction if the copy is incomplete)

@@ -54,7 +54,10 @@ clean-up is ever approved, it goes **before 085 / 086** (see below).
   NOT** (a second run stops at «already exists» — harmless, each runs in one transaction, but apply them only once:
   check `schema_migrations` / the object first).
 * **085** refuses to install (and names them) if any request already has two live payouts. Copies today's
-  `company_owners` into the history as in force since 2000-01 (no figure moves).
+  `company_owners` into the history as in force from the **operational baseline**: the first month (Cairo time) with
+  a recorded cash receipt, cash expense or payout — or, on a database with none yet (after the pre-launch clean-up),
+  the month 085 runs. No earlier history is invented; months before the baseline carry no share. Tested in
+  `api/test/085-baseline.test.ts` (both cases fail on the earlier fixed 2000-01 date).
 * **086** adds three tables and two nullable columns on `cash_expenses` / `fixed_expenses`. No back-fill.
 * ⚠ **If the 2026-11-18 clean-up script (`db/ops/2026-11-18-keep-active-employees.sql`) is still planned, run it before 085 / 086**:
   after them, the new tables reference employees, and deleting a former employee / company owner they point to is refused.
