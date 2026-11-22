@@ -414,10 +414,12 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
   }
 
   Future<void> _pay(Map<String, dynamic> x) async {
-    if (!await _confirm(context, 'صرف العمولة', '${x['employeeName']} — ${JphUi.money(x['amount'])}\n'
+    // what is left to pay (an older payroll sheet may have paid part of it inside the salary)
+    final amount = x['payment'] == 'partly_in_payroll' ? (x['leftToPay'] ?? x['amount']) : x['amount'];
+    if (!await _confirm(context, 'صرف العمولة', '${x['employeeName']} — ${JphUi.money(amount)}\n'
         '${x['projectName'] ?? ''} ${x['unitNo'] ?? ''}\nهيظهرله كود من 4 أرقام، تكتبه إنت، والمبلغ بيتخصم من الخزنة ساعتها.')) return;
     await run({
-      'action': 'payout_create', 'employeeId': x['employeeId'], 'kind': 'commission', 'amount': x['amount'],
+      'action': 'payout_create', 'employeeId': x['employeeId'], 'kind': 'commission', 'amount': amount,
       'month': x['period'], 'entitlementId': x['id'],
     });
   }
@@ -476,7 +478,7 @@ class _CommissionsPayTabState extends _MonthTabState<CommissionsPayTab> {
           CountUpText(JphUi.money(x['amount']),
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.primary(isDark))),
         ]),
-        if (canPay && !mine && x['payment'] == 'unpaid') ...[
+        if (canPay && !mine && (x['payment'] == 'unpaid' || x['payment'] == 'partly_in_payroll')) ...[
           const SizedBox(height: 10),
           _actionButton('صرف العمولة', Icons.payments_rounded, JphUi.primary(isDark), busy ? null : () => _pay(x)),
         ],

@@ -1,6 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
-import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
+import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { date, isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, can } from '../auth/context.ts';
@@ -583,6 +583,22 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
    * Money the sales flow brings (عربون الحجز / باقي مقدم التعاقد of an exclusive unit) waits as a pending payment:
    * the accountant and المالك / المدير العام are told, and one of them presses «تم استلام المبلغ».
    */
+  /**
+   * F4: what is still to collect of a unit's deposit / down payment — the ONE limit for both ways money comes in
+   * («تم استلام المبلغ» on a request, and a receipt recorded directly). `u` is a loadUnits row (posted receipts only).
+   */
+  function leftToCollect(u: any, kind: 'reservation' | 'down_payment') {
+    return kind === 'reservation' ? r2(n(u.deposit_amount) - n(u.deposit_paid)) : r2(n(u.down_payment) - n(u.down_paid));
+  }
+
+  /** once a kind is fully collected, the requests still waiting for it are closed (a request is not money; audited) */
+  async function closeCollectedRequests(q: Q, a: Actor, unitId: string, kind: 'reservation' | 'down_payment') {
+    const [u] = await loadUnits(q, 'u.id = $1', [unitId], false);
+    if (leftToCollect(u, kind) > 0.009) return;
+    const open = (await q.query(`UPDATE ex_payments SET status = 'cancelled' WHERE unit_id = $1 AND kind = $2 AND status = 'pending' RETURNING id`, [unitId, kind])).rows;
+    for (const x of open) await audit(q, a.id, 'exclusive.payment.closed_collected', 'ex_payment', x.id, { status: 'pending' }, { status: 'cancelled', reason: 'collected' });
+  }
+
   async function requestPayment(q: Q, a: Actor, u: any, projectName: string, kind: 'reservation' | 'down_payment', amount: number, method: string) {
     const x = await one(q, `INSERT INTO ex_payments (unit_id, kind, amount_egp, payment_method, requested_by, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [u.id, kind, amount, method, a.id, clock()]);
@@ -786,18 +802,39 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
     const externalNo = (str(b, 'externalNo', { optional: true, max: 40 }) ?? '').trim() || null;
     const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
-    const out = await db.tx(async (q) => {
+    // F4: the same form sent twice (a retry) gives the same receipt
+    const clientRef = typeof b.clientRef === 'string' && b.clientRef ? b.clientRef : null;
+    if (clientRef && !isUuid(clientRef)) throw invalid('clientRef must be a uuid', { field: 'clientRef' });
+    // F4 idempotency: the retry check runs AFTER the unit's row lock, so two identical requests at the same time are
+    // serialised — the second one finds the first one's receipt (cash_receipts.client_ref is UNIQUE in the database too)
+    const sameRetry = async (q: Q) => {
+      if (!clientRef) return null;
+      const dup = await one(q, `SELECT id, ref_no, ex_unit_id, kind FROM cash_receipts WHERE client_ref = $1`, [clientRef]);
+      if (!dup) return null;
+      // the same form for this unit / payment kind → that receipt; the reference reused for something else → refused
+      if (dup.ex_unit_id !== req.params.id || dup.kind !== kind) {
+        throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+      }
+      return { id: dup.id, ref_no: dup.ref_no, duplicate: true };
+    };
+    const run = () => db.tx(async (q) => {
       const u0 = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!u0) throw notFound();
+      const again = await sameRetry(q);
+      if (again) return again;
       const [u] = await loadUnits(q, 'u.id = $1', [u0.id]);
-      const p = await one(q, `SELECT name FROM commission_projects WHERE id = $1`, [u.project_id]);
+      const p = await one(q, `SELECT name, kind FROM commission_projects WHERE id = $1`, [u.project_id]);
+      // F4: a marketing (broker) project's unit holds no money of ours — its client pays the developer
+      if (p.kind !== 'exclusive') throw new AppError('conflict', 'ده مشروع تسويق — فلوس العميل بتروح للمطور مش لخزنتنا', { reason: 'not_exclusive' });
       let instId: string | null = null;
       if (kind !== 'installment' && !amount) throw invalid('اكتب المبلغ', { field: 'amount' });
       if (kind === 'reservation') {
         if (!['reserving', 'reserved', 'contract_pending'].includes(u.status)) throw conflict('الوحدة دي عدّت مرحلة الحجز');
+        const due = leftToCollect(u, 'reservation');
+        if (amount > due + 0.001) throw invalid(`الباقي من العربون ${fmt(Math.max(due, 0))}`, { field: 'amount', max: Math.max(due, 0), reason: 'over_collect' });
       } else if (kind === 'down_payment') {
         if (!['contract_pending', 'contracted'].includes(u.status)) throw conflict('ابعت طلب التعاقد الأول');
-        const due = r2(n(u.down_payment) - n(u.down_paid));
+        const due = leftToCollect(u, 'down_payment');
         if (amount > due + 0.001) throw invalid(`الباقي من المقدم ${fmt(Math.max(due, 0))}`, { field: 'amount', max: due });
       } else {
         if (u.status !== 'contracted' || u.payment_type !== 'installments') throw conflict('الوحدة دي مفيهاش أقساط');
@@ -817,9 +854,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
         throw conflict('رقم الإيصال ده اتسجل قبل كده');
       }
       const rc = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
-          external_no, notes, occurred_at, recorded_by, ex_unit_id, ex_installment_id)
-        VALUES ($1,$2,$13,$3,$4,$5,$6,$7,$8,$9,$12,$3,$10,$11) RETURNING id, ref_no`,
-        [kind, amount, a.id, u.client_name, u.client_phone, `${KIND_AR[kind]} — ${p.name} — وحدة ${u.unit_no}`, method, externalNo, notes, u.id, instId, clock(), box]);
+          external_no, notes, occurred_at, recorded_by, ex_unit_id, ex_installment_id, client_ref)
+        VALUES ($1,$2,$13,$3,$4,$5,$6,$7,$8,$9,$12,$3,$10,$11,$14) RETURNING id, ref_no`,
+        [kind, amount, a.id, u.client_name, u.client_phone, `${KIND_AR[kind]} — ${p.name} — وحدة ${u.unit_no}`, method, externalNo, notes, u.id, instId, clock(), box, clientRef]);
+      if (kind !== 'installment') await closeCollectedRequests(q, a, u.id, kind);
       if (kind === 'reservation' && u.status === 'reserving') {
         await q.query(`UPDATE ex_units SET status = 'reserved' WHERE id = $1`, [u.id]);
         await leadFromUnit(q, u.id, 'deposit', a.id, clock());
@@ -827,9 +865,19 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       await audit(q, a.id, 'exclusive.receipt', 'cash_receipt', rc.id, undefined, { unitId: u.id, kind, amount, method, installmentId: instId });
       await notify(q, { to: u.sales_id, type: 'exclusive_payment', title: `اتسجل ${KIND_AR[kind]}: ${fmt(amount)}`,
         body: `${p.name} — وحدة ${u.unit_no} — ${u.client_name}`, entity: 'ex_unit', entityId: u.id, dedupeKey: `ex:receipt:${rc.id}` });
-      return rc;
+      return { ...rc, duplicate: false };
     });
-    return ok({ receipt: { id: out.id, receiptNo: `R-${String(out.ref_no).padStart(6, '0')}` } }, 201);
+    let out: { id: string; ref_no: unknown; duplicate: boolean };
+    try {
+      out = await run();
+    } catch (e: any) {
+      // backstop: the database's UNIQUE(client_ref) refused a twin that slipped past — answer with the receipt that exists
+      if (e?.code !== '23505' || !clientRef) throw e;
+      const again = await db.tx((q) => sameRetry(q));
+      if (!again) throw e;
+      out = again;
+    }
+    return ok({ receipt: { id: out.id, receiptNo: `R-${String(out.ref_no).padStart(6, '0')}` }, duplicate: out.duplicate }, out.duplicate ? 200 : 201);
   });
 
   /**
@@ -1117,11 +1165,21 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     // whoever receives the money says where it went in: نقدي أو بنك
     const chosen = oneOf(obj(req.body), 'paymentMethod', METHODS, true) ?? null;
     const out = await db.tx(async (q) => {
+      // the same lock order as a direct receipt (the unit first, then its request) — never a deadlock between the two paths
+      const x0 = await one(q, `SELECT unit_id FROM ex_payments WHERE id = $1`, [req.params.id]);
+      if (!x0) throw notFound();
+      const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [x0.unit_id]);
       const x = await one(q, `SELECT * FROM ex_payments WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
       if (x.status !== 'pending') throw conflict('المبلغ ده اتأكد استلامه قبل كده');
-      const u = await one(q, `SELECT * FROM ex_units WHERE id = $1 FOR UPDATE`, [x.unit_id]);
       if (u.status === 'cancelled') throw conflict('الحجز ده اتلغى');
+      // F4: never more than what is still to collect (part of it may have been recorded directly as a receipt)
+      const [lu] = await loadUnits(q, 'u.id = $1', [u.id], false);
+      const left = leftToCollect(lu, x.kind);
+      if (n(x.amount_egp) > left + 0.001) {
+        throw new AppError('conflict', left > 0.009 ? `الباقي للتحصيل ${fmt(left)} بس — المبلغ ده اتسجل جزء منه قبل كده` : 'المبلغ ده اتحصّل قبل كده بإيصال مباشر',
+          { reason: 'over_collect', remaining: Math.max(left, 0) });
+      }
       const p = await one(q, `SELECT name FROM commission_projects WHERE id = $1`, [u.project_id]);
       const now = clock();
       const rc = await one(q, `INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,

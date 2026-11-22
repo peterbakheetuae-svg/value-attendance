@@ -4,7 +4,7 @@ import { forbidden } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { adminOfficerSql, authenticate, can, notSettled, type Actor } from '../auth/context.ts';
 import { cashSummary, canOffice } from './cash.ts';
-import { computePayroll, loadRules } from './payroll-calc.ts';
+import { computePayrollMany, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
 import { LATE as LEAD_LATE, OPEN_SQL } from './leads.ts';
 
@@ -42,9 +42,14 @@ function bucket(days: { day: string; v: number }[], range: number, avg = false) 
 async function payrollMonth(db: Db, month: string, t: string) {
   const rules = await loadRules(db);
   const emps = await db.query(`SELECT e.id FROM employees e JOIN employee_salaries s ON s.employee_id = e.id WHERE e.status = 'active'`);
-  const pays = await Promise.all(emps.rows.map((e) => computePayroll(db, e.id, month, t, rules).catch(() => null)));
+  // every employee in a fixed number of queries (it used to run all of them at once and hold the whole connection pool)
+  const pays = [...(await computePayrollMany(db, emps.rows.map((e) => e.id as string), month, t, rules)).values()];
+  // F7: the month's parts (salary, commissions, work expenses) and what settled each — the one rule of payroll-calc
   let due = 0, paid = 0;
-  for (const p of pays as any[]) { if (p?.net == null) continue; due += n(p.net); paid += n(p.salaryPaid); }
+  for (const p of pays as any[]) {
+    if (p?.net == null || !p.components) continue;
+    for (const c of [p.components.salary, p.components.commissions, p.components.workExpenses]) { due += n(c.due); paid += n(c.paid); }
+  }
   return { due: r2(due), paid: r2(paid) };
 }
 

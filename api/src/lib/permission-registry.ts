@@ -123,6 +123,10 @@ export const PERMISSIONS: PermDef[] = [
   // (commission.company_view) — neither alone gives it; before 066 exactly as today (cash.office)
   P('finance', 'finance.company_income', 'دخل وربح المكتب', 'عمولة المكتب في الشهر، تقسيم العمولة، وصافي / ربح المكتب في اللوحات (محتاجة كمان الخزنة الرئيسية وعرض أرباح الشركة)', { sensitive: true, splitFrom: 'cash.office', since: 66, requiresAll: ['cash.office', 'commission.company_view'] }),
   P('cash', 'cash.settings', 'إعدادات الخزن', 'حد اعتماد المصروفات والأرصدة الافتتاحية', { sensitive: true }),
+  // expense groups / categories (proposed migration 086) — classification only: never an amount, a balance or a payment.
+  // Before 086 (and for whoever held it before) exactly as today: «الخزنة الرئيسية» (cash.office).
+  P('cash', 'expense.classification_manage', 'إدارة مجموعات وتصنيفات المصروفات', 'إضافة وتعديل وأرشفة مجموعات المصروفات وتصنيفاتها (للتقارير بس)', { splitFrom: 'cash.office', since: 86 }),
+  P('cash', 'expense.reclassify', 'تغيير تصنيف مصروف', 'تغيير مجموعة / تصنيف مصروف متسجّل — من غير ما المبلغ أو الخزنة أو الموافقة تتغير، ومتسجّل في السجل (المحاسب يصنّف مصروفات خزنته من غيرها)', { splitFrom: 'cash.office', since: 86 }),
   // ---- commissions
   P('commissions', 'commission.read_all', 'عرض كل العمولات', 'كل العمولات المعتمدة واستحقاقات الموظفين', { sensitive: true }),
   P('commissions', 'commission.read_team', 'عرض عمولات فريقه', 'المشاريع والوحدات المباعة لفريقه (من غير أرقام الشركة)'),

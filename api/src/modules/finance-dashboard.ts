@@ -5,7 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, monthParam } from '../http/validate.ts';
 import { authenticate, has, can } from '../auth/context.ts';
 import { cashSummary, canHrView, canOffice } from './cash.ts';
-import { computePayroll, loadRules } from './payroll-calc.ts';
+import { computePayrollMany, loadRules } from './payroll-calc.ts';
 
 /**
  * Financial system, phase 5 — dashboards, the employee account report, and monthly employee indicators.
@@ -61,11 +61,13 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const emps = await db.query(`SELECT e.id, e.full_name FROM employees e JOIN employee_salaries s ON s.employee_id = e.id
                                   WHERE e.status = 'active' ORDER BY e.full_name`);
     const rows = [];
+    const all = await computePayrollMany(db, emps.rows.map((e) => e.id as string), period, today(), rules);
     for (const e of emps.rows) {
-      const p: any = await computePayroll(db, e.id, period, today(), rules);
+      const p: any = all.get(e.id);
       if (p?.net == null) continue;
-      rows.push({ id: e.id, name: e.full_name, net: r2(n(p.net)), paid: r2(n(p.salaryPaid)), remaining: r2(n(p.net) - n(p.salaryPaid)),
-        base: r2(n(p.baseSalary)) });
+      // F7: the salary part and what is left of it — the same figures as صرف الراتب and the payroll sheet
+      rows.push({ id: e.id, name: e.full_name, net: r2(n(p.net)), salaryDue: r2(n(p.components.salary.due)), paid: r2(n(p.salaryPaid)),
+        remaining: r2(n(p.components.salary.remaining)), base: r2(n(p.baseSalary)) });
     }
     return rows;
   }
@@ -186,7 +188,7 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const out: Record<string, unknown> = {
       currency: 'EGP', month: period.slice(0, 7), cash, operating: operating_,
       hr: {
-        salariesDue: r2(sal.reduce((x, y) => x + y.net, 0)), salariesPaid: r2(n(m.salaries_paid)),
+        salariesDue: r2(sal.reduce((x, y) => x + y.salaryDue, 0)), salariesPaid: r2(n(m.salaries_paid)),
         salariesRemaining: r2(sal.reduce((x, y) => x + Math.max(y.remaining, 0), 0)),
         collections: r2(n(m.collections)), expenses: r2(n(m.hr_expenses)),
         requiredFromOffice: (cash as any).hr ? r2(n((cash as any).hr.deficit)) : 0,
@@ -393,17 +395,33 @@ export const financeDashboardModule: Module = (r, { db, clock }) => {
     const rules = await loadRules(db);
     const emps = await db.query(`SELECT id, full_name, code FROM employees WHERE status = 'active' AND role_key <> 'owner' AND NOT attendance_exempt ORDER BY full_name`);
     const out = [];
+    const ids = emps.rows.map((e) => e.id as string);
+    const payBy = new Map([[period, await computePayrollMany(db, ids, period, today(), rules)], [prev, await computePayrollMany(db, ids, prev, today(), rules)]]);
+    // the month's other figures for every employee at once (they were 4 queries per employee per month) — same SQL, grouped
+    const monthExtra = async (p: string) => {
+      const by = (rows: any[]) => new Map(rows.map((r) => [r.employee_id as string, r]));
+      const [att, outs, deals, ev] = await Promise.all([
+        db.query(`SELECT employee_id, count(*) AS n FROM attendance WHERE employee_id = ANY($1::uuid[]) AND work_date >= $2 AND work_date < ($2::date + interval '1 month')
+                   GROUP BY employee_id`, [ids, p]),
+        db.query(`SELECT employee_id, count(*) FILTER (WHERE kind = 'permission') AS perms, count(*) FILTER (WHERE kind = 'visit') AS visits
+                    FROM outing_requests WHERE employee_id = ANY($1::uuid[]) AND status = 'approved' AND parent_id IS NULL
+                     AND requested_at >= ($2::date AT TIME ZONE 'Africa/Cairo') AND requested_at < (($2::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')
+                   GROUP BY employee_id`, [ids, p]),
+        db.query(`SELECT employee_id, count(*) AS n, COALESCE(sum(sales_amount),0) AS c FROM commission_requests
+                   WHERE employee_id = ANY($1::uuid[]) AND status = 'approved' AND period = $2 GROUP BY employee_id`, [ids, p]),
+        db.query(`SELECT employee_id, avg((SELECT avg(v) FROM unnest(ARRAY[discipline, attendance, communication, follow_up, teamwork,
+                         sales_performance, initiative, professional_behavior]) v)) AS s
+                    FROM evaluations WHERE employee_id = ANY($1::uuid[]) AND period = $2 AND status = 'published' GROUP BY employee_id`, [ids, p]),
+      ]);
+      return { att: by(att.rows), outs: by(outs.rows), deals: by(deals.rows), ev: by(ev.rows) };
+    };
+    const extra = new Map([[period, await monthExtra(period)], [prev, await monthExtra(prev)]]);
     for (const e of emps.rows) {
       const stat = async (p: string) => {
-        const pay = await computePayroll(db, e.id, p, today(), rules);
-        const att = await one(db, `SELECT count(*) AS n FROM attendance WHERE employee_id = $1 AND work_date >= $2 AND work_date < ($2::date + interval '1 month')`, [e.id, p]);
-        const outs = await one(db, `SELECT count(*) FILTER (WHERE kind = 'permission') AS perms, count(*) FILTER (WHERE kind = 'visit') AS visits
-                                      FROM outing_requests WHERE employee_id = $1 AND status = 'approved' AND parent_id IS NULL
-                                       AND requested_at >= ($2::date AT TIME ZONE 'Africa/Cairo') AND requested_at < (($2::date + interval '1 month') AT TIME ZONE 'Africa/Cairo')`, [e.id, p]);
-        const deals = await one(db, `SELECT count(*) AS n, COALESCE(sum(sales_amount),0) AS c FROM commission_requests WHERE employee_id = $1 AND status = 'approved' AND period = $2`, [e.id, p]);
-        const ev = await one(db, `SELECT avg((SELECT avg(v) FROM unnest(ARRAY[discipline, attendance, communication, follow_up, teamwork,
-                                        sales_performance, initiative, professional_behavior]) v)) AS s
-                                    FROM evaluations WHERE employee_id = $1 AND period = $2 AND status = 'published'`, [e.id, p]);
+        const pay = payBy.get(p)!.get(e.id)!;
+        const x = extra.get(p)!;
+        const att = x.att.get(e.id) ?? { n: 0 }, outs = x.outs.get(e.id) ?? { perms: 0, visits: 0 },
+          deals = x.deals.get(e.id) ?? { n: 0, c: 0 }, ev = x.ev.get(e.id) ?? null;
         const days = Number(att.n);
         const lateDays = Number((pay as any).late?.days ?? 0);
         return {

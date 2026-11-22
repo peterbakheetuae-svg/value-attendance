@@ -7,6 +7,8 @@ import { imageAttachment, isUuid, num, obj, oneOf, str } from '../http/validate.
 import { audit, authenticate, has, type Actor, can, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 import { companyForPayment, companyOtpInstalled, tellCompany } from './company-payouts.ts';
+import { checkClassification, classificationInstalled } from './expense-classes.ts';
+import { computePayrollMany, loadRules } from './payroll-calc.ts';
 
 /**
  * Financial system, phase 1 — the office cashbox and the HR cashbox.
@@ -79,7 +81,8 @@ export async function cashSummary(q: Q, a: Actor) {
   const out: Record<string, unknown> = { currency: 'EGP' };
   if (canHrView(a)) {
     const hr = get('hr');
-    const pendingExp = await one(q, `SELECT COALESCE(sum(amount_egp),0) AS s, count(*) AS n FROM cash_expenses WHERE status = 'pending_approval'`);
+    // F3: the HR cashbox's own expenses only — an office withdrawal / owner payout waiting for approval is never counted here
+    const pendingExp = await one(q, `SELECT COALESCE(sum(amount_egp),0) AS s, count(*) AS n FROM cash_expenses WHERE status = 'pending_approval' AND cashbox = 'hr'`);
     out.hr = {
       bookBalance: hr,
       // a negative book balance is money the office owes the HR cashbox, not cash that exists
@@ -106,6 +109,160 @@ export async function cashSummary(q: Q, a: Actor) {
     bankView: canOffice(a) && can(a, 'cash.bank_view', 'cash.office'), bankTransfer: canOffice(a) && can(a, 'cash.bank_transfer', 'cash.office'),
     ownerFunds: can(a, 'cash.owner_funds', 'cash.office'),
     print: can(a, 'cash.receipt_print', null), attachmentView: canAttachmentView(a), attachmentUpload: canAttachmentUpload(a) };
+  return out;
+}
+
+/**
+ * F5 — how much of the cashbox-paid advances was ACTUALLY recovered, and when (Cairo dates). Amount-based:
+ *  - deducted: each month's advance deductions (hand-set advance_deductions, or the whole advance in its own month when it
+ *    has none — the payroll's own rule), only for advances paid through the cashbox (a received payout linked to the
+ *    request). Every (advance, month) deduction is counted once — it is a row, not a salary status.
+ *  - recoverable that month = the deduction, less what the salary could not absorb: when deductions are larger than the
+ *    salary part (salaryShortfall) the part not absorbed stays a receivable. Shared pro rata with the month's other
+ *    advances (e.g. one handed over outside the cashbox).
+ *  - recovered as the salary is actually received: each received salary payment recovers its share of the month's salary
+ *    part (two payments of half → two halves; a pending / disputed / cancelled payment recovers nothing). A month with no
+ *    salary to hand over (deductions ate it all) recovers what the salary absorbed once that month is over.
+ * outstanding = paid − recovered, per advance month (never below 0; never more recovered than deducted).
+ */
+export async function advanceRecoveries(q: Q, today: string) {
+  const ded = (await q.query(`
+    SELECT d.employee_id, to_char(d.period, 'YYYY-MM-DD') AS period, sum(d.amount_egp) AS amount
+      FROM (SELECT x.advance_id, x.employee_id, x.period, x.amount_egp FROM advance_deductions x WHERE x.status = 'active'
+            UNION ALL
+            SELECT ar.id, ar.employee_id, ar.period, ar.amount_egp FROM advance_requests ar
+             WHERE ar.kind = 'advance' AND ar.status = 'confirmed'
+               AND NOT EXISTS (SELECT 1 FROM advance_deductions y WHERE y.advance_id = ar.id AND y.status = 'active')) d
+     WHERE EXISTS (SELECT 1 FROM payouts pa WHERE pa.advance_id = d.advance_id AND pa.kind = 'advance' AND pa.status = 'received')
+     GROUP BY 1, 2`)).rows;
+  const events: { date: string; amount: number; employeeId: string; period: string }[] = [];
+  const perMonth: { employeeId: string; period: string; deducted: number; recoverable: number; recovered: number }[] = [];
+  if (!ded.length) return { events, perMonth };
+  const rules = await loadRules(q);
+  const byPeriod = new Map<string, any[]>();
+  for (const d of ded) (byPeriod.get(d.period) ?? byPeriod.set(d.period, []).get(d.period)!).push(d);
+  for (const [period, list] of byPeriod) {
+    const ids = list.map((d) => d.employee_id as string);
+    const pays = await computePayrollMany(q, ids, period, today, rules);
+    const sal = (await q.query(`SELECT employee_id, amount_egp, received_at FROM payouts
+                                 WHERE employee_id = ANY($1::uuid[]) AND period = $2 AND kind = 'salary' AND status = 'received'
+                                 ORDER BY received_at, id`, [ids, period])).rows;
+    const monthOver = (() => { const [y, m] = period.split('-').map(Number); return `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01` <= today; })();
+    const lastDay = (() => { const [y, m] = period.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); })();
+    for (const d of list) {
+      const p: any = pays.get(d.employee_id);
+      const deducted = r2(Number(d.amount));
+      if (!p || p.net == null) { perMonth.push({ employeeId: d.employee_id, period, deducted, recoverable: 0, recovered: 0 }); continue; }
+      const allAdv = Number(p.advances) || 0, salaryDue = Number(p.salaryDue);
+      // what the month's salary absorbed of ALL its advance deductions, then this (cashbox-paid) share of it
+      const absorbed = Math.max(0, Math.min(allAdv, allAdv + Math.min(0, salaryDue)));
+      const recoverable = r2(allAdv > 0 ? Math.min(deducted, deducted * absorbed / allAdv) : 0);
+      let recovered = 0;
+      if (salaryDue > 0.009) {
+        let cum = 0;
+        for (const x of sal.filter((y) => y.employee_id === d.employee_id)) {
+          const before = cum;
+          cum = Math.min(salaryDue, cum + Number(x.amount_egp));
+          const amt = r2(recoverable * (cum - before) / salaryDue);
+          if (amt > 0) { events.push({ date: local(new Date(x.received_at)).date, amount: amt, employeeId: d.employee_id, period }); recovered = r2(recovered + amt); }
+        }
+        // rounding: a fully received salary recovers exactly the recoverable amount
+        if (cum + 0.009 >= salaryDue && Math.abs(recovered - recoverable) > 0 && events.length) {
+          events[events.length - 1].amount = r2(events[events.length - 1].amount + recoverable - recovered); recovered = recoverable;
+        }
+      } else if (monthOver && recoverable > 0) {
+        events.push({ date: lastDay, amount: recoverable, employeeId: d.employee_id, period }); recovered = recoverable;
+      }
+      perMonth.push({ employeeId: d.employee_id, period, deducted, recoverable, recovered });
+    }
+  }
+  return { events, perMonth };
+}
+
+/**
+ * The office's result month by month (Cairo months), the ONE definition shared by the cashbox overview, the owners'
+ * accounts, the injections page and the year closing:
+ *   commissions = commission receipts + exclusive commission moved to the office
+ *   cashCosts   = the office's own expenses (not trust money, unit refunds or owner withdrawals) + every payout received
+ *   F5: an advance paid to an employee is money he owes back (a receivable), not a cost: it leaves the costs when paid and
+ *       comes back as a cost only as it is ACTUALLY recovered from his salary — amount by amount (advanceRecoveries below),
+ *       never because a salary simply exists. Only advances paid through the cashbox against an approved advance request
+ *       count this way; any other «سلفة» payout stays a cost.
+ *   costs = cashCosts − advancesPaid + advancesRecovered · net = commissions − costs
+ */
+export async function profitParts(q: Q, from: string | null, to: string | null, today = local(new Date()).date) {
+  const vals: unknown[] = [];
+  const range = (col: string) => {
+    const c: string[] = [];
+    if (from) { vals.push(from); c.push(`${col} >= ($${vals.length}::date AT TIME ZONE 'Africa/Cairo')`); }
+    if (to) { vals.push(to); c.push(`${col} < (($${vals.length}::date + 1) AT TIME ZONE 'Africa/Cairo')`); }
+    return c.length ? ' AND ' + c.join(' AND ') : '';
+  };
+  const M = (col: string) => `date_trunc('month', ${col} AT TIME ZONE 'Africa/Cairo')::date`;
+  const sql = `
+    WITH parts AS (
+      SELECT ${M('occurred_at')} AS m, amount_egp AS commissions, 0::numeric AS costs, 0::numeric AS adv_paid, 0::numeric AS adv_rec
+        FROM cash_receipts WHERE status = 'posted' AND kind = 'commission' ${range('occurred_at')}
+      UNION ALL
+      SELECT ${M('created_at')}, amount_egp, 0, 0, 0 FROM ex_commission_transfers WHERE true ${range('created_at')}
+      UNION ALL
+      SELECT ${M('COALESCE(approved_at, occurred_at)')}, 0, amount_egp, 0, 0 FROM cash_expenses
+       WHERE status = 'posted' AND ex_kind IS NULL AND sale_id IS NULL AND owner_draw_id IS NULL ${range('COALESCE(approved_at, occurred_at)')}
+      UNION ALL
+      SELECT ${M('received_at')}, 0, amount_egp, 0, 0 FROM payouts WHERE status = 'received' AND kind <> 'fund' ${range('received_at')}
+      UNION ALL
+      SELECT ${M('p.received_at')}, 0, 0, p.amount_egp, 0 FROM payouts p JOIN advance_requests ar ON ar.id = p.advance_id AND ar.kind = 'advance'
+       WHERE p.status = 'received' AND p.kind = 'advance' ${range('p.received_at')}
+    )
+    SELECT to_char(m, 'YYYY-MM-DD') AS month, sum(commissions) AS commissions, sum(costs) AS cash_costs, sum(adv_paid) AS adv_paid, sum(adv_rec) AS adv_rec
+      FROM parts GROUP BY m ORDER BY m`;
+  const raw = (await q.query(sql, vals)).rows;
+  // F5: what was actually recovered of the advances, per Cairo month of the recovery, inside the range
+  const rec = new Map<string, number>();
+  for (const e of (await advanceRecoveries(q, today)).events) {
+    if ((from && e.date < from) || (to && e.date > to)) continue;
+    const m = e.date.slice(0, 7) + '-01';
+    rec.set(m, r2((rec.get(m) ?? 0) + e.amount));
+  }
+  for (const m of rec.keys()) if (!raw.some((x) => x.month === m)) raw.push({ month: m, commissions: 0, cash_costs: 0, adv_paid: 0, adv_rec: 0 });
+  raw.sort((x, y) => String(x.month).localeCompare(String(y.month)));
+  const rows = raw.map((x) => {
+    const commissions = r2(Number(x.commissions)), cashCosts = r2(Number(x.cash_costs));
+    const advancesPaid = r2(Number(x.adv_paid)), advancesRecovered = r2(rec.get(x.month) ?? 0);
+    const costs = r2(cashCosts - advancesPaid + advancesRecovered);
+    return { month: x.month as string, commissions, cashCosts, advancesPaid, advancesRecovered, costs, net: r2(commissions - costs) };
+  });
+  const sum = (k: 'commissions' | 'cashCosts' | 'advancesPaid' | 'advancesRecovered' | 'costs' | 'net') => r2(rows.reduce((t, x) => t + x[k], 0));
+  return { months: rows, total: { commissions: sum('commissions'), cashCosts: sum('cashCosts'), advancesPaid: sum('advancesPaid'),
+    advancesRecovered: sum('advancesRecovered'), costs: sum('costs'), net: sum('net') } };
+}
+
+/** F6: ownership-share history (migration 085) — until it runs, today's نسبة الملكية applies to every month (as before). */
+export async function ownerShareHistoryInstalled(q: Q) {
+  return !!(await one(q, `SELECT to_regclass('public.company_owner_shares') IS NOT NULL AS ok`))?.ok;
+}
+
+/** Each owner's share for every month: the latest share in force on that month's first day (history), else today's. */
+async function ownerProfits(q: Q, ids: string[], months: { month: string; net: number }[]) {
+  const out = new Map<string, number>();
+  const hist = await ownerShareHistoryInstalled(q)
+    ? (await q.query(`SELECT employee_id, pct, to_char(effective_from, 'YYYY-MM-DD') AS f FROM company_owner_shares
+                       WHERE employee_id = ANY($1::uuid[]) ORDER BY effective_from, created_at`, [ids])).rows : null;
+  const cur = new Map((await q.query(`SELECT employee_id, pct FROM company_owners WHERE employee_id = ANY($1::uuid[])`, [ids])).rows
+    .map((x) => [x.employee_id as string, Number(x.pct)]));
+  for (const id of ids) {
+    const mine = hist?.filter((h) => h.employee_id === id) ?? [];
+    let total = 0;
+    for (const m of months) {
+      let pct = cur.get(id) ?? 0;
+      if (hist) {
+        const inForce = mine.filter((h) => h.f <= m.month).pop();
+        pct = inForce ? Number(inForce.pct) : 0; // no share recorded yet for that month → none
+      }
+      total += m.net * pct / 100;
+    }
+    out.set(id, r2(total));
+  }
   return out;
 }
 
@@ -227,8 +384,13 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
     const total = r2(N(cm.s) + N(cm.m) + N(cm.c) + N(ux.t));
     out.commissionSplit = { total, sales, manager, marketing, office: r2(total - sales - manager - marketing), deals: cm.n + ux.n };
     Object.assign(out, await salesMoneyOverview(q, from, to));
-    const commissions = (out.income as any).commissions;
-    out.result = { commissions, costs: (out.expenses as any).total, net: r2(commissions - (out.expenses as any).total) };
+    // the office's result: the one definition (profitParts) — cash costs with advances as receivables (F5)
+    const pr = (await profitParts(q, from, to)).total;
+    // the employees' advances still to recover (paid through the cashbox − actually recovered), up to the range's end
+    const upTo = from ? (await profitParts(q, null, to)).total : pr;
+    out.result = { commissions: pr.commissions, costs: pr.costs, net: pr.net, cashCosts: pr.cashCosts,
+      advancesPaid: pr.advancesPaid, advancesRecovered: pr.advancesRecovered,
+      advancesOutstanding: r2(Math.max(0, upTo.advancesPaid - upTo.advancesRecovered)) };
     // the owners' trust is the exclusive projects' money; the office's commission income / split / net its own permission
     if (!can(a, 'exclusive.view_finance', 'cash.office')) delete (out.income as any).trust;
     if (!can(a, 'finance.company_income', 'cash.office')) { delete (out.income as any).commissions; delete out.commissionSplit; delete out.result; }
@@ -263,6 +425,8 @@ async function officeParts(q: Q) {
 export async function ownerBalancesAt(q: Q, a: Actor, ids: string[], to: string | null) {
   const ov = await cashOverview(q, a, null, to);
   const net = (ov.result as any)?.net == null ? null : Number((ov.result as any).net);
+  // F6: each month's net × the share in force that month (history), summed — not today's share × the whole net
+  const profits = net === null ? null : await ownerProfits(q, ids, (await profitParts(q, null, to)).months);
   const before = to ? ` AND %s < (($2::date + 1) AT TIME ZONE 'Africa/Cairo')` : '';
   const cut = (col: string) => before.replace('%s', col);
   const rows = (await q.query(`SELECT e.id, e.full_name, COALESCE(o.pct, 0) AS pct,
@@ -275,7 +439,7 @@ export async function ownerBalancesAt(q: Q, a: Actor, ids: string[], to: string 
     net,
     owners: rows.map((x) => {
       const injected = r2(Number(x.injected)), withdrawn = r2(Number(x.drawn)), pending = r2(Number(x.pending)), pct = Number(x.pct);
-      const profit = net === null ? null : r2(net * pct / 100);
+      const profit = net === null || !profits ? null : profits.get(x.id as string) ?? 0;
       return { id: x.id as string, name: x.full_name as string, pct, injected, profit, withdrawn, pending,
         book: profit === null ? null : r2(injected + profit - withdrawn), balance: profit === null ? null : r2(injected + profit - withdrawn - pending) };
     }),
@@ -287,7 +451,10 @@ export async function ownerBalancesAt(q: Q, a: Actor, ids: string[], to: string 
  * − what he already withdrew (approved) − what is waiting for approval = what he can still withdraw.
  */
 export async function ownerAccounts(q: Q, a: Actor) {
-  const ids = await ownerIds(q);
+  // F6: today's owners + anyone who held a share in a past month (his profit of those months stays his)
+  const ids = [...new Set([...(await ownerIds(q)), ...(await ownerShareHistoryInstalled(q)
+    ? (await q.query(`SELECT DISTINCT s.employee_id FROM company_owner_shares s JOIN employees e ON e.id = s.employee_id
+                       WHERE s.pct > 0 AND e.status = 'active'`)).rows.map((x) => x.employee_id as string) : [])])];
   const { owners } = await ownerBalancesAt(q, a, ids, null);
   const out: Record<string, { injected: number; profit: number; withdrawn: number; pending: number; balance: number }> = {};
   for (const x of owners) {
@@ -414,6 +581,9 @@ function shapeExpense(x: any) {
     reversedAt: x.reversed_at, reverseReason: x.reverse_reason, createdAt: x.created_at,
     paymentMethod: x.payment_method ?? 'cash', marketingCompanyId: x.marketing_company_id ?? null,
     fixedExpenseId: x.fixed_expense_id ?? null,
+    // classification (086): metadata only — null = «غير مصنف»
+    expenseGroupId: x.expense_group_id ?? null, expenseCategoryId: x.expense_category_id ?? null,
+    expenseGroupName: x.expense_group_name ?? null, expenseCategoryName: x.expense_category_name ?? null,
   };
 }
 
@@ -457,10 +627,14 @@ function shapeTransfer(x: any, a: Actor, desk: boolean) {
 
 export const RECEIPT_SELECT = `SELECT r.*, (r.attachment IS NOT NULL) AS has_attachment, rc.full_name AS recipient_name, rb.full_name AS recorded_by_name
   FROM cash_receipts r JOIN employees rc ON rc.id = r.actual_recipient_id JOIN employees rb ON rb.id = r.recorded_by`;
-const EXPENSE_SELECT = `SELECT x.*, (x.attachment IS NOT NULL) AS has_attachment, rb.full_name AS recorded_by_name,
+const EXPENSE_SELECT_BASE = `SELECT x.*, (x.attachment IS NOT NULL) AS has_attachment, rb.full_name AS recorded_by_name,
   ap.full_name AS approved_by_name, rv.full_name AS reviewed_by_name
   FROM cash_expenses x JOIN employees rb ON rb.id = x.recorded_by
   LEFT JOIN employees ap ON ap.id = x.approved_by LEFT JOIN employees rv ON rv.id = x.reviewed_by`;
+/** with the group / category names once 086 runs (before it, exactly the old select) */
+const EXPENSE_SELECT_CLS = EXPENSE_SELECT_BASE.replace(' FROM cash_expenses x ', `, eg.name AS expense_group_name, ec.name AS expense_category_name
+  FROM cash_expenses x LEFT JOIN expense_groups eg ON eg.id = x.expense_group_id LEFT JOIN expense_categories ec ON ec.id = x.expense_category_id `);
+async function expenseSelect(q: Q) { return (await classificationInstalled(q)) ? EXPENSE_SELECT_CLS : EXPENSE_SELECT_BASE; }
 const TRANSFER_SELECT = `SELECT t.*, rq.full_name AS requested_by_name, dc.full_name AS decided_by_name,
   ex.full_name AS executed_by_name, rc.full_name AS received_by_name,
   EXISTS (SELECT 1 FROM cash_attachments ca WHERE ca.entity = 'transfer' AND ca.entity_id = t.id) AS has_attachment
@@ -502,6 +676,8 @@ export const cashModule: Module = (r, { db, clock }) => {
     const net = Number((ov.result as any)?.net ?? 0);
     const posted = rows.filter((x) => x.status === 'posted');
     const acc = await ownerAccounts(db, a);
+    // F6: the period's profit share with the share in force each month
+    const periodProfit = (ov.result as any) ? await ownerProfits(db, owners.map((o) => o.id as string), (await profitParts(db, from, to)).months) : new Map<string, number>();
     vals.length = 0;
     const drawSql = `
       SELECT x.id, x.ref_no, x.amount_egp, x.payment_method, x.notes, x.status, x.occurred_at, x.owner_draw_id, x.recorded_by, x.reject_reason,
@@ -514,7 +690,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       total: r2(posted.reduce((t, x) => t + Number(x.amount_egp), 0)),
       owners: owners.map((o) => ({ id: o.id, name: o.full_name, pct: Number(o.pct),
         injected: r2(posted.filter((x) => x.recorded_by === o.id).reduce((t, x) => t + Number(x.amount_egp), 0)),
-        injectedAllTime: r2(Number(o.all_time)), profit: r2(net * Number(o.pct) / 100),
+        injectedAllTime: r2(Number(o.all_time)), profit: periodProfit.get(o.id) ?? 0,
         withdrawn: r2(draws.filter((x) => x.owner_draw_id === o.id && x.status === 'posted').reduce((t, x) => t + Number(x.amount_egp), 0)),
         account: acc[o.id] ?? null })),
       draws: draws.map((x) => ({ id: x.id, refNo: Number(x.ref_no), ownerId: x.owner_draw_id, ownerName: x.by_name, amount: Number(x.amount_egp),
@@ -574,11 +750,19 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (parsed.some((x) => !isUuid(x.id) || !Number.isFinite(x.pct) || x.pct < 0 || x.pct > 100)) throw invalid('راجع النسب', { field: 'owners' });
     if (parsed.reduce((t, x) => t + x.pct, 0) > 100.0001) throw invalid('مجموع النسب أكبر من 100٪', { field: 'owners' });
     await db.tx(async (q) => {
+      const history = await ownerShareHistoryInstalled(q);
       for (const x of parsed) {
         if (!(await one(q, `SELECT 1 FROM employees WHERE id = $1`, [x.id]))) throw invalid('موظف مش موجود', { field: 'owners' });
+        const before = await one(q, `SELECT pct FROM company_owners WHERE employee_id = $1`, [x.id]);
         await q.query(`INSERT INTO company_owners (employee_id, pct, updated_by, updated_at) VALUES ($1,$2,$3,$4)
                         ON CONFLICT (employee_id) DO UPDATE SET pct = EXCLUDED.pct, updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`,
           [x.id, x.pct, a.id, clock()]);
+        // F6: a changed share applies from this month on; earlier months keep the share they had (history, never edited)
+        if (history && (!before || Number(before.pct) !== x.pct)) {
+          await q.query(`INSERT INTO company_owner_shares (employee_id, pct, effective_from, created_by, created_at) VALUES ($1,$2,$3,$4,$5)
+                          ON CONFLICT (employee_id, effective_from) DO UPDATE SET pct = EXCLUDED.pct, created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at`,
+            [x.id, x.pct, local(clock()).date.slice(0, 7) + '-01', a.id, clock()]);
+        }
       }
       await audit(q, a.id, 'cash.owners', 'company_owners', a.id, undefined, { owners: parsed });
     });
@@ -776,6 +960,8 @@ export const cashModule: Module = (r, { db, clock }) => {
         const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
         if (dup) return { id: dup.id, duplicate: true };
       }
+      // optional group / category (086): metadata only — it changes nothing of the amount, approval or payment below
+      const cls = (b.groupId || b.categoryId) && await classificationInstalled(q) ? await checkClassification(q, b.groupId, b.categoryId) : null;
       const s = await one(q, `SELECT expense_approval_threshold FROM company_settings LIMIT 1`);
       const threshold = Number(s?.expense_approval_threshold ?? 1000);
       // HR records directly; above the threshold the manager approves first. Office expenses are the manager's own.
@@ -787,9 +973,12 @@ export const cashModule: Module = (r, { db, clock }) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, ref_no, marketing_company_id, amount_egp`,
         [box, amount, category, reason, beneficiary, notes, att, ref, occurred, a.id,
           status, status === 'posted' ? a.id : null, status === 'posted' ? clock() : null, method, mkId]);
+      if (cls && (cls.groupId || cls.categoryId)) {
+        await q.query(`UPDATE cash_expenses SET expense_group_id = $2, expense_category_id = $3 WHERE id = $1`, [x.id, cls.groupId, cls.categoryId]);
+      }
       if (status === 'awaiting_otp') await tellCompany(q, x, a.fullName, category);
       await audit(q, a.id, 'cash.expense', 'cash_expense', x.id, undefined,
-        { cashbox: box, amount, category, reason, beneficiary, status, threshold });
+        { cashbox: box, amount, category, reason, beneficiary, status, threshold, ...(cls ? { groupId: cls.groupId, categoryId: cls.categoryId } : {}) });
       if (needsApproval) {
         for (const m of await cashOfficers(q, a.id)) {
           await notify(q, { to: m, type: 'cash_expense_awaiting', title: `مصروف محتاج موافقتك: ${fmt(amount)}`,
@@ -798,7 +987,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       }
       return { id: x.id, duplicate: false };
     });
-    const full = await one(db, `${EXPENSE_SELECT} WHERE x.id = $1`, [out.id]);
+    const full = await one(db, `${await expenseSelect(db)} WHERE x.id = $1`, [out.id]);
     return ok({ expense: shapeExpense(full), duplicate: out.duplicate }, out.duplicate ? 200 : 201);
   });
 
@@ -810,7 +999,14 @@ export const cashModule: Module = (r, { db, clock }) => {
     const st = req.query.get('status');
     if (st && ['pending_approval', 'posted', 'rejected', 'reversed'].includes(st)) { vals.push(st); where.push(`x.status = $${vals.length}`); }
     if (req.query.get('unreviewed') === '1') where.push(`x.reviewed_at IS NULL AND x.status = 'posted'`);
-    const rows = await db.query(`${EXPENSE_SELECT} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC LIMIT 500`, vals);
+    // classification filters (086): ?groupId= · ?categoryId= · ?unclassified=1
+    if (await classificationInstalled(db)) {
+      const g = req.query.get('groupId'), cId = req.query.get('categoryId');
+      if (g && isUuid(g)) { vals.push(g); where.push(`x.expense_group_id = $${vals.length}`); }
+      if (cId && isUuid(cId)) { vals.push(cId); where.push(`x.expense_category_id = $${vals.length}`); }
+      if (req.query.get('unclassified') === '1') where.push(`x.expense_group_id IS NULL AND x.expense_category_id IS NULL AND x.ex_kind IS NULL AND x.sale_id IS NULL AND x.owner_draw_id IS NULL`);
+    }
+    const rows = await db.query(`${await expenseSelect(db)} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC LIMIT 500`, vals);
     return ok({ currency: 'EGP', expenses: rows.rows.map(shapeExpense) });
   });
 
@@ -821,6 +1017,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   const ownBox = (a: Actor): 'hr' | 'office' => (hrDesk(a) ? 'hr' : 'office');
   const shapeFixed = (f: any) => ({ id: f.id, name: f.name, category: f.category, amount: Number(f.amount_egp), beneficiary: f.beneficiary,
     cashbox: f.cashbox, paymentMethod: f.payment_method, notes: f.notes, active: f.active,
+    expenseGroupId: f.expense_group_id ?? null, expenseCategoryId: f.expense_category_id ?? null,
     paid: f.exp_id ? { expenseId: f.exp_id, cashbox: f.exp_box, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true } : null });
 
   r.get('/cash/fixed-expenses', async (req) => {
@@ -857,6 +1054,12 @@ export const cashModule: Module = (r, { db, clock }) => {
     const x = await db.tx(async (q) => {
       const row = await one(q, `INSERT INTO fixed_expenses (name, category, amount_egp, beneficiary, cashbox, payment_method, notes, active, created_by)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`, [f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active, a.id]);
+      const b0 = obj(req.body);
+      if (('groupId' in b0 || 'categoryId' in b0) && await classificationInstalled(q)) {
+        const cls = await checkClassification(q, b0.groupId, b0.categoryId);
+        Object.assign(row, (await one(q, `UPDATE fixed_expenses SET expense_group_id = $2, expense_category_id = $3 WHERE id = $1 RETURNING expense_group_id, expense_category_id`,
+          [row.id, cls.groupId, cls.categoryId])));
+      }
       await audit(q, a.id, 'cash.fixed_expense.create', 'fixed_expense', row.id, undefined, row);
       return row;
     });
@@ -873,6 +1076,12 @@ export const cashModule: Module = (r, { db, clock }) => {
       if (!canFixed(a)) throw forbidden();
       const row = await one(q, `UPDATE fixed_expenses SET name = $2, category = $3, amount_egp = $4, beneficiary = $5, cashbox = $6, payment_method = $7,
           notes = $8, active = $9 WHERE id = $1 RETURNING *`, [o.id, f.name, f.category, f.amount, f.beneficiary, f.box, f.method, f.notes, f.active]);
+      const b0 = obj(req.body);
+      if (('groupId' in b0 || 'categoryId' in b0) && await classificationInstalled(q)) {
+        const cls = await checkClassification(q, b0.groupId, b0.categoryId);
+        Object.assign(row, (await one(q, `UPDATE fixed_expenses SET expense_group_id = $2, expense_category_id = $3 WHERE id = $1 RETURNING expense_group_id, expense_category_id`,
+          [o.id, cls.groupId, cls.categoryId])));
+      }
       await audit(q, a.id, 'cash.fixed_expense.update', 'fixed_expense', o.id, o, row);
       return row;
     });
@@ -906,6 +1115,10 @@ export const cashModule: Module = (r, { db, clock }) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id, ref_no`,
         [box, amount, f.category, `${f.name} — ${monthAr} ${m.slice(0, 4)}`, f.beneficiary, f.notes, clock(), a.id,
           needsApproval ? 'pending_approval' : 'posted', needsApproval ? null : a.id, needsApproval ? null : clock(), f.payment_method, f.id, period]);
+      // the fixed expense's group / category (086) goes with each month's expense — metadata only
+      if ((f.expense_group_id || f.expense_category_id) && await classificationInstalled(q)) {
+        await q.query(`UPDATE cash_expenses SET expense_group_id = $2, expense_category_id = $3 WHERE id = $1`, [x.id, f.expense_group_id ?? null, f.expense_category_id ?? null]);
+      }
       await audit(q, a.id, 'cash.fixed_expense.pay', 'cash_expense', x.id, undefined, { fixedExpenseId: f.id, period, amount, cashbox: box });
       if (needsApproval) {
         for (const o of await cashOfficers(q, a.id)) {
@@ -915,7 +1128,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       }
       return x;
     });
-    const full = await one(db, `${EXPENSE_SELECT} WHERE x.id = $1`, [out.id]);
+    const full = await one(db, `${await expenseSelect(db)} WHERE x.id = $1`, [out.id]);
     return ok({ expense: shapeExpense(full) }, 201);
   });
 
