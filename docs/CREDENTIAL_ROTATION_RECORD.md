@@ -77,7 +77,7 @@ authorizing Apps Script) are outside the repository and were not visible here.
 
 ## 5. Legacy services
 
-### 5.1 Netlify `value-attendance-api` — investigated 2026-11-22, **NOT contained**
+### 5.1 Netlify `value-attendance-api` — public access **contained 2026-11-22 20:4xZ** (credentials still valid)
 
 - **Public endpoints:** `https://value-attendance-api.netlify.app/*` and `https://main--value-attendance-api.netlify.app/*`,
   served by production deploy `6aebd5b7…` (commit `bb0f322`, 2026-11-05), one function `api` on `/*` (Node 22, us-east-2).
@@ -95,10 +95,14 @@ authorizing Apps Script) are outside the repository and were not visible here.
 - **Logs (24 h, the plan's whole retention):** 9 requests, all checks. 7 were from this assistant's own checks
   (`/healthz`, `/readyz`, `/robots.txt`), 2 were headless-browser hits on preview permalinks, refused by team login. No
   `/auth`, `/backup` or data routes, so no sign of misuse **in that window**. Older activity cannot be seen.
-- **Containment prepared, NOT applied.** Extending Netlify's team-login protection from previews to all deploys (Project
-  configuration → Access & security → Visitor access → team login for **all** deploys) was attempted from this session
-  and refused by the session's permission guard. It is reversible in one click: set it back to "non-production only".
-- **Recommended order:** that setting first (instant, reversible) → "Stop builds" (no rebuild from pushes or PRs) → later
+- **Containment applied (owner's instruction).** Visitor access now requires Netlify team login for **all** deploys
+  (`whichProjectsRequireSSOTeamLogin: all`; it was `non_production`).
+  - Verified from outside: `/healthz` and `/readyz` on both public hosts now fail with a client error (they answered 200
+    before).
+  - Netlify's request records show these requests with **0 function invocations**, so the API code is no longer reached.
+  - Revert in one click: set the team login back to "non-production only".
+  - Still open: the site keeps building from GitHub, and the four credentials stay valid until they are rotated.
+- **Next:** "Stop builds" (no rebuild from pushes or PRs) → later
   rotations #1/#2/#4 cut the credentials themselves → delete variables and site last.
 
 ### 5.2 Vercel `value-attendance-api`
@@ -149,6 +153,6 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
 | Date | Item | Action | Evidence |
 |---|---|---|---|
 | 2026-11-22 | all | Inventory + masked history scan; no rotation possible here (§2) | §1, §3 |
-| 2026-11-22 | Netlify | Investigated (§5.1); containment setting attempted, refused by the session permission guard — **not contained** | Netlify deploy + 24 h request records |
+| 2026-11-22 | Netlify | Investigated (§5.1); team login required on all deploys (owner's instruction) — public API blocked, credentials not yet rotated | site setting `all`; /healthz, /readyz client error; 0 function invocations |
 | 2026-11-22 | #17 | Signer certificates of v1.0.44/45/54/150 compared (§5.3) — **exposure open** | public certificate fingerprints |
 | 2026-11-09 | #17 | Old Android keystore replaced (by an earlier session, commit `3b5bc21`) | commit message + key now only in GitHub secrets |
