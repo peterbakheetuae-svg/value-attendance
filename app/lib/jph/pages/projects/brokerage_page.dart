@@ -261,9 +261,22 @@ class _BrokeragePageState extends State<BrokeragePage> {
         _line(isDark, 'الإجمالي', '${_egp(cm['total'])} — باقي ${_egp(cm['receivable'])}'),
         if (shares.isNotEmpty) ...[
           const Divider(),
-          for (final s in shares)
+          for (final s in shares) ...[
             _line(isDark, roleAr[s['role']] ?? '${s['role']}',
-                '${_map(s['employee'])['name'] ?? s['beneficiary']} — ${_egp(s['amount'])}${s['mode'] == 'pct' ? ' (${s['value']}٪)' : ''}'),
+                '${_map(s['employee'])['name'] ?? s['beneficiary']} — ${_egp(s['amount'])}${s['mode'] == 'pct' ? ' (${s['value']}٪)' : ''}'
+                '${s['settlement'] != null ? ' · اتصرف (إيصال ${_map(s['settlement'])['refNo']})' : ''}'),
+            // an approved beneficiary outside the staff: paid once from the office cashbox, after the commission is all in
+            if (s['canSettle'] == true)
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final r = await _send('/brokerage/deals/${d['id']}/shares/${s['id']}/settle', {'clientRef': _uuidFrom('')}, ok: 'اتصرف ✅');
+                  if (!ctx.mounted) return;
+                  JphUi.toast(ctx, r);
+                  if (r['success'] == true) Navigator.pop(ctx);
+                },
+                icon: const Icon(Icons.outbound_rounded),
+                label: Text('صرف نصيب ${s['beneficiary']} من الخزنة')),
+          ],
         ],
         if (d['canApprove'] == true) ...[
           const Divider(),

@@ -9,6 +9,8 @@
 --    beneficiaries — as a percentage or a fixed amount, validated against the commission. Frozen once approved.
 --  • cash_receipts.brokerage_deal_id / brokerage_side: a commission collected from the owner or the client side goes into
 --    a cashbox as kind 'commission' (office revenue — only when actually collected; the rest stays a receivable).
+--  • cash_expenses.brokerage_share_id: the settlement of an approved beneficiary outside the staff (one live per share).
+--  • A reversed commission receipt re-opens a collected deal and cancels its entitlements (refused once any share was paid).
 --  • commission_entitlements.brokerage_share_id: once the commission is fully collected each employee share becomes a
 --    commission entitlement of that month (paid with «صرف العمولة», counted in payroll like every other commission).
 --    request_id becomes nullable for these rows only (CHECK: exactly one of request_id / brokerage_share_id).
@@ -78,7 +80,11 @@ BEGIN
        OLD.proposed_by, OLD.decided_by, OLD.decided_at, OLD.snapshot) THEN
     RAISE EXCEPTION 'an approved commission agreement cannot be changed';
   END IF;
-  IF OLD.status IN ('rejected', 'cancelled', 'collected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+  -- collected → approved only: a reversed collection reopens the deal (its entitlements are cancelled in the same transaction)
+  IF OLD.status = 'collected' AND NEW.status IS DISTINCT FROM OLD.status AND NEW.status <> 'approved' THEN
+    RAISE EXCEPTION 'a collected deal can only be reopened by a reversal';
+  END IF;
+  IF OLD.status IN ('rejected', 'cancelled') AND NEW.status IS DISTINCT FROM OLD.status THEN
     RAISE EXCEPTION 'a % deal is final', OLD.status;
   END IF;
   RETURN NEW;
@@ -99,6 +105,12 @@ DO $$ BEGIN
   END IF;
 END $$;
 CREATE INDEX IF NOT EXISTS cash_receipts_brokerage ON cash_receipts (brokerage_deal_id) WHERE brokerage_deal_id IS NOT NULL;
+
+-- an approved beneficiary outside the staff is paid from the office cashbox: one expense linked to his share, one live
+-- (not reversed) settlement per share; reversing that expense re-opens the share for settlement
+ALTER TABLE cash_expenses ADD COLUMN IF NOT EXISTS brokerage_share_id uuid REFERENCES brokerage_shares(id);
+CREATE UNIQUE INDEX IF NOT EXISTS cash_expenses_brokerage_share_live ON cash_expenses (brokerage_share_id)
+  WHERE brokerage_share_id IS NOT NULL AND status <> 'reversed';
 
 -- an employee's share becomes a commission entitlement (payroll, «صرف العمولة») once the commission is collected
 ALTER TABLE commission_entitlements ADD COLUMN IF NOT EXISTS brokerage_share_id uuid UNIQUE REFERENCES brokerage_shares(id);

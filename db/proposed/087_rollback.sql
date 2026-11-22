@@ -7,6 +7,8 @@ DELETE FROM employee_permissions WHERE perm_key IN ('brokerage.propose', 'broker
 DELETE FROM permissions WHERE key IN ('brokerage.propose', 'brokerage.approve', 'brokerage.view_all');
 ALTER TABLE commission_entitlements DROP CONSTRAINT IF EXISTS commission_entitlements_one_source;
 ALTER TABLE commission_entitlements DROP COLUMN IF EXISTS brokerage_share_id;
+DROP INDEX IF EXISTS cash_expenses_brokerage_share_live;
+ALTER TABLE cash_expenses DROP COLUMN IF EXISTS brokerage_share_id;
 ALTER TABLE cash_receipts DROP CONSTRAINT IF EXISTS cash_receipts_brokerage_side;
 DROP INDEX IF EXISTS cash_receipts_brokerage;
 ALTER TABLE cash_receipts DROP COLUMN IF EXISTS brokerage_side;

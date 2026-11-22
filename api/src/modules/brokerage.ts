@@ -101,6 +101,36 @@ async function employee(q: Q, id: unknown, field: string, optional = false) {
   return id;
 }
 
+/**
+ * A commission receipt of a deal was reversed (same transaction as the reversal): refused while any share was already
+ * paid out (an employee commission payout, or an outside beneficiary's settlement) — the money went on, the reversal must
+ * not leave it unbacked. Otherwise a collected deal is re-opened (approved) and its employee entitlements are cancelled,
+ * so they can no longer be paid or counted in payroll; collecting again re-activates the same entitlements.
+ */
+export async function onBrokerageReceiptReversed(q: Q, receipt: { id: string; brokerage_deal_id?: string | null }, a: Actor) {
+  if (!receipt.brokerage_deal_id) return;
+  const d = await one(q, `SELECT * FROM brokerage_deals WHERE id = $1 FOR UPDATE`, [receipt.brokerage_deal_id]);
+  if (!d) return;
+  const paid = await one(q, `
+    SELECT 1 FROM brokerage_shares s
+     WHERE s.deal_id = $1 AND (
+       EXISTS (SELECT 1 FROM commission_entitlements ce JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
+                WHERE ce.brokerage_share_id = s.id)
+       OR EXISTS (SELECT 1 FROM cash_expenses x WHERE x.brokerage_share_id = s.id AND x.status <> 'reversed'))
+     LIMIT 1`, [d.id]);
+  if (paid) {
+    throw new AppError('conflict', 'نصيب من عمولة الصفقة دي اتصرف — إلغاء الصرف الأول قبل عكس التحصيل', { reason: 'brokerage_shares_paid' });
+  }
+  const ents = (await q.query(`
+    UPDATE commission_entitlements SET status = 'cancelled', cancelled_at = now()
+     WHERE status = 'active' AND brokerage_share_id IN (SELECT id FROM brokerage_shares WHERE deal_id = $1) RETURNING id`, [d.id])).rows;
+  if (d.status === 'collected') {
+    await q.query(`UPDATE brokerage_deals SET status = 'approved', collected_at = NULL, updated_at = now() WHERE id = $1`, [d.id]);
+  }
+  await audit(q, a.id, 'brokerage.reopen', 'brokerage_deal', d.id, { status: d.status },
+    { status: d.status === 'collected' ? 'approved' : d.status, reversedReceipt: receipt.id, cancelledEntitlements: ents.map((x) => x.id) });
+}
+
 const mine = (a: Actor, d: any) => [d.proposed_by, d.contributor_id, d.closer_id, d.sales_manager_id].includes(a.id);
 
 async function load(q: Q, ids: string[], a: Actor) {
@@ -115,9 +145,11 @@ async function load(q: Q, ids: string[], a: Actor) {
       LEFT JOIN employees sm ON sm.id = d.sales_manager_id LEFT JOIN employees de ON de.id = d.decided_by
      WHERE d.id = ANY($1::uuid[]) ORDER BY d.created_at DESC`, [ids])).rows;
   const shares = (await q.query(`
-    SELECT s.*, e.full_name AS employee_name, ce.id AS entitlement_id, ce.period AS entitlement_period
+    SELECT s.*, e.full_name AS employee_name, ce.id AS entitlement_id, ce.period AS entitlement_period, ce.status AS entitlement_status,
+           x.id AS settlement_id, x.ref_no AS settlement_ref
       FROM brokerage_shares s LEFT JOIN employees e ON e.id = s.employee_id
       LEFT JOIN commission_entitlements ce ON ce.brokerage_share_id = s.id
+      LEFT JOIN cash_expenses x ON x.brokerage_share_id = s.id AND x.status <> 'reversed'
      WHERE s.deal_id = ANY($1::uuid[])
      ORDER BY array_position(ARRAY['contributor','closer','sales_manager','other'], s.role), s.created_at, s.id`, [ids])).rows;
   const all = canViewAll(a) || canApprove(a);
@@ -142,7 +174,10 @@ async function load(q: Q, ids: string[], a: Actor) {
       snapshot: all ? d.snapshot : null,
       shares: sh.map((s) => ({ id: s.id, role: s.role, employee: s.employee_id ? { id: s.employee_id, name: s.employee_name } : null,
         beneficiary: s.beneficiary, mode: s.mode, value: N(s.value), amount: N(s.amount_egp),
-        entitlementId: s.entitlement_id ?? null, period: s.entitlement_period ? String(s.entitlement_period).slice(0, 7) : null })),
+        entitlementId: s.entitlement_status === 'active' ? s.entitlement_id : null,
+        period: s.entitlement_status === 'active' && s.entitlement_period ? String(s.entitlement_period).slice(0, 7) : null,
+        settlement: s.settlement_id ? { expenseId: s.settlement_id, refNo: s.settlement_ref } : null,
+        canSettle: !s.employee_id && !s.settlement_id && d.status === 'collected' && canOffice(a) })),
       canApprove: d.status === 'proposed' && canApprove(a) && !mine(a, d),
       canCollect: d.status === 'approved' && canCollect(a),
     };
@@ -310,12 +345,55 @@ export const brokerageModule: Module = (r, { db, clock }) => {
           INSERT INTO commission_entitlements (request_id, brokerage_share_id, employee_id, role, amount_egp, period, included_at, created_at)
           SELECT NULL, s.id, s.employee_id, CASE WHEN s.role = 'sales_manager' THEN 'manager' ELSE 'sales' END, s.amount_egp, $2, $3, $3
             FROM brokerage_shares s WHERE s.deal_id = $1 AND s.employee_id IS NOT NULL
-          ON CONFLICT (brokerage_share_id) DO NOTHING`, [d.id, period, now]);
+          ON CONFLICT (brokerage_share_id) DO UPDATE SET status = 'active', cancelled_at = NULL, period = EXCLUDED.period,
+                 included_at = EXCLUDED.included_at, amount_egp = EXCLUDED.amount_egp
+           WHERE commission_entitlements.status = 'cancelled'`, [d.id, period, now]);
         await audit(q, a.id, 'brokerage.collected', 'brokerage_deal', d.id, { status: 'approved' }, { status: 'collected', period });
       }
       return { id: rec.id, duplicate: rec.duplicate };
     });
     return ok({ receiptId: out.id, duplicate: out.duplicate, deal: (await load(db, [req.params.id], a))[0] }, out.duplicate ? 200 : 201);
+  });
+
+  // an approved beneficiary outside the staff: paid from the office cashbox once the commission is all in — one expense
+  // linked to his share (a commission cost of the office), audited; a retry with the same clientRef gives the same one
+  r.post('/brokerage/deals/:id/shares/:shareId/settle', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canOffice(a)) throw forbidden('صرف نصيب مستفيد خارجي من الخزنة الرئيسية بس');
+    if (!isUuid(req.params.id) || !isUuid(req.params.shareId)) throw notFound();
+    const b = obj(req.body);
+    const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
+    const ref = typeof b.clientRef === 'string' && b.clientRef ? b.clientRef : null;
+    if (ref && !isUuid(ref)) throw invalid('clientRef must be a uuid', { field: 'clientRef' });
+    const out = await db.tx(async (q) => {
+      await needInstalled(q);
+      const d = await one(q, `SELECT * FROM brokerage_deals WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      const s = d && await one(q, `SELECT * FROM brokerage_shares WHERE id = $1 AND deal_id = $2`, [req.params.shareId, d.id]);
+      if (!d || !s) throw notFound();
+      if (ref) {
+        const dup = await one(q, `SELECT id, recorded_by, brokerage_share_id FROM cash_expenses WHERE client_ref = $1`, [ref]);
+        if (dup) {
+          if (dup.recorded_by !== a.id || dup.brokerage_share_id !== s.id) throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+          return { id: dup.id, duplicate: true };
+        }
+      }
+      if (s.employee_id) throw conflict('نصيب الموظف بيتصرف من العمولات (صرف العمولة)');
+      if (d.status !== 'collected') throw conflict('العمولة لسه متحصلتش بالكامل');
+      if (await one(q, `SELECT 1 FROM cash_expenses WHERE brokerage_share_id = $1 AND status <> 'reversed'`, [s.id])) {
+        throw new AppError('conflict', 'النصيب ده اتصرف قبل كده', { reason: 'already_settled' });
+      }
+      const now = clock();
+      const x = await one(q, `
+        INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, client_ref, occurred_at, recorded_by,
+               status, approved_by, approved_at, payment_method, brokerage_share_id)
+        VALUES ('office', $1, 'عمولة وسيط', $2, $3, $4, $5, $6, $7, 'posted', $7, $6, $8, $9) RETURNING id, ref_no`,
+        [N(s.amount_egp), `عمولة ${d.kind === 'resale' ? 'إعادة بيع' : 'إيجار'} — ${d.property}`, s.beneficiary,
+          (str(b, 'notes', { optional: true, max: 500 }) ?? '').trim(), ref, now, a.id, method, s.id]);
+      await audit(q, a.id, 'brokerage.settle_external', 'brokerage_deal', d.id, undefined,
+        { shareId: s.id, beneficiary: s.beneficiary, amount: N(s.amount_egp), expenseId: x.id, method });
+      return { id: x.id, duplicate: false };
+    });
+    return ok({ expenseId: out.id, duplicate: out.duplicate, deal: (await load(db, [req.params.id], a))[0] }, out.duplicate ? 200 : 201);
   });
 
   // a deal nobody has paid anything for can be withdrawn (the proposer while it waits; an approver until money comes in)

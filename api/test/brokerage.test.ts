@@ -139,3 +139,68 @@ test('visibility, cancellation and server-side permissions', async () => {
   const sh = (await h.call(c.t.e3, 'GET', '/brokerage/deals?kind=rental')).body.deals.find((x: any) => x.id === e.id);
   assert.equal(sh.snapshot, null, 'the full snapshot is the manager\'s'); assert.equal(sh.owner.phone, null);
 });
+
+// ------------------------------------------------------------------------------------------ reversals and settlements
+async function collectedDeal(extra: unknown[] = []) {
+  const d = (await h.call(c.t.e1, 'POST', '/brokerage/deals', resale({ price: 1_000_000, ratePct: 1, paidBy: 'owner' }))).body.deal; // 10,000 from the owner
+  const ok = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/decision`, { decision: 'approve', shares: [
+    { role: 'closer', employeeId: c.ids.e2, mode: 'fixed', value: 3_000 }, ...extra] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const r = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/collect`, { side: 'owner', amount: 10_000, recipient: 'manager' });
+  assert.equal(r.body.deal.status, 'collected');
+  const ent = (await h.db.query(`SELECT ce.* FROM commission_entitlements ce JOIN brokerage_shares s ON s.id = ce.brokerage_share_id WHERE s.deal_id = $1`, [d.id])).rows[0];
+  return { id: d.id as string, receiptId: r.body.receiptId as string, ent };
+}
+const payE2 = (entId: string) => h.call(c.t.hr, 'POST', '/payouts', { kind: 'commission', employeeId: c.ids.e2, amount: 3_000, month: '2026-03', entitlementId: entId });
+
+test('a reversed commission receipt re-opens the deal and cancels its entitlements atomically — they can no longer be paid', async () => {
+  const x = await collectedDeal();
+  const rev = await h.call(c.t.owner, 'POST', `/cash/receipts/${x.receiptId}/reverse`, { reason: 'شيك مرتجع' });
+  assert.equal(rev.status, 200, JSON.stringify(rev.body));
+  const deal = (await h.call(c.t.owner, 'GET', '/brokerage/deals?kind=resale')).body.deals.find((d: any) => d.id === x.id);
+  assert.equal(deal.status, 'approved'); assert.equal(deal.commission.receivable, 10_000);
+  assert.equal((await h.db.query(`SELECT status FROM commission_entitlements WHERE id = $1`, [x.ent.id])).rows[0].status, 'cancelled');
+  assert.equal((await payE2(x.ent.id)).status, 400, 'an invalidated entitlement cannot be paid');
+  // collected again → the SAME entitlement is active again (never a second one) and is paid once
+  const again = await h.call(c.t.owner, 'POST', `/brokerage/deals/${x.id}/collect`, { side: 'owner', amount: 10_000, recipient: 'manager' });
+  assert.equal(again.body.deal.status, 'collected');
+  const ents = (await h.db.query(`SELECT id, status FROM commission_entitlements WHERE brokerage_share_id = (SELECT id FROM brokerage_shares WHERE deal_id = $1)`, [x.id])).rows;
+  assert.deepEqual(ents, [{ id: x.ent.id, status: 'active' }]);
+  assert.equal((await payE2(x.ent.id)).status, 201);
+  assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'brokerage.reopen' AND entity_id = $1`, [x.id])).rows.length === 1);
+});
+
+test('once a share was paid, reversing the commission receipt is refused and nothing changes', async () => {
+  const x = await collectedDeal();
+  assert.equal((await payE2(x.ent.id)).status, 201);
+  const rev = await h.call(c.t.owner, 'POST', `/cash/receipts/${x.receiptId}/reverse`, { reason: 'خطأ' });
+  assert.equal(rev.status, 409); assert.equal(reason(rev), 'brokerage_shares_paid');
+  assert.equal((await h.db.query(`SELECT status FROM cash_receipts WHERE id = $1`, [x.receiptId])).rows[0].status, 'posted');
+  assert.equal((await h.db.query(`SELECT status FROM brokerage_deals WHERE id = $1`, [x.id])).rows[0].status, 'collected');
+  assert.equal((await h.db.query(`SELECT status FROM commission_entitlements WHERE id = $1`, [x.ent.id])).rows[0].status, 'active');
+});
+
+test('an outside beneficiary is settled once from the office cashbox, audited; never before the commission is in', async () => {
+  const d = (await h.call(c.t.e1, 'POST', '/brokerage/deals', resale({ price: 1_000_000, ratePct: 1, paidBy: 'owner' }))).body.deal;
+  await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/decision`, { decision: 'approve', shares: [{ role: 'other', beneficiary: 'وسيط خارجي', mode: 'fixed', value: 1_500 }] });
+  let share = (await h.call(c.t.owner, 'GET', '/brokerage/deals?kind=resale')).body.deals.find((y: any) => y.id === d.id).shares[0];
+  assert.equal((await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, {})).status, 409, 'commission not collected yet');
+  const r = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/collect`, { side: 'owner', amount: 10_000, recipient: 'manager' });
+  assert.equal(r.body.deal.shares[0].canSettle, true);
+  assert.equal((await h.call(c.t.e1, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, {})).status, 403, 'not a cashbox holder');
+  const ref = randomUUID();
+  const s1 = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, { clientRef: ref });
+  assert.equal(s1.status, 201, JSON.stringify(s1.body));
+  const s2 = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, { clientRef: ref });
+  assert.equal(s2.status, 200); assert.equal(s2.body.expenseId, s1.body.expenseId, 'a retry → the same expense');
+  assert.equal(reason(await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, {})), 'already_settled');
+  const x = (await h.db.query(`SELECT cashbox, amount_egp::float8 a, status, beneficiary, brokerage_share_id FROM cash_expenses WHERE id = $1`, [s1.body.expenseId])).rows[0];
+  assert.deepEqual(x, { cashbox: 'office', a: 1_500, status: 'posted', beneficiary: 'وسيط خارجي', brokerage_share_id: share.id });
+  share = s1.body.deal.shares[0]; assert.ok(share.settlement); assert.equal(share.canSettle, false);
+  // the commission receipt cannot be reversed while the outside share stands paid
+  assert.equal(reason(await h.call(c.t.owner, 'POST', `/cash/receipts/${r.body.receiptId}/reverse`, { reason: 'خطأ' })), 'brokerage_shares_paid');
+  // reversing the settlement expense re-opens the share for settlement
+  assert.equal((await h.call(c.t.owner, 'POST', `/cash/expenses/${s1.body.expenseId}/reverse`, { reason: 'اتصرف غلط' })).status, 200);
+  assert.equal((await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, {})).status, 201);
+  assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'brokerage.settle_external' AND entity_id = $1`, [d.id])).rows.length === 2);
+});

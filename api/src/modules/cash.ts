@@ -8,6 +8,7 @@ import { audit, authenticate, has, type Actor, can, notSettled } from '../auth/c
 import { notify } from './notify.ts';
 import { companyForPayment, companyOtpInstalled, tellCompany } from './company-payouts.ts';
 import { checkClassification, classificationInstalled } from './expense-classes.ts';
+import { onBrokerageReceiptReversed } from './brokerage.ts';
 import { computePayrollMany, loadRules } from './payroll-calc.ts';
 
 /**
@@ -968,6 +969,8 @@ export const cashModule: Module = (r, { db, clock }) => {
       if (x.status !== 'posted') throw conflict('Already reversed');
       await q.query(`UPDATE cash_receipts SET status = 'reversed', reversed_by = $2, reversed_at = now(), reverse_reason = $3 WHERE id = $1`,
         [x.id, a.id, reason]);
+      // a resale / rental commission (087): re-open the deal and cancel its entitlements — or refuse if a share was paid
+      if (x.brokerage_deal_id) await onBrokerageReceiptReversed(q, x, a);
       await audit(q, a.id, 'cash.receipt.reverse', 'cash_receipt', x.id, { status: 'posted', amount: Number(x.amount_egp) }, { status: 'reversed', reason });
     });
     return ok({ ok: true });

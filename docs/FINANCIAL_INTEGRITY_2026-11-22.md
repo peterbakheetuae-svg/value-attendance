@@ -96,6 +96,20 @@ nothing else changes.
   `brokerage.agreed / collected / receivable`). Once all of it is in, every employee share becomes a commission entitlement
   of that month (listed with the other commissions, paid once through «صرف العمولة»). An external beneficiary's share is
   recorded but is not payroll.
+* **Reversal of a collected commission receipt** (`POST /cash/receipts/:id/reverse`, same transaction): refused
+  (`409 brokerage_shares_paid`, nothing changes) once any share of the deal was paid — an employee commission payout or
+  an outside beneficiary's settlement; otherwise a collected deal goes back to `approved` and its employee entitlements
+  are cancelled (no payout accepts a cancelled entitlement, payroll counts active ones only). Collecting again
+  re-activates the SAME entitlements (never a second one). Audited as `brokerage.reopen`.
+* **Outside beneficiaries** (approved shares without an employee): `POST /brokerage/deals/:id/shares/:shareId/settle`
+  — office cashbox holders only, only once the commission is all collected, one live settlement per share (unique index;
+  idempotent by `clientRef`), recorded as a posted office expense «عمولة وسيط» linked to the share, audited as
+  `brokerage.settle_external`. Reversing that expense re-opens the share for settlement. Never treated as paid otherwise.
+* Compatibility of 087 with the existing flows: commission receipts keep `kind = 'commission'` (the cash book, profit and
+  year-closing guards see them as before); `commission_entitlements.request_id` becomes nullable only with the CHECK that
+  exactly one of request / brokerage share is set, and every listing that joined commission requests now LEFT JOINs them
+  (`/commissions/entitlements`); payouts keep their rules (one live payout per entitlement, active only, amount from the
+  entitlement); reversal of receipts / expenses keeps its rules — 087 only adds the brokerage hook above.
 * A deal with nothing collected can be cancelled; collected money is never deleted. Every step is in the audit log.
 * Tests: `api/test/brokerage.test.ts`; the treasury figures (cash + bank vs office commission vs owners' trust vs available
   funds; an internal cash ↔ bank move creates no revenue / expense): `api/test/treasury-figures.test.ts`.
