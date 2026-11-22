@@ -4,7 +4,6 @@
  * connection strings or any other secret.
  *
  *   node cloudflare/cf-check.mjs cpu <scriptName> <fromISO>   → requests, outcomes and CPU-time percentiles (ms)
- *   node cloudflare/cf-check.mjs hyperdrive <configId>         → fails unless query caching is disabled
  *
  * Env: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
  */
@@ -36,16 +35,6 @@ if (cmd === 'cpu') {
     const q = x.quantiles;
     console.log(`${x.dimensions.status.padEnd(17)} ${String(x.sum.requests).padStart(8)} ${String(x.sum.errors).padStart(6)}  ${[q.cpuTimeP50, q.cpuTimeP75, q.cpuTimeP90, q.cpuTimeP99, q.cpuTimeP999].map(ms).map((s) => s.padStart(6)).join('')}`);
   }
-} else if (cmd === 'hyperdrive') {
-  const r = await (await api(`/accounts/${account}/hyperdrive/configs/${a1}`)).json();
-  if (!r.success) { console.error('hyperdrive lookup failed:', (r.errors ?? []).map((e) => e.message).join('; ')); process.exit(1); }
-  const c = r.result ?? {};
-  // only non-secret fields are printed
-  console.log(`hyperdrive ${c.name}: origin user=${c.origin?.user} host=${String(c.origin?.host ?? '').replace(/^[^.]*/, '…')} caching=${JSON.stringify(c.caching ?? {})}`);
-  if (c.origin?.user === 'neondb_owner') { console.error('FAIL: origin uses neondb_owner — must be the least-privilege role valunivo_app'); process.exit(1); }
-  if (!c.caching?.disabled) { console.error('FAIL: Hyperdrive query caching is ON — disable it (stale sessions / permissions / balances)'); process.exit(1); }
-  if (/-pooler\./.test(c.origin?.host ?? '')) { console.error('FAIL: origin is the Neon pooler — use the direct host'); process.exit(1); }
-  console.log('OK: caching disabled, least-privilege role, direct host');
 } else {
-  console.error('usage: cf-check.mjs cpu <script> <fromISO> | hyperdrive <id>'); process.exit(2);
+  console.error('usage: cf-check.mjs cpu <script> <fromISO>'); process.exit(2);
 }

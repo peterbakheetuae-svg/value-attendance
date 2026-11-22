@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { AppError } from '../http/errors.ts';
@@ -19,17 +20,41 @@ export const IP_LIMITS: Record<string, { max: number; minutes: number }> = {
   otp: { max: 20, minutes: 15 },
 };
 
+const IP_RE = /^[0-9a-fA-F:.]{3,45}$/;
+const header = (req: Req, k: string) => { const v = req.headers[k]; return String(Array.isArray(v) ? v[0] : v ?? ''); };
+
+/**
+ * Requests that come through the Cloudflare gateway (api/cloudflare/gateway.ts) reach Vercel from Cloudflare's own
+ * addresses, so every employee would share one "IP". The gateway therefore passes the visitor's address
+ * (CF-Connecting-IP, set by Cloudflare's edge) signed with VA_GATEWAY_SECRET, a secret only the gateway and Vercel hold.
+ * It is used only when the signature is valid and fresh (60 s). Anything else — no secret configured, missing, forged,
+ * expired or replayed-late headers — falls back to the platform's own header, exactly as before: the API stays
+ * independently safe when the gateway is bypassed.
+ */
+export const GATEWAY_MAX_SKEW_S = 60;
+export function gatewaySignature(secret: string, ts: string, ip: string): string {
+  return createHmac('sha256', secret).update(`va-gw-v1\n${ts}\n${ip}`).digest('base64url');
+}
+function gatewayIp(req: Req, now = Date.now()): string | null {
+  const secret = process.env.VA_GATEWAY_SECRET ?? '';
+  if (secret.length < 32) return null;
+  const ip = header(req, 'x-va-gw-ip').trim();
+  const ts = header(req, 'x-va-gw-ts').trim();
+  const sig = header(req, 'x-va-gw-sig').trim();
+  if (!IP_RE.test(ip) || !/^\d{10}$/.test(ts) || !sig) return null;
+  if (Math.abs(now / 1000 - Number(ts)) > GATEWAY_MAX_SKEW_S) return null;
+  const want = Buffer.from(gatewaySignature(secret, ts, ip));
+  const got = Buffer.from(sig);
+  return want.length === got.length && timingSafeEqual(want, got) ? ip : null;
+}
+
 export function clientIp(req: Req): string | null {
-  // Cloudflare Workers: the edge itself sets CF-Connecting-IP on every request (a caller's own value is replaced),
-  // so it is the only header trusted there. VA_PLATFORM is a plain Worker var set in wrangler.jsonc, never by a caller.
-  if (process.env.VA_PLATFORM === 'cloudflare') {
-    const ip = String(req.headers['cf-connecting-ip'] ?? '').trim();
-    return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : null;
-  }
+  const viaGateway = gatewayIp(req);
+  if (viaGateway) return viaGateway;
   if (process.env.VERCEL !== '1' && process.env.TRUST_PLATFORM_IP !== '1') return null;
   const v = req.headers['x-vercel-forwarded-for'] ?? req.headers['x-real-ip'];
   const ip = String(Array.isArray(v) ? v[0] : v ?? '').split(',')[0].trim();
-  return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : null;
+  return IP_RE.test(ip) ? ip : null;
 }
 
 async function failures(q: Q, ip: string, kind: string, minutes: number): Promise<number> {

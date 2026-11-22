@@ -1,9 +1,9 @@
-name: Cloudflare — CPU probe + API staging (workers.dev only, never production)
+name: Cloudflare — CPU probe + gateway staging (workers.dev only, never production)
 
 # Runs only for the migration branch. Production (Vercel) and DNS are never touched.
-# Needs repository secrets CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Account Analytics: Read, Hyperdrive: Read)
-# and CLOUDFLARE_ACCOUNT_ID. The staging job also needs the repository variable CF_HYPERDRIVE_ID (not a secret);
-# the database credential lives only inside that Hyperdrive configuration, created in the Cloudflare dashboard.
+# Needs repository secrets CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Account Analytics: Read) and
+# CLOUDFLARE_ACCOUNT_ID. The gateway staging job runs only when the repository variable CF_GATEWAY_STAGING = on.
+# The gateway has no database access of any kind; it forwards to the Vercel API.
 on:
   push:
     branches: [cloudflare/worker-migration]
@@ -64,7 +64,7 @@ jobs:
         run: npx --yes wrangler@4 delete -c cloudflare/wrangler.probe.jsonc --force || true
 
   staging:
-    if: github.ref == 'refs/heads/cloudflare/worker-migration' && vars.CF_HYPERDRIVE_ID != ''
+    if: github.ref == 'refs/heads/cloudflare/worker-migration' && vars.CF_GATEWAY_STAGING == 'on'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: api } }
     steps:
@@ -72,12 +72,13 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm install --no-audit --no-fund
-      - name: Gate — Hyperdrive caching off, least-privilege role, direct host
-        run: node cloudflare/cf-check.mjs hyperdrive "${{ vars.CF_HYPERDRIVE_ID }}"
-      - name: Deploy staging Worker (workers.dev only — no routes, no custom domain)
+      - name: Gate — gateway config has no database / Hyperdrive bindings, no routes, logs off
         run: |
-          sed -i "s/REPLACE_WITH_HYPERDRIVE_ID/${{ vars.CF_HYPERDRIVE_ID }}/" wrangler.jsonc
-          grep -q '"routes"\|"route"' wrangler.jsonc && { echo "::error::routes are not allowed in staging"; exit 1; }
+          ! grep -qiE '"(hyperdrive|d1_databases|routes?|route)"|DATABASE_URL' wrangler.jsonc || { echo "::error::gateway must not have DB bindings or routes"; exit 1; }
+          grep -q '"observability": { "enabled": false }' wrangler.jsonc || { echo "::error::Workers Logs must stay off"; exit 1; }
+          node --import tsx --test test/gateway.test.ts
+      - name: Deploy staging gateway (workers.dev only)
+        run: |
           npx --yes wrangler@4 deploy | tee /tmp/deploy.log
           URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -1)
           echo "STAGING_URL=$URL" >> "$GITHUB_ENV"
@@ -86,13 +87,17 @@ jobs:
         run: |
           sleep 10
           fail=0
-          check() { code=$(curl -s -o /tmp/b -w '%{http_code}' "$@"); echo "$code  ${*: -1}" >&2; echo "$code"; }
+          check() { code=$(curl -s -D /tmp/h -o /tmp/b -w '%{http_code}' "$@"); echo "$code  ${*: -1}" >&2; echo "$code"; }
+          [ "$(check "$STAGING_URL/__gateway/health")" = 200 ] || fail=1
           [ "$(check "$STAGING_URL/healthz")" = 200 ] || fail=1
-          [ "$(check "$STAGING_URL/readyz")" = 200 ] || fail=1; head -c 300 /tmp/b; echo
-          for i in 1 2 3; do curl -s "$STAGING_URL/healthz/latency"; echo; done
+          grep -qi '^cache-control: no-store' /tmp/h || { echo "missing no-store"; fail=1; }
           [ "$(check "$STAGING_URL/me")" = 401 ] || fail=1
+          [ "$(check "$STAGING_URL/employees")" = 401 ] || fail=1
+          [ "$(check "$STAGING_URL/cash/overview")" = 401 ] || fail=1
           [ "$(check -X OPTIONS -H 'Origin: https://jaurea.com' -H 'Access-Control-Request-Method: GET' "$STAGING_URL/me")" = 204 ] || fail=1
+          check -X OPTIONS -H 'Origin: https://evil.example' -H 'Access-Control-Request-Method: GET' "$STAGING_URL/me" >/dev/null
+          ! grep -qi '^access-control-allow-origin' /tmp/h || { echo "foreign origin allowed"; fail=1; }
           exit $fail
-      - name: Staging CPU analytics
+      - name: Gateway CPU analytics
         run: |
-          for i in $(seq 8); do sleep 60; node cloudflare/cf-check.mjs cpu valunivo-api-staging "$FROM" && exit 0; done; true
+          for i in $(seq 8); do sleep 60; node cloudflare/cf-check.mjs cpu valunivo-gateway-staging "$FROM" && exit 0; done; true

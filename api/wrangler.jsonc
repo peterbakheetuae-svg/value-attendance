@@ -1,24 +1,17 @@
-// Cloudflare Workers config for the API — STAGING candidate. No secrets here, ever.
-// Secrets are set with `wrangler secret put <NAME>` (or the dashboard): BREVO_API_KEY, FCM_SERVICE_ACCOUNT,
-// BACKUP_TOKEN, VAPID_PRIVATE_KEY, SECRETS_KEY, META_APP_SECRETS (if used). The database credential lives only in
-// the Hyperdrive configuration (least-privilege runtime role valunivo_app, direct non-pooled Neon host).
+// Cloudflare gateway in front of the Vercel API — STAGING. See cloudflare/gateway.ts and docs/CLOUDFLARE_MIGRATION.md.
+// No database binding, no Hyperdrive, no routes / custom domain (workers.dev only), no secrets in this file.
+// One Worker secret, set in the dashboard or with `wrangler secret put VA_GATEWAY_SECRET` (the same value is set
+// on Vercel only when the signed-IP feature is approved there).
 {
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
-  "name": "valunivo-api-staging",
-  "main": "cloudflare/worker.ts",
+  "name": "valunivo-gateway-staging",
+  "main": "cloudflare/gateway.ts",
   "compatibility_date": "2026-11-01",
-  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "observability": { "enabled": true },
-  // Workers Paid is expected to be required: scrypt password hashing (N=16384) needs more than the Free plan's
-  // 10 ms CPU per request. This limit only applies on the Paid plan.
-  "limits": { "cpu_ms": 30000 },
+  // Workers Logs off: invocation logs would record request URLs (query strings). Nothing from requests is logged.
+  // Request counts / CPU / outcomes stay available in Workers Analytics, which hold no URLs or bodies.
+  "observability": { "enabled": false },
   "vars": {
-    "VA_PLATFORM": "cloudflare"
-  },
-  "hyperdrive": [
-    // replace with the id printed by `wrangler hyperdrive create` (the id is not a secret). Local dev: set
-    // CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE to a scratch database, never production.
-    { "binding": "HYPERDRIVE", "id": "REPLACE_WITH_HYPERDRIVE_ID" }
-  ]
+    "UPSTREAM": "https://value-attendance.vercel.app"
+  }
 }
