@@ -976,7 +976,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (k && (RECEIPT_KINDS as readonly string[]).includes(k)) { vals.push(k); where.push(`r.kind = $${vals.length}`); }
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(r.payer_name) LIKE $${vals.length} OR lower(r.purpose) LIKE $${vals.length} OR r.ref_no::text LIKE $${vals.length})`); }
-    const rows = await db.query(`${await receiptListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
+    const rows = await db.query(`${await receiptListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC, r.id LIMIT 500`, vals);
     return ok({ currency: 'EGP', receipts: rows.rows.map(shapeReceipt) });
   });
 
@@ -1073,7 +1073,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       if (cId && isUuid(cId)) { vals.push(cId); where.push(`x.expense_category_id = $${vals.length}`); }
       if (req.query.get('unclassified') === '1') where.push(`x.expense_group_id IS NULL AND x.expense_category_id IS NULL AND x.ex_kind IS NULL AND x.sale_id IS NULL AND x.owner_draw_id IS NULL`);
     }
-    const rows = await db.query(`${await expenseListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC LIMIT 500`, vals);
+    const rows = await db.query(`${await expenseListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC, x.id LIMIT 500`, vals);
     return ok({ currency: 'EGP', expenses: rows.rows.map(shapeExpense) });
   });
 

@@ -1,0 +1,26 @@
+R6 — stable paging and backup consistency
+
+Leads paging (synthetic va_perf, 8,000 leads, 365 shared created_at values; size 200, every page; script
+leads_paging_check.mts.txt; before = 2aa2e26, after = this branch):
+  sort      before dup/missing   after dup/missing
+  created   42 / 42              0 / 0
+  action    619 / 619            0 / 0
+  next      31 / 31              0 / 0
+  name      0 / 0                0 / 0
+API test (remediation-perf.test.ts, R6): 180 leads with identical times and names, page size 7, all four sorts:
+every lead exactly once. Mutation check: without ", l.id" the test fails.
+Same tie-breaker added to: partner (marketing company) lead pages, cash receipt/expense lists (LIMIT 500 cut is now
+deterministic), the year-closing drill-down pages (ledger, receipts, expenses, payouts, transfers).
+
+Backup paging (backup-paging.test.ts):
+  - cursor (`after`) export of 4,500 rows in 3 pages while the app edits 25 exported rows, deletes 10 exported and
+    5 not-yet-exported rows and adds 5: 0 rows exported twice, 0 rows missing (of those present at the start and
+    not deleted).
+  - the cursor resumes exactly after the given row on composite keys (role_permissions text+text,
+    employee_permissions uuid+text) and single uuid keys; malformed cursors -> 400.
+  - offset paging (current Drive script) still works, now in primary-key order (was ctid order).
+  - backup-restore.test.ts now exports with the cursor like the updated Drive script, then restores into a new
+    database: every table, same rows (pass); backup.test.ts (offset paging, secrets never exported) pass.
+Prep reproduction of the old ctid paging (4 duplicated / 14 missing): backup_paging_repro.sql.
+Consistency model: per table, every row present when its export starts and still present at its end is exported
+exactly once; rows added meanwhile may or may not appear; never twice. Not a cross-table point-in-time snapshot.

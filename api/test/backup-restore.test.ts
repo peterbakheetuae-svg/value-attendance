@@ -41,13 +41,15 @@ test('backup (encrypted, as on Drive) → restore into a new database: every tab
   // 1) export like backup/google-drive-backup.gs: one file per table (parts when large), «rows» sealed
   const list = await get('/backup/tables');
   for (const t of list.tables) {
-    let offset: number | null = 0, part = 1;
+    // the keyset cursor (`after`) the Drive script sends since R6; `offset` is the fallback for an older API
+    let offset: number | null = 0, after: string | null = null, part = 1;
     do {
-      const page = await get(`/backup/table/${encodeURIComponent(t.table)}?offset=${offset}`);
+      const q: string = after ? `after=${encodeURIComponent(after)}` : `offset=${offset}`;
+      const page = await get(`/backup/table/${encodeURIComponent(t.table)}?${q}`);
       assert.equal(page.encrypted, true);
       const name = t.table + (page.next !== null || part > 1 ? '.part' + part : '') + '.json';
       writeFileSync(join(dir, name), JSON.stringify(page.rows));
-      offset = page.next; part++;
+      offset = page.next; after = page.after ?? null; part++;
     } while (offset !== null);
   }
   // 2) restore with the tool, into the empty database (as a non-superuser would: foreign keys checked pass by pass)

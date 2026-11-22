@@ -369,7 +369,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       action: 'l.last_action_at DESC NULLS LAST',
       name: 'l.full_name',
     };
-    const order = ORDER[sortKey] ?? ORDER.created;
+    // R6: l.id breaks ties so OFFSET paging (and the Excel export that pages through it) never repeats or skips a lead
+    const order = `${ORDER[sortKey] ?? ORDER.created}, l.id`;
     const W = where.join(' AND ');
     const [rows, total, tabs, stages] = await Promise.all([
       db.query(`${LIST_SELECT} WHERE ${W} ORDER BY ${order} LIMIT ${size} OFFSET ${(page - 1) * size}`, params),
