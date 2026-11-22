@@ -529,20 +529,31 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
 }
 
 /**
- * The retry of a form (same `clientRef`) gives back what the first send recorded — but only to the person who sent it.
- * Anybody else presenting that reference gets a plain 409 and nothing of the original row (no amount, payer, phone).
+ * The retry of a form (same `clientRef`) gives back what the first send recorded — only to the person who sent it, and
+ * only for the same operation on the same target (`same` checks the stored row: sale, installment, unit, cashbox, kind,
+ * amount, …). Anything else presenting that reference — another user, another sale / box / operation, another amount —
+ * gets a plain 409 `client_ref_reused` and nothing of the original row.
+ * Concurrent identical sends are serialised on the reference (transaction-scoped advisory lock, no schema change): the
+ * second one waits for the first to commit and then finds its row, instead of failing on UNIQUE(client_ref).
  */
-export async function priorByClientRef(q: Q, table: 'cash_receipts' | 'cash_expenses', ref: string, actorId: string): Promise<{ id: string } | null> {
-  const dup = await one(q, `SELECT id, recorded_by FROM ${table} WHERE client_ref = $1`, [ref]);
+export async function priorByClientRef(q: Q, table: 'cash_receipts' | 'cash_expenses', ref: string, actorId: string,
+  same: (row: any) => boolean): Promise<{ id: string; ref_no: unknown } | null> {
+  await q.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`client_ref:${ref}`]);
+  const dup = await one(q, `SELECT * FROM ${table} WHERE client_ref = $1`, [ref]);
   if (!dup) return null;
-  if (dup.recorded_by !== actorId) throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
-  return { id: dup.id };
+  if (dup.recorded_by !== actorId || !same(dup)) throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+  return { id: dup.id, ref_no: dup.ref_no };
 }
+/** the same amount, to the piaster */
+export const sameAmount = (stored: unknown, sent: number) => Math.round(Number(stored) * 100) === Math.round(Number(sent) * 100);
 
 /** Writes one numbered receipt (inside the caller's transaction); the same form sent twice gives the same receipt. */
 export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ id: string; duplicate: boolean }> {
   if (x.ref) {
-    const dup = await priorByClientRef(q, 'cash_receipts', x.ref, a.id);
+    const dup = await priorByClientRef(q, 'cash_receipts', x.ref, a.id, (r) => r.kind === x.kind && r.cashbox === x.box
+      && r.actual_recipient_id === x.recipientId && sameAmount(r.amount_egp, x.amount) && r.ex_unit_id == null
+      && (r.sale_id ?? null) === (x.saleId ?? null) && (r.installment_id ?? null) === (x.installmentId ?? null)
+      && (r.project_id ?? null) === (x.projectId ?? null));
     if (dup) return { id: dup.id, duplicate: true };
   }
   const perm = x.box === 'hr' ? 'cash.hr_operate' : 'cash.office';
@@ -725,7 +736,8 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ref = clientRef(b);
     const out = await db.tx(async (q) => {
       if (ref) {
-        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id);
+        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id, (r) => r.owner_draw_id === a.id && r.cashbox === 'office'
+          && r.payment_method === method && sameAmount(r.amount_egp, amount));
         if (dup) return dup;
       }
       const owners = await ownerIds(q);
@@ -790,7 +802,9 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ref = clientRef(b);
     const row = await db.tx(async (q) => {
       if (ref) {
-        const dup = await priorByClientRef(q, 'cash_receipts', ref, a.id);
+        const dup = await priorByClientRef(q, 'cash_receipts', ref, a.id, (r) => r.kind === 'injection'
+          && r.cashbox === (target === 'hr' ? 'hr' : 'office') && r.payment_method === (target === 'bank' ? 'bank_transfer' : 'cash')
+          && sameAmount(r.amount_egp, amount));
         if (dup) return dup;
       }
       let recipient = a.id;
@@ -968,7 +982,9 @@ export const cashModule: Module = (r, { db, clock }) => {
       const companyOtp = !!mkId && await companyOtpInstalled(q);
       if (companyOtp) await companyForPayment(q, mkId!);
       if (ref) {
-        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id);
+        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id, (r) => r.cashbox === box && r.owner_draw_id == null
+          && sameAmount(r.amount_egp, amount) && r.category === category && r.payment_method === method
+          && (r.marketing_company_id ?? null) === mkId);
         if (dup) return { id: dup.id, duplicate: true };
       }
       // optional group / category (086): metadata only — it changes nothing of the amount, approval or payment below

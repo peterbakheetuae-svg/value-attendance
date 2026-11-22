@@ -258,6 +258,15 @@ describe('F4 exclusive collections under concurrency', () => {
     assert.equal(await total(b), 0);
   });
 
+  test('the same reference for the same unit and kind but another amount → refused, nothing recorded', async () => {
+    const u = await unit(30_000); const ref = uuid();
+    assert.equal((await receipt(u, 10_000, ref)).status, 201);
+    assert.equal((await receipt(u, 10_000, ref)).status, 200, 'the same form → the same receipt');
+    const x = await receipt(u, 12_000, ref);
+    assert.equal(x.status, 409); assert.equal(x.body.error.details.reason, 'client_ref_reused');
+    assert.equal(await total(u), 10_000);
+  });
+
   test('different references racing for the same remaining balance → never more than the deposit', async () => {
     const u = await unit(30_000);
     const rs = await Promise.all([receipt(u, 20_000, uuid()), receipt(u, 20_000, uuid()), receipt(u, 20_000, uuid())]);

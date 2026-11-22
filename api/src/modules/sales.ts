@@ -5,7 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { createHash } from 'node:crypto';
 import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../auth/context.ts';
-import { canHrOperate, canOffice, parseReceipt, priorByClientRef, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+import { canHrOperate, canOffice, parseReceipt, priorByClientRef, sameAmount, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
 import { holdersOf, notify } from './notify.ts';
 
@@ -324,7 +324,11 @@ export const salesModule: Module = (r, { db, clock }) => {
       const base = parseReceipt({ ...b, kind: reqKind, payerName: b.payerName || s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
         purpose: b.purpose || `${p.name} — وحدة ${s.unit_no}` }, a, clock());
       if (base.ref) {
-        const dup = await priorByClientRef(q, 'cash_receipts', base.ref, a.id);
+        // the retry of THIS sale's collection: its first receipt (the one that carries the reference) belongs to this sale,
+        // cashbox and kind, and is no larger than the amount sent; the same reference for another sale / kind → 409
+        const dup = await priorByClientRef(q, 'cash_receipts', base.ref, a.id, (r) => r.sale_id === s.id && r.cashbox === base.box
+          && (reqKind === 'installment' ? r.kind === 'installment' : r.kind === reqKind)
+          && Math.round(Number(r.amount_egp) * 100) <= Math.round(base.amount * 100));
         if (dup) return { ids: [dup.id], duplicate: true };
       }
       const open = (await q.query(`
@@ -593,7 +597,8 @@ export const salesModule: Module = (r, { db, clock }) => {
       const input = parseReceipt({ ...b, kind, payerName: b.payerName ?? s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
         purpose: `${p.name} — وحدة ${s.unit_no} — ${line.seq === 0 ? (kind === 'reservation' ? 'حجز' : 'مقدم') : `قسط ${line.seq}`}` }, a, clock());
       if (input.ref) {
-        const dup = await priorByClientRef(q, 'cash_receipts', input.ref, a.id);
+        const dup = await priorByClientRef(q, 'cash_receipts', input.ref, a.id, (r) => r.sale_id === s.id && r.installment_id === line.id
+          && r.kind === kind && r.cashbox === input.box && sameAmount(r.amount_egp, input.amount));
         if (dup) return { id: dup.id, duplicate: true };
       }
       const paid = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE installment_id = $1 AND status = 'posted'`, [line.id]);

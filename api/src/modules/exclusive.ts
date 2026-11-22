@@ -809,11 +809,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     // serialised — the second one finds the first one's receipt (cash_receipts.client_ref is UNIQUE in the database too)
     const sameRetry = async (q: Q) => {
       if (!clientRef) return null;
-      const dup = await one(q, `SELECT id, ref_no, ex_unit_id, kind, recorded_by FROM cash_receipts WHERE client_ref = $1`, [clientRef]);
+      const dup = await one(q, `SELECT id, ref_no, ex_unit_id, ex_installment_id, kind, amount_egp, recorded_by FROM cash_receipts WHERE client_ref = $1`, [clientRef]);
       if (!dup) return null;
       if (dup.recorded_by !== a.id) throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
       // the same form for this unit / payment kind → that receipt; the reference reused for something else → refused
-      if (dup.ex_unit_id !== req.params.id || dup.kind !== kind) {
+      // … and, when the form named them, the same installment and the same amount
+      const sentInst = typeof b.installmentId === 'string' && isUuid(b.installmentId) ? b.installmentId : null;
+      if (dup.ex_unit_id !== req.params.id || dup.kind !== kind || (sentInst && dup.ex_installment_id !== sentInst)
+          || (amount && Math.round(Number(dup.amount_egp) * 100) !== Math.round(amount * 100))) {
         throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
       }
       return { id: dup.id, ref_no: dup.ref_no, duplicate: true };
