@@ -1,8 +1,10 @@
-# VALUNIVO — Speed Engineer audit (Audit mode, read-only) — revision 3 (remediation prepared)
+# VALUNIVO — Speed Engineer audit — revision 4 (remediation R1–R7 implemented on the branch)
 
 Branch `cloudflare/worker-migration` (code = production `main` @ `cbd00b3` plus gateway work). The release candidate on
 `release-prep/final-business-model` (PR #9, @ `31c1800`) was measured as well, because it changes the hottest code
-(payroll). No application code, schema, index or production system was changed. This revision supersedes revision 1 (`e491315`).
+(payroll). Revisions 1–3 were read-only. **Revision 4** records the owner-approved implementation of R1–R7 on this branch
+(§7A): application code changed, no schema, index, permission, API contract or production system changed, nothing
+deployed or merged. This revision supersedes revision 3 (`2aa2e26`).
 
 **About the method.** The brief says the full speed-engineer skill was provided in the conversation. It was not: its text
 appears in no message and in none of the 19 uploaded files (all searched). This revision therefore follows the Audit-mode
@@ -134,6 +136,8 @@ take 0.1–0.5 s each.
 
 ## 6. Self-check (from the brief's list)
 
+Status as found by the read-only audit (revisions 1–3). The status after the approved remediation is in §7A.
+
 | Item | Status |
 |---|---|
 | Index coverage for FKs and filtered/sorted columns | PASS for S (I4, I6); duplicate I5 FAIL |
@@ -155,7 +159,9 @@ take 0.1–0.5 s each.
 | Skill-specific thresholds / extra items | **BLOCKED** (skill text not provided) |
 | Production verification | **BLOCKED** (§8) |
 
-## 7. Remediation plan — revision 3, ordered by user impact (prepared and verified; nothing applied)
+## 7. Remediation plan — revision 3, ordered by user impact (prepared and verified)
+
+Kept as written when it was approved. What was actually implemented, and how it was verified, is §7A.
 
 The method limitation still applies: the speed-engineer skill text is not in this session or the repository. The audit is not
 claimed to be skill-compliant. Evidence files are in `docs/remediation/evidence/`. They are reproductions only and are
@@ -415,6 +421,56 @@ pattern; nothing else in the UI changes.
 R1 → R2 (app build) and R3 → R5 → R4 → R6 (API, on the release base) → R7. Each change comes with its tests and
 before/after numbers. PR #9 is merged first (R8).
 
+## 7A. Remediation implemented — revision 4 (owner approval of R1–R7; branch `cloudflare/worker-migration`)
+
+One commit per item, each with its tests; before = worktree at `2aa2e26`, after = the item's commit, run back-to-back on
+the same machine against the synthetic `va_perf` database (or a fresh synthetic copy). Evidence:
+`docs/remediation/evidence/R*_*.txt`. No schema, index, permission, API contract, financial formula or business rule changed.
+
+| Item | Commit | What changed | Verified by |
+|---|---|---|---|
+| R1 offline isolation | `0ee13f7` | Offline read copies filed per employee (`apicache:<id>:…`), none kept while the person is unknown; a session ending for any reason (401 expiry / revocation, sign-out) removes all offline reads; queued actions carry `owner` + a 16-hex SHA-256 fingerprint of the session token (never the token) and are sent only as their owner; untagged legacy items are never sent and are dropped at sign-out; offline punch stored per employee; background location points sent only with the token that recorded them | `app/test/offline_isolation_test.dart` R1 group, 13 tests: expiry, revocation on a write, account switch without sign-out, offline restore (owner still works offline), restore after expiry + other user, queue (never sent as B, sent when A signs in again, survives B's sign-out), queue before the person is known, legacy untagged queue item, offline punch (B's check-in no longer becomes a check-out), legacy punch, background pings, sign-out control, memory-cache control. **5 fail when the fix is removed** |
+| R2 balance freshness | `73551fa` | `/cash`, `/payouts`, `/finance`, `/payroll`, `/advances`, `/sales`, `/commissions`, `/insights`, `/custody` never served from the 5-minute memory copy; in-flight sharing kept; offline fallback kept (per owner) | R2 group, 5 tests: reopened screen shows 500 (was 1000); all 25 audited money paths re-read each time; two parallel opens = one request; non-money paths keep the cache; offline answer is the owner's own copy, never another's. **3 fail when the change is removed** |
+| R3 attachments | `d2fa792` | Receipt / expense lists and a sale's receipts select every column except `attachment` (column list read from `pg_attribute` once per process, so later migrations are followed); `has_attachment`, shapes, detail and photo routes unchanged | 500 rows × 200 KB: `/cash/receipts` 474 → 18 ms, `/cash/expenses` 484 → 13 ms, RSS +144 MB → +4 MB; **JSON bodies byte-identical**; API test: list item deep-equals the full-select record; photo route unchanged |
+| R4 KPI batching | `1f3b700` | `ensurePeriods` (one `INSERT … SELECT`, same set priority, same `ON CONFLICT`) and `loadPeriods` (one query, same per-employee order, same `summarize`) in `/kpi/overview` and the dashboard | `/kpi/overview` 223 → 5 queries (2,548 → 73 ms at 10 ms RTT); `/dashboard` 146–249 → 36–37 queries (1,622 → 428 ms at 10 ms RTT); JSON and the resulting `kpi_results` rows identical in both call orders; API test: batch = one-by-one, concurrent double snapshot idempotent, own > position > title (**fails if the priority is swapped**), retired set unused, existing snapshot never re-taken |
+| R5 cash series | `47ae9ef` | Daily receipt series as one grouped query over a sargable Cairo range (`DAILY_RECEIPTS_SQL`) | API test vs the old SQL verbatim over 270 ranges (Cairo midnight, both DST days, reversed receipts, 7 kinds): every row deep-equal (**fails if the lower bound is made exclusive**); `/dashboard/owner?view=finance` JSON byte-identical; 615 / 748 / 1,152 → 230 / 163 / 170 ms for 14 / 30 / 91 days |
+| R6 paging + backup | `4473d7c` | Unique tie-breaker after every paged sort (leads all sorts, partner leads, cash lists, year-closing drill-downs); `/backup/table/:name` ordered by the primary key with an optional `after` cursor (additive: `offset` still works); `backup/google-drive-backup.gs` sends the cursor | 8,000 synthetic leads: duplicated/missing 42/42, 619/619, 31/31 → **0/0 for every sort**; API test with 180 fully tied leads (**fails without the tie-breaker**); backup cursor export with 25 edits + 15 deletes + 5 inserts between pages: **0 duplicates, 0 missing**; cursor resumes exactly on composite keys; bad cursor → 400; restore test now exports with the cursor and restores every table |
+| R7 error states | `78c8a8d` | Commissions (projects), leads calendar, leads list, marketing companies, cash overview: a failed read (no connection / server error) shows its message + «حاول تاني»; 403 keeps the old behaviour; the leads list no longer ends silently when a later page fails | `app/test/load_error_states_test.dart`, 16 tests; **10 fail when the screen changes are removed**. The 6 "possible missing empty state" screens were re-read: all handle errors; their lists are system data that is never empty, or they are single-day views — no change |
+| R8 payroll | — (PR #9) | Not touched here: `payroll-calc.ts`, `payouts.ts`, `finance-dashboard.ts` unchanged on this branch; no second batch implementation | Merge preview (below): the release `computePayrollMany` and R5 coexist in `owner-dashboard.ts`; payroll tests pass |
+
+**Consistency model of the backup (R6).** Per table: every row that exists when its export starts and still exists at
+its end is exported exactly once; rows added meanwhile may or may not appear; no row twice. A point-in-time copy across
+tables is not possible with paged HTTP calls; Neon's history / branching is the reference for that.
+
+**Full verification on this branch (head of the remediation commits).**
+- API: `npm run typecheck` clean; `npm test` **399 tests, 397 pass, 0 fail, 2 skipped** (baseline `2aa2e26`: 390, the
+  same 2 skipped; +9 new tests). Least-privilege run (`TEST_APP_ROLE=1`, CI's skip pattern): **398 / 398 pass**.
+- App: `flutter analyze` **0 errors** (788 infos/warnings, the same count as `2aa2e26`); `flutter test` **59 / 59 pass**.
+
+**Merge preview with PR #9 (local scratch worktree only; nothing committed, pushed or merged).**
+- New conflicts caused by R3 / R6: `api/src/modules/cash.ts` (2 hunks) and `api/src/modules/sales.ts` (import line),
+  besides the known `vercel.json` / `api/vercel.json`. Resolution: keep both sides; `expenseListSelect` applies the R3
+  column list to the release `expenseSelect(q)` result; the expense list keeps the release classification filters with
+  `expenseListSelect(db)` and `, x.id`; the sales import is the union.
+- With that resolution: API **466 tests, 464 pass, 0 fail**; app **62 / 62 pass**, analyze 0 errors.
+- Least-privilege on the merged tree: 461 / 465; the 4 failures are the release branch's 086 expense-classification
+  tests, and they fail identically on a merge preview of `2aa2e26` (before any remediation) — the known grant gap in
+  FINAL_USER_ACTIONS #8 note, not caused by this work.
+
+**Remaining risks (not fixed here).**
+- R1 / R2 / R7 reach phones only with a new app build; until then every installed app keeps the old behaviour.
+- Queued actions recorded by an older app version (no owner tag) are not sent after the upgrade; they are dropped at the
+  next sign-out (they cannot be attributed safely). Background location points recorded before a re-sign-in are dropped.
+- Offline money screens still show the last known values without an "offline" label (adding a label is a UI change that
+  was not part of the approved plan; the stale-online case is fixed).
+- The leads Excel export still pages with `offset`; with the tie-breaker no lead repeats or is skipped while nobody adds
+  leads, but leads added during an export can shift a page (would need a cursor on `/leads`, an API addition not approved).
+- The Drive backup uses the cursor only after the updated Apps Script is pasted in; until then it pages by primary key +
+  offset (no duplicates; rows deleted during the export can make later rows skip a page boundary).
+- The R3 column list is read once per process: a column added by a migration while an instance is running appears in
+  lists after the next cold start (deploys restart instances).
+- Speed-engineer skill text still missing (§2, #10); production verification still BLOCKED (§8).
+
 ## 8. Missing measurements and access needed
 
 | Missing | Needs |
@@ -437,12 +493,18 @@ before/after numbers. PR #9 is merged first (R8).
   - `att.mts`: receipt lists with attachments.
   - `gz.mts`: payload sizes and compression.
   - `pool.mts`: pool sizes.
+- **Remediation evidence (revision 4)** in `docs/remediation/evidence/`: `R1_offline_isolation_results.txt`,
+  `R3_attachment_lists_results.txt` + `R3_attachment_lists.mts.txt`, `R4_kpi_batch_results.txt` + `R4_kpi_batch.mts.txt`
+  + `R4_kpi_seed.sql`, `R5_cash_series_results.txt` + `R5_owner_dashboard.mts.txt`, `R6_paging_backup_results.txt` +
+  `leads_paging_check.mts.txt`, `R7_error_states_results.txt`. Tests in the repo: `app/test/offline_isolation_test.dart`,
+  `app/test/load_error_states_test.dart`, `api/test/remediation-perf.test.ts`, `api/test/backup-paging.test.ts`.
 - **Other tools:** `pg_stat_statements`, `pg_stat_user_tables`, an FK-index query, `EXPLAIN ANALYZE`, static greps (line
   numbers above), a read-only Hostinger listing, and the GitHub release API for the APK size.
 
 ## 10. Statement
 
-Read-only audit. No application code, schema, index, migration, permission, credential, DNS, routing, deployment or
-production data was changed or accessed. The only production touch was one read-only listing of web bundle sizes. All load
-ran on an isolated local database with synthetic data. The synthetic attachment test was reverted inside that test database.
-This audit alone does not make VALUNIVO production-ready.
+Revisions 1–3 were read-only. Revision 4 changed application code only for the owner-approved items R1–R7, on branch
+`cloudflare/worker-migration`. No schema, index, migration, permission, credential, DNS, routing, deployment, merge or
+production data was changed or accessed; all measurements ran on isolated local databases with synthetic data, and the
+merge preview with PR #9 ran in a local scratch worktree that was never committed or pushed. The synthetic attachments
+and KPI data exist only in the local scratch database. This work alone does not make VALUNIVO production-ready.
