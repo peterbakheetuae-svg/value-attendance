@@ -84,7 +84,7 @@ test('payout confirmation (employee code) fired in parallel → money leaves the
   const fcode = (await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/code`, {})).body.code;
   const fv = await par(() => h.call(tGm, 'POST', `/payouts/${fund.body.payout.id}/verify`, { code: fcode }));
   assert.equal(fv.filter((r) => r.status === 200).length, 1, 'fund ' + statuses(fv));
-  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'commission', amount: 300 });
+  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'work_expense', amount: 300 });
   assert.equal(pay.status, 201, JSON.stringify(pay.body));
   const before = (await h.call(c.t.hr, 'GET', '/payouts')).body.balance;
   const code = (await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/code`, {})).body.code;

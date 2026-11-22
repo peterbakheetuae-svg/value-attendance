@@ -1,5 +1,7 @@
 # VALUNIVO — Production-readiness assessment (branch `cloudflare/worker-migration`)
 
+All outstanding manual steps, in order: `docs/FINAL_USER_ACTIONS.md`.
+
 Status key: VERIFIED · IMPLEMENTED, NOT YET VERIFIED · BLOCKED BY USER ACTION · REQUIRES APPROVAL · N/A.
 Production (Vercel `value-attendance`, Neon, DNS, routing) is unchanged; nothing merged.
 
@@ -9,7 +11,7 @@ Production (Vercel `value-attendance`, Neon, DNS, routing) is unchanged; nothing
 |---|---|---|---|
 | 1 | Credential rotation | BLOCKED BY USER ACTION (scheduled last, per owner) | Runbook §3. Old values still active everywhere. |
 | 2 | Netlify isolation | REQUIRES APPROVAL (containment plan §5) | **Legacy API is live and connected to production**: `value-attendance-api.netlify.app/readyz` → `{"ok":true,"migrations":73,"push":true,"mail":true,"backup":false}` (old code, Nov 5). No app, web, workflow or Apps Script consumer references it (repo search). Netlify bakes env vars into deployed functions, so deleting variables alone does not cut it off; revoking the old DB password / Brevo key / Firebase key (§3) does. Branch builds blocked (`ignore = "exit 0"` on this branch). |
-| 3 | Neon role audit | BLOCKED BY USER ACTION | `db/checks/role_audit.sql` = SELECT-only (verified: no DDL/DML; ran clean on a scratch DB). Code-derived needs in `CLOUDFLARE_HYBRID_ARCHITECTURE.md` §4; no production facts claimed. |
+| 3 | Neon role audit | BLOCKED BY USER ACTION (production facts) · VERIFIED (requirements) | `role_audit.sql` SELECT-only. Requirements proven: the whole suite passes with the API on a role without CREATE / TRUNCATE, DELETE on 19 tables, append-only audit_log (CI step); only the TRUNCATE data reset is refused (test). Migrations no longer need the runtime role (`db-migrate.yml`, fail-closed). Final grants: `db/roles/valunivo_app_least_privilege.sql` (not executed). |
 | 4 | Cloudflare staging isolation | IMPLEMENTED, NOT YET VERIFIED on Cloudflare | Gateway → Service Binding → synthetic verifier; `.invalid` placeholder upstream; CI gate on configs; checks abort unless the first answer is synthetic; per-run secrets masked; both Workers deleted. 19/20 checks pass in local workerd. |
 | 5 | Real Cloudflare visitor-IP | BLOCKED BY USER ACTION | Only provable on Cloudflare (token needed). |
 | 6 | Signature & replay | VERIFIED (code/runtime) · replay instance-local, accepted | 11 unit tests + workerd/Node parity + e2e. Signature only feeds the sign-in throttle; grants no access; replay needs the Cloudflare→Vercel TLS stream and repeats the identical request ≤ 60 s. Distributed store not justified. |

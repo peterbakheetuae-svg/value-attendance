@@ -16,7 +16,9 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO valunivo_app;
 DO $$ DECLARE t text; BEGIN
   FOREACH t IN ARRAY ARRAY['web_push_subscriptions','role_permissions','push_tokens','holidays','employee_permissions',
     'employee_documents','notifications','employee_devices','deals','tracking_pings','payroll_batch_lines','meta_pages',
-    'marketing_company_files','lead_targets','lead_routes','lead_attachments','ex_unit_files','evaluations','attendance_selfies']
+    'marketing_company_files','lead_targets','lead_routes','lead_attachments','ex_unit_files','evaluations','attendance_selfies',
+    -- after proposed migration 086 (release branch) is applied: rerun this script so this grant is added too
+    'expense_group_categories']
   LOOP IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE format('GRANT DELETE ON %I TO valunivo_app', t); END IF; END LOOP;
 END $$;
 ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO valunivo_app;
