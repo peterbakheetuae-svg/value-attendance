@@ -32,6 +32,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
   final _q = TextEditingController();
   Timer? _debounce;
   bool _loading = true;
+  String? _error;
   int _page = 1, _total = 0, _seq = 0;
   List<Map<String, dynamic>> _leads = [];
   Map<String, dynamic> _tabs = {}, _stages = {}, _meta = {};
@@ -61,8 +62,19 @@ class _LeadsListPageState extends State<LeadsListPage> {
       'q': _q.text.trim(), 'page': '$_page', 'size': '30',
     });
     if (!mounted || seq != _seq) return; // a late answer for an older filter
+    final failed = JphUi.loadError(r);
+    if (failed != null) {
+      // R7: say so (with «حاول تاني») instead of showing an empty list / silently ending the list
+      setState(() {
+        _loading = false;
+        _error = failed;
+        if (reset) _leads = [];
+      });
+      return;
+    }
     setState(() {
       _loading = false;
+      _error = null;
       final rows = ll(r['leads']);
       _leads = reset ? rows : [..._leads, ...rows];
       _total = (r['total'] as num?)?.toInt() ?? 0;
@@ -235,7 +247,8 @@ class _LeadsListPageState extends State<LeadsListPage> {
                   ]),
                 const SizedBox(height: 6),
                 if (_loading && _leads.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-                if (!_loading && _leads.isEmpty)
+                if (!_loading && _error != null && _leads.isEmpty) JphUi.loadFailed(tr(_error!), _load),
+                if (!_loading && _error == null && _leads.isEmpty)
                   Padding(padding: const EdgeInsets.all(30), child: Text(tr('مفيش عملاء هنا'), textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
                 LayoutBuilder(builder: (context, c) {
                   final wide = c.maxWidth >= 860;
@@ -245,6 +258,7 @@ class _LeadsListPageState extends State<LeadsListPage> {
                   ]);
                 }),
                 if (_loading && _leads.isNotEmpty) const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
+                if (!_loading && _error != null && _leads.isNotEmpty) JphUi.loadFailed(tr(_error!), () => _load(reset: false)),
               ]),
             ),
           ]),
