@@ -38,15 +38,39 @@ import { yearClosingModule } from './modules/year-closing.ts';
 import { companyPayoutsModule } from './modules/company-payouts.ts';
 import { pushEnabled } from './lib/fcm.ts';
 import { mailEnabled } from './lib/mail.ts';
+import { authenticate, isOwner } from './auth/context.ts';
+import type { Req } from './http/router.ts';
 
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
   r.get('/healthz', async () => ({ json: { ok: true } }));
   /**
-   * Speed check (no secrets): where the API runs, which region the database is in (from its host name only), and
-   * how long a database round trip takes from here. A far database makes every screen slow.
+   * Public monitoring (keep-warm, uptime checks): only "is it up" and one round-trip time. At most ONE database query per
+   * instance every 5 s, however many anonymous callers there are (concurrent callers share it), so these routes cannot
+   * be used to load the database. Configuration details (regions, pooler, migrations, push / mail / backup switches)
+   * are shown only to the signed-in owner, whose requests are not shared or cached.
    */
-  r.get('/healthz/latency', async () => {
+  let probe: { at: number; p: Promise<{ ok: boolean; ms: number }> } | null = null;
+  const sharedProbe = () => {
+    const now = Date.now();
+    if (!probe || now - probe.at > 5_000) {
+      probe = { at: now, p: (async () => {
+        const t0 = performance.now();
+        try { await ctx.db.query('SELECT 1'); return { ok: true, ms: Math.round(performance.now() - t0) }; } catch { return { ok: false, ms: -1 }; }
+      })() };
+    }
+    return probe.p;
+  };
+  const ownerCaller = async (req: Req) => {
+    if (!req.headers.authorization) return false;
+    try { return isOwner(await authenticate(ctx.db, req)); } catch { return false; }
+  };
+  /** Speed check: where the API runs, which region the database is in (host name only), round-trip times — owner only. */
+  r.get('/healthz/latency', async (req) => {
+    if (!(await ownerCaller(req))) {
+      const x = await sharedProbe();
+      return x.ok ? { json: { ok: true, dbRoundTripMs: [x.ms] } } : { status: 503, json: { ok: false } };
+    }
     let dbRegion = 'unknown';
     try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -2).join('.') || 'unknown'; } catch { /* keep */ }
     const ms: number[] = [];
@@ -62,7 +86,11 @@ export function buildRouter(ctx: Ctx): Router {
     return { json: { ok: true, apiRegion: process.env.VERCEL_REGION ?? 'local', dbRegion,
       pooled: process.env.VA_DB_DIRECT !== '1', dbRoundTripMs: ms } };
   });
-  r.get('/readyz', async () => {
+  r.get('/readyz', async (req) => {
+    if (!(await ownerCaller(req))) {
+      const x = await sharedProbe();
+      return x.ok ? { json: { ok: true } } : { status: 503, json: { ok: false } };
+    }
     try {
       const x = await ctx.db.query(`SELECT count(*)::int AS n FROM schema_migrations`);
       return { json: { ok: true, migrations: x.rows[0].n, push: pushEnabled(), mail: mailEnabled(), backup: (process.env.BACKUP_TOKEN ?? '').length >= 24 } };

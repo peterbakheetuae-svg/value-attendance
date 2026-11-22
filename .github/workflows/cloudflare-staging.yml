@@ -56,9 +56,11 @@ jobs:
             if node cloudflare/cf-check.mjs cpu valunivo-cpu-probe "$FROM"; then exit 0; fi
           done
           echo "::warning::analytics not available yet — check Workers & Pages → valunivo-cpu-probe → Metrics"
-      - name: Current traffic of the existing mirror Worker (last 7 days, for the cost estimate)
+      - name: Measured traffic of the existing mirror Worker (cost estimate)
         if: env.SKIP != '1' && vars.CF_MIRROR_SCRIPT != ''
-        run: node cloudflare/cf-check.mjs cpu "${{ vars.CF_MIRROR_SCRIPT }}" "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" || true
+        run: |
+          node cloudflare/cf-check.mjs traffic "${{ vars.CF_MIRROR_SCRIPT }}" 14 || true
+          node cloudflare/cf-check.mjs cpu "${{ vars.CF_MIRROR_SCRIPT }}" "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" || true
       - name: Delete the probe
         if: always() && env.SKIP != '1'
         run: npx --yes wrangler@4 delete -c cloudflare/wrangler.probe.jsonc --force || true

@@ -16,6 +16,8 @@
  * Vercel enforces authentication, authorization and throttling itself, whether or not traffic came through here.
  */
 
+import { GW_HEADERS, GW_IP_RE, canonical, normQuery } from '../src/lib/gateway-sig.ts';
+
 export interface Env {
   UPSTREAM?: string;
   VA_GATEWAY_SECRET?: string;
@@ -30,7 +32,6 @@ export const AUTH_PATHS = new Set(['/auth/login', '/auth/forgot', '/auth/forgot/
 /** request headers that are dropped before forwarding */
 const STRIP = [/^x-va-gw-/, /^x-forwarded-/, /^forwarded$/, /^x-real-ip$/, /^x-vercel-/, /^true-client-ip$/, /^x-client-ip$/,
   /^cf-/, /^cdn-loop$/, /^host$/, /^connection$/, /^keep-alive$/, /^te$/, /^upgrade$/, /^proxy-/];
-const IP_RE = /^[0-9a-fA-F:.]{3,45}$/;
 
 const json = (status: number, code: string, message: string) => new Response(JSON.stringify({ error: { code, message } }),
   { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -38,10 +39,11 @@ const json = (status: number, code: string, message: string) => new Response(JSO
 const b64url = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 /** same value as gatewaySignature() in src/auth/ratelimit.ts (HMAC-SHA256, base64url) */
-export async function sign(secret: string, ts: string, ip: string): Promise<string> {
+export async function sign(secret: string, c: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`va-gw-v1\n${ts}\n${ip}`)));
+  return b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(c)));
 }
+const sha256 = async (b: ArrayBuffer) => b64url(await crypto.subtle.digest('SHA-256', b));
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -55,7 +57,7 @@ export default {
     if (declared > MAX_BODY) return json(413, 'payload_too_large', 'Request body too large');
 
     const ipRaw = (req.headers.get('cf-connecting-ip') ?? '').trim();
-    const ip = IP_RE.test(ipRaw) ? ipRaw : null;
+    const ip = GW_IP_RE.test(ipRaw) ? ipRaw : null;
 
     if (env.AUTH_RL && req.method === 'POST' && AUTH_PATHS.has(url.pathname) && ip) {
       const { success } = await env.AUTH_RL.limit({ key: `${ip}|${url.pathname}` });
@@ -64,18 +66,22 @@ export default {
 
     const headers = new Headers();
     req.headers.forEach((v, k) => { if (!STRIP.some((re) => re.test(k))) headers.set(k, v); });
-    const secret = env.VA_GATEWAY_SECRET ?? '';
-    if (ip && secret.length >= 32) {
-      const ts = String(Math.floor(Date.now() / 1000));
-      headers.set('x-va-gw-ip', ip);
-      headers.set('x-va-gw-ts', ts);
-      headers.set('x-va-gw-sig', await sign(secret, ts, ip));
-    }
-
     let body: ArrayBuffer | undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       body = await req.arrayBuffer();
       if (body.byteLength > MAX_BODY) return json(413, 'payload_too_large', 'Request body too large');
+    }
+
+    const secret = env.VA_GATEWAY_SECRET ?? '';
+    if (ip && secret.length >= 32) {
+      const ts = String(Math.floor(Date.now() / 1000));
+      const id = crypto.randomUUID();
+      const c = canonical({ method: req.method, path: url.pathname, query: normQuery(url.searchParams), ts, id, ip,
+        bodySha256: await sha256(body ?? new ArrayBuffer(0)) });
+      headers.set(GW_HEADERS.ip, ip);
+      headers.set(GW_HEADERS.ts, ts);
+      headers.set(GW_HEADERS.id, id);
+      headers.set(GW_HEADERS.sig, await sign(secret, c));
     }
 
     let res: Response;

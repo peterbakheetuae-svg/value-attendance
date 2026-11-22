@@ -1,93 +1,92 @@
 # VALUNIVO — Hybrid API architecture (Cloudflare gateway + Vercel backend)
 
-Branch `cloudflare/worker-migration` (from production `main` @ `cbd00b3`). **Staging only. Production, DNS, routing,
-billing: unchanged.** The earlier "whole API on Cloudflare with database access" candidate was dropped (it remains
-in Git history only); it is not deployed and nothing in this branch gives Cloudflare database access.
-
-## 1. Architecture
+Approved target: Cloudflare = stateless gateway only; Vercel = the only authoritative API; Neon = primary database.
+Cloudflare holds no database credential and has no database binding. Branch `cloudflare/worker-migration`; staging only.
+Production, DNS, routing and billing are unchanged.
 
 ```
-Flutter app / web ──► Cloudflare gateway (Worker, no DB, no secrets except VA_GATEWAY_SECRET) ──► Vercel API ──► Neon
-                  └──────────────────────────── (app's existing fallback: Vercel directly) ───────┘
+app / web ──► Cloudflare gateway (no DB) ──► Vercel API ──► Neon
+          └──────────── app's existing fallback: Vercel directly ─────┘
 ```
 
-- **Vercel = the only API.** Authentication, authorization, every database read/write, reports, backups, push, mail.
-  It stays independently secure when the gateway is bypassed (all checks live in Vercel; nothing trusts the gateway
-  except one optional, HMAC-signed client-IP header).
-- **Cloudflare gateway (`api/cloudflare/gateway.ts`)**: transparent forwarding to `UPSTREAM` (Vercel), plus
-  - strips client headers that could impersonate the platform/gateway (`x-forwarded-*`, `x-real-ip`, `x-vercel-*`,
-    `forwarded`, `true-client-ip`, `cf-*`, `x-va-gw-*`, hop-by-hop);
-  - passes the visitor IP (`CF-Connecting-IP`) to Vercel signed with `VA_GATEWAY_SECRET` (HMAC-SHA256, 60 s window,
-    bound to the IP) so Vercel's per-IP sign-in throttle sees each visitor instead of Cloudflare's address;
-  - no caching anywhere: subrequest `cache: "no-store"`, every response forced to `Cache-Control: no-store`
-    (Vercel already sends `no-store` on every response);
-  - rejects unknown methods (405) and bodies over the API's own 8 MiB limit (413) before they reach Vercel;
-  - optional per-IP edge limit on `/auth/login`, `/auth/forgot*` if an `AUTH_RL` rate-limit binding is added later
-    (approximate and per-location by Cloudflare's design; Vercel's database-backed limit stays authoritative);
-  - Workers Logs **off** (invocation logs would record URLs); it logs nothing; no bodies or tokens are read;
-  - Vercel unreachable → 502, timeout (25 s) → 504. It never tries another backend itself.
-- **Vercel change (`src/auth/ratelimit.ts`)**: accepts the gateway IP only with a valid, fresh signature and a
-  `VA_GATEWAY_SECRET` ≥ 32 chars; otherwise behaviour is exactly as today. Inactive until the secret is set on Vercel.
+## 1. Gateway → Vercel signed envelope (v2)
 
-## 2. Endpoint classification (413 routes inspected)
+Format: `src/lib/gateway-sig.ts` (shared, pure code). HMAC-SHA256 with `VA_GATEWAY_SECRET` over
+`va-gw-v2 | METHOD | path | normalized query | timestamp | request id (UUID) | client IP | SHA-256(body)`.
+Headers: `x-va-gw-ip`, `x-va-gw-ts`, `x-va-gw-id`, `x-va-gw-sig`. The gateway strips any client-supplied copies.
 
-| Class | Routes | Where |
+| Property | Behaviour on Vercel (`src/auth/ratelimit.ts`) |
+|---|---|
+| Binding | signature cannot be moved to another method, path, query, body or IP |
+| Freshness | ≤ 60 s old, ≤ 10 s in the future; otherwise refused |
+| Replay / duplicates | request id remembered for the window per instance (best effort; instances share no memory). A replay can only repeat the identical request within 60 s, and needs the TLS traffic between Cloudflare and Vercel |
+| Fail-closed | feature on + any gateway header present + anything wrong → **403 `gateway_signature_invalid`**, attempt not served |
+| Direct requests | no gateway headers → platform IP (`x-vercel-forwarded-for`), exactly as today |
+| Feature off | no secret ≥ 32 chars on Vercel → gateway headers ignored, behaviour exactly as today |
+| Rotation | `VA_GATEWAY_SECRET_PREVIOUS` accepted while set: set new+previous on Vercel → switch gateway → remove previous |
+
+Scope: the signed IP is consumed only by the sign-in / recovery throttle (`withIpLimit`: `/auth/login`, `/auth/forgot`,
+`/auth/forgot/verify`, `/auth/forgot/reset`). Other routes never trust gateway headers, so they need no verification.
+
+## 2. Rate limiting (end-to-end, gateway → real API over TLS, simulated Cloudflare egress IP)
+
+- Through the gateway: 30 failures from one visitor → that visitor 429; three other visitors on the same Cloudflare egress sign in.
+- Direct to Vercel (fallback): sign-in works; anonymous data routes still 401; an attacker is throttled by its own IP;
+  forged gateway headers → 403.
+- **Risk demonstrated:** with the gateway but WITHOUT the secret on Vercel, one visitor's 30 failures blocked every other
+  visitor (all appear as Cloudflare's IP). This is very likely how today's production mirror Worker behaves. Hence:
+  the secret on both sides is a hard prerequisite for any production use of the gateway.
+- Office NAT: employees behind one office IP share a budget of 30 failed attempts / 15 min (pre-existing design; correct
+  sign-ins never count). Per-account lockout is separate.
+
+## 3. Public health endpoints (`src/app.ts`)
+
+| Route | Anonymous / non-owner | Owner (signed in) |
 |---|---|---|
-| A. Sensitive | All routes that touch data or identity: `/auth/*`, `/me*`, `/employees*`, `/attendance*`, `/tracking*`, `/outings*`, `/payroll*`, `/payouts*`, `/commissions*`, `/cash*`, `/finance*`, `/sales*`, `/leads*`, `/partners*`/`/partner/*`, `/reports*`, `/permissions*`, `/backup*`, `/data-reset*`, `/year-closing*`, `/integrations*`, `/public/hooks/meta`, … | **Vercel** (executed only there) |
-| B. Edge-eligible | `/__gateway/health` (gateway self-check, no data). Nothing else: even `/healthz*`, `/readyz` query the database. | Cloudflare |
-| C. Routing/protection | Every class-A route passes through the gateway unchanged | Cloudflare → Vercel |
+| `/healthz` | `{ok}` — no DB (unchanged) | same |
+| `/readyz` | `{ok}` only (was: migrations count, push / mail / backup switches) | full detail |
+| `/healthz/latency` | `{ok, dbRoundTripMs:[1 value]}` (was: API region, DB region, pooler flag, 4 queries) | full detail, 4 samples |
 
-## 3. Verification (scratch database + stubbed / local upstream; production not touched)
+Amplification: anonymous calls share one `SELECT 1` per instance per 5 s (single-flight). Test: 100 concurrent anonymous
+calls → 1 query. keep-warm (`/healthz/latency`, status only) and app (`/healthz`) keep working.
 
-- API suite **369/369** (incl. 7 new gateway / signed-IP tests). Typecheck clean.
-- Authorization matrix (`test/security/authz-matrix.ts`, every route × anon / employee / sales manager / accountant / HR):
-  anonymous 2xx only on `/healthz`, `/healthz/latency`, `/readyz`, `/public/hooks/meta` (signature-checked webhook); employee 2xx
-  only on self-scoped lists (own payouts, entitlements, leads, payroll lines…), covered by the isolation/permission suites.
-- Secret-leak scan (`test/security/leak-scan.ts`, 120 GET routes × owner/employee): **0 findings**.
-- End-to-end **through the gateway** to the real API over TLS: 41 checks, all pass (one was first mis-aimed: GET on the POST-only `/backup/sweep` gave 404; POST gives 401, also with a wrong backup token) — anonymous 401 on employees / cash / commissions /
-  payouts / attendance / leads / tracking / payroll / reports / backup; forged JWT 401; sign-in works; 22 SQL-injection /
-  traversal payloads → no 5xx, no SQL error text; 30 failures from one visitor → 429 for that visitor only, others still
-  sign in; forged gateway headers sent directly to Vercel are ignored; `no-store` on JSON and xlsx; CORS allows only
-  approved origins.
-- In workerd: `cache: "no-store"` fetch works; WebCrypto signature == Node signature. Gateway bundle 1.7 KiB gzip.
+## 4. Database (review of `db/checks/role_audit.sql`; production NOT inspected — no access)
 
-## 4. Not verified / residual risks
+Intended `valunivo_app` privileges (the SQL given for creation): LOGIN; no superuser / createdb / createrole /
+replication / bypassrls; CONNECT; USAGE on `public`; **CREATE on `public` (temporary exception)**; SELECT, INSERT, UPDATE on all
+tables; UPDATE revoked on `audit_log`; USAGE, SELECT on sequences; DELETE only on approved tables; default privileges for
+future owner-created tables. The audit script (SELECT-only) shows the real state: role flags, memberships, schema rights,
+owned objects, per-table grants, any TRUNCATE / REFERENCES / TRIGGER, UPDATE / DELETE on `audit_log`, connections by role.
 
-- **Real Cloudflare** not exercised yet (needs your API token): gateway CPU in production, and the scrypt probe.
-- **Production database roles** not inspected (no access, not authorized). Run `db/checks/role_audit.sql` (SELECT-only).
-- `CREATE ON SCHEMA public` for `valunivo_app` remains the documented temporary exception.
-- Today's mirror Worker (`api/cloudflare-proxy/worker.js`, production) forwards all headers and likely makes every
-  user look like Cloudflare's IP to Vercel: 30 failed sign-ins company-wide in 15 min could throttle everyone on that
-  path (the app then falls back to Vercel directly). Fixed by the gateway + `VA_GATEWAY_SECRET`, which needs a
-  production deploy → your approval.
-- `/readyz` and `/healthz/latency` are public: they reveal migration count, push/mail/backup on-off and DB region, and
-  `/healthz/latency` runs 4 DB queries per call. Pre-existing; candidates for restriction in a later approved change.
-- Cloudflare's rate-limit binding is approximate/per-location; not enabled.
+Findings from the code:
+- **CREATE is not needed at runtime.** It exists only because build-time `migrate` runs `CREATE TABLE IF NOT EXISTS
+  schema_migrations` with the runtime URL. Remove it once migrations run with a separate, build-only credential (needs approval).
+- Runtime DELETE targets (19 tables): web_push_subscriptions, role_permissions, push_tokens, holidays, employee_permissions,
+  employee_documents, notifications, employee_devices, deals, tracking_pings, payroll_batch_lines, meta_pages,
+  marketing_company_files, lead_targets, lead_routes, lead_attachments, ex_unit_files, evaluations, attendance_selfies.
+  Any DELETE grant outside this list is unnecessary.
+- The owner-only **data reset** (`/admin/data-reset`) uses `TRUNCATE`, which `valunivo_app` does not have → under least
+  privilege it fails (no data changed). Safer as is; granting TRUNCATE is not recommended.
+- No runtime DDL anywhere else; all values parameterized (interpolations are code constants / allow-listed column names).
 
-## 5. CPU and cost
+## 5. Traffic and cost
 
-- Gateway: HMAC + proxy only, ≈1 ms CPU → **fits Workers Free (10 ms)**.
-- Free's 100,000 requests/day is the real constraint: estimated 60k–120k requests/day (59 users, 20-s alert polling).
-  Over the limit, workers.dev requests fail and the app falls back to Vercel directly. Real counts: set `CF_MIRROR_SCRIPT`.
-- Paid (US$5/month min.) is **not justified** for the gateway unless traffic is consistently > 100k/day; then ≈US$5.00/month
-  (well inside 10 M requests / 30 M CPU-ms). No Hyperdrive, no KV/D1, no logging costs.
-- Vercel usage is **not reduced** (all API work still runs there). This design buys isolation and edge filtering, not Vercel savings.
-- Password hashing: measured 34–39 ms CPU per scrypt check (Node). Stays on Vercel; parameters unchanged.
-- Spending controls (only after a Paid approval): budget alerts are e-mail only; a Workers spending limit blocks all
-  Worker invocations (error 1103) and is not an exact cap.
+Not yet measured: Vercel Hobby has no request metrics via API (needs paid Observability Plus); the mirror Worker's
+analytics need a Cloudflare token. The workflow prints the mirror's per-day requests (14 days), daily average/max and
+a monthly projection once `CF_MIRROR_SCRIPT` is set. Estimate until then: 60k–120k requests/day.
+Gateway CPU ≈ 1 ms → Workers Free fits on CPU; the binding limit is Free's 100k requests/day (over it, the app falls back
+to Vercel). Paid (US$5/month minimum) only if measured traffic is consistently > 100k/day. Nothing paid is enabled.
 
-## 6. Staging — your actions (Free plan, no billing)
+## 6. Staging (workers.dev only, read-only checks, forwards to production Vercel)
 
-1. Cloudflare API token: **Workers Scripts: Edit + Account Analytics: Read**, this account only.
-2. GitHub → Settings → Secrets → Actions: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
-   Variables: `CF_GATEWAY_STAGING=on`; optional `CF_MIRROR_SCRIPT=<existing mirror Worker name>`.
-3. Optional: Worker `valunivo-gateway-staging` → secret `VA_GATEWAY_SECRET` (random ≥ 32 chars). Not set on Vercel yet.
-   → workflow deploys `valunivo-gateway-staging.<account>.workers.dev` → production Vercel, runs read-only checks (no sign-in, no writes).
+Prerequisites (yours): credentials rotated (Phases A–E); then Cloudflare token (Workers Scripts: Edit, Account Analytics: Read)
+as GitHub secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`; variables `CF_MIRROR_SCRIPT` and finally
+`CF_GATEWAY_STAGING=on`; optional Worker secret `VA_GATEWAY_SECRET` (random ≥ 32 chars, never in chat / Git).
+Production Vercel does not run the new code, so it ignores the gateway headers during staging.
 
 ## 7. Production plan — FOR APPROVAL (nothing done)
 
-1. Set `VA_GATEWAY_SECRET` on Vercel + deploy the `ratelimit.ts` change (merge-approved commit).
-2. Point the app's first API address at the gateway: either replace the existing mirror Worker's code with `gateway.ts`
-   (same hostname → no app rebuild) or add a route. Vercel stays the app's second address.
-3. Watch 48 h: 5xx/502/504 at the gateway, 429 distribution, Vercel errors, sign-in success.
-4. **Rollback:** redeploy the previous mirror code (one command) — or do nothing: the app already falls back to Vercel.
+1. Merge-approved deploy of the Vercel changes (signed IP, health endpoints) with `VA_GATEWAY_SECRET` set.
+2. Replace the mirror Worker's code with `gateway.ts` + the same secret (same hostname → no app rebuild).
+3. Watch 48 h (403 `gateway_signature_invalid`, 429 spread, 502/504, sign-in success). Rollback: redeploy the old mirror
+   code, or rely on the app's fallback to Vercel.
