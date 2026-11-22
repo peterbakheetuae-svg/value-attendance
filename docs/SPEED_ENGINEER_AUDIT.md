@@ -1,204 +1,203 @@
-# VALUNIVO — Speed / performance audit (read-only)
+# VALUNIVO — Speed Engineer audit (Audit mode, read-only) — revision 2
 
-Branch `cloudflare/worker-migration` @ `67d8c4e` (no code changed; this report is the only addition). Date 2026-11-22.
-This is one input to the release decision; it does **not** by itself declare VALUNIVO production-ready.
+Branch `cloudflare/worker-migration` (code = production `main` @ `cbd00b3` plus gateway work). The release candidate on
+`release-prep/final-business-model` (PR #9, @ `31c1800`) was measured as well, because it changes the hottest code
+(payroll). No application code, schema, index or production system was changed. This revision supersedes revision 1 (`e491315`).
 
-## 1. Executive summary
+**About the method.** The brief says the full speed-engineer skill was provided in the conversation. It was not: its text
+appears in no message and in none of the 19 uploaded files (all searched). This revision therefore follows the Audit-mode
+structure and self-check items exactly as the brief lists them: stack map, scale, S/M/L tier, five mandatory areas,
+self-check. Anything that needs the skill's own text — tier thresholds, extra checklist lines — is marked **BLOCKED**.
+The audit is **not** declared fully compliant.
 
-- **The method file `speed-engineer-SKILL.md` could not be read.** It sits on the owner's PC (`C:\Users\JPH_T\OneDrive\Documents`), and the
-  session's permission check refused access to that folder. A standard performance method was applied instead (§2), and every
-  item that depends on the file is marked BLOCKED.
-- **The everyday app is fast.** Measured on a production-scale synthetic database (59 employees, one year of activity), 314 of
-  328 route/role combinations answer in under 50 ms. The median route takes 2.4 ms in-process, and the screens staff poll most
-  (`/notifications`, `/me`, `/attendance/today`, `/payouts`) take 2–8 ms with 2–5 queries.
-- **The main problem is N+1 queries in the management reports (verified).** The payroll calculation runs about 15 queries per
-  employee per month:
-  - `/insights/employees`: 2,091 queries per request
-  - `/finance/dashboard`: 1,644
-  - `/payouts/salaries`: 874
-  - `/dashboard/owner`: 829
-  - `/dashboard`: 193; `/kpi/overview`: 176
+## 1. Project map and exact stack versions
 
-  These take 0.2–1 s locally. With a realistic 2 ms database round trip they take 0.7–5 s, and at 10 ms they take 0.9–19 s (`/dashboard/owner` runs its queries in parallel, so it degrades least).
-- **One owner-dashboard query is about 660× slower than it needs to be.** A per-day cash series runs 4 correlated full scans per day:
-  362 ms, versus 0.55 ms for an equivalent grouped query.
-- **Under load, the database is the bottleneck, not Node.** Throughput plateaus at about 100 requests/s on a 2-core test machine
-  while Postgres uses about 1.4 cores. Real company peak demand is about 3–6 requests/s, so there is roughly 20× headroom on the
-  ordinary paths.
-- **Request volume, not CPU, is the infrastructure risk.** The 20-second alert poll alone produces about 95k requests/day if every
-  employee keeps the app open for a 9-hour shift. That is close to the free Cloudflare Worker limit of 100k/day on the mirror path.
-- **Client weight:**
-  - The Android APK is 89 MB, a universal build with no per-ABI split.
-  - The web build is 8.3 MB of JS plus 7.9 MB of WASM. It is served with deflate.
-  - JSON responses are not compressed by the API itself; gzip would shrink them about 10×. Whether the platforms compress them
-    in production is unverified.
+| Layer | Version / facts (source) |
+|---|---|
+| App | Flutter 3.38.10 stable, Dart SDK `>=3.5.0 <4.0.0` (`.github/workflows/app.yml:16`, `app/pubspec.yaml:6-8`). Key packages: http 1.2, geolocator 13, flutter_background_service 5.1, image_picker 1.1, flutter_image_compress 2.4, camera 0.11, firebase_messaging 15, shared_preferences 2.3. Android project generated in CI (`flutter create`, `app.yml:42`); release = universal APK (`app.yml:141`). Web = wasm + JS build on Hostinger. |
+| API | Node.js 22, TypeScript 5.6, `pg` ^8.13 (resolves 8.23), one dependency. 413 routes. Vercel function: pool **3** connections, Neon **pooler** host, function region pinned to the DB region (`api/vercel/entry.ts`, `api/scripts/vercel-build.mjs`). Every response `Cache-Control: no-store` (`api/src/http/router.ts:88`). Body limit 8 MiB (`router.ts:58`). |
+| Gateway | Cloudflare Worker mirror (`api/cloudflare-proxy/worker.js`), the app's first address; Vercel is its fallback. |
+| Database | Neon PostgreSQL (production version not visible without access; test DB 16.15). 97 tables, 226 foreign keys, 237 indexes (migrations 001–082). |
+| Growing tables | `audit_log` (every action plus every failed sign-in), `notifications`, `attendance` (~59 rows/working day), `tracking_pings` (kept 14 days, `tracking.ts:307`), `leads`/`lead_logs`, `cash_receipts`/`cash_expenses` (with image blobs), `employee_documents`, `attendance_selfies` (image blobs). |
+| Existing performance mechanisms | Client: 5-minute in-memory read cache with a 15-second background refresh, shared in-flight reads, offline copy of reads (`app/lib/core/api.dart:60-120`). Server: list caps (66 `LIMIT`s), minute sweep throttled to once a minute (`tracking.ts` `SWEEP_EVERY_MS`), batched photo-link endpoint (`/media/links`), DB-backed rate limits. Infra: keep-warm cron (`.github/workflows/keep-warm.yml`). |
 
-## 2. Skill compliance checklist
+## 2. Performance tier — **S (small)**, with justification
 
-| Requirement (from the task brief; the skill file was unreadable) | Status | Evidence |
+- **Users:** 59 employees, one company, single region. Measured peak demand ≈ 3–6 requests/s (§5.5).
+- **Largest growing tables** (estimates; production counts are BLOCKED):
+  - `audit_log`: the most rows, likely 10⁵ per year.
+  - `notifications`: 10⁵ per year.
+  - `attendance`: about 17k per year.
+  - `tracking_pings`: capped at about 80k rows by the 14-day retention.
+
+  Every table is below 10⁶ rows in the first years.
+- **Freshness:** money, balances, attendance and permissions must be exact and current. Reports may be computed on request.
+- **Budget:** free services only.
+- **What S implies:**
+  - Correct indexes, no N+1, bounded lists and lean payloads are required.
+  - Server caches, keyset pagination, read replicas, queues and materialised views would be over-engineering now.
+  - Numeric tier thresholds come from the skill and are unavailable (BLOCKED). The tier is chosen from the evidence above.
+
+## 3. Expected scale profile and assumptions
+
+| Item | Value | Basis |
 |---|---|---|
-| Read `speed-engineer-SKILL.md` fully and use it as the method | **BLOCKED** | Folder-access request refused by the session's permission check. Needs the file attached to the chat or placed in the repo. |
-| Skill-specific checklists, helper scripts, thresholds | **BLOCKED** | Same reason. Generic equivalents were applied below. |
-| Flutter startup / first frame | **BLOCKED** | No Flutter SDK, device or emulator here. Web bundle size measured instead (§3). |
-| Navigation / interaction responsiveness, frame times | **BLOCKED** | Needs Flutter DevTools on a device. |
-| CPU / memory of the app | **BLOCKED** | Same. |
-| Widget rebuilds | PASS (static) / potential | 1-second timers use a `ValueNotifier` on the dashboards; two small widgets call `setState` every second (§3). |
-| Large images / assets / payloads | **FAIL** | 89 MB universal APK; 885 KB `logo.png`; responses up to 360 KB raw (§3, §6). |
-| Background services / location / battery | potential | High-accuracy fix every minute during shift plus the alert poll while backgrounded (§3). Battery not measurable here. |
-| Memory leaks / resource management | **FAIL** (minor) | Dialog-scoped `TextEditingController`s are never disposed (verified in `exclusive_projects_page.dart:229–231`). Timers are cancelled. |
-| Endpoint latency | PASS (measured) | Every GET route × 4 roles; p50/p95 in §8. |
-| Expensive / blocking operations | **FAIL** | N+1 reports; scrypt login 34–39 ms CPU (by design). |
-| N+1 queries | **FAIL** | Query counts per route (§4). |
-| Concurrent request handling | PASS | 10, 25 and 50 virtual users: 0 errors (§7). |
-| CPU / memory under load | PASS (local) | Node 27–32 % CPU, RSS ≤ 220 MB (§7). |
-| Caching opportunities | **FAIL** | Per-employee payroll is recomputed on every report request (§4). |
-| Slow queries | **FAIL** | Per-day cash series 362 ms (§5). |
-| Missing / redundant indexes | **FAIL** (minor) | Duplicate index `leads_created` / `leads_created_at`; no index for `tracking_pings` by time alone; `audit_log` scans (§5). |
-| Query plans | PASS | `EXPLAIN ANALYZE` on hot queries (§5). |
-| Pagination / large results | PASS with remarks | Lists are capped (500 or 1,000 rows), but a full page is 290–360 KB raw (§6). |
-| Connection management / pool | PASS (analysed) | Pool of 3 per Vercel instance through the Neon pooler; pool size barely matters locally (§7). |
-| Transaction duration / concurrency | potential | The minute sweep runs inside a user's request with up to 600 sequential writes (§4). |
-| Payload sizes | PASS (measured) | §6. |
-| Repeated requests | **FAIL** | 20-second polling (§6). |
-| HTTP caching | PASS | API sends `no-store` (correct for personal data). Web static files carry cache headers. |
-| Cloudflare / Vercel flow | potential | Extra mirror hop; free-plan daily request cap (§6). |
-| Peak / normal bottlenecks | PASS (local) | DB-bound at about 100 req/s (§7). |
-| Production latency, real volumes, cold starts | **BLOCKED** | Production calls need approval; Vercel Observability needs a paid plan. Cold module load measured locally: 73–84 ms. |
+| Employees | 59 now | owner |
+| Growth (employees, leads/month, branches) | **unknown** | not established; needs the owner (FINAL_USER_ACTIONS #13) |
+| App usage | open most of a 9-hour shift | assumption |
+| Requests/day | 60k–120k (alert poll alone ≈ 95,580 at a full 9 h) | `alert_center.dart:174`; measured mirror traffic BLOCKED (#3) |
+| DB round trip in production | 1–3 ms if same region via pooler | assumption; production measurement BLOCKED (#11) |
+| Neon compute | free tier (small, shared) | budget; likely weaker than the 2-vCPU test box |
 
-## 3. Flutter performance findings
+## 4. The five mandatory areas
 
-| # | Component | Problem and cause | Evidence | Severity / impact | Minimal-risk fix | Verify by |
-|---|---|---|---|---|---|---|
-| F1 | Android release (`app.yml` `flutter build apk --release`) | Universal APK holding every CPU architecture | `value-attendance.apk` = 89,173,004 bytes (release v1.0.150) | Medium: every update downloads 89 MB on mobile data | Build `--split-per-abi` and serve the matching APK in `latest.json` (or an App Bundle) | APK size per ABI, about 30–40 MB expected |
-| F2 | `jph/services/alert_center.dart:174` | 20-second `Timer.periodic` poll of `/notifications?unread=1`, with no foreground check in `poll()` | Code; `_foreground` only gates the UI | Medium: about 180 requests/hour per open app; battery and data use in the background where the OS lets it run | Poll only in the foreground (push already wakes the app); back off to 60 s when idle | Request counts per device; Android battery stats |
-| F3 | `core/shift_tracker.dart` | `LocationAccuracy.high`, `distanceFilter: 0`, a 1-minute office check, plus a server ping every N minutes | Code lines 131–155 | Medium (unmeasured): GPS every minute for the whole shift | Balanced accuracy for the office check; high accuracy only when posting | Android battery historian on one device for one shift |
-| F4 | Dialogs (e.g. `exclusive_projects_page.dart:229–231`, `admin_pages.dart`, `employee_details_page.dart`) | `TextEditingController`s created in dialog methods and never disposed | Static count: 26/21/13 controllers created with 0 dispose calls in those files | Low: small leak per dialog open | Dispose after `showDialog` returns | DevTools memory snapshot after 50 dialog opens |
-| F5 | `assets/` (5.4 MB) | `logo.png` 885 KB, `avatar.png` 294 KB, two 0.6–0.7 MB sounds; only 8 `cacheWidth`/`cacheHeight` uses for 22 image widgets | `find assets -size +200k` | Low: larger APK/web, decode memory | Downscale or convert to WebP; set `cacheWidth` on large images | Asset sizes; DevTools image cache |
-| F6 | Web (`jaurea.com/valunivo`) | 8.26 MB `main.dart.js` + 7.91 MB `main.dart.wasm` | Hostinger listing (read-only) | Medium on first load over mobile (deflate is on in `.htaccess`) | Keep the wasm build; enable long cache on hashed files; pre-compressed `.br` if the host supports it | Lighthouse on the web app |
-| F7 | `stat_cards.dart:516`, `payment_code.dart:128` | `setState` every second while visible | Code | Low | Wrap the ticking text in a `ValueListenableBuilder` | DevTools rebuild counts |
+### 4.1 Database indexes and N+1
 
-## 4. API performance findings
+| # | Finding | Evidence (file:line, measurement) | Applies to | Status |
+|---|---|---|---|---|
+| I1 | **Payroll N+1 in reports**: about 15 queries per employee per month | `payroll-calc.ts:53…` called per employee. Queries per request: `/insights/employees` 2,091; `/finance/dashboard` 1,644; `/payouts/salaries` 874; `/dashboard/owner` 829. At 10 ms RTT: 19.1 s, 13.6 s, 2.5 s and 0.9 s | **main / this branch only** | FAIL here. **Already fixed in the release candidate**: same payloads (identical byte sizes), 40 / 48 / 19 / 31 queries, 176 / 326 / 109 / 509 ms at 10 ms RTT. Re-measured on `31c1800`. |
+| I2 | KPI N+1 on `/dashboard` and `/kpi/overview` | `kpi.ts:221` (`for (const e of emps.rows)`), `dashboard.ts:147` → `ensurePeriod`/set/results per employee (`kpi.ts:40-52`). 194 and 176 queries. `/dashboard` (manager/owner): 2.1 s at 10 ms RTT, still the same on the release branch | both | FAIL |
+| I3 | Minute sweep inside a user request | `dashboard.ts:76` → `tracking.ts sweep` → `leads.ts:1265-1275`: up to 300 × (UPDATE + INSERT) one by one. 600 writes seen in one `/dashboard` call; max 7.2 s under load | both | FAIL (medium) |
+| I4 | Unindexed foreign keys | 148 of 226 FKs have no leading index. Mostly audit columns (`created_by`, `decided_by` …) that are never filtered. Filtered ones: `salary_adjustments(employee_id)` (`payroll-calc.ts`, `reports.ts:141`), `cash_receipts(sale_id)` (`sales.ts:111,422`), `payouts(batch_line_id)` (`payroll-batches.ts:150,310`), `payroll_batch_lines(employee_id)`, `attendance_corrections(attendance_id)` (`attendance.ts:130`), `tasks(lead_id)` (`leads.ts:1157`) | both | PASS for tier S today (tables small); add an index when a table passes about 10k rows |
+| I5 | Duplicate index | `leads_created (created_at DESC)` and `leads_created_at (created_at)` | both | FAIL (minor) |
+| I6 | Hot paths indexed | `notifications(recipient_id, created_at DESC)`: 0.44 ms; `attendance(employee_id, work_date)`; `sessions(token_hash)` | both | PASS |
+| I7 | Client N+1 | Photos fetched as one batched `/media/links` call (`api_service.dart:158`). No per-row request loops found. The leads Excel export pages through `/leads` 25 × 200 (`leads_list_page.dart:422-428`), which is acceptable | both | PASS |
 
-| # | Endpoint / file | Problem and cause | Evidence (synthetic production-scale DB) | Severity | Minimal-risk fix | Verify by |
-|---|---|---|---|---|---|---|
-| A1 | `/insights/employees`, `/finance/dashboard`, `/payouts/salaries`, `/dashboard/owner` (payroll calculation, `modules/payroll-calc.ts`) | N+1: per employee per month it runs `employee_salaries`, `employees.attendance_exempt`, schedule, joining/weekend, attendance (+ selfie EXISTS), requests ×2 … | 2,091 / 1,644 / 874 / 829 queries; 116 calls of each per-employee query (58 employees × 2 months) | **High**: management screens 0.7–5 s at 2 ms RTT, 0.9–19 s at 10 ms; risk of function timeouts | Load each input once for all employees (`WHERE employee_id = ANY($1)`) and compute in memory. Same formulas, same results; prove with the existing payroll tests plus a golden comparison | Query count drops to about 15; latency at the simulated RTT |
-| A2 | `/dashboard`, `/kpi/overview` (KPI per employee) | N+1 on `kpi_results` / `kpi_sets` / results per employee | 193 and 176 queries, 88–127 ms | Medium | Batch the three per-employee queries | Query count |
-| A3 | Minute sweep inside user requests (`tracking.ts sweep` → `leads.ts:1265 leadsSweep`) | Up to 300 sequential `UPDATE leads` + 300 notification inserts, run inside whichever request claims the minute (`/dashboard`, pings) | 600 writes seen in one `/dashboard` call; under load `/dashboard` max 7.2 s | Medium: an unlucky user waits | Batch (`UPDATE … RETURNING` + one multi-row insert), or rely on the Apps Script `/backup/sweep` call only | Latency of the claiming request |
-| A4 | `/leads/dashboard` | 19–22 queries with heavy aggregates (per-day series with correlated subqueries) | 90–173 ms alone; p50 941 ms at 25 users | Medium: polled by sales and managers | Rewrite the series as grouped scans (see D1) | `EXPLAIN`, p95 under load |
-| A5 | `POST /auth/login` | scrypt (N=16384) costs 34–39 ms CPU | Measured | Low (by design; security parameters must not change) | none | — |
-| A6 | Cold start | Bundle 1.27 MB; module import 73–84 ms | Measured locally | Low | none | — |
+### 4.2 Pagination and server-side filtering
 
-## 5. Database performance findings
+| # | Finding | Evidence | Status |
+|---|---|---|---|
+| P1 | Lists are bounded on the server | 66 `LIMIT`s; e.g. `cash.ts:653` (1000), `:732`/`:813` (500), `employees.ts:181` (500), `leads.ts:363` (size ≤ 200) | PASS |
+| P2 | Filtering is server-side | Leads, cash, attendance, reports take query filters; no whole-table download for client filtering found | PASS |
+| P3 | **Stable ordering** | Leads OFFSET pagination orders by `created_at DESC`, `last_action_at`, or `full_name` with no unique tie-breaker (`leads.ts:366-375`). Ties (bulk imports, same name) can repeat or skip rows between pages and in the export. Cash lists order by `occurred_at` only (`cash.ts:732,813`) | FAIL (minor; add `, l.id` / `, r.id`) |
+| P4 | Keyset pagination | Not needed at tier S (largest paged list: leads, thousands) | NOT APPLICABLE (S) |
+| P5 | **Backup export paging** | `backup.ts:72` `ORDER BY ctid OFFSET … LIMIT 2000`. ctid changes when a row is updated, so a row updated during a backup can be exported twice or missed. OFFSET also rescans earlier pages. | FAIL (correctness of backups; switch to primary-key order) |
+| P6 | **Select only needed columns** | Receipt and expense lists use `r.*` / `x.*` (`cash.ts:458-463`, used at `:732`, `:813`, `sales.ts:422`), which pull the `attachment` bytea (≤ 600 KB each) for up to 500 rows, then drop it. Measured with a 200 KB synthetic attachment on 500 receipts: **16 ms → 457–588 ms, +133 MB RSS**, payload unchanged (327 KB). Same on the release branch (`cash.ts:665`, `:956`, `:1053`) | FAIL (high once receipts carry real photos; also Neon egress on the free plan) |
 
-| # | Object | Problem | Evidence | Severity | Fix | Verify |
-|---|---|---|---|---|---|---|
-| D1 | `owner-dashboard.ts:84–90` per-day cash series | 4 correlated subqueries per day, each a seq scan of `cash_receipts`; `(occurred_at AT TIME ZONE …)::date = d` cannot use an index | `EXPLAIN ANALYZE`: 362 ms, loops=14, 5,982 rows removed per loop. Equivalent `GROUP BY day` over a range: **0.55 ms** | High (owner dashboard) | One grouped query, then fill empty days in code | `EXPLAIN`, same totals |
-| D2 | Seq-scan pressure | `cash_receipts` 607 seq scans / 3.6M tuples read; `lead_stages` 257,808 scans (a 10-row table joined per row); `employee_salaries` 3,882 | `pg_stat_user_tables` after one sweep of all routes | Medium (mostly the N+1 paths) | Fixed by A1/D1 | Re-read the statistics |
-| D3 | `leads` | Duplicate indexes `leads_created (created_at DESC)` and `leads_created_at (created_at)` | `pg_indexes` | Low (extra write cost) | Drop one (a migration; needs approval) | — |
-| D4 | `tracking_pings` | No index on `at` alone; the retention `DELETE … WHERE at < now()-14 days` and time-only reads do parallel seq scans | 194 ms on 1.6M rows; small at the real 14-day volume (51,628 rows) | Low | `(at)` index only if volume grows | `EXPLAIN` |
-| D5 | `audit_log` (`/permissions/audit`) | Scans about 250k rows | 47 ms mean | Low (owner-only, rare) | Index on `(action, id)` if it grows | `EXPLAIN` |
-| D6 | Hot paths | Fine: `notifications(recipient_id, created_at DESC)` index scan 0.44 ms; `attendance(employee_id, work_date)`; `sessions(token_hash)` | `EXPLAIN` | — | — | — |
+### 4.3 Image optimisation
 
-## 6. Network and infrastructure findings
+| # | Finding | Evidence | Status |
+|---|---|---|---|
+| IM1 | Upload resizing | All 15 `ImagePicker.pickImage` calls set `maxWidth`/`imageQuality`; selfies compressed (`camera_service.dart:123`). Documents picked with `pickDocument` are not resized, only size-capped (e.g. national ID ≤ 3 MB, `marketing_company_form_page.dart:115-118`). Server caps: photo 2 MB (`employees.ts:515`), cash image 600 KB (`cash.ts:61`), files 3–5 MB | PASS (documents: size cap only) |
+| IM2 | Serving | `/media/:kind/:id` returns the stored image at full size (`legacy.ts:310-329`); no thumbnails. Lists show photos through batched signed links | FAIL (minor at S): full-size photos for small avatars |
+| IM3 | HTTP caching of images | Router forces `no-store` on every response, media included (`router.ts:88`), so signed photo links are fetched again on each app start (Flutter's memory cache covers one session) | Potential; a `private, max-age` on signed media links is allowed (per-user capability URL) |
+| IM4 | Decode dimensions | Only 8 `cacheWidth`/`cacheHeight` uses for 22 image widgets; e.g. selfie cards `attendance_expandable_cards.dart:175` | FAIL (minor; memory) |
+| IM5 | Bundled assets | `logo.png` 885 KB, `avatar.png` 294 KB, sounds 0.6–0.7 MB; assets 5.4 MB | FAIL (minor) |
+| IM6 | Formats / lazy loading | JPEG/PNG only; lists are lazily built (`ListView.builder`); no WebP | Potential |
 
-- **N1: no compression from the API.**
-  - Raw vs gzip: `/cash/ledger` 360 KB → 36 KB; `/cash/receipts` 328 → 21 KB; `/cash/expenses` 292 → 19 KB; `/employees` 64 → 4 KB; `/leads/dashboard` 54 → 7 KB.
-  - The API sends no `content-encoding`. Vercel's CDN and Cloudflare normally compress, but that is **not verified in production** (blocked).
-  - Fix if missing: compress in the router when `accept-encoding` allows.
-- **N2: request volume.**
-  - The alert poll gives 180 requests/hour per open app; 59 users × 9 h ≈ **95,580/day** from polling alone.
-  - Pings, screens and the 45-second projects refresh come on top.
-  - The free mirror Worker allows 100k/day; above it, the app falls back to Vercel directly.
-  - Measured mirror traffic is blocked until a Cloudflare analytics token exists. Fix: F2.
-- **N3: request path.** App → mirror Worker (Cloudflare) → Vercel function → Neon pooler. That is one extra edge hop.
-  - Vercel picks a function region next to the database (`vercel-build.mjs` `regionFor`).
-  - The per-request cost is dominated by the number of DB round trips (A1), not by the hop.
-- **N4: HTTP caching.** The API sends `no-store` on every response, which is correct for personal and financial data. Web static
-  files have `.htaccess` cache rules, with mixed `no-cache` and 7-day entries.
+### 4.4 Caching and invalidation
 
-## 7. Load and concurrency findings (isolated scratch DB, local 2-vCPU machine, one API process with pool 10)
+| # | Finding | Evidence | Status |
+|---|---|---|---|
+| C1 | No public / shared caching of private data on the server or CDN | `no-store` everywhere (`router.ts:88`); gateway forces `no-store`; Vercel CDN does not cache them | PASS |
+| C2 | **Financial balances served stale on the client** | The client read cache (`api.dart:64-66, 79-92`) serves non-"live" GETs from memory for up to 5 minutes and only refreshes in the background after 15 s. `/cash/summary`, `/cash/ledger`, `/finance/*`, `/payouts/*` are not in `_live` (`api.dart:66`). A cashier opening the cash screen sees the balance from up to 5 minutes ago (another person's movement is not shown) until the next open. Own writes clear the cache (`api.dart:216`) | **FAIL**: exact real-time values are cached. Smallest fix: add the money paths to `_live` |
+| C3 | **Offline copy not separated by user** | Every successful GET up to 300 KB is stored in `SharedPreferences` (unencrypted, `api.dart:110-120`) under a key made from the URL only. It is cleared on **logout** (`session.dart:118-122`) but **not** when the session expires or is revoked (`session.dart:21-23` → `_clear` without `clearOffline`). If another person signs in on that device while offline, the first person's cached responses (cash, employees, payroll) can be shown | **FAIL** (privacy plus invalidation). Smallest fix: clear offline data in `_clear()` and key by user |
+| C4 | Unnecessary repeated work | Reports recompute payroll per request (fixed by I1 on the release branch); no server cache needed at S | PASS (release) |
+| C5 | Compression | API sends uncompressed JSON (local check). **Vercel's CDN compresses responses with gzip/brotli when the client sends `Accept-Encoding`** ([Vercel docs](https://vercel.com/docs/how-vercel-cdn-works/compression)); Dart's HTTP client and browsers send it. Revision 1's "add compression in the router" is **withdrawn**; only a production header check remains (BLOCKED #11) | Likely PASS (unverified) |
 
-| Scenario | Requests (20 s) | Throughput | p50 | p95 | p99 | max | errors | Node CPU / RSS |
-|---|---|---|---|---|---|---|---|---|
-| 10 users, staff mix | 2,077 | 103.8/s | 44 ms | 358 | 471 | 5,057 | 0 | 32 % / 183 MB |
-| 25 users, staff mix | 2,076 | 103.8/s | 140 | 831 | 1,064 | 5,722 | 0 | 28 % / 195 MB |
-| 50 users, staff mix | 2,056 | 102.8/s | 300 | 1,637 | 1,940 | 13,238 | 0 | 27 % / 214 MB |
-| 5 owners, heavy reports | 52 | 2.6/s | 2,173 | 3,924 | 4,426 | 4,426 | 0 | 30 % / 220 MB |
+### 4.5 Loading UX (skeleton / empty / error / retry)
 
-- **Throughput is flat at about 103 requests/s while Node uses about 30 % CPU and Postgres about 144 % of the 2 cores.** The
-  database is the bottleneck on this machine.
-- **Per endpoint at 25 users:**
-  - `/leads/dashboard` p50 941 ms (the heaviest polled endpoint)
-  - `/dashboard` p50 2.4 s, max 7.2 s (includes the minute sweep)
-  - `/notifications` p50 152 ms
-- **Pool size has little effect locally.** The heavy reports took 606–977 ms across pools of 1, 3 and 10, because the cost is
-  database CPU. In production the database round trip dominates instead. Simulated: at 2 ms RTT `/finance/dashboard` takes
-  3.6 s; at 10 ms it takes 13.5 s.
-- **Real peak is far lower than the test load.** 59 users × (1 poll / 20 s + screens) ≈ 3–6 requests/s, about 20× below the
-  local ceiling on ordinary paths. The real risk is the management reports (A1, D1), not volume.
+Static sweep of the 36 screens that have a `_load()`:
 
-## 8. Evidence and measurements
-
-- **Dataset (synthetic, no real person).**
-
-  | Table | Rows |
-  |---|---|
-  | employees | 59 |
-  | attendance | 16,877 (one year) |
-  | tracking_pings | 1,634,580, trimmed to 51,628 to match the 14-day retention in `tracking.ts:307` |
-  | notifications | 129,800 |
-  | audit_log | 250,000 |
-  | leads | 8,000 |
-  | lead_logs | 40,000 |
-  | cash_receipts | 6,000 |
-  | cash_expenses | 2,000 |
-
-  Database size: 368 MB.
-- **Route sweep:** 672 route × role combinations (owner, HR, sales manager, employee). Status mix: 328 × 200, 167 × 403
-  (role-correct refusals), 116 × 404 (placeholder IDs), 32 × 401, 29 × 400. Results only count 200 responses. Hot routes:
-
-  | Route (employee unless noted) | p50 | Queries |
-  |---|---|---|
-  | `/me` | 4.2 ms | 4 |
-  | `/notifications` | 6.3 ms | 4 |
-  | `/attendance/today` | 3.4 ms | 5 |
-  | `/leads` | 19 ms | 7 |
-  | `/leads/dashboard` | 90 ms | 19 |
-  | `/cash/ledger` (owner) | 20.6 ms, 360 KB | 2 |
-
-- **Statement statistics** (`pg_stat_statements`): top mean is 563 ms for the per-day cash series; next are leads-dashboard
-  series of 30–47 ms.
-- **Tools:** Node in-process handler with a query-counting wrapper, a closed-loop HTTP load generator, `pg_stat_statements`,
-  `pg_stat_user_tables`, `EXPLAIN (ANALYZE, BUFFERS)`, esbuild bundle timing, and a read-only Hostinger listing.
-- **Not committed:** the scripts live outside the repository (`/home/claude/audit`); none modify code.
-
-## 9. Prioritized remediation plan (each a separate, approved change; results must be re-measured)
-
-1. **A1:** batch the payroll inputs for all employees, without changing a formula. Golden test: identical payroll for every
-   employee and month before and after. Target: about 15 queries, under 300 ms at 2 ms RTT.
-2. **D1 / A4:** rewrite the per-day series in `owner-dashboard.ts` and the leads dashboard as grouped scans. Identical totals test.
-3. **F2:** foreground-only alert polling with back-off. Halves the request volume and the mirror free-plan risk.
-4. **A3:** batch the minute sweep's writes.
-5. **F1:** split APKs per ABI.
-6. **N1:** verify production compression; add router compression only if missing.
-7. **A2, D3, F3–F7:** batch KPI queries, drop the duplicate index (migration), tune GPS accuracy, dispose controllers, shrink assets.
-
-## 10. Blocked checks and required access
-
-| Check | Needs | Entry in FINAL_USER_ACTIONS |
+| State | Screens with it | Status |
 |---|---|---|
-| Use the speed-engineer skill file | Attach `speed-engineer-SKILL.md` to the chat (or commit it); then re-run this checklist | new |
-| Production latency, DB round trip, cold starts | Approval to call `valunivo.vercel.app/healthz/latency` a few times, or Vercel Observability (paid; not authorised) | new |
-| Mirror traffic per day | Cloudflare analytics token (already step 3) | 3 |
-| Production compression | Approval for 3 read-only requests with `accept-encoding` | new |
-| Flutter runtime (startup, frames, memory, battery) | An Android device with a profile build plus Flutter DevTools (owner's PC) | new |
-| Real data volumes | Read-only row counts from Neon (with the role audit, step 2) | 2 |
+| Loading indicator | 35 / 36 (spinner) | PASS |
+| Skeleton | 0 | NOT REQUIRED at S (spinners exist); optional |
+| Empty state | 30 / 36. Missing in `multi_company/positions_page.dart`, `leads/leads_stages.dart`, `leads/leads_permissions.dart`, `pages/attendance_page.dart`, `pages/fingerprint_home.dart`, `pages/common.dart` | FAIL (minor) |
+| Error state | 20 / 36 handle errors explicitly. 16 rely on the bridge returning an error map, e.g. `finance/finance_dashboard_page.dart:112-119` sets `_loading=false` and renders whatever came back. Others: `commissions_page`, `projects_hub`, `marketing_companies_page`, `leads_*` (6), `partner_*` (2), `cash_overview`, `deals_page`, `commission_project_page` | FAIL: needs a runtime check of what is shown on error |
+| Retry / refresh | 29 / 36 (pull-to-refresh or a button) | Mostly PASS |
+| Parallel requests | 24 `Future.wait` uses. Sequential first loads of 2–3 requests: `marketing_company_form_page.dart:69`, `year_closing_page.dart:1158,1549`, `permissions_page.dart:54`, `commissions_page.dart:506`, `cash_page.dart:706` | Minor waterfalls |
 
-## 11. Confirmation
+## 5. Earlier broader findings: reassessed
 
-- No production change.
-- No code modification on any branch; the only commit adds this report.
-- No production data access beyond one read-only listing of web bundle sizes on Hostinger.
-- No credential, DNS, routing, billing or database-permission change.
-- All load ran against an isolated local database with synthetic data. The production endpoint request needed approval and was
-  **not** made.
+| Earlier claim | Re-check | Verdict |
+|---|---|---|
+| Salary/finance N+1 | Re-measured on both branches (§4.1 I1) | **Valid for main; already solved in the release candidate.** The priority moves to I2 (KPI). |
+| Owner-dashboard daily cash series | Query still present on the release branch (`owner-dashboard.ts:90`); `EXPLAIN ANALYZE` 362 ms vs 0.55 ms grouped | **Valid** (both branches) |
+| Alert poll every 20 s, also in background | `alert_center.dart:174` timer; `poll()` (`:213`) has no foreground check; `_foreground` only gates UI (`:239,246`). On Android the shift-tracking foreground service keeps the process alive, so the poll continues during shifts (behaviour on a device unverified); browsers throttle background timers | **Valid** (runtime unverified) |
+| APK 89 MB universal | `app.yml:141` (no `--split-per-abi`); release asset 89,173,004 bytes | **Valid.** A per-ABI split also needs the in-app updater (`latest.json` + `ota_update`) to pick the right file, so it is not a one-line change |
+| Web 8.26 MB JS + 7.91 MB WASM | Hostinger listing; deflate on (`.htaccess`) | **Valid**; only one of the two is loaded per browser |
+| API compression missing | Vercel CDN compresses (§4.4 C5) | **Withdrawn**, pending a header check |
+| DB is the bottleneck under load | Local: about 103 req/s flat, Postgres about 1.4 of 2 cores, Node 30 %. Neon's free compute is likely smaller | **Valid** as a direction; production capacity unmeasured |
+
+### 5.5 Load and concurrency (unchanged measurements, synthetic data)
+
+| Scenario | Throughput | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|
+| 10 users | 103.8 req/s | 44 ms | 358 ms | 471 ms | 0 |
+| 25 users | 103.8 req/s | 140 ms | 831 ms | 1,064 ms | 0 |
+| 50 users | 102.8 req/s | 300 ms | 1,637 ms | 1,940 ms | 0 |
+| 5 owners on heavy reports | 2.6 req/s | 2.2 s | 3.9 s | — | 0 |
+
+Server memory stayed at or below 220 MB RSS. The heavy-report run used the old code; on the release branch those reports
+take 0.1–0.5 s each.
+
+## 6. Self-check (from the brief's list)
+
+| Item | Status |
+|---|---|
+| Index coverage for FKs and filtered/sorted columns | PASS for S (I4, I6); duplicate I5 FAIL |
+| Zero N+1, server | **FAIL** (I2, I3; I1 only on main) |
+| Zero N+1, client | PASS (I7) |
+| Only required columns selected | **FAIL** (P6) |
+| Server-enforced limits | PASS (P1) |
+| Stable ordering | **FAIL** (P3, P5) |
+| Keyset pagination where justified | NOT APPLICABLE (S) |
+| No whole-table downloads for client filtering | PASS (P2) |
+| Image resizing / compression / formats / lazy / dimensions | Partial: upload PASS (IM1); serving and decode FAIL minor (IM2, IM4) |
+| Correct caching classification and invalidation | **FAIL** (C2, C3) |
+| No public caching of private data | PASS on server/CDN (C1); **FAIL** on shared devices (C3) |
+| No caching of balances / exact values | **FAIL** (C2) |
+| Loading / empty / error / retry | Partial (§4.5) |
+| Parallel requests, no waterfalls | Mostly PASS (6 small waterfalls) |
+| No over-engineering beyond tier | PASS (no recommendation adds infrastructure) |
+| Unchanged behaviour and permissions | PASS (read-only audit) |
+| Skill-specific thresholds / extra items | **BLOCKED** (skill text not provided) |
+| Production verification | **BLOCKED** (§8) |
+
+## 7. Smallest safe fixes, in priority order (none applied; each needs approval)
+
+| # | Fix | Files | Expected impact | Verify by |
+|---|---|---|---|---|
+| 1 | Ship the release candidate's payroll batching (already written and tested) | PR #9 | Reports from 0.9–19 s to 0.1–0.5 s at 10 ms RTT | Rerun of `qprof` / RTT scripts (§9) |
+| 2 | Receipt/expense lists: replace `r.*`/`x.*` with explicit columns (no `attachment`) | `cash.ts:458-463` | 500-row list stays about 16 ms with real photos (instead of about 0.5 s and up to 300 MB pulled from the DB) | Same synthetic-attachment test; identical JSON |
+| 3 | Money screens always fresh: add `/cash`, `/finance`, `/payouts`, `/payroll`, `/sales`, `/insights` to `_live` | `app/lib/core/api.dart:66` | Balances never shown stale; adds about 1 request per screen open | Manual test with two accounts |
+| 4 | Clear the offline copy when a session ends for any reason; key it per user | `session.dart:126` (`_clear`), `api.dart:110-120` | No cross-user data on shared devices | Expire session, sign in as another user offline |
+| 5 | Daily cash series as one grouped query | `owner-dashboard.ts:84-90` | 362 ms → about 1 ms | `EXPLAIN ANALYZE`; identical totals for 90 days |
+| 6 | Batch the KPI lookups for all employees | `kpi.ts:40-52, 221`, `dashboard.ts:147` | `/dashboard` 194 → about 10 queries; 2.1 s → about 0.2 s at 10 ms RTT | Query counter; identical KPI output |
+| 7 | Batch the minute sweep's writes | `leads.ts:1265-1275` | No 2–7 s spikes for the user who triggers it | Latency of the claiming request |
+| 8 | Alert poll only in the foreground, with back-off | `alert_center.dart:174,213` | Up to about −50 % requests/day; mirror stays under the free limit | Request counts per device |
+| 9 | Tie-breakers (`, id`) on OFFSET lists; backup paging by primary key | `leads.ts:366-375`, `cash.ts:732,813`, `backup.ts:72` | No duplicate/missing rows in pages, exports and backups | Paging test with tied timestamps |
+| 10 | Minor: drop duplicate index (migration); `cacheWidth` on large images; shrink logo/avatar; explicit error states on 16 screens; per-ABI APK with updater support | various | memory / size / UX | as listed |
+
+## 8. Missing measurements and access needed
+
+| Missing | Needs |
+|---|---|
+| Skill text (thresholds, any further checklist items) | Paste `speed-engineer-SKILL.md` into the chat or commit it (FINAL_USER_ACTIONS #10) |
+| Production round trip, compression header, cold starts | Approval for a few read-only production requests (#11) |
+| Real traffic per day | Cloudflare analytics token (#3) |
+| Real table sizes and growth | Read-only counts in Neon (with #2), plus the growth expectations (#13) |
+| Flutter runtime (startup, frames, memory, battery, background poll) | Profile build on one Android phone + DevTools (#12) |
+
+## 9. Evidence index
+
+- **Synthetic database `va_perf`:** 59 employees; one year of attendance (16,877 rows); 129,800 notifications; 250,000 audit rows;
+  8,000 leads; 40,000 lead logs; 6,000 receipts; 2,000 expenses; tracking pings at the 14-day retention (51,628).
+- **Scripts** (outside the repo, `/home/claude/audit`):
+  - `routes.mts`: every GET route × 4 roles.
+  - `qprof.mts` / `qprof_rel.mts`: queries per request, on both branches.
+  - `rtt.mts` / `rtt_rel.mts`: simulated database round trip.
+  - `load.mts`: load test.
+  - `att.mts`: receipt lists with attachments.
+  - `gz.mts`: payload sizes and compression.
+  - `pool.mts`: pool sizes.
+- **Other tools:** `pg_stat_statements`, `pg_stat_user_tables`, an FK-index query, `EXPLAIN ANALYZE`, static greps (line
+  numbers above), a read-only Hostinger listing, and the GitHub release API for the APK size.
+
+## 10. Statement
+
+Read-only audit. No application code, schema, index, migration, permission, credential, DNS, routing, deployment or
+production data was changed or accessed. The only production touch was one read-only listing of web bundle sizes. All load
+ran on an isolated local database with synthetic data. The synthetic attachment test was reverted inside that test database.
+This audit alone does not make VALUNIVO production-ready.
