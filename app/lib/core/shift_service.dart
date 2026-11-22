@@ -99,6 +99,13 @@ Future<void> shiftServiceMain(ServiceInstance service) async {
   await w.begin();
 }
 
+/// The location points kept offline that were recorded with this session token (see `_Worker._flush`).
+@visibleForTesting
+List<Map<String, dynamic>> pingsOfSession(List<Map<String, dynamic>> q, String? token) {
+  final tag = ApiClient.tokenTag(token);
+  return tag == null ? [] : q.where((x) => x['tt'] == tag).toList();
+}
+
 class _Worker {
   _Worker(this.service);
   final ServiceInstance service;
@@ -184,7 +191,7 @@ class _Worker {
     } on ApiException catch (e) {
       if (e.isNetwork) {
         // no internet: kept with its time and sent later (offline tracking)
-        final q = _read(p)..add({...body, 'offlineAt': DateTime.now().toUtc().toIso8601String()});
+        final q = _read(p)..add({...body, 'offlineAt': DateTime.now().toUtc().toIso8601String(), 'tt': ApiClient.tokenTag(api.token)});
         await p.setString(_queueKey, jsonEncode(q.length > 300 ? q.sublist(q.length - 300) : q));
       } else if (e.status == 409 || e.status == 401) {
         // 409 = not in a shift any more (checked out); 401 = signed out → stop
@@ -202,10 +209,17 @@ class _Worker {
   }
 
   Future<void> _flush(SharedPreferences p) async {
+    // a point kept offline is sent only with the session that recorded it: after a sign-out / expiry / another
+    // sign-in on this phone, the previous person's points are dropped, never sent as the new person's
     var q = _read(p);
+    final mine = pingsOfSession(q, api.token);
+    if (mine.length != q.length) {
+      q = mine;
+      await p.setString(_queueKey, jsonEncode(q));
+    }
     while (q.isNotEmpty) {
       try {
-        await api.post('/tracking/ping', q.first);
+        await api.post('/tracking/ping', Map.of(q.first)..remove('tt'));
       } on ApiException catch (e) {
         if (e.isNetwork) return;
       } catch (_) {

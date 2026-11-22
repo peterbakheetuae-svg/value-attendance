@@ -1,0 +1,7 @@
+R1 offline data isolation — regression results (app/test/offline_isolation_test.dart, Flutter 3.38.10, linux test VM)
+
+With the fix:            13 tests, "All tests passed!"
+Mutation check (fix removed: offline key without owner, queue owner check disabled, no clear on 401):
+  5 of 13 fail — EXPIRED (401), REVOKED (401 on POST), ACCOUNT SWITCH, OFFLINE RESTORE after expiry, QUEUE.
+  (OFFLINE PUNCH / untagged-legacy / background pings are guarded by separate code not mutated here.)
+Original reproduction against the unfixed code: commit 2aa2e26, docs/remediation/evidence/repro_offline_isolation_test.dart.txt
