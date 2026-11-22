@@ -1,4 +1,4 @@
-import { createCipheriv, createECDH, createHmac, createPrivateKey, createSign, randomBytes } from 'node:crypto';
+import { createCipheriv, createECDH, createHmac, createSign, randomBytes } from 'node:crypto';
 import type { Q } from '../db.ts';
 
 /**
@@ -51,9 +51,12 @@ export function vapidAuth(endpoint: string): string {
   const head = Buffer.from(JSON.stringify({ typ: 'JWT', alg: 'ES256' })).toString('base64url');
   const claims = Buffer.from(JSON.stringify({ aud: new URL(endpoint).origin, exp: Math.floor(Date.now() / 1000) + 12 * 3600,
     sub: 'mailto:admin@jaurea.com' })).toString('base64url');
-  const key = createPrivateKey({ format: 'jwk', key: { kty: 'EC', crv: 'P-256', d: k.d.toString('base64url'),
-    x: k.pub.subarray(1, 33).toString('base64url'), y: k.pub.subarray(33, 65).toString('base64url') } });
-  const sig = createSign('SHA256').update(`${head}.${claims}`).sign({ key, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+  // the JWK is passed inline (not as a KeyObject): same signature on Node, and also accepted by Cloudflare Workers,
+  // whose Sign.sign() refuses a KeyObject together with dsaEncoding
+  const jwk = { kty: 'EC', crv: 'P-256', d: k.d.toString('base64url'),
+    x: k.pub.subarray(1, 33).toString('base64url'), y: k.pub.subarray(33, 65).toString('base64url') };
+  const sig = createSign('SHA256').update(`${head}.${claims}`)
+    .sign({ key: jwk, format: 'jwk', dsaEncoding: 'ieee-p1363' } as any).toString('base64url');
   return `vapid t=${head}.${claims}.${sig}, k=${k.pub.toString('base64url')}`;
 }
 

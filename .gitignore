@@ -14,3 +14,6 @@ app/android/app/release/
 *.keystore
 dist/
 .vercel/
+.wrangler/
+.dev.vars
+.dev.vars.*

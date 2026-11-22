@@ -20,6 +20,12 @@ export const IP_LIMITS: Record<string, { max: number; minutes: number }> = {
 };
 
 export function clientIp(req: Req): string | null {
+  // Cloudflare Workers: the edge itself sets CF-Connecting-IP on every request (a caller's own value is replaced),
+  // so it is the only header trusted there. VA_PLATFORM is a plain Worker var set in wrangler.jsonc, never by a caller.
+  if (process.env.VA_PLATFORM === 'cloudflare') {
+    const ip = String(req.headers['cf-connecting-ip'] ?? '').trim();
+    return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : null;
+  }
   if (process.env.VERCEL !== '1' && process.env.TRUST_PLATFORM_IP !== '1') return null;
   const v = req.headers['x-vercel-forwarded-for'] ?? req.headers['x-real-ip'];
   const ip = String(Array.isArray(v) ? v[0] : v ?? '').split(',')[0].trim();

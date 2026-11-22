@@ -4,5 +4,5 @@
   "installCommand": "cd api && npm install",
   "buildCommand": "cd api && node scripts/migrate-if-production.mjs && node scripts/vercel-build.mjs ../.vercel/output",
   "outputDirectory": "api/public",
-  "git": { "deploymentEnabled": { "gh-pages": false } }
+  "git": { "deploymentEnabled": { "gh-pages": false, "cloudflare/worker-migration": false } }
 }
