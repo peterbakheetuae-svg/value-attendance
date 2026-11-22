@@ -1,0 +1,14 @@
+R5 — daily receipt series as one grouped query (api/src/modules/owner-dashboard.ts DAILY_RECEIPTS_SQL).
+
+Equivalence
+- SQL proof (prep, rolled back on va_perf): cash_series_equivalence.sql — 261 ranges, 0 differing rows.
+- API test (test/remediation-perf.test.ts, R5): the exported production SQL vs the old SQL verbatim, 270 ranges
+  (incl. ranges starting/ending exactly on days with a 00:00 Cairo receipt, both 2026 DST-change days, empty
+  reversed range), 70 edge receipts of 7 kinds, 10 reversed: deepEqual on every row (dates, order, numeric strings).
+  Mutation check: lower bound ">=" changed to ">" -> the test fails.
+- Endpoint: /dashboard/owner?view=finance full JSON identical before/after for range 14, 30, 91
+  (sha fcc634e5.., d7a57560.., 8b2f8252..).
+
+Latency (synthetic va_perf, 6,000 receipts, in-process, 5 runs, median; before = worktree at 2aa2e26)
+  range 14: 615 ms -> 230 ms     range 30: 748 ms -> 163 ms     range 91: 1152 ms -> 170 ms
+  (series query alone, from the prep measurement: 14 days 531.6 -> 0.93 ms, 90 days 1006.5 -> 1.77 ms)

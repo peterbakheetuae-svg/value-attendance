@@ -144,3 +144,49 @@ test('R4: /kpi/overview and the dashboard KPI block answer as before', async () 
   assert.equal(d.status, 200);
   assert.ok(d.body.kpiOverview && typeof d.body.kpiOverview.employees === 'number');
 });
+
+import { DAILY_RECEIPTS_SQL } from '../src/modules/owner-dashboard.ts';
+
+// the query R5 replaced, verbatim
+const OLD_DAILY_SQL = `
+      SELECT d::date AS day,
+             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'reservation') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_res,
+             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'down_payment') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_down,
+             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'installment') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_inst,
+             COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_all
+        FROM generate_series($1::date, $2::date, interval '1 day') d ORDER BY 1`;
+
+test('R5: the grouped daily receipt series equals the old per-day query exactly (Cairo midnight, DST days, reversed, every kind)', async () => {
+  const db = h.db;
+  await db.query(`
+      INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, purpose, occurred_at, recorded_by, status, reversed_by, reversed_at, reverse_reason)
+      SELECT k, round((g * 1371.37 % 90000)::numeric + 0.37, 2), CASE WHEN g % 2 = 0 THEN 'hr' ELSE 'office' END,
+             (SELECT id FROM employees WHERE code='HR1'), 'edge '||g, 'r5-edge', ts, (SELECT id FROM employees WHERE code='HR1'),
+             CASE WHEN g % 7 = 0 THEN 'reversed' ELSE 'posted' END,
+             CASE WHEN g % 7 = 0 THEN (SELECT id FROM employees WHERE code='OWNER') END,
+             CASE WHEN g % 7 = 0 THEN ts + interval '1 hour' END, CASE WHEN g % 7 = 0 THEN 'اختبار عكس' END
+      FROM (SELECT row_number() OVER () g, k, ts FROM
+             unnest(ARRAY['reservation','down_payment','installment','settlement','other','commission','injection']) k
+             CROSS JOIN unnest(ARRAY[
+               (timestamp '2026-03-10 23:59:59' AT TIME ZONE 'Africa/Cairo'), (timestamp '2026-03-11 00:00:00' AT TIME ZONE 'Africa/Cairo'),
+               (timestamp '2026-04-23 23:59:59.999' AT TIME ZONE 'Africa/Cairo'), (timestamp '2026-04-24 00:30:00' AT TIME ZONE 'Africa/Cairo'),
+               (timestamp '2026-04-24 01:30:00' AT TIME ZONE 'Africa/Cairo'), (timestamp '2026-10-29 23:30:00' AT TIME ZONE 'Africa/Cairo'),
+               (timestamp '2026-10-30 00:00:00' AT TIME ZONE 'Africa/Cairo'), (timestamp '2026-11-22 00:00:00' AT TIME ZONE 'Africa/Cairo'),
+               (timestamp '2026-11-21 23:59:59' AT TIME ZONE 'Africa/Cairo'), (timestamp '2025-12-31 23:59:59.999999' AT TIME ZONE 'Africa/Cairo')]) ts) x`);
+  const edge = (await db.query(`SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'reversed')::int AS rev FROM cash_receipts WHERE purpose = 'r5-edge'`)).rows[0];
+  assert.ok(edge.n >= 30 && edge.rev > 0, JSON.stringify(edge));
+  const ranges: [string, string][] = [['2025-11-01', '2026-11-23'], ['2026-04-23', '2026-04-25'], ['2026-10-29', '2026-10-31'], ['2026-03-10', '2026-03-11'], ['2026-05-01', '2026-04-01'],
+    // ranges that start / end exactly on a day with a receipt at 00:00 Cairo, and on the DST-change days
+    ['2026-03-11', '2026-03-11'], ['2026-03-10', '2026-03-10'], ['2026-10-30', '2026-11-01'], ['2026-11-22', '2026-11-22'],
+    ['2026-04-24', '2026-04-24'], ['2026-04-23', '2026-04-23'], ['2026-10-29', '2026-10-29'], ['2026-01-01', '2026-01-01'], ['2025-12-31', '2025-12-31']];
+  for (let d = Date.UTC(2025, 10, 1); d <= Date.UTC(2026, 10, 22); d += 9 * 86400000) {
+    for (const len of [0, 1, 6, 13, 30, 89]) ranges.push([new Date(d).toISOString().slice(0, 10), new Date(d + len * 86400000).toISOString().slice(0, 10)]);
+  }
+  let rows = 0;
+  for (const [f, t] of ranges) {
+    const a = (await db.query(OLD_DAILY_SQL, [f, t])).rows, b = (await db.query(DAILY_RECEIPTS_SQL, [f, t])).rows;
+    assert.deepEqual(b, a, `${f}..${t}`);
+    rows += a.length;
+  }
+  assert.ok(ranges.length > 250 && rows > 5000, `${ranges.length} ranges, ${rows} rows`);
+});
