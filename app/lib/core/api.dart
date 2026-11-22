@@ -80,10 +80,15 @@ class ApiClient {
   // ---- speed: a screen opened again shows its last data at once and refreshes it in the background --------------
   // Kept in memory for 5 minutes, per signed-in user. Any change the person makes (post / put / patch / delete)
   // clears it, so their own actions always show fresh. Live things (attendance, outings, notifications, the
-  // signed-in account) are never served from it. Identical reads in flight are shared instead of sent twice.
+  // signed-in account, and every money screen) are never served from it. Identical reads in flight are shared instead of sent twice.
   static const _memTtl = Duration(minutes: 5);
   static const _memFresh = Duration(seconds: 15);
-  static const _live = ['/attendance', '/outings', '/notifications', '/me', '/auth', '/tracking', '/alerts', '/healthz', '/media'];
+  static const _live = ['/attendance', '/outings', '/notifications', '/me', '/auth', '/tracking', '/alerts', '/healthz', '/media',
+    ..._money];
+  /// Money (balances, ledgers, payouts, payroll, sales, commissions): always read from the server, because another
+  /// person's expense or receipt changes them and a 5-minute-old balance must never be acted on. Identical reads in
+  /// flight are still shared, and the per-person offline copy still answers when there is no connection.
+  static const _money = ['/cash', '/payouts', '/finance', '/payroll', '/advances', '/sales', '/commissions', '/insights', '/custody'];
   final Map<String, (Map<String, dynamic>, DateTime)> _mem = {};
   final Map<String, Future<Map<String, dynamic>>> _inflight = {};
 
