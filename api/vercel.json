@@ -6,7 +6,8 @@
   "outputDirectory": "public",
   "git": {
     "deploymentEnabled": {
-      "release-review/phase6-v4": false
+      "release-review/phase6-v4": false,
+      "release-prep/phase6-v4-085-baseline": false
     }
   }
 }
