@@ -45,7 +45,7 @@ Local numbers (same machine, ~0.2 ms per query). Not production benchmarks.
 
 ## Migrations (prepared in `db/proposed/` only — never run on Neon without the owner's approval)
 
-**Dependency order: 066 → 083 → 084 → 085 → 086** (each file in one transaction, as the runner applies it; by hand `psql -1`).
+**Dependency order: 066 → 083 → 084 → 085 → 086 → 087** (each file in one transaction, as the runner applies it; by hand `psql -1`).
 Each is additive and is exercised **forward-only** by the test suite on throw-away databases (install, second run, existing
 records untouched). Rollback scripts exist but are **never executed** — not by tests, not in release validation; their
 scope is checked as text only (`api/test/migration-rollback-static.test.ts`: each may remove only what its own migration
@@ -75,6 +75,40 @@ collections. Approved for Neon on 2026-11-22 but **not run**: this session has n
 connector is not connected). Production `/readyz` reports 73 applied migrations = `db/migrations` only, so 066 / 083 / 084
 are not applied there yet — 085 / 086 stay unapplied until 083 / 084 are, the inspection has run, and the 2026-11-18
 clean-up question is settled.
+
+## Resale and rental (087 — proposed)
+
+`db/proposed/087_brokerage_deals.sql`, API `api/src/modules/brokerage.ts`, app «التسويق» → إعادة بيع / إيجار
+(`app/lib/jph/pages/projects/brokerage_page.dart`). Until 087 runs the API answers `installed:false` and the pages say so;
+nothing else changes.
+
+* The sales employee registers the deal: property, owner (seller / landlord), client (buyer / tenant), price or monthly rent,
+  the property contributor and the closing salesperson (two different roles, may be two people), the sales manager.
+* Proposed commission — resale: 1 %–2.5 % of the price, paid by the seller, the buyer or both (each side's amount);
+  rental: one month from the owner / from the tenant / half from each / a fixed amount per side. Corrections while it
+  waits are audited.
+* The general manager (`brokerage.approve`, else `commission.approve`) approves the distribution — contributor, closer,
+  sales manager, other beneficiaries, each a percentage or a fixed amount, never above the commission (the office keeps
+  the rest). Nobody approves a deal he proposed or takes a share of. The approved agreement and distribution are frozen
+  by a database trigger and kept as a snapshot; later edits of employees, roles or rules do not move them.
+* Office revenue only when collected: each side's commission is received into a cashbox as a `commission` receipt
+  (numbered, idempotent by `clientRef`, never above that side's amount); the rest is a receivable (`/cash/overview` →
+  `brokerage.agreed / collected / receivable`). Once all of it is in, every employee share becomes a commission entitlement
+  of that month (listed with the other commissions, paid once through «صرف العمولة»). An external beneficiary's share is
+  recorded but is not payroll.
+* A deal with nothing collected can be cancelled; collected money is never deleted. Every step is in the audit log.
+* Tests: `api/test/brokerage.test.ts`; the treasury figures (cash + bank vs office commission vs owners' trust vs available
+  funds; an internal cash ↔ bank move creates no revenue / expense): `api/test/treasury-figures.test.ts`.
+
+### Deployment prerequisites (production database — each needs the owner's separate approval)
+
+The application is safe on a database without any of these (each feature checks and stays off). To turn them on, in order,
+each in one transaction, after a Neon backup branch:
+1. (if approved) the pre-launch clean-up `db/ops/2026-11-18-keep-active-employees.sql`
+2. `066` → `083` → `084`
+3. `085` with the stated month: `psql -1 -c "SET valunivo.owner_share_baseline = 'YYYY-MM-01'" -f 085_financial_integrity.sql`
+4. `086` (expense groups / categories) → `087` (resale / rental)
+None is in `db/migrations`, so no deploy runs them automatically. Rollback scripts are not part of any deployment.
 
 ### ⚠ Rollback = data loss for anything created after the migration
 
