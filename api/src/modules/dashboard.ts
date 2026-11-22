@@ -5,7 +5,7 @@ import { forbidden } from '../http/errors.ts';
 import { authenticate, has, notSettled, readableIds, teamMemberIds } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
 import { computeMonth } from './attendance-calc.ts';
-import { ensurePeriod, loadPeriod } from './kpi.ts';
+import { ensurePeriod, ensurePeriods, loadPeriod, loadPeriods } from './kpi.ts';
 import { overall } from './evaluations.ts';
 
 /** One endpoint, role-shaped by permissions. Every number comes from stored data. */
@@ -144,9 +144,11 @@ export const dashboardModule: Module = (r, { db, clock }) => {
                                      AND id <> $2 AND ($1::uuid[] IS NULL OR id = ANY($1::uuid[]))`, [ids, a.id]);
       let notEvaluated = 0, inProgress = 0, completed = 0, below = 0, noKpis = 0; const scores: number[] = [];
       const top: { id: string; name: string; score: number }[] = [];
+      const empIds = emps.rows.map((e) => e.id as string);
+      await ensurePeriods(db, empIds, period);
+      const all = await loadPeriods(db, empIds, period);
       for (const e of emps.rows) {
-        await ensurePeriod(db, e.id, period);
-        const s = await loadPeriod(db, e.id, period);
+        const s = all.get(e.id)!;
         if (s.status === 'no_kpis') noKpis++;
         else if (s.status === 'not_evaluated') notEvaluated++;
         else if (s.status === 'in_progress') inProgress++;

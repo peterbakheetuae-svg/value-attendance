@@ -1,0 +1,22 @@
+R4 — KPI batching. Synthetic copy of va_perf + R4_kpi_seed.sql (every set scope, a retired set, Oct partly/fully/
+below-target evaluated, Nov 5 employees pre-snapshotted). Each run on its own fresh copy of the seed DB (the GETs insert
+snapshots). before = worktree at 2aa2e26, after = this branch. RTT = simulated delay added to every query.
+
+order A: /kpi/overview, /dashboard, /kpi/overview?month=2026-10
+before RTT=0  /kpi/overview queries=223 183ms   | after queries=5  19ms
+before RTT=0  /dashboard    queries=146 131ms   | after queries=36 90ms
+before RTT=0  ?month=2026-10 queries=152 103ms  | after queries=4  13ms
+before RTT=10 /kpi/overview 2548ms              | after 73ms
+before RTT=10 /dashboard    1622ms              | after 428ms
+before RTT=10 ?month=2026-10 1863ms             | after 55ms
+JSON (KPI part; dashboard = kpiOverview block): identical sha 90e805ab.. / 71ce1b43.. / e9fb568f.. before and after
+kpi_results table after the run: identical (232 rows, sha ce836ec97ccead55)
+
+order B (dashboard snapshots first): /dashboard, /kpi/overview
+before /dashboard queries=249 235ms | after queries=37 98ms
+before /kpi/overview queries=120    | after queries=4
+JSON identical; kpi_results identical (196 rows, sha 60377cd8cac1df72)
+
+API test (test/remediation-perf.test.ts, R4): batch vs one-by-one snapshot rows identical; concurrent double batch
+idempotent; own > position > title priority (fails if the priority is swapped — mutation checked); retired set never
+used; existing snapshot never re-taken; loadPeriods == loadPeriod for evaluated / below-target / in-progress / no-set.

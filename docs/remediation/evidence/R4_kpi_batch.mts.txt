@@ -1,0 +1,33 @@
+// R4 before/after: query count, latency (optionally with simulated per-query RTT), JSON output, and the snapshot rows.
+// usage: ROOT=<api dir> DB=<db name> RTT=<ms> node --import tsx r4.mts <label>
+import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+const ROOT = process.env.ROOT ?? '/home/claude/peterbakheetuae-svg/va-cf/api';
+const RTT = Number(process.env.RTT ?? 0);
+const { createDb } = await import(ROOT + '/src/db.ts');
+const { buildRouter } = await import(ROOT + '/src/app.ts');
+const { createFetchHandler } = await import(ROOT + '/src/http/router.ts');
+const { systemClock } = await import(ROOT + '/src/lib/time.ts');
+const label = process.argv[2] ?? 'run';
+const base = createDb(`postgres://postgres:dev@127.0.0.1:5433/${process.env.DB ?? 'va_kpi_seed'}`, 3);
+let n = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const wrap = (q: any) => ({ query: async (t: string, v?: unknown[]) => { n++; if (RTT) await sleep(RTT); return q.query(t, v); } });
+const db: any = { ...wrap(base), tx: (fn: any) => base.tx((q: any) => fn(wrap(q))), end: () => base.end() };
+const h = createFetchHandler(buildRouter({ db, clock: systemClock }), { corsOrigins: [] });
+const tok = (await (await h(new Request('http://x/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier: 'OWNER', password: 'Passw0rd!x', deviceId: 'perf-OWNER00000000' }) }))).json()).token;
+const strip = (o: any) => JSON.stringify(o, (k, v) => (k === 'updatedAt' || k === 'serverTime' || k === 'now' ? undefined : v));
+for (const path of (process.env.PATHS ?? '/kpi/overview,/dashboard,/kpi/overview?month=2026-10').split(',')) {
+  n = 0; const t0 = performance.now();
+  const r = await h(new Request('http://x' + path, { headers: { authorization: 'Bearer ' + tok } }));
+  const body = await r.json(); const ms = performance.now() - t0;
+  const part = path === '/dashboard' ? body.kpiOverview : body;
+  const s = strip(part);
+  writeFileSync(`/tmp/r4_${label}_${path.replace(/[^a-z0-9]/gi, '_')}.json`, s);
+  console.log(`${label} RTT=${RTT} ${path} ${r.status} queries=${n} ${ms.toFixed(0)}ms kpi-json-sha=${createHash('sha256').update(s).digest('hex').slice(0, 16)}`);
+}
+const snap = await base.query(`SELECT employee_id, period::text, set_id, kpi_id, weight_snapshot, target_snapshot, actual, state FROM kpi_results ORDER BY 1,2,4`);
+const ss = JSON.stringify(snap.rows);
+writeFileSync(`/tmp/r4_${label}_snapshot.json`, ss);
+console.log(`${label} kpi_results rows=${snap.rows.length} sha=${createHash('sha256').update(ss).digest('hex').slice(0, 16)}`);
+await base.end();
