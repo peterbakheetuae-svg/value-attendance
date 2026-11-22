@@ -32,6 +32,7 @@ import 'app_nav.dart';
 import '../pages/leads/leads_api.dart' show seesLeads, tr;
 import 'glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
+import '../pages/projects/brokerage_page.dart';
 
 /// One entry of the app's menu: a page, a bottom-bar tab ([nav]) or a group with sub-items.
 class MenuEntry {
@@ -80,6 +81,11 @@ class AppMenu {
     final sales = office || ApiService.can('exclusive.reserve') || ApiService.can('cash.hr_operate');
     return [
       MenuEntry('projects', 'المشاريع', Icons.apartment_rounded, page: () => const ProjectsPage()),
+      // «التسويق» for sales: المشاريع / إعادة بيع / إيجار (the pages say «needs 087» until the database is updated)
+      if (sales || ApiService.can('commission.approve')) ...[
+        MenuEntry('resale', 'إعادة بيع', Icons.real_estate_agent_rounded, page: () => const BrokeragePage(kind: 'resale')),
+        MenuEntry('rental', 'إيجار', Icons.key_rounded, page: () => const BrokeragePage(kind: 'rental')),
+      ],
       if (sales) MenuEntry('sales', 'المبيعات', Icons.sell_rounded, page: () => const SalesHubPage()),
       MenuEntry('commissions', 'العمولات', Icons.workspace_premium_rounded, page: () => const CommissionsPage(requestsOnly: true)),
       if (office || ApiService.can('cash.hr_operate')) MenuEntry('developers', 'المطورين', Icons.business_rounded, page: () => const DevelopersPage()),
