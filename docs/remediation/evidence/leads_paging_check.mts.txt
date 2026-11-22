@@ -1,0 +1,22 @@
+// Pages through /leads (owner, every tab order) and checks every lead appears exactly once. Synthetic DB only.
+import { createDb } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/db.ts';
+import { buildRouter } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/app.ts';
+import { createFetchHandler } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/http/router.ts';
+import { systemClock } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/lib/time.ts';
+const db = createDb('postgres://postgres:dev@127.0.0.1:5433/va_perf', 3);
+const h = createFetchHandler(buildRouter({ db, clock: systemClock }), { corsOrigins: [] });
+const tok = (await (await h(new Request('http://x/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier: 'OWNER', password: 'Passw0rd!x', deviceId: 'perf-OWNER00000000' }) }))).json()).token;
+const total = Number((await db.query(`SELECT count(*) n FROM leads`)).rows[0].n);
+const ties = (await db.query(`SELECT count(*) n FROM (SELECT created_at FROM leads GROUP BY 1 HAVING count(*) > 1) z`)).rows[0].n;
+console.log(`leads ${total}, created_at values shared by >1 lead: ${ties}`);
+for (const sort of ['created', 'action', 'next', 'name']) {
+  const seen = new Map<string, number>(); let pages = 0;
+  for (let page = 1; page <= 60; page++) {
+    const r = await h(new Request(`http://x/leads?tab=all&size=200&page=${page}${sort ? '&sort=' + sort : ''}`, { headers: { authorization: 'Bearer ' + tok } }));
+    const j: any = await r.json(); const ls = j.leads ?? []; if (!ls.length) break; pages++;
+    for (const l of ls) seen.set(l.id, (seen.get(l.id) ?? 0) + 1);
+  }
+  const dup = [...seen.values()].filter((n) => n > 1).length;
+  console.log(`sort=${sort || 'default'}: pages ${pages}, distinct ${seen.size}, duplicated ${dup}, missing ${total - seen.size}`);
+}
+await db.end();

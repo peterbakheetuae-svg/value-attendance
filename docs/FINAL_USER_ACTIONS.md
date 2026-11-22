@@ -18,6 +18,7 @@ provider's own dashboard. After each step I verify read-only and report.
 | 11 | Approve a few read-only production calls: `valunivo.vercel.app/healthz/latency` ×3 and 3 requests with `accept-encoding` | Real DB round trip and real compression decide how bad the N+1 reports are in production | — | `SPEED_ENGINEER_AUDIT.md` §10 |
 | 12 | Flutter profiling on one Android phone (profile build + DevTools on your PC) | Startup, frame time, memory and battery cannot be measured here | — | `SPEED_ENGINEER_AUDIT.md` §3 |
 | 13 | Tell me the expected growth: employees in 1–2 years, leads per month, branches, how long attendance / notifications / audit history must be kept | Sets the performance tier and when indexes / pagination changes become necessary (`SPEED_ENGINEER_AUDIT.md` §2–3) | — | assumptions listed |
+| 14 | **Approve remediation R1–R7** (`SPEED_ENGINEER_AUDIT.md` §7); later install the new app build on phones and paste the updated `backup/google-drive-backup.gs` into Apps Script | R1 (offline cross-user data, reproduced) and R2 (stale balances, reproduced) only take effect in a new app build; R6 backup paging needs the Apps Script update | 8 (R3–R5 go on the release code) | fixes, tests and proofs prepared |
 | 9 | Optional, after 1–8 are stable: approve deleting the Netlify site and its variables | Final cleanup | 1, 5 | — |
 
 Note for 8: after merging, proposed migration 086 (release branch) adds `expense_group_categories`, which the API deletes

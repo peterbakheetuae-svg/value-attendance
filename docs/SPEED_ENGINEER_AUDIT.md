@@ -1,4 +1,4 @@
-# VALUNIVO — Speed Engineer audit (Audit mode, read-only) — revision 2
+# VALUNIVO — Speed Engineer audit (Audit mode, read-only) — revision 3 (remediation prepared)
 
 Branch `cloudflare/worker-migration` (code = production `main` @ `cbd00b3` plus gateway work). The release candidate on
 `release-prep/final-business-model` (PR #9, @ `31c1800`) was measured as well, because it changes the hottest code
@@ -104,7 +104,7 @@ Static sweep of the 36 screens that have a `_load()`:
 | Loading indicator | 35 / 36 (spinner) | PASS |
 | Skeleton | 0 | NOT REQUIRED at S (spinners exist); optional |
 | Empty state | 30 / 36. Missing in `multi_company/positions_page.dart`, `leads/leads_stages.dart`, `leads/leads_permissions.dart`, `pages/attendance_page.dart`, `pages/fingerprint_home.dart`, `pages/common.dart` | FAIL (minor) |
-| Error state | 20 / 36 handle errors explicitly. 16 rely on the bridge returning an error map, e.g. `finance/finance_dashboard_page.dart:112-119` sets `_loading=false` and renders whatever came back. Others: `commissions_page`, `projects_hub`, `marketing_companies_page`, `leads_*` (6), `partner_*` (2), `cash_overview`, `deals_page`, `commission_project_page` | FAIL: needs a runtime check of what is shown on error |
+| Error state | Corrected in revision 3 (§7 R7): 31 / 36 show the error. 4 show "no data" on failure (`commissions_page.dart:122`, `leads_calendar_page.dart:42`, `leads_list_page.dart:55`, `marketing_companies_page.dart:36`) and 1 hides silently (`cash_overview.dart:86`) | FAIL (5 screens) |
 | Retry / refresh | 29 / 36 (pull-to-refresh or a button) | Mostly PASS |
 | Parallel requests | 24 `Future.wait` uses. Sequential first loads of 2–3 requests: `marketing_company_form_page.dart:69`, `year_closing_page.dart:1158,1549`, `permissions_page.dart:54`, `commissions_page.dart:506`, `cash_page.dart:706` | Minor waterfalls |
 
@@ -155,20 +155,265 @@ take 0.1–0.5 s each.
 | Skill-specific thresholds / extra items | **BLOCKED** (skill text not provided) |
 | Production verification | **BLOCKED** (§8) |
 
-## 7. Smallest safe fixes, in priority order (none applied; each needs approval)
+## 7. Remediation plan — revision 3, ordered by user impact (prepared and verified; nothing applied)
 
-| # | Fix | Files | Expected impact | Verify by |
-|---|---|---|---|---|
-| 1 | Ship the release candidate's payroll batching (already written and tested) | PR #9 | Reports from 0.9–19 s to 0.1–0.5 s at 10 ms RTT | Rerun of `qprof` / RTT scripts (§9) |
-| 2 | Receipt/expense lists: replace `r.*`/`x.*` with explicit columns (no `attachment`) | `cash.ts:458-463` | 500-row list stays about 16 ms with real photos (instead of about 0.5 s and up to 300 MB pulled from the DB) | Same synthetic-attachment test; identical JSON |
-| 3 | Money screens always fresh: add `/cash`, `/finance`, `/payouts`, `/payroll`, `/sales`, `/insights` to `_live` | `app/lib/core/api.dart:66` | Balances never shown stale; adds about 1 request per screen open | Manual test with two accounts |
-| 4 | Clear the offline copy when a session ends for any reason; key it per user | `session.dart:126` (`_clear`), `api.dart:110-120` | No cross-user data on shared devices | Expire session, sign in as another user offline |
-| 5 | Daily cash series as one grouped query | `owner-dashboard.ts:84-90` | 362 ms → about 1 ms | `EXPLAIN ANALYZE`; identical totals for 90 days |
-| 6 | Batch the KPI lookups for all employees | `kpi.ts:40-52, 221`, `dashboard.ts:147` | `/dashboard` 194 → about 10 queries; 2.1 s → about 0.2 s at 10 ms RTT | Query counter; identical KPI output |
-| 7 | Batch the minute sweep's writes | `leads.ts:1265-1275` | No 2–7 s spikes for the user who triggers it | Latency of the claiming request |
-| 8 | Alert poll only in the foreground, with back-off | `alert_center.dart:174,213` | Up to about −50 % requests/day; mirror stays under the free limit | Request counts per device |
-| 9 | Tie-breakers (`, id`) on OFFSET lists; backup paging by primary key | `leads.ts:366-375`, `cash.ts:732,813`, `backup.ts:72` | No duplicate/missing rows in pages, exports and backups | Paging test with tied timestamps |
-| 10 | Minor: drop duplicate index (migration); `cacheWidth` on large images; shrink logo/avatar; explicit error states on 16 screens; per-ABI APK with updater support | various | memory / size / UX | as listed |
+The method limitation still applies: the speed-engineer skill text is not in this session or the repository. The audit is not
+claimed to be skill-compliant. Evidence files are in `docs/remediation/evidence/`. They are reproductions only and are
+not built into the app.
+
+### R1 — Offline data isolation between users · **REPRODUCED** · priority 1 (privacy and data integrity)
+
+**Reproduction.** Done with the real `ApiClient` and `Session` code, Flutter 3.38.10, in an isolated copy of the app with a fake server.
+The test is `evidence/repro_offline_isolation_test.dart.txt`; 5 of 5 tests pass, which means the problem is present.
+- **Expired or revoked session, then switching account offline.** User A (an accountant) is signed out by a 401. User B (no
+  cash permission) signs in on the same phone, then the phone goes offline.
+  - B's `/cash/summary` returns `{balance: 123456.78, owner: A-PRIVATE, _offline: true}`.
+  - B's `/payouts` returns A's payouts (`amount 9999`).
+- **Offline queue.** A's check-out, queued while offline, is later sent with B's token. The server records
+  `B|/attendance/check-out`, so A's action is credited to B.
+- **Controls (no leak):** a normal **logout** clears the offline copy, and the in-memory cache is keyed by token.
+
+**Root cause (lifecycle trace).**
+- The 401 handler `session.dart:21-23` calls `_clear()` (`session.dart:126-137`). That clears the token and `me_cache` but
+  **not** the offline copies. Only `logout()` calls `ApiClient.clearOffline()` (`session.dart:118-122`).
+- Offline copies are stored under a key built from the URL only, `apicache:<url>` (`api.dart:100-112`, put at `:114`). They
+  sit in plain `SharedPreferences` with no owner.
+- The queue (`offline_queue`, `api.dart:153-170`) and the separate attendance punch (`offline_punch`,
+  `jph/services/api_service.dart:907-918`) have no owner either. `flushQueue()` (`api.dart:178`; called from
+  `session.dart:120`, `alert_center.dart:277`, `shift_tracker.dart:168`) sends with whoever is signed in now.
+- The UI login (`api_service.dart:690-696` → `session.dart:87-93`) does not clear anything.
+- The full wipe (`SessionService.logout`, `session_service.dart:76-85`) only runs at the **next app start** (`main.dart:95-101`).
+
+**Impact.**
+- Privacy: another user's cash, payroll, employee and CRM data is shown on a shared device. The server's permission
+  checks are bypassed because the data never comes from the server.
+- Integrity: attendance and other queued writes are recorded under the wrong employee.
+- B also sees A's offline punch on B's own attendance screen (`_todayMerged`, `api_service.dart:921-941`) and can be told
+  "you already checked out".
+
+**Smallest safe fix (no API, UI or business change).**
+1. `ApiClient` gets an `owner` (the signed-in employee id), set by `Session._apply`.
+   - Offline keys become `apicache:<owner>:<url>`.
+   - Queue items carry `owner`, and `flushQueue()` sends only the current owner's items. Other owners' items stay
+     untouched until that person signs in again; they are not lost.
+2. `Session._clear()` also removes the offline read copies, every owner's (privacy first), and clears the in-memory cache.
+   The queue is kept but is owner-filtered.
+3. `offline_punch` is stored per owner (`offline_punch:<owner>`).
+4. On first start after the update, items with no owner are dropped from the read cache. Unowned queue items move to
+   the existing "failed" list with a clear reason, so nothing is sent under a guessed identity.
+
+**Regression tests (Flutter unit tests, real code).**
+- The 4 failing scenarios above must fail to leak:
+  - B offline after A's 401 gets a network error, not A's data.
+  - A's queue is never sent with B's token.
+  - A's items are sent when A signs in again.
+  - B's attendance screen never shows A's punch.
+- The controls must still pass. Offline mode must still work for the same user: offline reads, queue send-later,
+  restart while offline.
+
+**Measurements.** Before and after: number of `apicache:*` keys after a 401, and a test transcript of the 4 scenarios.
+
+**Dependencies.** Ships only in a new app build (APK/web/Windows); old installs stay affected until they update.
+
+### R2 — Balance freshness · **REPRODUCED** · priority 2 (financial correctness)
+
+**Reproduction** (same test file): first read 1000; the server changes to 500 (another person's expense); reopening the
+screen shows **1000**. Live paths bypass the cache and show 500.
+
+**Root cause.**
+- `_live` (`api.dart:67`) excludes every money path.
+- `get()` (`api.dart:79-98`) returns the memory copy for 5 minutes, and only refreshes it in the background after 15 s.
+- Every money screen reads through the cached bridge `cash_get` (`api_service.dart:415-419`).
+- Money read paths affected (27): `/cash/summary`, `/cash/overview`, `/cash/ledger`, `/cash/receipts`, `/cash/expenses`,
+  `/cash/transfers`, `/cash/bank-moves`, `/cash/fixed-expenses`, `/payouts`, `/payouts/cashiers`, `/finance/dashboard(/details)`,
+  `/finance/employee-account/…`, `/finance/adjustments`, `/payroll/employee/…`, `/payroll-batches…`, `/advances(/open)`,
+  `/sales…`, `/sales/installments/due`, `/commissions/entitlements|requests|projects`, `/insights/employees`, `/custody`.
+- Offline copies of these are also shown with no "offline" marker on any screen. `_offline` is checked only in
+  `api_service.dart:929`.
+
+**Impact.** Cashiers and managers can act on a balance up to 5 minutes old. A person's own writes do clear the cache
+(`api.dart:215-240`), but other people's do not.
+
+**Smallest safe fix.**
+- Treat money paths as live. Prefixes added to `_live`: `/cash`, `/payouts`, `/finance`, `/payroll`, `/advances`, `/sales`,
+  `/commissions`, `/insights`, `/custody`.
+- Request-sharing for identical reads in flight stays (`_inflight`), so double opens cost one request.
+- Where `_offline == true` arrives on a money screen, show a small "offline — last known" label (text only, no layout change).
+
+**Cost.** About one extra request per money-screen open, at roughly 4–20 ms server time each (measured route p50s). Money screens are not polled.
+
+**Regression tests.** The freshness test must read 500. A same-user write still refreshes. Non-money screens keep the
+5-minute cache. Offline money reads are marked.
+
+**Dependencies.** None (app build).
+
+### R3 — Attachments pulled by list queries · **MEASURED** · priority 3
+
+**Root cause.**
+- `RECEIPT_SELECT` and `EXPENSE_SELECT` use `r.*` / `x.*` (`api/src/modules/cash.ts:458-463`), which includes the
+  `attachment` bytea.
+- They are used in lists at `cash.ts:732` (receipts, ≤ 500), `cash.ts:813` (expenses, ≤ 500) and `sales.ts:422`
+  (receipts of a sale). The fixed-expenses lateral `cash.ts:834` does the same per fixed item.
+- List responses only send `hasAttachment` (`cash.ts:402,411`); the bytes are thrown away.
+
+**Detail access that must stay as is.**
+- `GET /cash/expenses/:id/attachment` (`cash.ts:938-945`: `canSee` + `canAttachmentView`).
+- `GET /cash/attachments/:entity/:id` (`cash.ts:1071-1077`: `attachmentAccess`).
+- Single-row reads `cash.ts:716`, `sales.ts:606`.
+
+**Measurement** (synthetic 200 KB attachment on the 500 newest rows):
+
+| List | Without attachments | With attachments | Payload |
+|---|---|---|---|
+| receipts | 16 ms | 457–588 ms, +133 MB RSS | unchanged 327 KB |
+| expenses | 14 ms | 493–535 ms, +112 MB RSS | unchanged 292 KB |
+
+**Impact.** Slow cash lists and big memory spikes once real photos exist. Each list view moves up to 500 × 0.6 MB from
+the database, which counts against Neon free-plan egress.
+
+**Smallest safe fix.**
+- List queries select explicit columns without `attachment`, keeping `(attachment IS NOT NULL) AS has_attachment`.
+- The single-row `RECEIPT_SELECT WHERE r.id = …` stays full.
+- Same for the fixed-expense lateral.
+
+**Regression tests.**
+- List JSON is byte-identical before and after on the synthetic DB.
+- Detail and attachment routes return the same bytes with the same permission results (existing cash permission tests
+  plus one new list-vs-detail test).
+
+**Measurements.** List latency and RSS with 0 KB and 200 KB attachments, before and after.
+
+**Dependencies.** Apply on top of the release branch, which has the same code at `cash.ts:665`, `:956`, `:1053`.
+
+### R4 — KPI N+1 on `/dashboard` and `/kpi/overview` · **MEASURED** · priority 4
+
+**Root cause.**
+- `/dashboard` makes 203 queries in total, of which 171 are KPI: 57 employees × 3. The loop is `dashboard.ts:147-149`
+  (`ensurePeriod` + `loadPeriod`).
+- `/kpi/overview` makes 176 queries, from the loop at `kpi.ts:221-224`.
+- Per employee: `SELECT 1 FROM kpi_results` (`kpi.ts:52`), `activeSetFor` (`kpi.ts:40-47`), and the `loadPeriod`
+  results query (`kpi.ts:62-…`).
+- `ensurePeriod` may **insert** snapshot rows during a GET, which is existing behaviour and is kept.
+
+**Impact.** Manager and owner dashboard 2.1 s at 10 ms RTT (still on the release branch).
+
+**Smallest safe fix.** Batch versions with the same semantics, reusing the same pure `summarize()`:
+- `ensurePeriods(q, ids, period)`: one query for ids without results; one `DISTINCT ON (e.id)` set query with the same
+  priority order; one `INSERT … SELECT` over `unnest(ids, set_ids)` with the same `ON CONFLICT DO NOTHING`.
+- `loadPeriods(q, ids, period)`: one query `WHERE employee_id = ANY($1)`, grouped in memory.
+- Result: about 5 queries.
+
+**Regression tests.** Per-employee output identical for employee-, position- and title-scoped sets, partly and fully
+evaluated, no set, and concurrent first-of-month snapshotting (idempotent).
+
+**Measurements.** Query count 203 → ~35 and 176 → ~8; latency at 0/2/10 ms RTT.
+
+**Dependencies.** Apply on top of the release branch.
+
+### R5 — Daily cash series · **PROVEN IDENTICAL** · priority 5
+
+**Root cause.** Four correlated full scans of `cash_receipts` per day (`owner-dashboard.ts:84-90`). The release branch has
+the same query at `:90`.
+
+**Prepared replacement.** A single grouped query over a sargable Cairo-local range (`evidence/cash_series_equivalence.sql`):
+- `generate_series` of days, `LEFT JOIN` per-day sums with `FILTER` per kind.
+- `occurred_at >= (from::timestamp AT TIME ZONE 'Africa/Cairo')` and `< ((to+1)::timestamp AT TIME ZONE 'Africa/Cairo')`.
+- `COALESCE(…, 0)` and `ORDER BY day`.
+
+**Proof** (synthetic DB, rolled back):
+- **261 ranges** compared (1 to 389 days, including whole-year and DST-start/DST-end windows).
+- 70 edge receipts across all 7 kinds, 10 of them reversed, at 23:59:59 / 00:00:00 Cairo boundaries and on Egypt DST change days.
+- **0 differing rows**: same dates, same order, same totals, same numeric type.
+
+**Timing.**
+
+| Range | Before | After |
+|---|---|---|
+| 14 days | 531.6 ms | 0.93 ms |
+| 90 days | 1,006.5 ms | 1.77 ms |
+
+**Regression tests.** Add the equivalence script as an API test: old vs new over the edge data, plus an owner-dashboard
+snapshot test.
+
+**Dependencies.** Apply on top of the release version of `owner-dashboard.ts`.
+
+### R6 — Pagination and backup consistency · **REPRODUCED** · priority 6
+
+**Leads paging** (`leads.ts:366-372`, OFFSET with no unique tie-breaker). Paging all 8,000 synthetic leads at 200 per
+page (`evidence/leads_paging_check.mts.txt`):
+
+| Sort | Leads repeated | Leads never shown |
+|---|---|---|
+| `created` (default) | 42 | 42 |
+| `action` | 619 | 619 |
+| `next` | 31 | 31 |
+| `name` | 0 | 0 (unique synthetic names) |
+
+The Excel export uses the same paging (`leads_list_page.dart:422-428`). Cash lists order by `occurred_at` only (`cash.ts:732,813`).
+
+**Fix:** append `, l.id` (and `, r.id` / `, x.id`). The order stays the same except among ties.
+
+**Backup paging** (`backup.ts:72`, `ORDER BY ctid OFFSET`). With the app editing 25 and deleting 10 already-exported rows
+during an export:
+
+| Paging method | Rows exported twice | Live rows missing |
+|---|---|---|
+| ctid offset (current) | 4 | 14 |
+| primary key + offset | 0 | 10 |
+| primary-key keyset | 0 | 0 |
+
+Evidence: `evidence/backup_paging_repro.sql` and `backup_paging_keyset.sql`.
+
+**Fix.**
+- Order by the table's primary key. All 97 tables have one: 87 single-column, 10 composite.
+- Accept an optional `after` cursor (the last key) alongside `offset`, so the current Apps Script keeps working.
+- Update `backup/google-drive-backup.gs` to send the cursor. Restore is unchanged (same row JSON).
+- **Snapshot consistency across tables is not achievable** with paged serverless calls; one transaction cannot span HTTP
+  requests. Keyset paging guarantees every row present at the start is exported exactly once per table. For a true
+  point-in-time copy, Neon's own history/branching is the reference. The JSON export is the off-site copy.
+
+**Regression tests.** Paging test with tied timestamps (no duplicates or gaps); backup test with concurrent edits and
+deletes (0 duplicates, 0 missing); the existing restore test.
+
+**Dependencies.** The Apps Script change is entered in Apps Script by the owner (FINAL_USER_ACTIONS #14).
+
+### R7 — Loading, error and empty states (corrected) · priority 7
+
+Revision 2's "16 screens without error state" came from a word search. Checked against what each screen does with the
+bridge's `success:false` reply:
+- **12 of those 16 do show or handle the error.** Examples: `finance_dashboard_page.dart:125`, `leads_dashboard_page.dart:88`,
+  `deals_page.dart:73`, `projects_hub.dart:171`.
+- **4 show "no data" or an empty list on failure, with no message or retry:**
+  - `commissions/commissions_page.dart:122`
+  - `leads/leads_calendar_page.dart:42`
+  - `leads/leads_list_page.dart:55`
+  - `projects/marketing_companies_page.dart:36`
+- **1 hides silently:** `cash/cash_overview.dart:86` returns an empty box when the read fails.
+- **Possible missing empty state, 6 screens** (to confirm at runtime): `multi_company/positions_page.dart:91`,
+  `leads/leads_stages.dart:50`, `leads/leads_permissions.dart:30`, `pages/attendance_page.dart:49`,
+  `pages/fingerprint_home.dart:61`, `pages/common.dart:79`.
+
+**Fix.** Show the existing message widget plus a retry button where `success == false`. Wording follows the existing
+pattern; nothing else in the UI changes.
+
+**Tests.** Widget tests per screen with a failing bridge reply.
+
+### R8 — Payroll N+1 · **already solved on the release branch; do not duplicate**
+
+- The fix is in commit `ddd65da` on `release-prep/final-business-model` (PR #9). It changes `payroll-calc.ts`,
+  `payouts.ts`, `finance-dashboard.ts` and `owner-dashboard.ts`, bundled with the Phase 6 financial-integrity changes,
+  so it cannot be cherry-picked alone.
+- This branch changes **none** of those files, and the earlier merge dry-run had conflicts only in `vercel.json`.
+- On the synthetic DB, `/payouts/salaries` and `/insights/employees` return **identical JSON** on both branches.
+  `/payroll/employee/:id` on the release branch only **adds** `payroll.components` (Phase 6).
+- Query counts drop from 874/2,091 to 19/40.
+- **Action:** deliver through the approved PR #9 merge (FINAL_USER_ACTIONS #8). R3–R5 should be implemented on top of the
+  release code.
+
+### Implementation order once approved
+
+R1 → R2 (app build) and R3 → R5 → R4 → R6 (API, on the release base) → R7. Each change comes with its tests and
+before/after numbers. PR #9 is merged first (R8).
 
 ## 8. Missing measurements and access needed
 
