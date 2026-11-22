@@ -461,6 +461,28 @@ const EXPENSE_SELECT = `SELECT x.*, (x.attachment IS NOT NULL) AS has_attachment
   ap.full_name AS approved_by_name, rv.full_name AS reviewed_by_name
   FROM cash_expenses x JOIN employees rb ON rb.id = x.recorded_by
   LEFT JOIN employees ap ON ap.id = x.approved_by LEFT JOIN employees rv ON rv.id = x.reviewed_by`;
+// R3: list screens never show the photo itself (only has_attachment), so the list queries read every column except the
+// image. The column list comes from the table itself (once per process), so a column added by a later migration is
+// still listed; the single-record reads (and the attachment routes) are unchanged.
+const listCols = new Map<string, Promise<string>>();
+function colsWithoutAttachment(q: Q, table: 'cash_receipts' | 'cash_expenses', alias: string): Promise<string> {
+  const key = `${table}|${alias}`;
+  let p = listCols.get(key);
+  if (!p) {
+    p = q.query(`SELECT string_agg($2 || '.' || quote_ident(attname), ', ' ORDER BY attnum) AS cols FROM pg_attribute
+                  WHERE attrelid = $1::regclass AND attnum > 0 AND NOT attisdropped AND attname <> 'attachment'`, [table, alias])
+      .then((r) => { const c = r.rows[0]?.cols; if (!c) throw new Error(`no columns for ${table}`); return c as string; });
+    p.catch(() => listCols.delete(key));
+    listCols.set(key, p);
+  }
+  return p;
+}
+export async function receiptListSelect(q: Q) {
+  return RECEIPT_SELECT.replace('SELECT r.*,', `SELECT ${await colsWithoutAttachment(q, 'cash_receipts', 'r')},`);
+}
+async function expenseListSelect(q: Q) {
+  return EXPENSE_SELECT.replace('SELECT x.*,', `SELECT ${await colsWithoutAttachment(q, 'cash_expenses', 'x')},`);
+}
 const TRANSFER_SELECT = `SELECT t.*, rq.full_name AS requested_by_name, dc.full_name AS decided_by_name,
   ex.full_name AS executed_by_name, rc.full_name AS received_by_name,
   EXISTS (SELECT 1 FROM cash_attachments ca WHERE ca.entity = 'transfer' AND ca.entity_id = t.id) AS has_attachment
@@ -729,7 +751,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (k && (RECEIPT_KINDS as readonly string[]).includes(k)) { vals.push(k); where.push(`r.kind = $${vals.length}`); }
     const s = req.query.get('q');
     if (s) { vals.push(`%${s.trim().toLowerCase()}%`); where.push(`(lower(r.payer_name) LIKE $${vals.length} OR lower(r.purpose) LIKE $${vals.length} OR r.ref_no::text LIKE $${vals.length})`); }
-    const rows = await db.query(`${RECEIPT_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
+    const rows = await db.query(`${await receiptListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY r.occurred_at DESC LIMIT 500`, vals);
     return ok({ currency: 'EGP', receipts: rows.rows.map(shapeReceipt) });
   });
 
@@ -810,7 +832,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const st = req.query.get('status');
     if (st && ['pending_approval', 'posted', 'rejected', 'reversed'].includes(st)) { vals.push(st); where.push(`x.status = $${vals.length}`); }
     if (req.query.get('unreviewed') === '1') where.push(`x.reviewed_at IS NULL AND x.status = 'posted'`);
-    const rows = await db.query(`${EXPENSE_SELECT} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC LIMIT 500`, vals);
+    const rows = await db.query(`${await expenseListSelect(db)} WHERE ${where.join(' AND ')} ORDER BY x.occurred_at DESC LIMIT 500`, vals);
     return ok({ currency: 'EGP', expenses: rows.rows.map(shapeExpense) });
   });
 
