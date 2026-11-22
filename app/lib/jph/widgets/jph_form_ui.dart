@@ -19,6 +19,24 @@ class JphUi {
   static Color sub(bool isDark) => isDark ? AppColors.onSurfaceVariantDark : AppColors.onSurfaceVariantLight;
   static Color primary(bool isDark) => isDark ? AppColors.primaryLight : AppColors.primary;
 
+  /// R7: a read that failed for a reason other than permission (no connection, server error) — its message, or null.
+  /// A permission refusal (403) keeps each screen's own behaviour (hidden / empty), as before.
+  static String? loadError(Map<String, dynamic> r) {
+    if (r['success'] != false || r['status'] == 403) return null;
+    final m = '${r['message'] ?? ''}'.trim();
+    return m.isEmpty ? 'مش متاح دلوقتي' : m;
+  }
+
+  /// R7: the failed-read block with «حاول تاني» — the same look the tasks page already uses.
+  static Widget loadFailed(String message, VoidCallback onRetry) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(children: [
+          Text(message, textAlign: TextAlign.center, style: TextStyle(color: Ar.red.shade400, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          TextButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh_rounded), label: const Text('حاول تاني')),
+        ]),
+      );
+
   static String money(Object? v) {
     final n = v is num ? v : num.tryParse('${v ?? ''}');
     if (n == null) return '--';

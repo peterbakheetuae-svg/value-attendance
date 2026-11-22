@@ -83,7 +83,14 @@ class _CashOverviewState extends State<CashOverview> {
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     if (_loading) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-    if (_o['success'] != true) return const SizedBox.shrink();
+    // no permission: hidden as before; any other failure (no connection, server error) says so with «حاول تاني» (R7)
+    if (_o['success'] != true) {
+      final err = JphUi.loadError(_o);
+      return err == null ? const SizedBox.shrink() : JphUi.loadFailed(err, () {
+        setState(() => _loading = true);
+        _load();
+      });
+    }
     final av = _m(_o['available']);
     final inc = _m(_o['income']);
     final exp = _m(_o['expenses']);

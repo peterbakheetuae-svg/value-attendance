@@ -26,6 +26,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
   List<Map<String, dynamic>> _items = [];
   Map<String, dynamic> _meta = {};
   bool _loading = true;
+  String? _error;
   int _seq = 0;
 
   String _d(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
@@ -47,6 +48,7 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
     if (!mounted || seq != _seq) return;
     setState(() {
       _loading = false;
+      _error = JphUi.loadError(r);
       _items = ll(r['items']);
     });
   }
@@ -159,7 +161,8 @@ class _LeadsCalendarPageState extends State<LeadsCalendarPage> {
           Text('${_day.day} ${months[_day.month - 1]} — ${list.length} معاد', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
           const SizedBox(height: 6),
           if (_loading) const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
-          if (!_loading && list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(tr('مفيش مواعيد'), style: TextStyle(color: JphUi.sub(isDark)))),
+          if (!_loading && _error != null) JphUi.loadFailed(tr(_error!), _load),
+          if (!_loading && _error == null && list.isEmpty) Padding(padding: const EdgeInsets.all(16), child: Text(tr('مفيش مواعيد'), style: TextStyle(color: JphUi.sub(isDark)))),
           for (final x in list)
             Container(
               margin: const EdgeInsets.only(bottom: 8),

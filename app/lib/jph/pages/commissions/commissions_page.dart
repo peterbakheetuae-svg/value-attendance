@@ -108,6 +108,7 @@ class _ProjectsTab extends StatefulWidget {
 
 class _ProjectsTabState extends State<_ProjectsTab> {
   bool _loading = true;
+  String? _error;
   List<Map<String, dynamic>> _items = [];
   Map<String, dynamic> _can = {};
   String _status = '';
@@ -124,6 +125,7 @@ class _ProjectsTabState extends State<_ProjectsTab> {
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _error = JphUi.loadError(r);
       _items = ((r['projects'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
       _can = ((r['can'] as Map?) ?? const {}).cast<String, dynamic>();
     });
@@ -218,6 +220,8 @@ class _ProjectsTabState extends State<_ProjectsTab> {
           ),
         if (_loading)
           const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
+        else if (_error != null)
+          JphUi.loadFailed(_error!, _load)
         else if (_items.isEmpty)
           Padding(padding: const EdgeInsets.all(30), child: Text('مفيش مشاريع', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))))
         else

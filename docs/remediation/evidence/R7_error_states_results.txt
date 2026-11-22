@@ -1,0 +1,17 @@
+R7 — failed reads on five screens now say so with «حاول تاني» (app/test/load_error_states_test.dart)
+
+Rule: a read that fails for any reason other than permission (no connection, server error) shows its message and a
+retry button, using the block the tasks page already uses (JphUi.loadFailed). A 403 keeps each screen's previous
+behaviour (hidden / empty). An empty successful answer still shows the existing empty text.
+
+Screens: commissions (projects tab), leads calendar, leads list (also: a failed later page no longer silently ends the
+list — total is not reset; the retry reloads the same page), marketing companies, cash overview (was SizedBox.shrink).
+
+Widget tests: 16 pass — for each of the 5 screens: no connection -> retry shown and a tap reads again and clears it;
+server error -> server message + retry; 403 -> no retry block; plus an empty-answer control.
+Mutation check (screen changes reverted, helper kept): all 10 failure-mode tests fail.
+
+The 6 "possible missing empty state" screens from the prep audit were read again: positions, leads stages and leads
+permissions already show the error text and list system data that is never empty; attendance and fingerprint home are
+single-day views with their own error state; common.dart is the avatar, whose failure keeps the default picture by
+design. No change made there (code reading, not a runtime check).

@@ -25,6 +25,7 @@ List<Map<String, dynamic>> _l(Object? v) => ((v as List?) ?? const []).whereType
 
 class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
   bool _loading = true, _manage = false;
+  String? _error;
   List<Map<String, dynamic>> _items = [];
 
   @override
@@ -38,6 +39,7 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _error = JphUi.loadError(r);
       _items = _l(r['companies']);
       _manage = r['canManage'] == true;
     });
@@ -83,7 +85,8 @@ class _MarketingCompaniesPageState extends State<MarketingCompaniesPage> {
                             ),
                           ),
                         if (_loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
-                        if (!_loading && _items.isEmpty)
+                        if (!_loading && _error != null) JphUi.loadFailed(_error!, _load),
+                        if (!_loading && _error == null && _items.isEmpty)
                           Padding(padding: const EdgeInsets.all(30),
                               child: Text('لسه مفيش شركات تسويق', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
                         for (final c in _items) _card(isDark, c),
