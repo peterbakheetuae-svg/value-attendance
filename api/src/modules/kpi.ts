@@ -67,6 +67,43 @@ export async function loadPeriod(q: Q, employeeId: string, period: string) {
   return summarize(rows.rows);
 }
 
+/**
+ * ensurePeriod for many employees in ONE statement (R4): same rule — an employee with no result row for the period gets
+ * the snapshot of the set that applies to them (own employee set, else position set, else job-title set; one active set
+ * per scope is enforced by unique indexes), idempotent through the same ON CONFLICT. Past snapshots are never touched.
+ */
+export async function ensurePeriods(q: Q, employeeIds: string[], period: string) {
+  if (!employeeIds.length) return;
+  await q.query(`
+    WITH missing AS (
+      SELECT e.id, e.position_key, e.role_key, e.job_title FROM employees e
+       WHERE e.id = ANY($1::uuid[])
+         AND NOT EXISTS (SELECT 1 FROM kpi_results r WHERE r.employee_id = e.id AND r.period = $2::date)),
+    pick AS (
+      SELECT DISTINCT ON (m.id) m.id AS employee_id, s.id AS set_id
+        FROM missing m JOIN kpi_sets s ON s.active AND ((s.scope_type = 'employee' AND s.employee_id = m.id)
+          OR (s.scope_type = 'position' AND s.position_key = COALESCE(m.position_key, m.role_key))
+          OR (s.scope_type = 'job_title' AND s.job_title = m.job_title))
+       ORDER BY m.id, CASE s.scope_type WHEN 'employee' THEN 0 WHEN 'position' THEN 1 ELSE 2 END)
+    INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot)
+    SELECT p.employee_id, $2::date, i.set_id, i.kpi_id, i.weight, i.target FROM pick p JOIN kpi_set_items i ON i.set_id = p.set_id
+    ON CONFLICT (employee_id, period, kpi_id) DO NOTHING`, [employeeIds, period]);
+}
+
+/** loadPeriod for many employees in one query (R4): the same rows, the same order per employee, the same summarize(). */
+export async function loadPeriods(q: Q, employeeIds: string[], period: string) {
+  const out = new Map<string, ReturnType<typeof summarize>>();
+  if (!employeeIds.length) return out;
+  const rows = await q.query(`
+    SELECT r.*, d.key, d.name_ar, d.name_en, d.measurement_type, d.higher_is_better, x.full_name AS entered_by_name
+      FROM kpi_results r JOIN kpi_definitions d ON d.id = r.kpi_id LEFT JOIN employees x ON x.id = r.entered_by
+     WHERE r.employee_id = ANY($1::uuid[]) AND r.period = $2 ORDER BY r.employee_id, r.weight_snapshot DESC, d.name_ar`, [employeeIds, period]);
+  const by = new Map<string, any[]>();
+  for (const r of rows.rows) { const l = by.get(r.employee_id); l ? l.push(r) : by.set(r.employee_id, [r]); }
+  for (const id of employeeIds) out.set(id, summarize(by.get(id) ?? []));
+  return out;
+}
+
 async function canEnter(q: Q, a: Actor, employeeId: string) {
   if (employeeId === a.id) return false;
   if (has(a, 'kpi.enter_all')) return true;
@@ -218,9 +255,11 @@ export const kpiModule: Module = (r, { db, clock }) => {
        LEFT JOIN teams t ON t.id = e.team_id WHERE e.status = 'active' AND e.role_key <> 'owner'
        AND ($1::uuid[] IS NULL OR e.id = ANY($1::uuid[])) AND e.id <> $2 ORDER BY e.full_name`, [ids, a.id]);
     const out = [];
+    const empIds = emps.rows.map((e) => e.id as string);
+    if (period <= currentPeriod()) await ensurePeriods(db, empIds, period);
+    const all = await loadPeriods(db, empIds, period);
     for (const e of emps.rows) {
-      if (period <= currentPeriod()) await ensurePeriod(db, e.id, period);
-      const s = await loadPeriod(db, e.id, period);
+      const s = all.get(e.id)!;
       out.push({ employee: e, status: s.status, weightedScore: s.weightedScore, belowTarget: s.belowTarget, kpiCount: s.items.length });
     }
     return ok({ period, employees: out });
