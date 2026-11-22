@@ -73,6 +73,26 @@ function redactFinance(body: any, a: Actor) {
   return body;
 }
 
+/**
+ * Posted receipts per Cairo day for [from, to], by kind (R5). One grouped pass over a sargable Cairo-local range instead
+ * of four correlated scans per day; proven row-for-row identical (dates, order, totals, numeric type) over 261 ranges
+ * incl. Cairo midnight and DST-change days, reversed receipts and every kind — docs/remediation/evidence/cash_series_equivalence.sql.
+ */
+export const DAILY_RECEIPTS_SQL = `
+      WITH days AS (SELECT d::date AS day FROM generate_series($1::date, $2::date, interval '1 day') d),
+           x AS (SELECT (occurred_at AT TIME ZONE 'Africa/Cairo')::date AS day,
+                        sum(amount_egp) FILTER (WHERE kind = 'reservation') AS k_res,
+                        sum(amount_egp) FILTER (WHERE kind = 'down_payment') AS k_down,
+                        sum(amount_egp) FILTER (WHERE kind = 'installment') AS k_inst,
+                        sum(amount_egp) AS k_all
+                   FROM cash_receipts
+                  WHERE status = 'posted'
+                    AND occurred_at >= ($1::date::timestamp AT TIME ZONE 'Africa/Cairo')
+                    AND occurred_at <  (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Cairo')
+                  GROUP BY 1)
+      SELECT days.day, COALESCE(x.k_res, 0) AS k_res, COALESCE(x.k_down, 0) AS k_down, COALESCE(x.k_inst, 0) AS k_inst, COALESCE(x.k_all, 0) AS k_all
+        FROM days LEFT JOIN x USING (day) ORDER BY 1`;
+
 async function financeView(db: Db, a: any, t: string, range: number, from: string) {
   const month = t.slice(0, 8) + '01';
   const monthEnd = new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)), 0)).toISOString().slice(0, 10);
@@ -86,13 +106,7 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
         COALESCE((SELECT sum(amount_egp) FROM cash_expenses WHERE status = 'posted' AND ex_kind IS NULL AND ${IN_RANGE('COALESCE(approved_at, occurred_at)', '$1', '$2')}), 0) AS expenses,
         COALESCE((SELECT sum(company_amount) FROM commission_requests WHERE status = 'approved' AND period = $1 AND ex_unit_id IS NULL), 0) AS marketing,
         COALESCE((SELECT sum(amount_egp) FROM ex_commission_transfers WHERE ${IN_RANGE('created_at', '$1', '$2')}), 0) AS ex_moved_month`, [month, t]),
-    db.query(`
-      SELECT d::date AS day,
-             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'reservation') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_res,
-             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'down_payment') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_down,
-             COALESCE((SELECT sum(amount_egp) FILTER (WHERE kind = 'installment') FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_inst,
-             COALESCE((SELECT sum(amount_egp) FROM cash_receipts WHERE status = 'posted' AND (occurred_at AT TIME ZONE 'Africa/Cairo')::date = d::date), 0) AS k_all
-        FROM generate_series($1::date, $2::date, interval '1 day') d ORDER BY 1`, [from, t]),
+    db.query(DAILY_RECEIPTS_SQL, [from, t]),
     one(db, `SELECT COALESCE(sum(amount), 0) AS b FROM cash_ledger WHERE at < ($1::date AT TIME ZONE 'Africa/Cairo')`, [from]),
     db.query(`SELECT (at AT TIME ZONE 'Africa/Cairo')::date AS day, sum(amount) AS s FROM cash_ledger
                WHERE at >= ($1::date AT TIME ZONE 'Africa/Cairo') GROUP BY 1`, [from]),
