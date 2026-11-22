@@ -148,6 +148,57 @@ Holds #1, #2, #4 (4 variables). Update it together with `value-attendance` in ev
 Each redeploy is a production deployment and needs the owner's go-ahead; I verify each step read-only afterwards
 (`/readyz`, env update dates, one sign-in / mail / push / backup run, Vercel runtime errors for auth failures).
 
+## 6A. Database step (#1) — prerequisites established 2026-11-22 (nothing changed yet)
+
+**Blocker: production runs `main` (`cbd00b3`), whose Vercel build runs migrations with `DATABASE_URL`.**
+- Both projects' `buildCommand` starts with `migrate-if-production.mjs`, which runs `npm run migrate` on every production
+  build of `main`.
+- On `main`, `migrate-core` always issues `CREATE TABLE IF NOT EXISTS schema_migrations`, and `migrate.ts` reads only
+  `DATABASE_URL`.
+- Tested on scratch Postgres 16: a role without CREATE on `public` gets `permission denied for schema public` even though
+  the table exists.
+- So with `DATABASE_URL` = `valunivo_app` and `main` code, the redeploy **fails at build**. The live deployment keeps the old
+  credential, so there is no outage, but the switch cannot be activated.
+
+**On this branch / the release code this is solved, and the switch works.**
+- `migrate-core` only creates the table when it is missing.
+- `migrate.ts` prefers `MIGRATION_DATABASE_URL`.
+- The full API suite passes as the least-privilege role (398/398).
+- Pending migrations (086/087) must then run through `db-migrate.yml` with the owner URL (FINAL_USER_ACTIONS #4), never
+  from a Vercel build.
+
+**Order that never stops the app or the backup:**
+1. Release first (FINAL_USER_ACTIONS #8), so production runs code that works without CREATE. Apply 086/087 with the owner
+   credential through `db-migrate.yml`.
+2. Neon console → Roles → create `valunivo_app` (Neon generates the password; copy it straight into step 4).
+3. Neon SQL editor, as `neondb_owner`: run `db/roles/valunivo_app_least_privilege.sql`. It gives:
+   - no CREATE, no TRUNCATE, no REFERENCES / TRIGGER;
+   - SELECT / INSERT / UPDATE everywhere;
+   - DELETE only on the 19 tables the code deletes from, plus `expense_group_categories` once 086 exists;
+   - `audit_log` append-only;
+   - default privileges for future tables.
+   Then run `db/checks/role_audit.sql`.
+4. Vercel → both projects → `DATABASE_URL` = the pooled `valunivo_app` URL (typed in Vercel only).
+5. Redeploy both (owner's go-ahead), then verify:
+   - `/readyz` ok;
+   - sign-in, check-in / out, a receipt and an expense on test data or a reversible real entry;
+   - payroll / insights read, one push, "forgot password" mail;
+   - `backupNow` run (the backup reads only through the API);
+   - the Meta webhook;
+   - Vercel runtime errors: no `permission denied`.
+6. Prove nothing else uses the owner: in the Neon SQL editor, group `pg_stat_activity` by `usename, application_name,
+   client_addr` over a day. Expect no `neondb_owner` sessions except your own console.
+7. Only then reset the `neondb_owner` password in Neon. Put the new owner URL only in GitHub environment `production-db`
+   (`MIGRATION_DATABASE_URL`). This also ends Netlify's database access.
+
+**Known consumers of the owner credential:**
+- Vercel `value-attendance` and `value-attendance-api` (`DATABASE_URL`; which role each holds cannot be read: the values
+  are write-only);
+- Netlify (`DATABASE_URL`, now behind team login);
+- the planned GitHub `MIGRATION_DATABASE_URL`;
+- the owner's own Neon console.
+- The Apps Script backup never touches the database directly.
+
 ## 7. Log
 
 | Date | Item | Action | Evidence |
