@@ -27,6 +27,13 @@ const direct = async (o: { secret?: string; ts?: number; method?: string; signMe
   return j(r);
 };
 
+// FAIL CLOSED: before anything else, prove the upstream is the synthetic verifier; otherwise stop sending requests
+{
+  const probe = await j(await fetch(`${GW}/__verify/isolation`));
+  if (probe.synthetic !== true) { console.log('FAIL  isolation: upstream is NOT the synthetic verifier — aborting, no further requests'); process.exit(1); }
+  const vprobe = await j(await fetch(`${VF}/__verify/isolation`));
+  if (vprobe.synthetic !== true) { console.log('FAIL  verifier URL is not the synthetic verifier — aborting'); process.exit(1); }
+}
 if (phase === 'main') {
   // 1. isolation: every answer comes from the synthetic verifier
   const h = await fetch(`${GW}/__gateway/health`); check('gateway health', h.status === 200);

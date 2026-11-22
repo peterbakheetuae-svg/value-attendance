@@ -355,7 +355,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       shared: `EXISTS (SELECT 1 FROM lead_referrals rf WHERE rf.lead_id = l.id)`,
       today: `${OPEN_SQL} AND (l.next_at AT TIME ZONE 'Africa/Cairo')::date = ($${nowI}::timestamptz AT TIME ZONE 'Africa/Cairo')::date`,
     };
-    const tab = qs.get('tab') && TABS[qs.get('tab')!] ? qs.get('tab')! : 'all';
+    const tab = qs.get('tab') && Object.hasOwn(TABS, qs.get('tab')!) ? qs.get('tab')! : 'all';
     const stage = qs.get('stage');
     const where = [...base];
     where.push(TABS[tab]);
