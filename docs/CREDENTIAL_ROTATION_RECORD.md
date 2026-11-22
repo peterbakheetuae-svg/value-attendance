@@ -34,7 +34,7 @@ safely with the access available here, for the reasons in §2. Nothing is report
 
 | Finding | Where | Severity | Status / containment |
 |---|---|---|---|
-| Android release keystore `app/signing/release.p12` | added `650b153` (2026-11-05), removed `3b5bc21` (2026-11-09); repo is **public** | Medium: the file stays downloadable from history. Its password was never committed (scan of every `storePassword` line). | **Already rotated 2026-11-09**: new key only in GitHub secrets `ANDROID_KEYSTORE_B64` / `ANDROID_KEY_PASS`. History rewrite not authorized. The old key must never be trusted again. |
+| Android release keystore `app/signing/release.p12` | added `650b153` (2026-11-05), removed `3b5bc21` (2026-11-09); repo is **public** | Medium: the file stays downloadable from history; it signed public APKs v1.0.44/45. Its password was never committed (scan of every `storePassword` line). | Signing moved to a new key 2026-11-09 (GitHub secrets only). **Exposure open** for phones still on v1.0.44/45 (§5.3). History rewrite not authorized. |
 | Firebase web API key | `.github/workflows/app.yml` (several commits) | None: a public client identifier (shipped in every web/APK build) | Not a secret; recommended: API-key restrictions (HTTP referrer + Android package) in Google Cloud |
 | `BACKUP_TOKEN` / `BACKUP_ENCRYPTION_KEY` / `SECRETS_KEY` assignments | `api/test/*.test.ts` | None: synthetic test values (`'b'.repeat(32)`, fixed test buffers) | — |
 | Postgres URLs with password, private-key blocks, service-account JSON, Brevo / GitHub / Netlify / Meta / Cloudflare token shapes, `.env` files | — | — | **0 found** in 446 commits |
@@ -65,7 +65,7 @@ Exposure: **E** = held by the still-public legacy Netlify API (treated as expose
 | 14 | `HOSTINGER_SSH_KEY` | SSH private key | GitHub secret (web deploy) | N | Yes (several keys) | Optional: add new key in Hostinger → GitHub secret → next deploy → remove old |
 | 15 | `HOSTINGER_SSH_PASSWORD` | password | GitHub secret | N | No | Optional; prefer key-only login |
 | 16 | `ANDROID_KEYSTORE_B64` + `ANDROID_KEY_PASS` | APK signing key | GitHub secrets | N (current key) | **No** — a new key breaks updates of installed apps | **Do not rotate** unless compromised |
-| 17 | Old Android keystore (2026-11-05) | APK signing key | none now | H | — | Rotated 2026-11-09 (§3) |
+| 17 | Old Android keystore (2026-11-05) | app-signing key (side-loaded, no Play) | signed public v1.0.44/45 | H | — | Replaced 2026-11-09, but still trusted by any phone on v1.0.44/45 (§5.3) |
 | 18 | `WINDOWS_CERT_PFX_B64` + `WINDOWS_CERT_PASS` | code-signing cert | GitHub secrets | N | — | Do not rotate unless compromised |
 | 19 | `WINDOWS_UPDATE_SIGNING_KEY` | update-manifest signing key | GitHub secret; public half in the app (`UPDATE_PUBLIC_KEY`) | N | No — new key needs a new app release first | Do not rotate unless compromised |
 
@@ -77,10 +77,59 @@ authorizing Apps Script) are outside the repository and were not visible here.
 
 ## 5. Legacy services
 
-| Service | Status (2026-11-22) | Holds | Required action |
-|---|---|---|---|
-| Netlify `value-attendance-api` | **Live**: current production deploy `6aebd5b7…` with the `api` function; public at `value-attendance-api.netlify.app` and `main--…` | #1, #2, #4, #5 | Containment (FINAL_USER_ACTIONS #1), then rotations #1, #2, #4 cut it off; delete its variables / the site last (#9). **Not resolved** until those are done. |
-| Vercel `value-attendance-api` | Holds #1, #2, #4 (4 variables) | #1, #2, #4 | Update together with `value-attendance` in every rotation step |
+### 5.1 Netlify `value-attendance-api` — investigated 2026-11-22, **NOT contained**
+
+- **Public endpoints:** `https://value-attendance-api.netlify.app/*` and `https://main--value-attendance-api.netlify.app/*`,
+  served by production deploy `6aebd5b7…` (commit `bb0f322`, 2026-11-05), one function `api` on `/*` (Node 22, us-east-2).
+- **Still building from GitHub:** deploy previews for PR #9 were built today (`6b02d74f…` 11:51Z, `6b02d95f…` 12:00Z, branch
+  `release-prep/final-business-model`), each with an `api` function. Previews sit behind Netlify team login
+  (non-production protection); production does not.
+- **Credential categories it holds** (names only; values not read): Neon `DATABASE_URL` (owner role), `FCM_SERVICE_ACCOUNT`
+  (and the VAPID key derived from it), `BREVO_API_KEY`, `BACKUP_TOKEN` (too short to be accepted). Whether the preview
+  builds receive them depends on each variable's deploy-context scope, which is not visible here.
+- **Dependencies found: none.**
+  - No branch tip references the Netlify host in code. The app pointed at it only between 2026-11-04 (`65c770a`) and
+    2026-11-05 (`4dfe295`).
+  - Every published APK (v1.0.44 … v1.0.150) embeds only the `workers.dev` mirror and `vercel.app` hosts.
+  - The Apps Script's minute heartbeat would show about 1,440 calls a day on Netlify if it still pointed there; there were 0.
+- **Logs (24 h, the plan's whole retention):** 9 requests, all checks. 7 were from this assistant's own checks
+  (`/healthz`, `/readyz`, `/robots.txt`), 2 were headless-browser hits on preview permalinks, refused by team login. No
+  `/auth`, `/backup` or data routes, so no sign of misuse **in that window**. Older activity cannot be seen.
+- **Containment prepared, NOT applied.** Extending Netlify's team-login protection from previews to all deploys (Project
+  configuration → Access & security → Visitor access → team login for **all** deploys) was attempted from this session
+  and refused by the session's permission guard. It is reversible in one click: set it back to "non-production only".
+- **Recommended order:** that setting first (instant, reversible) → "Stop builds" (no rebuild from pushes or PRs) → later
+  rotations #1/#2/#4 cut the credentials themselves → delete variables and site last.
+
+### 5.2 Vercel `value-attendance-api`
+
+Holds #1, #2, #4 (4 variables). Update it together with `value-attendance` in every rotation step.
+
+### 5.3 Old Android signing key (row 17) — assessed 2026-11-22, **exposure open**
+
+- **What it is:** the app-signing key itself, not an upload key.
+  - The APK is side-loaded: GitHub releases plus `android/latest.json` on Hostinger, read by the in-app updater.
+  - No Play pipeline exists in any branch (no AAB, no Play upload step). Play App Signing therefore does not apply;
+    confirm in Play Console only if a Play listing exists.
+- **Created and committed by CI:** 2026-11-05 17:36:55Z (`650b153`), RSA 4096, valid until 2126, subject
+  `C=EG, O=Value Aqar, CN=Value Attendance`. It was in the tree until `3b5bc21` (2026-11-09) and is still downloadable
+  from the public history.
+- **Public APKs it signed** (signer certificate read from the APKs, public part only; notBefore = the commit time):
+  v1.0.44 (1 download) and v1.0.45 (4 downloads), both 2026-11-09.
+- **From v1.0.54 (2026-11-09 20:17Z) on,** a different key signs (RSA 2048, `CN=Value Attendance`).
+  - The v2 block carries no proof-of-rotation lineage.
+  - Phones still on v1.0.44/45 cannot take the new builds as an update; they need uninstall and reinstall.
+- **Protection left:** only the strength of the password the file was created with (held only in the GitHub secret, never
+  committed). Changing a password later does not affect copies already downloaded.
+- **Real risk:** anyone who cracks that password can sign an APK that Android accepts as an update over v1.0.44/45 installs.
+  - It cannot update installs signed with the current key.
+  - The current key (`ANDROID_KEYSTORE_B64`) has not been checked here to be unrelated to the old password.
+- **No key reset exists for side-loaded apps.** Recovery means:
+  - finding and reinstalling any phone still on v1.0.44/45;
+  - never trusting the old certificate's SHA-256 (prefix `9a476d92e0de75ee`) again;
+  - making sure no copy of v1.0.44/45 stays offered on Hostinger;
+  - checking that the current keystore's password differs from the old one.
+  - If the app is ever published on Play: enrol with Play App Signing and a fresh upload key.
 
 ## 6. Rotation order (each step: new → consumers → redeploy → verify → only then revoke)
 
@@ -100,4 +149,6 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
 | Date | Item | Action | Evidence |
 |---|---|---|---|
 | 2026-11-22 | all | Inventory + masked history scan; no rotation possible here (§2) | §1, §3 |
+| 2026-11-22 | Netlify | Investigated (§5.1); containment setting attempted, refused by the session permission guard — **not contained** | Netlify deploy + 24 h request records |
+| 2026-11-22 | #17 | Signer certificates of v1.0.44/45/54/150 compared (§5.3) — **exposure open** | public certificate fingerprints |
 | 2026-11-09 | #17 | Old Android keystore replaced (by an earlier session, commit `3b5bc21`) | commit message + key now only in GitHub secrets |
