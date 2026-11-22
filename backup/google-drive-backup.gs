@@ -76,12 +76,16 @@ function backup() {
   const list = call_('/backup/tables');
   const summary = [];
   list.tables.forEach(function (t) {
-    let offset = 0, part = 1;
+    // pages follow the table's key: `after` (the cursor the previous page returned) exports every row exactly once even
+    // while the app is used; `offset` is only the fallback for an API that does not return a cursor yet
+    let offset = 0, after = null, part = 1;
     do {
-      const page = call_('/backup/table/' + encodeURIComponent(t.table) + '?offset=' + offset);
+      const q = after ? 'after=' + encodeURIComponent(after) : 'offset=' + offset;
+      const page = call_('/backup/table/' + encodeURIComponent(t.table) + '?' + q);
       const name = t.table + (page.next !== null || part > 1 ? '.part' + part : '') + '.json';
       dir.createFile(name, JSON.stringify(page.rows), MimeType.PLAIN_TEXT);
       offset = page.next;
+      after = page.after || null;
       part++;
     } while (offset !== null);
     // the rows are encrypted in the files: the count is the one the API gave for the table

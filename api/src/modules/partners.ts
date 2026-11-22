@@ -536,7 +536,7 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
              EXISTS (SELECT 1 FROM deals d WHERE d.lead_id = l.id AND d.stage = 'won') AS deal_won
         FROM leads l LEFT JOIN lead_campaigns cp ON cp.id = l.campaign_id LEFT JOIN employees e ON e.id = l.assigned_to
         LEFT JOIN lead_stages st ON st.key = l.stage
-       WHERE ${W} ORDER BY l.created_at DESC LIMIT ${size} OFFSET ${(page - 1) * size}`, P);
+       WHERE ${W} ORDER BY l.created_at DESC, l.id LIMIT ${size} OFFSET ${(page - 1) * size}`, P);
     return ok({ leads: rows.rows.map(leadShape), total: total.n, page, pages: Math.max(1, Math.ceil(total.n / size)) });
   });
 

@@ -190,3 +190,23 @@ test('R5: the grouped daily receipt series equals the old per-day query exactly 
   }
   assert.ok(ranges.length > 250 && rows > 5000, `${ranges.length} ranges, ${rows} rows`);
 });
+
+test('R6: lead pages never repeat or skip a lead when many share the same time (every sort)', async () => {
+  // 180 leads in 3 identical timestamps, identical names, same next/last action → only l.id can order them
+  await h.db.query(`INSERT INTO leads (full_name, phone, phone_norm, created_at, last_action_at, next_at)
+    SELECT 'نفس الاسم', '0100' || lpad(g::text, 7, '0'), '20100' || lpad(g::text, 7, '0'),
+           timestamptz '2026-03-01 10:00:00+02' + ((g % 3) * interval '1 minute'), timestamptz '2026-03-02 10:00:00+02', timestamptz '2026-03-20 10:00:00+02'
+      FROM generate_series(1, 180) g`);
+  const total = Number((await h.db.query(`SELECT count(*) FROM leads`)).rows[0].count);
+  for (const sort of ['created', 'action', 'next', 'name']) {
+    const seen: string[] = [];
+    for (let page = 1; page <= 100; page++) {
+      const r = await h.call(c.t.owner, 'GET', `/leads?tab=all&size=7&page=${page}&sort=${sort}`);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      if (!r.body.leads.length) break;
+      seen.push(...r.body.leads.map((l: any) => l.id));
+    }
+    assert.equal(new Set(seen).size, seen.length, `${sort}: no lead twice`);
+    assert.equal(seen.length, total, `${sort}: every lead once`);
+  }
+});

@@ -710,24 +710,24 @@ export const yearClosingModule: Module = (r, { db, clock }) => {
                LEFT JOIN cash_receipts r ON l.source = 'cash_receipts' AND r.id = l.source_id
                LEFT JOIN cash_expenses x ON l.source = 'cash_expenses' AND x.id = l.source_id
                LEFT JOIN payouts p ON l.source = 'payouts' AND p.id = l.source_id
-              WHERE l.at >= ${at('$1')} AND l.at < ${at('$2')}${boxSql('l.cashbox')} ORDER BY l.at`;
+              WHERE l.at >= ${at('$1')} AND l.at < ${at('$2')}${boxSql('l.cashbox')} ORDER BY l.at, l.source, l.source_id, l.type, l.cashbox, l.amount`;
     } else if (kind === 'receipts') {
       sql = `SELECT 'cash_receipts' AS source, id, ref_no, kind AS type, cashbox, amount_egp AS amount, occurred_at AS at, purpose AS label, status, payment_method,
                     CASE WHEN kind = 'injection' THEN 'partners' END AS area FROM cash_receipts
-              WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at`;
+              WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at, id`;
     } else if (kind === 'expenses') {
       sql = `SELECT 'cash_expenses' AS source, id, ref_no, category AS type, cashbox, amount_egp AS amount, COALESCE(approved_at, occurred_at) AS at, reason AS label, status, payment_method,
                     CASE WHEN owner_draw_id IS NOT NULL THEN 'partners' WHEN ex_kind IS NOT NULL THEN 'projects' END AS area
-               FROM cash_expenses WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at`;
+               FROM cash_expenses WHERE occurred_at >= ${at('$1')} AND occurred_at < ${at('$2')}${boxSql('cashbox')} ORDER BY occurred_at, id`;
     } else if (kind === 'payouts') {
       // what each employee was paid: the same permission as his account page (/finance/employee-account)
       if (!has(a, 'employee.salary_read')) throw forbidden('صرف الموظفين محتاج صلاحية «عرض المرتبات»');
       sql = `SELECT 'payouts' AS source, p.id, NULL::bigint AS ref_no, p.kind AS type, 'hr' AS cashbox, p.amount_egp AS amount, COALESCE(p.received_at, p.created_at) AS at,
                     e.full_name AS label, p.status FROM payouts p JOIN employees e ON e.id = p.employee_id
-              WHERE p.created_at >= ${at('$1')} AND p.created_at < ${at('$2')} ORDER BY p.created_at`;
+              WHERE p.created_at >= ${at('$1')} AND p.created_at < ${at('$2')} ORDER BY p.created_at, p.id`;
     } else if (kind === 'transfers') {
       sql = `SELECT 'cash_transfers' AS source, id, ref_no, direction AS type, NULL AS cashbox, COALESCE(amount_executed, amount_requested) AS amount, requested_at AS at, reason AS label, status
-               FROM cash_transfers WHERE requested_at >= ${at('$1')} AND requested_at < ${at('$2')} ORDER BY requested_at`;
+               FROM cash_transfers WHERE requested_at >= ${at('$1')} AND requested_at < ${at('$2')} ORDER BY requested_at, id`;
     } else throw invalid('kind is invalid', { field: 'kind' });
     vals.push(offset);
     const rows = await db.query(`${sql} LIMIT 101 OFFSET $${vals.length}`, vals);

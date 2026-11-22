@@ -1,8 +1,9 @@
 // Pages through /leads (owner, every tab order) and checks every lead appears exactly once. Synthetic DB only.
-import { createDb } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/db.ts';
-import { buildRouter } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/app.ts';
-import { createFetchHandler } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/http/router.ts';
-import { systemClock } from '/home/claude/peterbakheetuae-svg/va-cf/api/src/lib/time.ts';
+const ROOT = process.env.ROOT ?? '/home/claude/peterbakheetuae-svg/va-cf/api';
+const { createDb } = await import(ROOT + '/src/db.ts');
+const { buildRouter } = await import(ROOT + '/src/app.ts');
+const { createFetchHandler } = await import(ROOT + '/src/http/router.ts');
+const { systemClock } = await import(ROOT + '/src/lib/time.ts');
 const db = createDb('postgres://postgres:dev@127.0.0.1:5433/va_perf', 3);
 const h = createFetchHandler(buildRouter({ db, clock: systemClock }), { corsOrigins: [] });
 const tok = (await (await h(new Request('http://x/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier: 'OWNER', password: 'Passw0rd!x', deviceId: 'perf-OWNER00000000' }) }))).json()).token;

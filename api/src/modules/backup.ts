@@ -49,6 +49,21 @@ export const backupModule: Module = (r, { db, clock }) => {
     return ok({ ok: true });
   });
 
+  /** The table's primary-key columns (quoted) and types, in key order — straight from the catalog. */
+  const primaryKey = async (table: string) => (await db.query<{ col: string; type: string }>(`
+      SELECT quote_ident(a.attname) AS col, format_type(a.atttypid, a.atttypmod) AS type
+        FROM pg_index i JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum, n) ON true
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+       WHERE i.indrelid = ('public.' || quote_ident($1))::regclass AND i.indisprimary ORDER BY k.n`, [table])).rows;
+  const decodeCursor = (raw: string, n: number): string[] => {
+    let v: unknown;
+    try { v = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')); } catch { v = null; }
+    if (!n || !Array.isArray(v) || v.length !== n || !v.every((x) => typeof x === 'string')) {
+      throw new AppError('validation_failed', 'after is invalid', { field: 'after' });
+    }
+    return v as string[];
+  };
+
   const tables = async () => (await db.query<{ t: string }>(`SELECT table_name AS t FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1`)).rows.map((x) => x.t).filter((t) => !SKIP.has(t));
 
@@ -67,9 +82,22 @@ export const backupModule: Module = (r, { db, clock }) => {
     const name = req.params.name;
     if (!(await tables()).includes(name)) throw notFound();
     const offset = Math.max(0, Number(req.query.get('offset') ?? 0) || 0);
+    // R6: pages follow the table's primary key. With `after` (the cursor the previous page returned) every row that
+    // existed when the export started is sent exactly once even while the app edits or deletes rows in between
+    // (keyset). `offset` alone still works for the current Drive script (ordered by the key now, not by physical place).
+    const pk = await primaryKey(name);
+    const afterRaw = req.query.get('after');
+    const after = afterRaw ? decodeCursor(afterRaw, pk.length) : null;
     // to_jsonb: every value exactly as stored (times to the microsecond, numbers in full, files as \\x hex) — a restore
     // gives back the same rows, not rounded copies
-    const res = await db.query(`SELECT to_jsonb(x) AS j FROM "${name}" x ORDER BY ctid OFFSET $1 LIMIT 2000`, [offset]);
+    const cols = pk.map((c) => `x.${c.col}`);
+    const res = !pk.length
+      ? await db.query(`SELECT to_jsonb(x) AS j, NULL::text[] AS k FROM "${name}" x ORDER BY ctid OFFSET $1 LIMIT 2000`, [offset])
+      : after
+        ? await db.query(`SELECT to_jsonb(x) AS j, ARRAY[${cols.map((c) => `${c}::text`).join(', ')}] AS k FROM "${name}" x
+             WHERE (${cols.join(', ')}) > (${pk.map((c, i) => `$${i + 1}::text::${c.type}`).join(', ')}) ORDER BY ${cols.join(', ')} LIMIT 2000`, after)
+        : await db.query(`SELECT to_jsonb(x) AS j, ARRAY[${cols.map((c) => `${c}::text`).join(', ')}] AS k FROM "${name}" x
+             ORDER BY ${cols.join(', ')} OFFSET $1 LIMIT 2000`, [offset]);
     const rows: unknown[] = []; let size = 0;
     for (const { j: row } of res.rows) {
       const o: Record<string, unknown> = {};
@@ -78,11 +106,14 @@ export const backupModule: Module = (r, { db, clock }) => {
       if (rows.length && size + len > MAX_CHUNK) break;
       rows.push(o); size += len;
     }
-    const next = rows.length < res.rows.length || res.rows.length === 2000 ? offset + rows.length : null;
+    const more = rows.length < res.rows.length || res.rows.length === 2000;
+    const next = more ? offset + rows.length : null;
+    const last = res.rows[rows.length - 1]?.k as string[] | null | undefined;
+    const cursor = more && pk.length && last ? Buffer.from(JSON.stringify(last)).toString('base64url') : null;
     const redacted = (await db.query<{ c: string }>(`SELECT column_name AS c FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`, [name])).rows.map((x) => x.c).filter((k) => SECRET_COLUMN.test(k));
     // encrypted at rest in the Drive copy: «rows» is one sealed string (AES-256-GCM), opened with tools/backup-decrypt.mjs
     // and the same key for a restore
-    return ok({ table: name, offset, rows: seal(JSON.stringify(rows), 'BACKUP_ENCRYPTION_KEY'), next, redacted, encrypted: true });
+    return ok({ table: name, offset, rows: seal(JSON.stringify(rows), 'BACKUP_ENCRYPTION_KEY'), next, after: cursor, redacted, encrypted: true });
   });
 };
