@@ -1,8 +1,9 @@
 import { createDb } from './db.ts';
 import { migrate } from './migrate-core.ts';
 
-const url = process.env.DATABASE_URL;
-if (!url) { console.error('DATABASE_URL is required'); process.exit(2); }
+// schema changes / first seed may use a separate, build-only credential (the owner); the runtime role keeps DATABASE_URL
+const url = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
+if (!url) { console.error('DATABASE_URL (or MIGRATION_DATABASE_URL) is required'); process.exit(2); }
 const db = createDb(url);
 try {
   const name = (await db.query(`SELECT current_database() AS d`)).rows[0].d;

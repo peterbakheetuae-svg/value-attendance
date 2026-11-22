@@ -8,8 +8,9 @@ import { createDb } from './db.ts';
 import { hashPassword, tempPassword } from './auth/password.ts';
 import { audit } from './auth/context.ts';
 
-const url = process.env.DATABASE_URL;
-if (!url) { console.error('DATABASE_URL is required'); process.exit(2); }
+// schema changes / first seed may use a separate, build-only credential (the owner); the runtime role keeps DATABASE_URL
+const url = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
+if (!url) { console.error('DATABASE_URL (or MIGRATION_DATABASE_URL) is required'); process.exit(2); }
 const demo = process.argv.includes('--demo');
 const ifEmpty = process.argv.includes('--if-empty');
 const db = createDb(url);

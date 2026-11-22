@@ -65,7 +65,10 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
   const u = new URL(ADMIN_URL); u.pathname = '/' + dbName;
   const db = createDb(u.toString());
   const now = { value: new Date(startIso) };
-  const router = buildRouter({ db, clock: () => now.value });
+  // TEST_APP_ROLE=1: the API under test connects as a least-privilege runtime role (the production valunivo_app grants,
+  // WITHOUT CREATE); test setup / assertions keep the admin connection (h.db)
+  const appDb = process.env.TEST_APP_ROLE === '1' ? await appRoleDb(dbName) : null;
+  const router = buildRouter({ db: appDb ?? db, clock: () => now.value });
   const server = createServer(createHandler(router, { corsOrigins: ['http://ok.test'], log: (o) => console.error(o) }));
   await new Promise<void>((res) => server.listen(0, '127.0.0.1', () => res()));
   const port = (server.address() as any).port;
@@ -90,9 +93,38 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
     close: async () => {
       await new Promise<void>((res) => server.close(() => res()));
       await db.end();
+      await appDb?.end();
       await admin((p) => p.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`));
     },
   };
+}
+
+/** the tables the API itself deletes from (src/** "DELETE FROM …"): the only DELETE grants the runtime role gets */
+export const RUNTIME_DELETE_TABLES = ['web_push_subscriptions', 'role_permissions', 'push_tokens', 'holidays', 'employee_permissions',
+  'employee_documents', 'notifications', 'employee_devices', 'deals', 'tracking_pings', 'payroll_batch_lines', 'meta_pages',
+  'marketing_company_files', 'lead_targets', 'lead_routes', 'lead_attachments', 'ex_unit_files', 'evaluations', 'attendance_selfies'];
+const APP_ROLE = 'va_app_test', APP_PW = 'app-role-test-only';
+async function appRoleDb(dbName: string): Promise<Db> {
+  await admin(async (p) => {
+    await p.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
+      CREATE ROLE ${APP_ROLE} LOGIN PASSWORD '${APP_PW}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`);
+  });
+  const u = new URL(ADMIN_URL); u.pathname = '/' + dbName;
+  const own = new pg.Pool({ connectionString: u.toString(), max: 1 });
+  try {
+    await own.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${APP_ROLE}`);
+    await own.query(`GRANT USAGE ON SCHEMA public TO ${APP_ROLE}`);
+    await own.query(`REVOKE CREATE ON SCHEMA public FROM ${APP_ROLE}`);
+    await own.query(`GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO ${APP_ROLE}`);
+    await own.query(`REVOKE UPDATE ON audit_log FROM ${APP_ROLE}`);
+    await own.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${APP_ROLE}`);
+    // as in production (ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner): tables the owner adds later are usable too
+    await own.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO ${APP_ROLE}`);
+    await own.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${APP_ROLE}`);
+    for (const t of RUNTIME_DELETE_TABLES) await own.query(`DO $$ BEGIN IF to_regclass('public.${t}') IS NOT NULL THEN EXECUTE 'GRANT DELETE ON ${t} TO ${APP_ROLE}'; END IF; END $$`);
+  } finally { await own.end(); }
+  const a = new URL(u.toString()); a.username = APP_ROLE; a.password = APP_PW;
+  return createDb(a.toString());
 }
 
 export const PW = 'Passw0rd!x';
