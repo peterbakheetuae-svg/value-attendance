@@ -392,6 +392,14 @@ export async function cashOverview(q: Q, a: Actor, from: string | null, to: stri
       advancesPaid: pr.advancesPaid, advancesRecovered: pr.advancesRecovered,
       advancesOutstanding: r2(Math.max(0, upTo.advancesPaid - upTo.advancesRecovered)) };
     // the owners' trust is the exclusive projects' money; the office's commission income / split / net its own permission
+    // resale / rental commissions (087): collected = office revenue already in the boxes; receivable = agreed, not yet paid
+    if (await one(q, `SELECT to_regclass('public.brokerage_deals') IS NOT NULL AS ok`).then((x) => x?.ok)) {
+      const bk = await one(q, `SELECT count(*)::int AS n,
+          COALESCE(sum(d.total_commission_egp), 0) AS agreed,
+          COALESCE(sum((SELECT COALESCE(sum(r.amount_egp), 0) FROM cash_receipts r WHERE r.brokerage_deal_id = d.id AND r.status = 'posted')), 0) AS collected
+        FROM brokerage_deals d WHERE d.status IN ('approved', 'collected')`);
+      out.brokerage = { deals: bk.n, agreed: r2(N(bk.agreed)), collected: r2(N(bk.collected)), receivable: r2(N(bk.agreed) - N(bk.collected)) };
+    }
     if (!can(a, 'exclusive.view_finance', 'cash.office')) delete (out.income as any).trust;
     if (!can(a, 'finance.company_income', 'cash.office')) { delete (out.income as any).commissions; delete out.commissionSplit; delete out.result; }
   }
@@ -487,6 +495,8 @@ export interface ReceiptInput {
   box: Box; recipientId: string; kind: string; amount: number; payerName: string; payerPhone: string; purpose: string;
   method: string; externalNo: string | null; notes: string; ref: string | null; att: Buffer | null; occurred: Date;
   saleId?: string | null; installmentId?: string | null; projectId?: string | null;
+  /** a resale / rental commission (087): the deal and the side that paid it — only ever set by the brokerage module */
+  brokerageDealId?: string | null; brokerageSide?: 'owner' | 'client' | null;
 }
 
 /**
@@ -553,7 +563,8 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
     const dup = await priorByClientRef(q, 'cash_receipts', x.ref, a.id, (r) => r.kind === x.kind && r.cashbox === x.box
       && r.actual_recipient_id === x.recipientId && sameAmount(r.amount_egp, x.amount) && r.ex_unit_id == null
       && (r.sale_id ?? null) === (x.saleId ?? null) && (r.installment_id ?? null) === (x.installmentId ?? null)
-      && (r.project_id ?? null) === (x.projectId ?? null));
+      && (r.project_id ?? null) === (x.projectId ?? null)
+      && (r.brokerage_deal_id ?? null) === (x.brokerageDealId ?? null) && (r.brokerage_side ?? null) === (x.brokerageSide ?? null));
     if (dup) return { id: dup.id, duplicate: true };
   }
   const perm = x.box === 'hr' ? 'cash.hr_operate' : 'cash.office';
@@ -563,12 +574,15 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   if (x.externalNo && await one(q, `SELECT 1 FROM cash_receipts WHERE lower(trim(external_no)) = lower(trim($1))`, [x.externalNo])) {
     throw new AppError('conflict', 'This receipt number was already recorded', { reason: 'duplicate_receipt' });
   }
+  // the two brokerage columns exist only after 087 and are written only for a brokerage commission
+  const deal = x.brokerageDealId ? `, brokerage_deal_id, brokerage_side` : '';
   const row = await one(q, `
     INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
-           external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id, project_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id, ref_no`,
+           external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id, project_id${deal})
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17${deal ? ',$18,$19' : ''}) RETURNING id, ref_no`,
     [x.kind, x.amount, x.box, x.recipientId, x.payerName, x.payerPhone, x.purpose, x.method, x.externalNo, x.ref, x.notes, x.att,
-      x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null, x.projectId ?? null]);
+      x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null, x.projectId ?? null,
+      ...(deal ? [x.brokerageDealId, x.brokerageSide] : [])]);
   await audit(q, a.id, 'cash.receipt', 'cash_receipt', row.id, undefined,
     { kind: x.kind, amount: x.amount, cashbox: x.box, recipientId: x.recipientId, payerName: x.payerName, purpose: x.purpose,
       externalNo: x.externalNo, saleId: x.saleId ?? null, installmentId: x.installmentId ?? null });

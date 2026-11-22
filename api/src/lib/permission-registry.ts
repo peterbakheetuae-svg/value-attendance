@@ -170,6 +170,13 @@ export const PERMISSIONS: PermDef[] = [
   P('settings', 'roles.manage', 'إدارة الصلاحيات', 'صفحة الصلاحيات: المسميات والاستثناءات الفردية وسجلها', { sensitive: true }),
   P('settings', 'audit.read', 'سجل التدقيق', 'قراءة سجل التدقيق', { sensitive: true }),
   P('settings', 'data.reset', 'استيراد / مسح البيانات', 'استيراد بيانات قديمة أو مسح بيانات الشركة (كانت للمالك بالاسم)', { sensitive: true, since: 66, ownerOnly: true }),
+  // ---- resale / rental (proposed migration 087): before it, nothing to use; after it the keys follow these broad ones
+  P('commissions', 'brokerage.propose', 'تسجيل صفقة إعادة بيع / إيجار', 'تسجيل صفقة إعادة بيع أو إيجار واقتراح عمولتها',
+    { splitFrom: 'exclusive.reserve', since: 87 }),
+  P('commissions', 'brokerage.approve', 'اعتماد عمولة إعادة البيع / الإيجار', 'اعتماد أو رفض عمولة صفقة إعادة بيع / إيجار وتوزيعها على المستفيدين',
+    { sensitive: true, splitFrom: 'commission.approve', since: 87 }),
+  P('commissions', 'brokerage.view_all', 'عرض كل صفقات إعادة البيع والإيجار', 'كل الصفقات وعمولاتها والمحصل والباقي',
+    { splitFrom: ['commission.approve', 'cash.office'], since: 87 }),
   P('commissions', 'commission.void_approved', 'إلغاء عمولة معتمدة', 'إلغاء عمولة بعد اعتمادها (كانت للمالك بالاسم)', { sensitive: true, since: 66 }),
 ];
 

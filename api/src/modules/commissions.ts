@@ -7,6 +7,7 @@ import { audit, authenticate, can, canOwnerOnly, has, type Actor } from '../auth
 import { companyCommissionRows } from './company-payouts.ts';
 import { holdersOf, notify } from './notify.ts';
 import { resolveDeveloper } from './exclusive.ts';
+import { brokerageInstalled } from './brokerage.ts';
 import { legacyCoverage } from './legacy-coverage.ts';
 
 /**
@@ -524,13 +525,18 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     if (m) { vals.push(monthParam(m)); where.push(`ce.period = $${vals.length}`); }
     const e = req.query.get('employeeId');
     if (all && e && isUuid(e)) { vals.push(e); where.push(`ce.employee_id = $${vals.length}`); }
+    // a resale / rental share (087) is a commission entitlement too — named by its deal (before 087 every row has a request)
+    const deals = await brokerageInstalled(db);
     const rows = await db.query(`
-      SELECT ce.*, e.full_name AS employee_name, p.name AS project_name, cr.unit_no, cr.decided_at,
+      SELECT ce.*, e.full_name AS employee_name, cr.decided_at,
+             ${deals ? `COALESCE(p.name, CASE bd.kind WHEN 'resale' THEN 'إعادة بيع' ELSE 'إيجار' END) AS project_name, COALESCE(cr.unit_no, bd.property) AS unit_no,`
+                     : `p.name AS project_name, cr.unit_no,`}
              po.id AS payout_id, po.status AS payout_status, po.received_at, po.created_by AS payout_created_by
         FROM commission_entitlements ce
         JOIN employees e ON e.id = ce.employee_id
-        JOIN commission_requests cr ON cr.id = ce.request_id
-        JOIN commission_projects p ON p.id = cr.project_id
+        LEFT JOIN commission_requests cr ON cr.id = ce.request_id
+        LEFT JOIN commission_projects p ON p.id = cr.project_id
+        ${deals ? `LEFT JOIN brokerage_shares bs ON bs.id = ce.brokerage_share_id LEFT JOIN brokerage_deals bd ON bd.id = bs.deal_id` : ''}
         LEFT JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY ce.period DESC, e.full_name LIMIT 1000`, vals);
