@@ -20,6 +20,8 @@ import { GW_HEADERS, GW_IP_RE, canonical, normQuery } from '../src/lib/gateway-s
 
 export interface Env {
   UPSTREAM?: string;
+  /** staging only: a Service Binding to the synthetic verifier Worker instead of a network upstream (no production) */
+  UPSTREAM_SERVICE?: { fetch(input: string, init?: RequestInit): Promise<Response> };
   VA_GATEWAY_SECRET?: string;
   AUTH_RL?: { limit(o: { key: string }): Promise<{ success: boolean }> };
 }
@@ -86,7 +88,8 @@ export default {
 
     let res: Response;
     try {
-      res = await fetch(upstream + url.pathname + url.search, {
+      const send = env.UPSTREAM_SERVICE ? (u: string, i: RequestInit) => env.UPSTREAM_SERVICE!.fetch(u, i) : fetch;
+      res = await send(upstream + url.pathname + url.search, {
         method: req.method, headers, body, redirect: 'manual', cache: 'no-store',
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });

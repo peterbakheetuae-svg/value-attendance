@@ -1,0 +1,9 @@
+// STAGING ONLY — synthetic verifier (no database, no bindings, no business data). See verifier.ts.
+{
+  "name": "valunivo-gw-verifier-staging",
+  "main": "verifier.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": false }
+}

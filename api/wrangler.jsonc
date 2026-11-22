@@ -1,7 +1,7 @@
-// Cloudflare gateway in front of the Vercel API — STAGING. See cloudflare/gateway.ts and docs/CLOUDFLARE_MIGRATION.md.
+// Cloudflare gateway — STAGING. See cloudflare/gateway.ts and docs/CLOUDFLARE_HYBRID_ARCHITECTURE.md.
+// ISOLATED: the upstream is the synthetic verifier Worker (Service Binding), NOT Vercel and NOT any production host.
+// UPSTREAM is a reserved .invalid name that can never resolve, so even without the binding nothing leaves Cloudflare.
 // No database binding, no Hyperdrive, no routes / custom domain (workers.dev only), no secrets in this file.
-// One Worker secret, set in the dashboard or with `wrangler secret put VA_GATEWAY_SECRET` (the same value is set
-// on Vercel only when the signed-IP feature is approved there).
 {
   "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
   "name": "valunivo-gateway-staging",
@@ -9,9 +9,11 @@
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
   // Workers Logs off: invocation logs would record request URLs (query strings). Nothing from requests is logged.
-  // Request counts / CPU / outcomes stay available in Workers Analytics, which hold no URLs or bodies.
   "observability": { "enabled": false },
   "vars": {
-    "UPSTREAM": "https://value-attendance.vercel.app"
-  }
+    "UPSTREAM": "https://verifier.staging.invalid"
+  },
+  "services": [
+    { "binding": "UPSTREAM_SERVICE", "service": "valunivo-gw-verifier-staging" }
+  ]
 }

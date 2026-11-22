@@ -11,7 +11,7 @@ app / web ──► Cloudflare gateway (no DB) ──► Vercel API ──► Ne
 
 ## 1. Gateway → Vercel signed envelope (v2)
 
-Format: `src/lib/gateway-sig.ts` (shared, pure code). HMAC-SHA256 with `VA_GATEWAY_SECRET` over
+Format: `src/lib/gateway-sig.ts` (shared, pure code); verification: `src/auth/gateway-verify.ts`. HMAC-SHA256 with `VA_GATEWAY_SECRET` over
 `va-gw-v2 | METHOD | path | normalized query | timestamp | request id (UUID) | client IP | SHA-256(body)`.
 Headers: `x-va-gw-ip`, `x-va-gw-ts`, `x-va-gw-id`, `x-va-gw-sig`. The gateway strips any client-supplied copies.
 
@@ -19,7 +19,7 @@ Headers: `x-va-gw-ip`, `x-va-gw-ts`, `x-va-gw-id`, `x-va-gw-sig`. The gateway st
 |---|---|
 | Binding | signature cannot be moved to another method, path, query, body or IP |
 | Freshness | ≤ 60 s old, ≤ 10 s in the future; otherwise refused |
-| Replay / duplicates | request id remembered for the window per instance (best effort; instances share no memory). A replay can only repeat the identical request within 60 s, and needs the TLS traffic between Cloudflare and Vercel |
+| Replay / duplicates | request id remembered for the window **per instance only** (instances share no memory). A replay can only repeat the identical request within 60 s, and needs the TLS traffic between Cloudflare and Vercel |
 | Fail-closed | feature on + any gateway header present + anything wrong → **403 `gateway_signature_invalid`**, attempt not served |
 | Direct requests | no gateway headers → platform IP (`x-vercel-forwarded-for`), exactly as today |
 | Feature off | no secret ≥ 32 chars on Vercel → gateway headers ignored, behaviour exactly as today |
@@ -77,12 +77,42 @@ a monthly projection once `CF_MIRROR_SCRIPT` is set. Estimate until then: 60k–
 Gateway CPU ≈ 1 ms → Workers Free fits on CPU; the binding limit is Free's 100k requests/day (over it, the app falls back
 to Vercel). Paid (US$5/month minimum) only if measured traffic is consistently > 100k/day. Nothing paid is enabled.
 
-## 6. Staging (workers.dev only, read-only checks, forwards to production Vercel)
+## 6. Staging — fully isolated from production
 
-Prerequisites (yours): credentials rotated (Phases A–E); then Cloudflare token (Workers Scripts: Edit, Account Analytics: Read)
-as GitHub secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`; variables `CF_MIRROR_SCRIPT` and finally
-`CF_GATEWAY_STAGING=on`; optional Worker secret `VA_GATEWAY_SECRET` (random ≥ 32 chars, never in chat / Git).
-Production Vercel does not run the new code, so it ignores the gateway headers during staging.
+Staging never reaches Vercel, Neon or any production host:
+
+```
+GitHub runner ──► valunivo-gateway-staging (workers.dev) ──Service Binding──► valunivo-gw-verifier-staging (synthetic)
+```
+
+- The staging gateway's only upstream is a **synthetic verifier Worker** (`api/cloudflare/verifier.ts`): no database,
+  no bindings, no business routes. It runs Vercel's exact verification code (`src/auth/gateway-verify.ts`) and answers
+  `{synthetic, verdict, ip, method, path, query, bodySha256, headerNames}` — header names only, never values.
+- `UPSTREAM` is `https://verifier.staging.invalid` (a reserved name that cannot resolve), so even a missing binding
+  cannot send anything to production.
+- CI gate refuses to deploy if either config mentions vercel.app, jaurea, valunivo., neon.tech, postgres,
+  DATABASE_URL, Hyperdrive / D1 / KV, or routes, or if Workers Logs are on.
+- Gateway secrets are generated inside each CI run (masked, never printed), and **both Workers are deleted at the end**.
+- Permitted staging endpoints: `/__gateway/health`, any path answered by the verifier (synthetic), `/__verify/replay`,
+  `/__verify/status-500`. No sign-in, CRM, HR, attendance, finance, payroll, backup or admin call reaches a real backend.
+- Checks on real Cloudflare (`api/cloudflare/staging-checks.mts`): visitor IP = runner IP with spoofed
+  CF-Connecting-IP / X-Forwarded-For / X-Real-IP ignored; forwarding headers stripped; normalized query; POST body hash
+  equal end to end; replay refused; direct (gateway-bypassing) requests — no headers → direct, valid → trusted, wrong
+  secret / 61 s old / 11 s future / changed body / changed method / incomplete headers → refused; upstream 500 passed
+  through with no-store; 405 / 413 at the edge; secret rotation overlap and cut-off.
+  Locally in workerd all pass except the visitor-IP check, which only real Cloudflare can prove (locally the client's
+  CF-Connecting-IP is not overwritten).
+
+### Replay and idempotency assessment
+
+- Replay detection is **instance-local** (memory of one Vercel instance). Distributed detection would need a shared store
+  (a small DB table — a migration — or a Durable Object), i.e. new infrastructure: not added, needs approval.
+- Exposure is limited: the signature is only used to attribute an IP for the sign-in throttle; it grants no access.
+  A replay requires reading TLS traffic between Cloudflare and Vercel, and repeats the identical request within 60 s.
+- Sensitive writes: the gateway never retries. Duplicate protection for money already exists where a client resend is
+  likely — cash receipts, cash expenses and sales collections take a client UUID (`clientRef`) and are de-duplicated
+  in the database; decisions / transfers / payouts are state transitions (a second call finds the new state).
+  Independent idempotency keys for every write would be an API contract change — not proposed now.
 
 ## 7. Production plan — FOR APPROVAL (nothing done)
 
