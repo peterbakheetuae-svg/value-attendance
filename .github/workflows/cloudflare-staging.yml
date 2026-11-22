@@ -1,0 +1,98 @@
+name: Cloudflare — CPU probe + API staging (workers.dev only, never production)
+
+# Runs only for the migration branch. Production (Vercel) and DNS are never touched.
+# Needs repository secrets CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Account Analytics: Read, Hyperdrive: Read)
+# and CLOUDFLARE_ACCOUNT_ID. The staging job also needs the repository variable CF_HYPERDRIVE_ID (not a secret);
+# the database credential lives only inside that Hyperdrive configuration, created in the Cloudflare dashboard.
+on:
+  push:
+    branches: [cloudflare/worker-migration]
+    paths: ['api/**', '.github/workflows/cloudflare-staging.yml']
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: cloudflare-staging, cancel-in-progress: false }
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  WRANGLER_SEND_METRICS: 'false'
+
+jobs:
+  cpu-probe:
+    if: github.ref == 'refs/heads/cloudflare/worker-migration'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Secrets present?
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::Repository secrets CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set yet — nothing deployed"
+            echo "SKIP=1" >> "$GITHUB_ENV"; fi
+      - run: npm install --no-audit --no-fund
+        if: env.SKIP != '1'
+      - name: Deploy throwaway probe (no DB, no secrets)
+        if: env.SKIP != '1'
+        run: |
+          npx --yes wrangler@4 deploy -c cloudflare/wrangler.probe.jsonc | tee /tmp/deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -1)
+          [ -n "$URL" ] || { echo "::error::no workers.dev URL — enable the workers.dev subdomain for the account"; exit 1; }
+          echo "PROBE_URL=$URL" >> "$GITHUB_ENV"
+          echo "FROM=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - name: Call it (5 × noop, 40 × password check)
+        if: env.SKIP != '1'
+        run: |
+          sleep 10
+          for i in $(seq 5);  do curl -s -o /dev/null -w '%{http_code} ' "$PROBE_URL/noop"; done; echo
+          for i in $(seq 40); do curl -s -o /tmp/v.out -w '%{http_code} ' "$PROBE_URL/verify"; done; echo
+          echo "last /verify body: $(head -c 200 /tmp/v.out)"
+      - name: CPU time from Cloudflare analytics
+        if: env.SKIP != '1'
+        run: |
+          for i in $(seq 12); do
+            sleep 60
+            if node cloudflare/cf-check.mjs cpu valunivo-cpu-probe "$FROM"; then exit 0; fi
+          done
+          echo "::warning::analytics not available yet — check Workers & Pages → valunivo-cpu-probe → Metrics"
+      - name: Current traffic of the existing mirror Worker (last 7 days, for the cost estimate)
+        if: env.SKIP != '1' && vars.CF_MIRROR_SCRIPT != ''
+        run: node cloudflare/cf-check.mjs cpu "${{ vars.CF_MIRROR_SCRIPT }}" "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" || true
+      - name: Delete the probe
+        if: always() && env.SKIP != '1'
+        run: npx --yes wrangler@4 delete -c cloudflare/wrangler.probe.jsonc --force || true
+
+  staging:
+    if: github.ref == 'refs/heads/cloudflare/worker-migration' && vars.CF_HYPERDRIVE_ID != ''
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Gate — Hyperdrive caching off, least-privilege role, direct host
+        run: node cloudflare/cf-check.mjs hyperdrive "${{ vars.CF_HYPERDRIVE_ID }}"
+      - name: Deploy staging Worker (workers.dev only — no routes, no custom domain)
+        run: |
+          sed -i "s/REPLACE_WITH_HYPERDRIVE_ID/${{ vars.CF_HYPERDRIVE_ID }}/" wrangler.jsonc
+          grep -q '"routes"\|"route"' wrangler.jsonc && { echo "::error::routes are not allowed in staging"; exit 1; }
+          npx --yes wrangler@4 deploy | tee /tmp/deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' /tmp/deploy.log | head -1)
+          echo "STAGING_URL=$URL" >> "$GITHUB_ENV"
+          echo "FROM=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - name: Read-only smoke test (no sign-in, no writes)
+        run: |
+          sleep 10
+          fail=0
+          check() { code=$(curl -s -o /tmp/b -w '%{http_code}' "$@"); echo "$code  ${*: -1}" >&2; echo "$code"; }
+          [ "$(check "$STAGING_URL/healthz")" = 200 ] || fail=1
+          [ "$(check "$STAGING_URL/readyz")" = 200 ] || fail=1; head -c 300 /tmp/b; echo
+          for i in 1 2 3; do curl -s "$STAGING_URL/healthz/latency"; echo; done
+          [ "$(check "$STAGING_URL/me")" = 401 ] || fail=1
+          [ "$(check -X OPTIONS -H 'Origin: https://jaurea.com' -H 'Access-Control-Request-Method: GET' "$STAGING_URL/me")" = 204 ] || fail=1
+          exit $fail
+      - name: Staging CPU analytics
+        run: |
+          for i in $(seq 8); do sleep 60; node cloudflare/cf-check.mjs cpu valunivo-api-staging "$FROM" && exit 0; done; true

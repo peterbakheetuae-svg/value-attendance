@@ -5,6 +5,8 @@
   # OWNER account only on an empty database (its one-time temporary password is printed once in this build's log).
   # Deploy previews / branch deploys never touch the database.
   command = "node scripts/migrate-if-production.mjs"
+  # cloudflare/worker-migration branch: Netlify never builds it (the legacy Netlify API is being isolated)
+  ignore = "exit 0"
 
 [functions]
   directory = "netlify/functions"
