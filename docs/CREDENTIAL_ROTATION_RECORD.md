@@ -101,7 +101,11 @@ authorizing Apps Script) are outside the repository and were not visible here.
     before).
   - Netlify's request records show these requests with **0 function invocations**, so the API code is no longer reached.
   - Revert in one click: set the team login back to "non-production only".
-  - Still open: the site keeps building from GitHub, and the four credentials stay valid until they are rotated.
+  - **Builds stopped 2026-11-22 ~20:55Z** (Project configuration → Build & deploy → Build status: *Stopped builds*, saved
+    via the owner's signed-in dashboard; after reload the page shows `Build status: Stopped`). Team login is still `all`.
+    Independent proof comes with the next commit on PR #9 / `main`: no `netlify/value-attendance-api/…` status should appear
+    on it (the last one is on `31c1800`, 12:00Z). No test commit was pushed.
+  - Still open: the four credentials stay valid until they are rotated; the variables and the project are kept.
 - **Next:** "Stop builds" (no rebuild from pushes or PRs) → later
   rotations #1/#2/#4 cut the credentials themselves → delete variables and site last.
 
@@ -205,5 +209,6 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
 |---|---|---|---|
 | 2026-11-22 | all | Inventory + masked history scan; no rotation possible here (§2) | §1, §3 |
 | 2026-11-22 | Netlify | Investigated (§5.1); team login required on all deploys (owner's instruction) — public API blocked, credentials not yet rotated | site setting `all`; /healthz, /readyz client error; 0 function invocations |
+| 2026-11-22 | Netlify | Stage A: builds stopped (dashboard, reload shows "Stopped"); team login still `all` | dashboard + `get-project` |
 | 2026-11-22 | #17 | Signer certificates of v1.0.44/45/54/150 compared (§5.3) — **exposure open** | public certificate fingerprints |
 | 2026-11-09 | #17 | Old Android keystore replaced (by an earlier session, commit `3b5bc21`) | commit message + key now only in GitHub secrets |
