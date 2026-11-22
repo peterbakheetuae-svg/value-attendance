@@ -282,4 +282,72 @@ void main() {
       expect(((await session.api.get('/payouts'))['payouts'] as List).first['employee'], 'B');
     });
   });
+
+  group('R2 balance freshness', () {
+    Future<ApiClient> api(double Function() balance, List<String> seen) async => ApiClient(baseUrl: 'http://x',
+        client: MockClient((r) async {
+          seen.add(r.url.path);
+          return http.Response(jsonEncode({'balance': balance(), 'n': seen.length}), 200, headers: {'content-type': 'application/json'});
+        }))..token = 'tokA1';
+
+    test('freshness: another person changes the cashbox; reopening the screen shows the server balance (was: 1000)', () async {
+      var balance = 1000.0;
+      final seen = <String>[];
+      final a = await api(() => balance, seen);
+      expect((await a.get('/cash/summary'))['balance'], 1000.0);
+      balance = 500.0; // an expense recorded by someone else
+      expect((await a.get('/cash/summary'))['balance'], 500.0);
+    });
+
+    test('freshness: every audited money prefix is read from the server each time', () async {
+      var balance = 1.0;
+      final seen = <String>[];
+      final a = await api(() => balance, seen);
+      const paths = ['/cash/summary', '/cash/overview', '/cash/ledger', '/cash/receipts', '/cash/expenses', '/cash/transfers',
+        '/cash/bank-moves', '/cash/fixed-expenses', '/payouts', '/payouts/cashiers', '/finance/dashboard', '/finance/dashboard/details',
+        '/finance/employee-account/x', '/finance/adjustments', '/payroll/employee/x', '/payroll-batches', '/advances', '/advances/open',
+        '/sales', '/sales/installments/due', '/commissions/entitlements', '/commissions/requests', '/commissions/projects',
+        '/insights/employees', '/custody'];
+      for (final p in paths) {
+        await a.get(p);
+        balance++;
+        expect((await a.get(p))['balance'], balance, reason: '$p must not be served from memory');
+      }
+      expect(seen.length, paths.length * 2);
+    });
+
+    test('freshness: identical money reads in flight still share one request', () async {
+      final seen = <String>[];
+      final a = await api(() => 7, seen);
+      final r = await Future.wait([a.get('/cash/summary'), a.get('/cash/summary')]);
+      expect(r[0]['balance'], 7);
+      expect(seen.length, 1);
+    });
+
+    test('freshness: non-money screens keep the 5-minute memory copy (unchanged)', () async {
+      final seen = <String>[];
+      final a = await api(() => 1, seen);
+      await a.get('/employees');
+      await a.get('/employees');
+      expect(seen.length, 1);
+    });
+
+    test('freshness: offline, the money screen still answers from the owner\'s own copy, marked offline', () async {
+      var down = false;
+      final a = ApiClient(baseUrl: 'http://x', client: MockClient((r) async {
+        if (down) throw http.ClientException('SocketException');
+        return http.Response(jsonEncode({'balance': 1000}), 200);
+      }))
+        ..token = 'tokA1'
+        ..owner = 'A';
+      await a.get('/cash/summary');
+      await pumpEventQueue();
+      down = true;
+      final r = await a.get('/cash/summary');
+      expect(r['balance'], 1000);
+      expect(r['_offline'], true);
+      a.owner = 'B';
+      await expectLater(a.get('/cash/summary'), throwsA(isA<ApiException>()), reason: 'never another person\'s copy');
+    });
+  });
 }
