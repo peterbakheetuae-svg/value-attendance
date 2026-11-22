@@ -904,9 +904,18 @@ class JphRouter {
     return '${n.year}-${_two(n.month)}-${_two(n.day)}';
   }
 
+  // filed under the signed-in employee: a punch recorded by one person is never shown as another person's
+  static String? get _punchKey {
+    final who = JphBridge.session.id;
+    return who.isEmpty ? null : 'offline_punch:$who';
+  }
+
   static Future<Map<String, dynamic>> _offlinePunch() async {
     try {
-      final s = (await SharedPreferences.getInstance()).getString('offline_punch');
+      final p = await SharedPreferences.getInstance();
+      if (p.containsKey('offline_punch')) await p.remove('offline_punch'); // old untagged copy: owner unknown
+      final k = _punchKey;
+      final s = k == null ? null : p.getString(k);
       return s == null ? {} : (jsonDecode(s) as Map).cast<String, dynamic>();
     } catch (_) {
       return {};
@@ -914,8 +923,10 @@ class JphRouter {
   }
 
   static Future<void> _setOfflinePunch(Map<String, dynamic>? v) async {
+    final k = _punchKey;
+    if (k == null) return;
     final p = await SharedPreferences.getInstance();
-    v == null ? await p.remove('offline_punch') : await p.setString('offline_punch', jsonEncode(v));
+    v == null ? await p.remove(k) : await p.setString(k, jsonEncode(v));
   }
 
   /// Today's attendance = the server's (or its offline copy) + any punch still waiting on the phone.

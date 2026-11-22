@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,6 +30,24 @@ class ApiClient {
   int _active = 0;
   final http.Client _http;
   String? token;
+
+  /// The signed-in employee (set by the session once it knows who signed in). Everything kept on the phone for
+  /// offline use — remembered reads and queued actions — belongs to one person and is only ever shown to / sent
+  /// as that person. Null while nobody is known: nothing is kept for offline reading then.
+  String? get owner => _owner;
+  set owner(String? v) {
+    final o = (v == null || v.isEmpty) ? null : v;
+    if (o == _owner) return;
+    _owner = o;
+    clearCache(); // a different person never sees the previous one's remembered reads
+  }
+  String? _owner;
+
+  /// A short, one-way fingerprint of a session token (never the token itself) — ties an action queued before the
+  /// person was known to the session that recorded it.
+  static String? tokenTag(String? t) =>
+      (t == null || t.isEmpty) ? null : crypto.sha256.convert(utf8.encode(t)).toString().substring(0, 16);
+
   void Function()? onUnauthorized;
   /// a 403: the permissions this app holds may be out of date (changed by an administrator) — re-read them
   void Function()? onForbidden;
@@ -98,13 +117,15 @@ class ApiClient {
   /// Reads work offline: every successful read is kept on the phone and returned (marked
   /// `_offline: true`) when there is no connection.
   Future<Map<String, dynamic>> _getNetwork(String path, [Map<String, String?>? query]) async {
-    final key = 'apicache:${_uri(path, query).replace(scheme: 'x', host: 'x').toString()}';
+    // the offline copy is filed under the person who read it: another person signed in on the same phone never gets it
+    final who = owner;
+    final key = who == null ? null : 'apicache:$who:${_uri(path, query).replace(scheme: 'x', host: 'x').toString()}';
     try {
       final r = await _send(() => _http.get(_uri(path, query), headers: _headers()), retry: true);
-      _cachePut(key, r);
+      if (key != null && who == owner) _cachePut(key, r);
       return r;
     } on ApiException catch (e) {
-      if (!e.isNetwork) rethrow;
+      if (!e.isNetwork || key == null) rethrow;
       final cached = await _cacheGet(key);
       if (cached == null) rethrow;
       return {...cached, '_offline': true};
@@ -129,14 +150,40 @@ class ApiClient {
     }
   }
 
-  /// Forget everything kept for offline use (sign-out).
-  static Future<void> clearOffline() async {
+  /// Forget every read kept for offline use, whoever it belonged to (the session ended: expired, revoked or signed
+  /// out). Queued actions are not touched here — each one is sent only as the person who recorded it.
+  static Future<void> clearOfflineReads() async {
     try {
       final p = await SharedPreferences.getInstance();
-      for (final k in p.getKeys().where((k) => k.startsWith('apicache:') || k == _queueKey || k == _failedKey).toList()) {
+      for (final k in p.getKeys().where((k) => k.startsWith('apicache:')).toList()) {
         await p.remove(k);
       }
     } catch (_) {}
+  }
+
+  /// Sign-out: forget the offline reads and this person's own queued / refused actions. Actions another person
+  /// recorded on this phone stay until that person signs in again; old untagged ones (recorded before actions were
+  /// tagged with their owner) cannot be told apart, so they are dropped rather than sent as anyone.
+  Future<void> clearOfflineOnSignOut() async {
+    await clearOfflineReads();
+    try {
+      final p = await SharedPreferences.getInstance();
+      for (final key in [_queueKey, _failedKey]) {
+        final keep = _readList(p, key).where((i) => _taggedOwner(i) && !_mine(i)).toList();
+        keep.isEmpty ? await p.remove(key) : await p.setString(key, jsonEncode(keep));
+      }
+      pending.value = 0;
+    } catch (_) {}
+  }
+
+  static bool _taggedOwner(Map<String, dynamic> i) => i['owner'] != null || i['tt'] != null;
+
+  /// An action recorded by the person signed in now (by employee, or by the session when the person was not known yet).
+  bool _mine(Map<String, dynamic> i) {
+    final o = i['owner'];
+    if (o != null) return owner != null && o == owner;
+    final tt = i['tt'];
+    return tt != null && tt == tokenTag(token);
   }
 
   // ------------------------------------------------------------------ offline queue
@@ -158,9 +205,9 @@ class ApiClient {
       final p = await SharedPreferences.getInstance();
       final q = _readList(p, _queueKey);
       q.add({'path': path, 'body': {...body, 'offlineAt': DateTime.now().toUtc().toIso8601String()}, 'label': label,
-        'at': DateTime.now().toIso8601String()});
+        'at': DateTime.now().toIso8601String(), 'owner': owner, 'tt': tokenTag(token)});
       await p.setString(_queueKey, jsonEncode(q));
-      pending.value = q.length;
+      pending.value = q.where(_mine).length;
       return {'queued': true};
     }
   }
@@ -183,9 +230,12 @@ class ApiClient {
     try {
       final p = await SharedPreferences.getInstance();
       var q = _readList(p, _queueKey);
-      pending.value = q.length;
-      while (q.isNotEmpty) {
-        final item = q.first;
+      pending.value = q.where(_mine).length;
+      // only this person's actions are sent (with this person's session); anyone else's wait for their owner
+      var i = 0;
+      while (i < q.length) {
+        final item = q[i];
+        if (!_mine(item)) { i++; continue; }
         try {
           await post(item['path'] as String, (item['body'] as Map).cast<String, dynamic>());
           sent++;
@@ -195,9 +245,12 @@ class ApiClient {
           // a refused location point (e.g. shift already closed) is just dropped
           if (item['path'] != '/tracking/ping') failed.add({...item, 'error': e.message});
         }
-        q = q.sublist(1);
+        q = _readList(p, _queueKey); // (an action may have been queued meanwhile)
+        final at = q.indexWhere((x) => jsonEncode(x) == jsonEncode(item));
+        if (at >= 0) q.removeAt(at);
         await p.setString(_queueKey, jsonEncode(q));
-        pending.value = q.length;
+        pending.value = q.where(_mine).length;
+        i = at >= 0 ? at : i;
       }
       if (failed.isNotEmpty) {
         final f = _readList(p, _failedKey)..addAll(failed);

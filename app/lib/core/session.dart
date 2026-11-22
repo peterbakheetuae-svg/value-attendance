@@ -88,6 +88,8 @@ class Session extends ChangeNotifier {
     String? device;
     try { device = await DeviceId.get(); } catch (_) {}
     final label = await DeviceId.labelFull();
+    // a new sign-in: until the server says who this is, nothing remembered for anyone else is used or kept
+    api.owner = null;
     final r = await api.post('/auth/login', {'identifier': identifier, 'password': password,
       if (device != null) 'deviceId': device, 'deviceLabel': label});
     api.token = r['token'] as String;
@@ -103,6 +105,7 @@ class Session extends ChangeNotifier {
 
   void _apply(Map<String, dynamic> r) {
     me = r['employee'] as Map<String, dynamic>;
+    api.owner = me?['id']?.toString(); // offline copies and queued actions are filed under this person
     company = r['company'] as Map<String, dynamic>?;
     permissions = ((r['permissions'] as List?) ?? const []).map((e) => e.toString()).toSet();
     mustChangePassword = me?['must_change_password'] == true;
@@ -119,13 +122,17 @@ class Session extends ChangeNotifier {
     // send anything recorded offline first, but never let a slow network keep the user signed in
     try { await api.flushQueue().timeout(const Duration(seconds: 6)); } catch (_) {}
     try { await api.post('/auth/logout').timeout(const Duration(seconds: 4)); } catch (_) {}
-    await ApiClient.clearOffline();
+    await api.clearOfflineOnSignOut();
     await _clear();
   }
 
+  /// The session ended — signed out, expired or revoked (a 401). Nothing this person read stays on the phone for
+  /// whoever signs in next; their queued actions stay tagged with them and are sent only when they sign in again.
   Future<void> _clear() async {
     await ShiftTracker.instance.stop();
     api.token = null;
+    api.owner = null;
+    api.clearCache();
     me = null;
     permissions = {};
     try {
@@ -133,6 +140,7 @@ class Session extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       await p.remove('me_cache');
     } catch (_) {}
+    await ApiClient.clearOfflineReads();
     notifyListeners();
   }
 }
