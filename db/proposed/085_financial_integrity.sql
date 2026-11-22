@@ -8,10 +8,14 @@
 --  • payouts_guard: a payout's money and identity never change (who, kind, amount, month, note, what it settles, who paid,
 --    created_at); its status only moves forward and stamps received_at / cancelled_at / the dispute exactly once; a received
 --    or cancelled payout is final in every column; a received payout is never deleted.
---  • company_owner_shares: نسبة الملكية with the month it applies from. Today's shares are copied in as in force from the
---    operational baseline — the first month (Cairo time) with any recorded money movement (cash receipt, cash expense or
---    payout), or, on a database with none yet (e.g. after the pre-launch clean-up), the month this migration runs. No
---    earlier history is invented; a later change applies from its own month on.
+--  • company_owner_shares: نسبة الملكية with the month it applies from. The month from which TODAY's shares are in force is
+--    a business fact only the owner can state — no record in the database proves it (the first receipt or payout says when
+--    money was first recorded, not when an ownership share began). 085 therefore never guesses it: the person applying
+--    085 states it, in the same session, as the first day of a month (not in the future):
+--        psql -1 -v ON_ERROR_STOP=1 -c "SET valunivo.owner_share_baseline = '2026-12-01'" -f 085_financial_integrity.sql
+--    Without it 085 refuses to install (nothing is changed) whenever there are shares to copy. The stated month is kept
+--    in the audit log. Months before it carry no share (nothing earlier is claimed); a later change applies from its own
+--    month on. With no owners yet — or on a re-run, the history already there — nothing is copied and nothing is asked.
 
 -- precondition: refuse (and name them) if two live payouts already settle the same request — nothing is changed then
 DO $$
@@ -91,18 +95,48 @@ CREATE TABLE IF NOT EXISTS company_owner_shares (
 );
 CREATE INDEX IF NOT EXISTS company_owner_shares_emp ON company_owner_shares (employee_id, effective_from);
 
--- today's shares, in force from the operational baseline (see the header): every month with recorded money keeps
--- exactly today's figure; nothing before the first recorded month is claimed. A re-run adds nothing (the history exists).
-INSERT INTO company_owner_shares (employee_id, pct, effective_from, created_by, created_at)
-SELECT o.employee_id, o.pct, b.m, o.updated_by, o.updated_at
-  FROM company_owners o,
-       (SELECT COALESCE(LEAST(
-          (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_receipts),
-          (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_expenses),
-          (SELECT min(period) FROM payouts)
-        ), date_trunc('month', now() AT TIME ZONE 'Africa/Cairo')::date) AS m) b
- WHERE NOT EXISTS (SELECT 1 FROM company_owner_shares s WHERE s.employee_id = o.employee_id)
-ON CONFLICT (employee_id, effective_from) DO NOTHING;
+-- today's shares, in force from the month the owner states (see the header) — never a guessed or invented date
+DO $$
+DECLARE
+  v text := nullif(trim(current_setting('valunivo.owner_share_baseline', true)), '');
+  d date;
+  first_rec date;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM company_owners o
+                  WHERE NOT EXISTS (SELECT 1 FROM company_owner_shares s WHERE s.employee_id = o.employee_id)) THEN
+    RETURN; -- no owner, or every owner already has a history (a re-run): nothing to copy, nothing to ask
+  END IF;
+  IF v IS NULL THEN
+    RAISE EXCEPTION '085: state the month today''s ownership shares are in force from — SET valunivo.owner_share_baseline = ''YYYY-MM-01'' in the same session (nothing was changed)';
+  END IF;
+  BEGIN
+    d := v::date;
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION '085: valunivo.owner_share_baseline must be a date (YYYY-MM-01), got %', v;
+  END;
+  IF extract(day FROM d) <> 1 THEN
+    RAISE EXCEPTION '085: valunivo.owner_share_baseline must be the first day of a month, got %', d;
+  END IF;
+  IF d > date_trunc('month', now() AT TIME ZONE 'Africa/Cairo')::date THEN
+    RAISE EXCEPTION '085: valunivo.owner_share_baseline % is in the future', d;
+  END IF;
+  INSERT INTO company_owner_shares (employee_id, pct, effective_from, created_by, created_at)
+  SELECT o.employee_id, o.pct, d, o.updated_by, o.updated_at FROM company_owners o
+   WHERE NOT EXISTS (SELECT 1 FROM company_owner_shares s WHERE s.employee_id = o.employee_id)
+  ON CONFLICT (employee_id, effective_from) DO NOTHING;
+  INSERT INTO audit_log (actor_id, action, entity, entity_id, before, after)
+  VALUES (NULL, 'owners.share_baseline', 'company_owner_shares', NULL, NULL,
+          jsonb_build_object('effective_from', d, 'source', 'migration_085',
+                             'shares', (SELECT jsonb_object_agg(employee_id, pct) FROM company_owners)));
+  -- for the person applying it: money recorded before the stated month gets no owner share (stated, not changed)
+  first_rec := LEAST(
+    (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_receipts),
+    (SELECT min(date_trunc('month', occurred_at AT TIME ZONE 'Africa/Cairo'))::date FROM cash_expenses),
+    (SELECT min(period) FROM payouts));
+  IF first_rec IS NOT NULL AND first_rec < d THEN
+    RAISE WARNING '085: money is recorded from % — the months before % carry no owner share', first_rec, d;
+  END IF;
+END $$;
 
 -- validation (fails the transaction if the copy is incomplete)
 DO $$ BEGIN
