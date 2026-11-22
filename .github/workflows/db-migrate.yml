@@ -1,0 +1,29 @@
+name: Database migrations (manual, approved)
+
+# Schema migrations run ONLY here, by hand, with the owner credential — never at Vercel build time with the runtime
+# role (which has no CREATE). The secret MIGRATION_DATABASE_URL lives in the GitHub environment "production-db", which
+# must have required reviewers, so every run waits for an explicit approval. Only db/migrations (never db/proposed).
+on:
+  workflow_dispatch:
+    inputs:
+      expect_database: { description: 'database name the URL must point at (safety check)', required: true, default: 'neondb' }
+permissions: { contents: read }
+concurrency: { group: db-migrate, cancel-in-progress: false }
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-db
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Apply pending migrations (db/migrations only)
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          EXPECT_DATABASE: ${{ inputs.expect_database }}
+        run: |
+          [ -n "$MIGRATION_DATABASE_URL" ] || { echo "::error::MIGRATION_DATABASE_URL missing in environment production-db"; exit 1; }
+          npm run -s migrate

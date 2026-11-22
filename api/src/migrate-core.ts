@@ -7,7 +7,10 @@ export const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..'
 
 /** Applies pending migrations in order, each inside its own transaction. Returns names applied. */
 export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
-  await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
+  // created only when missing: an up-to-date database needs no CREATE privilege, so the runtime role can run this check
+  // (pending migrations still need the owner / migration role — see MIGRATION_DATABASE_URL)
+  if (!(await db.query(`SELECT to_regclass('public.schema_migrations') IS NOT NULL AS ok`)).rows[0].ok)
+    await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
   const done = new Set((await db.query(`SELECT name FROM schema_migrations`)).rows.map((r) => r.name));
   const files = readdirSync(dir).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
   const applied: string[] = [];

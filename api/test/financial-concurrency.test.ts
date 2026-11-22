@@ -113,3 +113,20 @@ test('sale registration and installment collection fired in parallel → one sal
   assert.equal(await count(`SELECT count(*) AS n FROM cash_receipts WHERE client_ref = $1`, [ref]), 1);
   assert.equal(await count(`SELECT count(*) AS n FROM cash_receipts WHERE sale_id = $1`, [sale.sale.id]), 1, 'money recorded once');
 });
+
+test('payroll sheet: creation, approval and paying a line fired in parallel → one sheet, one approval, the line paid once', async () => {
+  await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 8000, $2) ON CONFLICT DO NOTHING`, [c.ids.solo, c.ids.owner]);
+  await h.db.query(`UPDATE employees SET attendance_exempt = true WHERE id = $1`, [c.ids.solo]);
+  const bs = await par(() => h.call(c.t.hr, 'POST', '/payroll-batches', { month: '2026-02' }));
+  assert.equal(bs.filter((r) => r.status === 201).length, 1, 'create ' + statuses(bs));
+  const b = bs.find((r) => r.status === 201)!.body;
+  assert.equal(await count(`SELECT count(*) AS n FROM payroll_batches WHERE period = '2026-02-01' AND status <> 'cancelled'`), 1);
+  await h.call(c.t.hr, 'POST', `/payroll-batches/${b.batch.id}/submit`, {});
+  const ap = await par(() => h.call(tGm, 'POST', `/payroll-batches/${b.batch.id}/decision`, { decision: 'approve' }));
+  assert.equal(ap.filter((r) => r.status === 200).length, 1, 'approve ' + statuses(ap));
+  const line = b.lines.find((l: any) => l.employeeId === c.ids.solo) ?? b.lines.find((l: any) => Number(l.net ?? l.remaining ?? 0) > 0);
+  assert.ok(line, 'a payable line');
+  const ps = await par(() => h.call(c.t.hr, 'POST', `/payroll-batches/${b.batch.id}/lines/${line.id}/pay`, {}));
+  assert.equal(ps.filter((r) => r.status === 200).length, 1, 'pay ' + statuses(ps));
+  assert.equal(await count(`SELECT count(*) AS n FROM payouts WHERE batch_line_id = $1 AND status <> 'cancelled'`, [line.id]), 1, 'one payout for the line');
+});

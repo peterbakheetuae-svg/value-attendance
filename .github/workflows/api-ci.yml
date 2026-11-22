@@ -23,3 +23,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
         env: { TEST_PG_URL: 'postgres://postgres:ci@localhost:5432/postgres' }
+      # the same suite with the API connected as a least-privilege runtime role (no CREATE / TRUNCATE, DELETE on the
+      # runtime tables only, audit_log append-only) — proves the production role grants are sufficient
+      - name: npm test (least-privilege runtime role)
+        # the TRUNCATE-based data reset is expected to be refused under this role (covered by least-privilege.test.ts)
+        run: node --import tsx --test --test-concurrency=4 --test-skip-pattern="owner only; dry run changes nothing" test/*.test.ts
+        env: { TEST_PG_URL: 'postgres://postgres:ci@localhost:5432/postgres', TEST_APP_ROLE: '1' }
