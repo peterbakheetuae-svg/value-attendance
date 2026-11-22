@@ -5,7 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { createHash } from 'node:crypto';
 import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../auth/context.ts';
-import { canHrOperate, canOffice, parseReceipt, priorByClientRef, sameAmount, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+import { canHrOperate, canOffice, parseReceipt, priorByClientRef, sameAmount, recordReceipt, RECEIPT_SELECT, receiptListSelect, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
 import { holdersOf, notify } from './notify.ts';
 
@@ -434,7 +434,7 @@ export const salesModule: Module = (r, { db, clock }) => {
        WHERE i.sale_id = $1 GROUP BY i.id ORDER BY i.seq`, [id]);
     s.down_paid = Number(lines.rows.find((x) => x.seq === 0)?.paid ?? 0);
     const t = today();
-    const receipts = await q.query(`${RECEIPT_SELECT} WHERE r.sale_id = $1 ORDER BY r.occurred_at`, [id]);
+    const receipts = await q.query(`${await receiptListSelect(q)} WHERE r.sale_id = $1 ORDER BY r.occurred_at`, [id]);
     const refunds = await q.query(`SELECT id, ref_no, amount_egp, cashbox, occurred_at, reason, status FROM cash_expenses WHERE sale_id = $1 ORDER BY occurred_at`, [id]);
     return {
       currency: 'EGP',

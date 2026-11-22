@@ -1,0 +1,11 @@
+R3 — list queries without the photo column. Synthetic va_perf (local scratch Postgres 16), 500 listed rows each with a
+200 KB synthetic attachment; 5 runs per route, in-process handler (no network). Script: R3_attachment_lists.mts.txt
+before = worktree at 2aa2e26, after = this branch; run back-to-back on the same machine.
+
+before /cash/receipts rows=500 median=473.7ms min=452.9ms maxRSS+=144MB payload=310KB sha256=38873b26198d8d08
+before /cash/expenses rows=500 median=483.6ms min=419.1ms maxRSS+=4MB   payload=280KB sha256=5b04e9693de34cbe
+after  /cash/receipts rows=500 median=18.0ms  min=14.5ms  maxRSS+=4MB   payload=310KB sha256=38873b26198d8d08
+after  /cash/expenses rows=500 median=13.0ms  min=11.4ms  maxRSS+=4MB   payload=280KB sha256=5b04e9693de34cbe
+cmp of the full JSON bodies: IDENTICAL (byte for byte)
+(the expenses "before" RSS is low because the process heap had already grown on the receipts run)
+API test: test/remediation-perf.test.ts — list item deep-equals the full-select record; photo route unchanged.
