@@ -78,6 +78,16 @@ The rollback files are for a failed install on a test copy, **not** an undo butt
 
 Back up (Neon branch) before any rollback; never run one against production without the owner's explicit decision.
 
+## clientRef retries are answered only to their sender (release review, 2026-11-22)
+
+Before: a form retry (same `clientRef`) returned the existing receipt / expense to **whoever** presented the reference —
+`POST /cash/receipts` answered with the full receipt (payer, phone, amount, number) without checking the caller's
+cashbox scope; expenses, owner draws, transfers, sale and exclusive-unit collections had the same lookup.
+Exploitability was low (the reference is a random UUIDv4 the API never returns), but the authorization check was missing.
+Now every `client_ref` lookup (`priorByClientRef` in `cash.ts`, `sales.ts`, `exclusive.ts`) matches the original
+`recorded_by`: the sender's retry is unchanged; anybody else gets `409 client_ref_reused` and nothing of the row.
+Regression tests: `api/test/client-ref-scope.test.ts` (both fail on the old code, pass on the new).
+
 ## Known limitations (reported, not changed — business decisions)
 
 * F5: a month with nothing to pay in cash recognises its recovery on the month's last day; the cashbox share of a recovery
@@ -85,8 +95,7 @@ Back up (Neon branch) before any rollback; never run one against production with
 * Payroll is recomputed live from current data (rules, attendance, deductions); only batch lines keep a frozen snapshot.
 * An advance / work-expense payout without a linked request is still accepted, and such an unlinked advance is never
   deducted from payroll.
-* `recordReceipt` in `cash.ts` returns an existing receipt by `client_ref` without checking the caller's scope
-  (pre-existing; low risk — client refs are random per device).
+
 * `/employees?q=` is a sequential scan + top-N sort (2.5 ms for 5,000 employees, leading-wildcard ILIKE cannot use a
   btree); no index added.
 * Nothing was verified on Neon: this round explicitly does not authorise access.

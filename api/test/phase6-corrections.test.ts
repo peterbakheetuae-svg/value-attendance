@@ -37,8 +37,8 @@ describe('payroll settlement and advances', () => {
     void teamless;
     return { id, token: await h.login(code, PW) };
   }
-  async function approved(emp: { id: string; token: string }, unit: string, month: string) {
-    h.now.value = new Date(`${month}-10T08:00:00Z`);
+  async function approved(emp: { id: string; token: string }, unit: string, month: string, day = '10') {
+    h.now.value = new Date(`${month}-${day}T08:00:00Z`);
     const p = (await h.db.query(`SELECT id FROM commission_projects WHERE name = 'P6'`)).rows[0]?.id
       ?? (await h.call(tGm, 'POST', '/commissions/projects', { name: 'P6', totalPct: 3, salesPct: 0.5, managerPct: 0.1, companyPct: 2.4 })).body.project.id;
     const r = await h.call(emp.token, 'POST', '/commissions/requests', { projectId: p, unitNo: unit, pricePerM2: 20000, areaM2: 100 });
@@ -52,7 +52,7 @@ describe('payroll settlement and advances', () => {
     const x = (await h.db.query(`SELECT id FROM payroll_batches WHERE period = $1 AND status <> 'cancelled'`, [period])).rows[0];
     if (x) return x.id as string;
     return (await h.db.query(`INSERT INTO payroll_batches (period, status, prepared_by, submitted_at, decided_by, decided_at)
-      VALUES ($1, 'approved', $2, now(), $3, now()) RETURNING id`, [period, c.ids.hr, c.ids.owner])).rows[0].id as string;
+      VALUES ($1, 'approved', $2, $4, $3, $4) RETURNING id`, [period, c.ids.hr, c.ids.owner, h.now.value])).rows[0].id as string; // frozen on the app's clock
   }
   /** an OLD-rule sheet line (whole net incl. commissions / work expenses), paid `paid` (default: in full) */
   async function legacyLine(empId: string, period: string, paid?: number, status = 'received') {
@@ -137,8 +137,7 @@ describe('payroll settlement and advances', () => {
     const jan = await approved(e, 'M-1', '2026-02');
     // the old sheet was frozen and its line handed over (not yet confirmed, so the month is still open for approvals)
     await legacyLine(e.id, '2026-02-01', undefined, 'pending');
-    await new Promise((r) => setTimeout(r, 20));
-    const late = await approved(e, 'M-2', '2026-02'); // approved AFTER the sheet was frozen
+    const late = await approved(e, 'M-2', '2026-02', '20'); // approved AFTER the sheet was frozen (Feb 10)
     const mar = await approved(e, 'M-3', '2026-03');
     assert.equal((await entOf(jan.id)).payment, 'paid_in_payroll');
     assert.equal((await entOf(late.id)).payment, 'unpaid', 'not in the frozen sheet → not covered by it');

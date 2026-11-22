@@ -528,10 +528,21 @@ export function parseReceipt(b: Record<string, unknown>, a: Actor, now: Date): R
   return { box, recipientId, kind, amount, payerName, payerPhone, purpose, method, externalNo, notes, ref, att, occurred, saleId, installmentId, projectId };
 }
 
+/**
+ * The retry of a form (same `clientRef`) gives back what the first send recorded — but only to the person who sent it.
+ * Anybody else presenting that reference gets a plain 409 and nothing of the original row (no amount, payer, phone).
+ */
+export async function priorByClientRef(q: Q, table: 'cash_receipts' | 'cash_expenses', ref: string, actorId: string): Promise<{ id: string } | null> {
+  const dup = await one(q, `SELECT id, recorded_by FROM ${table} WHERE client_ref = $1`, [ref]);
+  if (!dup) return null;
+  if (dup.recorded_by !== actorId) throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+  return { id: dup.id };
+}
+
 /** Writes one numbered receipt (inside the caller's transaction); the same form sent twice gives the same receipt. */
 export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ id: string; duplicate: boolean }> {
   if (x.ref) {
-    const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [x.ref]);
+    const dup = await priorByClientRef(q, 'cash_receipts', x.ref, a.id);
     if (dup) return { id: dup.id, duplicate: true };
   }
   const perm = x.box === 'hr' ? 'cash.hr_operate' : 'cash.office';
@@ -714,7 +725,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ref = clientRef(b);
     const out = await db.tx(async (q) => {
       if (ref) {
-        const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
+        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id);
         if (dup) return dup;
       }
       const owners = await ownerIds(q);
@@ -779,7 +790,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const ref = clientRef(b);
     const row = await db.tx(async (q) => {
       if (ref) {
-        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [ref]);
+        const dup = await priorByClientRef(q, 'cash_receipts', ref, a.id);
         if (dup) return dup;
       }
       let recipient = a.id;
@@ -957,7 +968,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       const companyOtp = !!mkId && await companyOtpInstalled(q);
       if (companyOtp) await companyForPayment(q, mkId!);
       if (ref) {
-        const dup = await one(q, `SELECT id FROM cash_expenses WHERE client_ref = $1`, [ref]);
+        const dup = await priorByClientRef(q, 'cash_expenses', ref, a.id);
         if (dup) return { id: dup.id, duplicate: true };
       }
       // optional group / category (086): metadata only — it changes nothing of the amount, approval or payment below
