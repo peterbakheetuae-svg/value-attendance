@@ -63,3 +63,11 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
   copied from 2026-11-01 (50 / 50), stated month in the audit log; 59 employees and 5 receipts unchanged; `/readyz` ok.
 * OTP «stopped»: the account that tests it reached the limit (8 codes in 24 h, first at 09:05 Cairo) — 3 later requests
   were refused by design; it frees up from 09:05 tomorrow. Not a fault.
+
+## 2026-11-23 14:12Z — backend b73e503 + Android 1.0.161
+
+* `main` → `b73e503`: Vercel `dpl_8K9f4LN831bZPQfqbDXZLv3L6ryM` / `dpl_21JahbjND7LUpB6jbULYVgH4Nhtj`, no migration (79), web redeployed.
+  OTP limit answered plainly (429 «وصلت للحد المسموح به»), resale / rental «إضافة» for everyone on the pages, their
+  search / sort / view kept, expense groups follow the cashbox page's top filter.
+* Android 1.0.161 (sha256 `3bad025786614635e886387fca574c0cb46c81e4c109dc63c9c672f484886f91`, 89,038,512 bytes) published;
+  1.0.158 backed up in `~/va-backups/android-20261123T141242Z` (rollback input).
