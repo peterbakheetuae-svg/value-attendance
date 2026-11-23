@@ -37,6 +37,15 @@ class JphRouter {
     'sales_manager': 'مدير مبيعات',
     'sales_employee': 'سيلز',
   };
+  /// the signed-in person's title as shown under his name: his position («مسؤول إداري») when he has one, else his role
+  /// («مدير مبيعات» / «سيلز» / …) — the same name everywhere, never another title's
+  static String myTitle([String? fallback]) {
+    final me = JphBridge.session.me ?? const {};
+    final pos = '${me['position_name_ar'] ?? ''}'.trim();
+    if (pos.isNotEmpty) return pos;
+    return roleAr['${me['role_key'] ?? ''}'] ?? fallback ?? '';
+  }
+
   static String roleKeyOf(String? label) {
     if (label == null || label == 'مستشار عقاري') return 'sales_employee';
     if (roleAr.containsKey(label)) return label;
@@ -414,7 +423,7 @@ class JphRouter {
           return _ok({'message': 'تم تعديل المواعيد ✅'});
         case 'cash_get':
           final cg = '${p['path'] ?? ''}';
-          if (!const ['/brokerage/', '/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo', '/leads', '/tasks', '/deals', '/integrations', '/permissions/', '/partner/', '/closing/'].any(cg.startsWith)) return _fail('bad path');
+          if (!const ['/brokerage/', '/cash/', '/sales', '/payroll-batches', '/advances', '/finance/', '/insights/', '/payroll/employee/', '/forms/', '/payouts', '/commissions/', '/custody', '/exclusive/', '/marketing-companies', '/company/logo', '/leads', '/tasks', '/deals', '/integrations', '/permissions/', '/partner/', '/closing/', '/dashboard/presence'].any(cg.startsWith)) return _fail('bad path');
           final cq = ((p['query'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v == null || '$v'.isEmpty ? null : '$v'));
           return _ok((await _api.get(cg, cq.cast<String, String?>())).cast<String, dynamic>());
         case 'cash_post':

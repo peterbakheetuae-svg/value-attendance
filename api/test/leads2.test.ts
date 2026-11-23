@@ -185,6 +185,11 @@ test('the sales board cards: delay list, latest, comments, activity, calls / Wha
   // «الأفضل» / «المهام اليومية»: not a salesman's; a sales manager sees his team only
   assert.ok(mine.best.length > 0 && mine.best.every((x: any) => x.actions === null && x.deals === null), 'the ranking, without its numbers');
   assert.equal(mine.activity.length, 0);
+  // «المستخدمون المتصلون»: the GM / the administrative officer / the sales manager only — never a salesman
+  assert.equal(mine.seesOnline, false); assert.deepEqual(mine.online, []); assert.equal(mine.onlineOf, 0);
+  assert.equal(d.seesOnline, true);
+  assert.equal((await h.call(c.t.sm1, 'GET', '/leads/dashboard')).body.seesOnline, true, 'the sales manager');
+  assert.equal((await h.call(c.t.owner, 'GET', '/leads/dashboard')).body.seesOnline, true, 'the GM');
   const sm = (await h.call(c.t.sm1, 'GET', '/leads/dashboard')).body;
   const team = (await h.db.query(`SELECT e.id FROM employees e JOIN teams t ON t.id = e.team_id WHERE t.manager_id = $1`, [c.ids.sm1])).rows.map((x) => x.id);
   assert.ok(sm.best.every((x: any) => team.includes(x.id) ? x.actions !== null : x.actions === null), JSON.stringify(sm.best));

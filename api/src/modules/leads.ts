@@ -819,8 +819,10 @@ export const leadsModule: Module = (r, { db, clock }) => {
            CROSS JOIN LATERAL (SELECT min(x.created_at) AS at FROM lead_actions x WHERE x.lead_id = l.id AND NOT x.auto AND x.created_at >= l.assigned_at) fx
           WHERE ${scope} AND ${dayCairo('l.assigned_at')} = d::date AND fx.at IS NOT NULL)::int AS min
         FROM generate_series(${today} - 6, ${today}, interval '1 day') d ORDER BY d`, params);
-    // المستخدمون المتصلون: people who work leads, active in the last 10 minutes
-    const online = await db.query(`
+    // المستخدمون المتصلون: people who work leads, active in the last 10 minutes — the GM, the administrative officer and
+    // the sales manager only (owner's decision 2026-11-23); a salesman (or a marketing partner) gets none of it
+    const seesOnline = !a.partner && (canAll(a) || canTeam(a));
+    const online = !seesOnline ? { rows: [] as any[] } : await db.query(`
       SELECT e.id, e.full_name, max(s.last_seen_at) AS seen
         FROM sessions s JOIN employees e ON e.id = s.employee_id
         JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
@@ -855,7 +857,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
       created7: created7.rows.map((x) => ({ day: ymd(x.day), n: x.n })),
       response7: response7.rows.map((x) => ({ day: ymd(x.day), min: x.min })),
       online: online.rows.map((x) => ({ id: x.id, name: x.full_name, seen: iso(x.seen), me: x.id === a.id })),
-      onlineOf: leadsPeople.n,
+      onlineOf: seesOnline ? leadsPeople.n : 0, seesOnline,
       todoStages: Object.fromEntries(todoStages.rows.map((x) => [x.stage, { due: x.due, done: x.done }])),
       todo: todo.rows.map((x) => ({ id: x.id, title: x.title, status: x.status, dueAt: iso(x.due_at), late: !!(x.due_at && new Date(x.due_at) < now),
         lead: x.lead_id ? { id: x.lead_id, name: x.lead_name } : null })),

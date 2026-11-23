@@ -201,7 +201,8 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                         cards.todo(),
                         // on the computer «المستخدمون المتصلون» sits beside «أحدث العملاء المحتملين»
                         cards.latest(),
-                        cards.online(),
+                        // «المستخدمون المتصلون»: the GM, the administrative officer and the sales manager only
+                        if (_d['seesOnline'] == true || (_d['seesOnline'] == null && manager)) cards.online(),
                         cards.lastComments(),
                       ]),
                     ];

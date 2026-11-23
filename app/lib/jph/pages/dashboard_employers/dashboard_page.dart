@@ -1834,7 +1834,7 @@ class _DashboardPageState extends State<DashboardPage>
                   ),
                 ),
                 Text(
-                  widget.role,
+                  JphRouter.myTitle(widget.role),
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? Colors.white60 : Ar.grey.shade600,
