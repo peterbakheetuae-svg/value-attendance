@@ -1,0 +1,134 @@
+// REPRODUCTION ONLY (isolated copy of the app, never committed). Uses the real ApiClient and Session.
+// Question: after user A's session ends WITHOUT a logout (expired / revoked → 401), can user B on the same device
+// see A's private data while offline, or have A's queued offline actions sent under B's identity?
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:jph_real_estate_hr/core/api.dart';
+import 'package:jph_real_estate_hr/core/session.dart';
+
+/// Fake server: two users, per-user private data, can be switched offline, can revoke A's token.
+class FakeServer {
+  bool offline = false;
+  final revoked = <String>{};
+  final writes = <String>[]; // "who|path|body"
+  String? _who(http.Request r) {
+    final t = (r.headers['Authorization'] ?? '').replaceFirst('Bearer ', '');
+    if (revoked.contains(t)) return null;
+    return {'tokA': 'A', 'tokB': 'B'}[t];
+  }
+  http.Response _json(Object b, [int s = 200]) => http.Response.bytes(utf8.encode(jsonEncode(b)), s, headers: {'content-type': 'application/json'});
+  late final client = MockClient((r) async {
+    if (offline) throw http.ClientException('SocketException: Network is unreachable');
+    if (r.url.path == '/auth/login') {
+      final b = jsonDecode(r.body) as Map;
+      return _json({'token': b['identifier'] == 'A' ? 'tokA' : 'tokB'});
+    }
+    final who = _who(r);
+    if (who == null) return _json({'error': {'code': 'unauthenticated', 'message': 'session expired'}}, 401);
+    if (r.method != 'GET') { writes.add('$who|${r.url.path}|${r.body}'); return _json({'ok': true}); }
+    switch (r.url.path) {
+      case '/me': return _json({'employee': {'id': who, 'full_name': 'user $who', 'role_key': who == 'A' ? 'accountant' : 'sales_employee'}, 'permissions': who == 'A' ? ['cash.read'] : []});
+      case '/cash/summary':
+        // only A (accountant) may see it; B is refused by the server
+        return who == 'A' ? _json({'balance': 123456.78, 'owner': 'A-PRIVATE'}) : _json({'error': {'code': 'forbidden', 'message': 'no'}}, 403);
+      case '/payouts': return _json({'payouts': [{'employee': who, 'amount': who == 'A' ? 9999 : 1}]});
+    }
+    return _json({});
+  });
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux; // plain token storage, no background service
+    SharedPreferences.setMockInitialValues({});
+  });
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  Future<(FakeServer, Session)> start() async {
+    final s = FakeServer();
+    final session = Session(ApiClient(baseUrl: 'http://x', client: s.client));
+    return (s, session);
+  }
+
+  test('EXPIRED/REVOKED session, then user B offline: B is shown A\'s private cached data', () async {
+    final (srv, session) = await start();
+    await session.login('A', 'pw');
+    final a = await session.api.get('/cash/summary');
+    expect(a['owner'], 'A-PRIVATE');
+    await session.api.get('/payouts');
+
+    srv.revoked.add('tokA'); // admin revokes A / session expires
+    await expectLater(session.api.get('/me'), throwsA(isA<ApiException>())); // 401 → Session._clear()
+    await pumpEventQueue(); // _clear() runs asynchronously after the 401
+    expect(session.api.token, isNull, reason: 'A was signed out by the 401');
+
+    await session.login('B', 'pw'); // B signs in on the same device
+    srv.offline = true;               // ...and then loses the connection
+    final leaked = await session.api.get('/cash/summary').then((r) => r, onError: (e) => {'error': '$e'});
+    final leakedPayouts = await session.api.get('/payouts').then((r) => r, onError: (e) => {'error': '$e'});
+    // ignore: avoid_print
+    print('B offline /cash/summary → $leaked');
+    // ignore: avoid_print
+    print('B offline /payouts → $leakedPayouts');
+    expect(leaked['owner'], 'A-PRIVATE', reason: 'REPRODUCED if this passes: B sees A\'s cash data (B has no permission)');
+  });
+
+  test('EXPIRED session: A\'s queued offline actions are later sent with B\'s token', () async {
+    final (srv, session) = await start();
+    await session.login('A', 'pw');
+    srv.offline = true;
+    final q = await session.api.postOrQueue('/attendance/check-out', {'lat': 30.0, 'lng': 31.0}, label: 'check-out');
+    expect(q['queued'], true);
+    srv.offline = false;
+    srv.revoked.add('tokA');
+    await expectLater(session.api.get('/me'), throwsA(isA<ApiException>())); // 401 → _clear (queue kept)
+    await pumpEventQueue();
+    await session.login('B', 'pw');
+    await session.api.flushQueue();
+    // ignore: avoid_print
+    print('server writes → ${srv.writes}');
+    expect(srv.writes.any((w) => w.startsWith('B|/attendance/check-out')), isTrue,
+        reason: 'REPRODUCED if this passes: A\'s check-out is recorded as B\'s');
+  });
+
+  test('CONTROL: normal logout clears the offline copy (no leak)', () async {
+    final (srv, session) = await start();
+    await session.login('A', 'pw');
+    await session.api.get('/cash/summary');
+    await session.logout();
+    await session.login('B', 'pw');
+    srv.offline = true;
+    await expectLater(session.api.get('/cash/summary'), throwsA(isA<ApiException>()));
+  });
+
+  test('CONTROL: in-memory cache is keyed by token (no cross-user hit online)', () async {
+    final (srv, session) = await start();
+    await session.login('A', 'pw');
+    await session.api.get('/payouts');
+    srv.revoked.add('tokA');
+    await expectLater(session.api.get('/me'), throwsA(isA<ApiException>()));
+    await pumpEventQueue();
+    await session.login('B', 'pw');
+    final r = await session.api.get('/payouts');
+    expect((r['payouts'] as List).first['employee'], 'B');
+  });
+
+  test('BALANCE FRESHNESS: another user changes the cashbox; the cashier re-opens the screen and sees the old balance', () async {
+    var balance = 1000.0;
+    final api = ApiClient(baseUrl: 'http://x', client: MockClient((r) async =>
+        http.Response(jsonEncode({'balance': balance}), 200, headers: {'content-type': 'application/json'})))..token = 'tokA';
+    final first = await api.get('/cash/summary');
+    balance = 500.0; // an expense recorded by someone else
+    final reopened = await api.get('/cash/summary');
+    // ignore: avoid_print
+    print('first ${first['balance']} → server now 500 → screen shows ${reopened['balance']}');
+    expect(reopened['balance'], 1000.0, reason: 'REPRODUCED if this passes: stale balance served from the 5-minute cache');
+    final live = await api.get('/attendance/today');
+    expect(live['balance'], 500.0, reason: 'live paths bypass the cache');
+  });
+}
