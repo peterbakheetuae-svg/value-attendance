@@ -6,7 +6,7 @@ import nodemailer from 'nodemailer';
 import { harness, cast, type Harness } from './helpers.ts';
 import {
   sendMail, mailEnabled, mailTransport, smtpConfig, smtpTransportOptions, safeMailError, __setSmtpFactoryForTests,
-  otpMail, lastMailError,
+  otpMail, passwordResetMail, actionCodeMail, emailChangeMail, lastMailError,
 } from '../src/lib/mail.ts';
 import * as mail from '../src/lib/mail.ts';
 
@@ -229,4 +229,22 @@ test('HR password reset email goes through the same SMTP transport', async () =>
   assert.ok([200, 201].includes(r.status), JSON.stringify(r.body));
   assert.equal(convs.length, 1);
   assert.deepEqual(convs[0].rcpt, ['RCPT TO:<e1@value.test>']);
+});
+
+test('the sender people see is exactly «VALUNIVO» on all four emails (forgot password, payout code, HR reset, marketing company code)', async () => {
+  gmailEnv();
+  const four = {
+    'forgot-password OTP': otpMail({ name: 'أحمد', code: '4821', company: 'فاليو' }),
+    'payout confirmation OTP': actionCodeMail({ name: 'أحمد', code: '7310', company: 'فاليو', what: 'استلام صرف' }),
+    'HR password reset': passwordResetMail({ name: 'أحمد', code: 'E1', password: 'Temp-1234', company: 'فاليو', isPin: false }),
+    'marketing-company email code': emailChangeMail({ name: 'شركة', code: '5512', company: 'فاليو' }),
+  };
+  for (const [flow, m] of Object.entries(four)) {
+    convs = [];
+    assert.equal(await sendMail({ to: 'someone@value.test', toName: 'أحمد', ...m }), true, flow);
+    assert.equal(convs.length, 1, flow);
+    const from = convs[0].data!.split('\n').find((l) => /^From: /.test(l));
+    assert.equal(from, `From: VALUNIVO <${USER}>`, `${flow}: visible sender`);
+    assert.match(convs[0].from!, new RegExp(`^MAIL FROM:<${USER.replace(/\./g, '\\.')}>`), `${flow}: the Gmail account is still the sender address`);
+  }
 });

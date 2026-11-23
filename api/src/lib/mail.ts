@@ -66,7 +66,8 @@ export async function sendMail(m: { to: string; toName?: string; subject: string
   if (smtp) {
     try {
       const r = await makeSmtp(smtp)({
-        from: { name: process.env.MAIL_FROM_NAME || 'Value Attendance', address: smtp.from },
+        // the name people see in their inbox (the address stays the Gmail account itself)
+        from: { name: process.env.MAIL_FROM_NAME || 'VALUNIVO', address: smtp.from },
         to: m.toName ? { name: m.toName, address: m.to } : m.to,
         subject: m.subject, html: m.html, text: m.text,
       });
