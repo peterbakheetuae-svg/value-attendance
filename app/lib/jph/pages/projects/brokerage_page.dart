@@ -42,7 +42,11 @@ class BrokeragePage extends StatefulWidget {
   final String kind; // resale | rental
   /// inside «المشاريع»'s bar (المشاريع / إعادة بيع / إيجار): no own background / header
   final bool embedded;
-  const BrokeragePage({super.key, required this.kind, this.embedded = false});
+  /// inside «المشاريع»: its search box, sort (الأحدث / العمولة / الاسم) and view (▦ / ☰) apply to the deals too
+  final String query;
+  final int sort;
+  final bool grid;
+  const BrokeragePage({super.key, required this.kind, this.embedded = false, this.query = '', this.sort = 0, this.grid = false});
   @override
   State<BrokeragePage> createState() => _BrokeragePageState();
 }
@@ -88,14 +92,33 @@ class _BrokeragePageState extends State<BrokeragePage> {
                         ? _empty(isDark, '$_title هتشتغل بعد تحديث قاعدة البيانات (087) — مستنية موافقة المالك')
                         : RefreshIndicator(
                             onRefresh: _load,
-                            child: _deals.isEmpty
-                                ? ListView(children: [_empty(isDark, 'مفيش صفقات $_title لسه')])
-                                : ListView.separated(
-                                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
-                                    itemCount: _deals.length,
-                                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                                    itemBuilder: (_, i) => _card(isDark, _deals[i]),
-                                  ),
+                            child: _shown.isEmpty
+                                ? ListView(children: [_empty(isDark, _deals.isEmpty ? 'مفيش صفقات $_title لسه' : 'مفيش صفقة بالبحث ده')])
+                                : widget.grid
+                                    ? LayoutBuilder(builder: (context, c) {
+                                        final cols = math.max(1, (c.maxWidth / 330).floor());
+                                        final shown = _shown;
+                                        return ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 90), children: [
+                                          for (var i = 0; i < shown.length; i += cols)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 10),
+                                              child: IntrinsicHeight(
+                                                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                                                  for (var j = 0; j < cols; j++) ...[
+                                                    if (j > 0) const SizedBox(width: 10),
+                                                    Expanded(child: i + j < shown.length ? _card(isDark, shown[i + j]) : const SizedBox.shrink()),
+                                                  ],
+                                                ]),
+                                              ),
+                                            ),
+                                        ]);
+                                      })
+                                    : ListView.separated(
+                                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
+                                        itemCount: _shown.length,
+                                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                        itemBuilder: (_, i) => _card(isDark, _shown[i]),
+                                      ),
                           );
     if (widget.embedded) return Scaffold(backgroundColor: Colors.transparent, floatingActionButton: fab, body: content);
     return AppBackground(
@@ -119,6 +142,16 @@ class _BrokeragePageState extends State<BrokeragePage> {
         padding: const EdgeInsets.all(32),
         child: Center(child: Text(t, textAlign: TextAlign.center, style: TextStyle(color: Glass.muted(isDark), fontSize: 14))),
       );
+
+  /// the deals as the page's search / sort ask: الأحدث (as the server sends them) · العمولة · الاسم
+  List<Map<String, dynamic>> get _shown {
+    final q = widget.query.trim();
+    final list = _deals.where((d) => q.isEmpty || [d['property'], _map(d['owner'])['name'], _map(d['client'])['name']]
+        .any((v) => '${v ?? ''}'.contains(q))).toList();
+    if (widget.sort == 1) list.sort((a, b) => _n(_map(b['commission'])['total']).compareTo(_n(_map(a['commission'])['total'])));
+    if (widget.sort == 2) list.sort((a, b) => '${a['property']}'.compareTo('${b['property']}'));
+    return list;
+  }
 
   Widget _card(bool isDark, Map<String, dynamic> d) {
     final cm = _map(d['commission']);

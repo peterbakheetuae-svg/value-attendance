@@ -204,3 +204,9 @@ test('an outside beneficiary is settled once from the office cashbox, audited; n
   assert.equal((await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/shares/${share.id}/settle`, {})).status, 201);
   assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'brokerage.settle_external' AND entity_id = $1`, [d.id])).rows.length === 2);
 });
+
+test('«إضافة» for everyone on these pages (owner\'s choice 2026-11-23): a cashbox holder can add a deal, still never approve his own', async () => {
+  const st = await h.call(c.t.hr, 'GET', '/brokerage/status');
+  assert.equal(st.body.can.propose, true, 'HR (a cashbox holder) sees «إضافة»');
+  assert.equal((await h.call(c.t.owner, 'GET', '/brokerage/status')).body.can.propose, true);
+});

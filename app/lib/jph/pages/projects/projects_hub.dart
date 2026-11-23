@@ -260,20 +260,6 @@ class _ProjectsListState extends State<ProjectsList> {
               onTap: (i) => setState(() => _section = i),
             )
           : null;
-      if (showSections && _section != 0) {
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(pad, 6, pad, 8),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              title,
-              const SizedBox(height: 14),
-              if (tabBar != null) ...[Align(alignment: AlignmentDirectional.centerStart, child: tabBar), const SizedBox(height: 12)],
-              Align(alignment: AlignmentDirectional.centerStart, child: sectionBar!),
-            ]),
-          ),
-          Expanded(child: BrokeragePage(key: ValueKey('brokerage$_section'), kind: _section == 1 ? 'resale' : 'rental', embedded: true)),
-        ]);
-      }
       final search = Container(
         height: 44,
         decoration: Glass.tile(isDark, r: 99),
@@ -304,6 +290,48 @@ class _ProjectsListState extends State<ProjectsList> {
         selected: _grid ? 0 : 1,
         onTap: (i) => setState(() => _grid = i == 0),
       );
+
+      // إعادة بيع / إيجار: the same header (title, bars, search, sort, view) and the deals under it
+      if (showSections && _section != 0) {
+        final dealSort = GlassSegments(
+          isDark: isDark,
+          big: false,
+          items: const [('الأحدث', null), ('العمولة', null), ('الاسم', null)],
+          selected: _sort,
+          onTap: (i) => setState(() => _sort = i),
+        );
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad, 6, pad, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              title,
+              const SizedBox(height: 14),
+              if (wide)
+                Row(children: [
+                  Expanded(child: tabBar == null ? const SizedBox.shrink() : Align(alignment: AlignmentDirectional.centerStart, child: tabBar)),
+                  const SizedBox(width: 16),
+                  SizedBox(width: 300, child: search),
+                ])
+              else ...[
+                if (tabBar != null) ...[tabBar, const SizedBox(height: 12)],
+                search,
+              ],
+              const SizedBox(height: 12),
+              Align(alignment: AlignmentDirectional.centerStart, child: sectionBar!),
+              const SizedBox(height: 12),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                Flexible(child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: dealSort)),
+                const SizedBox(width: 12),
+                viewBar,
+              ]),
+            ]),
+          ),
+          Expanded(
+            child: BrokeragePage(key: ValueKey('brokerage$_section'), kind: _section == 1 ? 'resale' : 'rental', embedded: true,
+                query: _q.text, sort: _sort, grid: _grid),
+          ),
+        ]);
+      }
 
       return RefreshIndicator(
         onRefresh: _load,

@@ -112,7 +112,8 @@ class _CashPageState extends State<CashPage> {
                       'ledger' => CashLedgerView(isDark: isDark, can: _can),
                       'injections' => InjectionsTab(isDark: isDark, month: widget.month, allMonths: widget.allMonths, onChanged: _load),
                       'transfers' => _TransfersTab(isDark: isDark, can: _can, onChanged: _load),
-                      'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load),
+                      'expenses' => _ExpensesTab(isDark: isDark, can: _can, threshold: _summary['expenseApprovalThreshold'], onChanged: _load,
+                          month: widget.month, allMonths: widget.allMonths),
                       'receipts' => _ReceiptsTab(isDark: isDark, can: _can, onChanged: _load),
                       _ => _SummaryTab(isDark: isDark, summary: _summary, onChanged: _load, month: widget.month, allMonths: widget.allMonths,
                           onGo: (t) => setState(() => _tab = t)),
@@ -900,7 +901,10 @@ class _ExpensesTab extends StatefulWidget {
   final Map<String, dynamic> can;
   final Object? threshold;
   final Future<void> Function() onChanged;
-  const _ExpensesTab({required this.isDark, required this.can, required this.threshold, required this.onChanged});
+  /// the cashbox page's filter on top (the expense groups follow it)
+  final ValueListenable<DateTime>? month;
+  final ValueListenable<bool>? allMonths;
+  const _ExpensesTab({required this.isDark, required this.can, required this.threshold, required this.onChanged, this.month, this.allMonths});
 
   @override
   State<_ExpensesTab> createState() => _ExpensesTabState();
@@ -1000,7 +1004,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
           const SizedBox(height: 14),
         ],
         if (_canRecord && _view == 2 && _classes.installed)
-          ExpenseClassesView(isDark: isDark)
+          ExpenseClassesView(isDark: isDark, month: widget.month, allMonths: widget.allMonths)
         else if (_canRecord && _view == 1)
           _FixedExpenses(isDark: isDark, can: widget.can, onChanged: () async {
             await _load();

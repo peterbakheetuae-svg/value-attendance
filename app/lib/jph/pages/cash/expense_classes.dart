@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart' hide Text;
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -202,7 +203,11 @@ List<_Range> _presets() {
 
 class ExpenseClassesView extends StatefulWidget {
   final bool isDark;
-  const ExpenseClassesView({super.key, required this.isDark});
+  /// the cashbox page's own filter on top (a month, or «كل الشهور»): when given, this view follows it and shows no
+  /// period filter of its own
+  final ValueListenable<DateTime>? month;
+  final ValueListenable<bool>? allMonths;
+  const ExpenseClassesView({super.key, required this.isDark, this.month, this.allMonths});
   @override
   State<ExpenseClassesView> createState() => _ExpenseClassesViewState();
 }
@@ -218,6 +223,35 @@ class _ExpenseClassesViewState extends State<ExpenseClassesView> {
   @override
   void initState() {
     super.initState();
+    _followTop();
+    widget.month?.addListener(_onTop);
+    widget.allMonths?.addListener(_onTop);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    widget.month?.removeListener(_onTop);
+    widget.allMonths?.removeListener(_onTop);
+    super.dispose();
+  }
+
+  bool get _followsTop => widget.month != null;
+
+  /// the period = the cashbox page's filter: one month (its first day → its last), or every month
+  void _followTop() {
+    if (!_followsTop) return;
+    if (widget.allMonths?.value == true) {
+      _range = const _Range('كل الشهور', null, null);
+      return;
+    }
+    final m = widget.month!.value;
+    _range = _Range('${JphUi.monthsAr[m.month - 1]} ${m.year}', _d(DateTime(m.year, m.month, 1)), _d(DateTime(m.year, m.month + 1, 0)));
+  }
+
+  void _onTop() {
+    if (!mounted) return;
+    setState(_followTop);
     _load();
   }
 
@@ -340,8 +374,11 @@ class _ExpenseClassesViewState extends State<ExpenseClassesView> {
       JphUi.tabs(isDark, const [('المجموعات', Icons.folder_rounded), ('التصنيفات', Icons.sell_rounded), ('التقرير', Icons.bar_chart_rounded)], _tab,
           (i) => setState(() => _tab = i)),
       const SizedBox(height: 12),
-      JphUi.picker(isDark: isDark, icon: Icons.date_range_rounded, iconColor: Ar.info, label: 'الفترة', value: _range.label, onTap: _pickRange),
-      const SizedBox(height: 12),
+      // the period: the cashbox page's filter on top when there is one (no second filter here)
+      if (!_followsTop) ...[
+        JphUi.picker(isDark: isDark, icon: Icons.date_range_rounded, iconColor: Ar.info, label: 'الفترة', value: _range.label, onTap: _pickRange),
+        const SizedBox(height: 12),
+      ],
       if (_tab == 2)
         _ReportView(isDark: isDark, range: _range)
       else ...[

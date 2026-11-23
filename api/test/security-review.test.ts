@@ -79,7 +79,9 @@ test('password-reset codes: parallel requests can not make more than 3 codes; 10
   }) as typeof fetch;
   try {
     const all = await Promise.all(Array.from({ length: 12 }, () => h.call(null, 'POST', '/auth/forgot', { identifier: 'SOLO' })));
-    assert.ok(all.every((x) => x.status === 200), 'same reply for all');
+    // the owner's choice (2026-11-23): past the limit the reply says so (429 «وصلت للحد المسموح به»); still 3 codes at most
+    assert.equal(all.filter((x) => x.status === 200).length, 3, 'three codes made');
+    assert.ok(all.every((x) => x.status === 200 || (x.status === 429 && x.body.error.details.reason === 'otp_limit')), 'the rest: the limit');
     const made = (await h.db.query(`SELECT count(*)::int AS n FROM password_otps WHERE employee_id = $1`, [c.ids.solo])).rows[0].n;
     assert.equal(made, 3, `at most 3 codes even in parallel (made ${made})`);
     // 20 wrong codes in parallel on the live code: at most 5 are even tried
@@ -92,7 +94,9 @@ test('password-reset codes: parallel requests can not make more than 3 codes; 10
     await h.db.query(`UPDATE password_otps SET attempts = 5 WHERE employee_id = $1`, [c.ids.solo]); // 3 codes × 5 = 15 ≥ 10
     await h.db.query(`UPDATE password_otps SET created_at = now() - interval '20 minutes' WHERE employee_id = $1`, [c.ids.solo]);
     const before = sent.length;
-    assert.equal((await h.call(null, 'POST', '/auth/forgot', { identifier: 'SOLO' })).status, 200);
+    const shut = await h.call(null, 'POST', '/auth/forgot', { identifier: 'SOLO' });
+    assert.equal(shut.status, 429);
+    assert.equal(shut.body.error.details.why, 'wrong', 'told the wrong-code budget is used up');
     assert.equal(sent.length, before, 'no new code while the day budget is used up');
   } finally {
     globalThis.fetch = realFetch; delete process.env.BREVO_API_KEY; delete process.env.MAIL_FROM;

@@ -37,10 +37,12 @@ async function needInstalled(q: Q) {
     throw new AppError('conflict', 'الإعادة بيع والإيجار محتاجين تحديث قاعدة البيانات (087) — مستني موافقة المالك', { reason: 'brokerage_not_installed' });
   }
 }
-const canPropose = (a: Actor) => can(a, 'brokerage.propose', 'exclusive.reserve');
 const canApprove = (a: Actor) => can(a, 'brokerage.approve', 'commission.approve');
 const canViewAll = (a: Actor) => can(a, 'brokerage.view_all', 'commission.approve') || canOffice(a);
 const canCollect = (a: Actor) => canOffice(a) || canHrOperate(a);
+/** «إضافة» a deal: the owner's choice (2026-11-23) — everyone who works these pages adds deals (the sales people, the GM,
+ * the admin officer, the cashbox holders); nobody still approves a deal he proposed or takes a share of */
+const canPropose = (a: Actor) => can(a, 'brokerage.propose', 'exclusive.reserve') || canApprove(a) || canViewAll(a) || canCollect(a);
 
 /** the commission each side pays, from the proposed terms */
 export function commissionTerms(kind: 'resale' | 'rental', b: Record<string, unknown>) {

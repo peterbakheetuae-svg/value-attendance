@@ -45,7 +45,12 @@ test('forgot password: OTP by email → reset token → new password; wrong code
   assert.equal((await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' })).status, 200);
   const before = sent.length;
   const limited = await h.call(null, 'POST', '/auth/forgot', { identifier: 'E1' });
-  assert.equal(limited.status, 200, 'VA-10: rate limited, but the reply does not tell');
+  // the owner's choice (2026-11-23): the limit is said plainly, with when it frees up (no code is made)
+  assert.equal(limited.status, 429, JSON.stringify(limited.body));
+  assert.equal(limited.body.error.details.reason, 'otp_limit');
+  assert.equal(limited.body.error.details.why, 'recent');
+  assert.match(limited.body.error.message, /وصلت للحد المسموح به/);
+  assert.ok(limited.body.error.details.retryAt, 'when it frees up');
   assert.equal(sent.length, before, 'no 4th code is sent');
 });
 

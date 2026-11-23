@@ -248,14 +248,28 @@ export const authModule: Module = (r, { db }) => {
         const n = await one(q, `SELECT count(*) FILTER (WHERE created_at > now() - interval '15 minutes')::int AS recent,
                                        count(*)::int AS day, COALESCE(sum(attempts), 0)::int AS wrong
                                   FROM password_otps WHERE employee_id = $1 AND created_at > now() - interval '24 hours'`, [e.id]);
-        if (n.recent >= 3 || n.day >= OTP_CODES_PER_DAY || n.wrong >= OTP_WRONG_PER_DAY) return false;
+        if (n.recent >= 3 || n.day >= OTP_CODES_PER_DAY || n.wrong >= OTP_WRONG_PER_DAY) {
+          // when the next code may be asked for: the oldest code of the window that is full falls out of it
+          const w = n.recent >= 3 ? `15 minutes` : `24 hours`;
+          return { limited: true as const, why: n.recent >= 3 ? 'recent' : n.day >= OTP_CODES_PER_DAY ? 'day' : 'wrong',
+            retryAt: (await one(q, `SELECT min(created_at) + interval '${w}' AS t FROM password_otps
+                                     WHERE employee_id = $1 AND created_at > now() - interval '${w}'`, [e.id]))?.t as Date | null };
+        }
         await q.query(`UPDATE password_otps SET expires_at = now() WHERE employee_id = $1 AND verified_at IS NULL AND expires_at > now()`, [e.id]);
         await q.query(`INSERT INTO password_otps (employee_id, code_hash, expires_at) VALUES ($1,$2, now() + interval '10 minutes')`, [e.id, sha(`${e.id}:${code}`)]);
         return true;
       });
-      if (!made) {
-        await audit(db, e.id, 'auth.otp_rate_limited', 'employee', e.id);
-        return ok({ ok: true, message: GENERIC });
+      if (made !== true) {
+        await audit(db, e.id, 'auth.otp_rate_limited', 'employee', e.id, undefined, { why: made.why });
+        // the owner's choice (2026-11-23): say plainly that the limit is reached and when it frees up
+        const at = made.retryAt ? new Date(made.retryAt) : null;
+        const when = at ? at.toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit', weekday: 'long' }) : null;
+        const msg = made.why === 'recent'
+          ? `وصلت للحد المسموح به: 3 أكواد كل ربع ساعة — جرّب تاني${when ? ` بعد ${when}` : ' بعد ربع ساعة'}`
+          : made.why === 'day'
+            ? `وصلت للحد المسموح به: ${OTP_CODES_PER_DAY} أكواد في اليوم — جرّب تاني${when ? ` ${when}` : ' بكرة'}`
+            : `وصلت للحد المسموح به من المحاولات الغلط النهارده — جرّب تاني${when ? ` ${when}` : ' بكرة'} أو كلّم الموارد البشرية`;
+        throw new AppError('rate_limited', msg, { reason: 'otp_limit', why: made.why, retryAt: at ? at.toISOString() : null });
       }
       const st = await one(db, `SELECT company_name_ar FROM company_settings`);
       const sent = await sendMail({ to: e.email, toName: e.full_name, ...otpMail({ name: e.full_name, code, company: st.company_name_ar }) });
