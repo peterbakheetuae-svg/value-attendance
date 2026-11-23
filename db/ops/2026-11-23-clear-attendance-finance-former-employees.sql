@@ -81,6 +81,13 @@ BEGIN
   FOR t IN SELECT w.t FROM c_wipe w LOOP EXECUTE format('ALTER TABLE %I ENABLE TRIGGER USER', t); END LOOP;
 END $$;
 
+-- a listed property (088) whose sale was waiting on a deal that is gone is offered again (a sold one stays sold)
+DO $$ BEGIN
+  IF to_regclass('public.brokerage_listings') IS NOT NULL THEN
+    UPDATE brokerage_listings SET status = 'available', updated_at = now() WHERE status = 'pending';
+  END IF;
+END $$;
+
 -- 3) the removed employees: what is only theirs
 DO $$
 DECLARE t text; c text; n bigint;

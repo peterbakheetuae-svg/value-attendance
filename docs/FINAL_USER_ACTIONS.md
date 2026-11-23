@@ -104,3 +104,14 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 - Android 1.0.177 (sha256 ffa88206f72e9da03e043652d3f43911c04097d20d273162668d5caea6ef7f88) both paths verified; 1.0.173 backed up to
   `~/va-backups/android-20261123T212739Z`.
 - Windows 1.0.43 (VALUNIVO-Setup-1.0.43.exe sha256 a8c5b728d8cd4e06d6ae2809bd1747ccc46441cddd2cc9dfd0671718166732fc) verified live; 1.0.42 remains for rollback.
+
+## 2026-11-23 ~23:55 Cairo — clean-up run in production (owner's order «شغل اسكربت التنظيف»)
+- Script `db/ops/2026-11-23-clear-attendance-finance-former-employees.sql` (+ a guard: a listing pending on a deleted deal is offered again).
+- Dry run first on production (ended with a deliberate error → rolled back), then a Neon backup branch
+  `backup-before-cleanup-2026-11-23` (`br-withered-lab-bap5ke5h`, no compute), then the real run in one transaction.
+- Removed: 119 attendance rows; every money transaction (5 receipts, 3 expenses, 7 transfers, 1 bank move, 4 payouts,
+  2 advances, 3 commission requests, 4 entitlements, 1 unit sale + 1 installment, 4 ex payments, 8 ex installments,
+  1 commission transfer); 51 «تم التصفيه» / inactive employees → all 51 left as anonymous «موظف سابق» stubs (the audit log
+  points at them), with their sessions (51), leave balances (51), notifications (57), device (1).
+- Kept: 8 active employees, 25 leads, 5 projects, 2 units, 3 listings, 2 owner shares, 8 custody records, 2 fixed expenses,
+  the audit log (1023 + 1 entry recording this run). No trigger left disabled. Restore = Neon backup branch above.
