@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart' hide Text;
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -23,6 +24,9 @@ import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
 import '../../forms/unit_quote_pdf.dart';
 import 'unit_files.dart';
+import '../../../core/save_file.dart';
+import '../leads/leads_import.dart' show readXlsx, readCsv;
+import '../leads/leads_extra.dart' show writeXlsx;
 import '../projects/brokerage_page.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -713,6 +717,130 @@ Future<bool> _editInventory(BuildContext context, bool isDark, String projectId,
   }, saveLabel: 'حفظ');
 }
 
+
+// ------------------------------------------------------------------ وحدات المشروع من شيت إكسيل (كلهم مرة واحدة)
+/// the sheet's columns (Arabic or English) → the unit's fields — the same as «إضافة وحدة للمشروع»
+const _unitHeaders = <String, String>{
+  'رقم الوحدة': 'unitNo', 'الوحدة': 'unitNo', 'رقم': 'unitNo', 'كود الوحدة': 'unitNo', 'unit': 'unitNo', 'unit no': 'unitNo', 'unit number': 'unitNo', 'code': 'unitNo',
+  'النوع': 'unitType', 'نوع الوحدة': 'unitType', 'type': 'unitType', 'unit type': 'unitType',
+  'الدور': 'floor', 'floor': 'floor',
+  'المساحة الصافية': 'netAreaM2', 'الصافي': 'netAreaM2', 'صافي المساحة': 'netAreaM2', 'net area': 'netAreaM2', 'net': 'netAreaM2',
+  'المساحة': 'areaM2', 'المساحة الإجمالية': 'areaM2', 'المساحة الاجمالية': 'areaM2', 'المساحة بالتحميل': 'areaM2', 'area': 'areaM2', 'gross area': 'areaM2',
+  'سعر المتر': 'meterPrice', 'meter price': 'meterPrice', 'price per meter': 'meterPrice',
+  'السعر': 'unitPrice', 'سعر الوحدة': 'unitPrice', 'إجمالي السعر': 'unitPrice', 'اجمالي السعر': 'unitPrice', 'إجمالي سعر الوحدة': 'unitPrice', 'price': 'unitPrice', 'total price': 'unitPrice',
+  'النشاط': 'activity', 'activity': 'activity',
+  'ملاحظات': 'notes', 'notes': 'notes',
+};
+const _unitNumeric = {'netAreaM2', 'areaM2', 'meterPrice', 'unitPrice'};
+const _unitTemplate = ['رقم الوحدة', 'النوع', 'الدور', 'المساحة الصافية', 'المساحة', 'سعر المتر', 'السعر', 'النشاط', 'ملاحظات'];
+
+/// the units of a sheet: the first row is the headers; «رقم الوحدة» is a must; empty rows skipped
+List<Map<String, dynamic>> unitsFromTable(List<List<String>> t) {
+  if (t.isEmpty) return [];
+  final head = t.first.map((h) {
+    final k = h.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return _unitHeaders[k.toLowerCase()] ?? _unitHeaders[k] ?? '';
+  }).toList();
+  if (!head.contains('unitNo')) return [];
+  final out = <Map<String, dynamic>>[];
+  for (final row in t.skip(1)) {
+    if (row.every((c) => c.trim().isEmpty)) continue;
+    final m = <String, dynamic>{};
+    for (var i = 0; i < head.length && i < row.length; i++) {
+      final v = row[i].trim();
+      if (head[i].isEmpty || v.isEmpty) continue;
+      if (_unitNumeric.contains(head[i])) {
+        final n = num.tryParse(v.replaceAll(RegExp(r'[,\s٬]'), '').replaceAll('م2', '').replaceAll('م²', '').replaceAll('ج', ''));
+        m[head[i]] = n ?? v; // a word where a number is due: the server reports that row
+      } else {
+        m[head[i]] = v;
+      }
+    }
+    out.add(m);
+  }
+  return out;
+}
+
+/// pick the sheet (.xlsx / .csv) → its units, with the file name; null when cancelled or unreadable (said in a toast)
+Future<(String, List<Map<String, dynamic>>)?> _pickUnitsSheet(BuildContext context) async {
+  final f = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'csv', 'txt'], withData: true);
+  final x = f?.files.firstOrNull;
+  if (x?.bytes == null) return null;
+  try {
+    final table = x!.name.toLowerCase().endsWith('.xlsx') ? readXlsx(x.bytes!) : readCsv(x.bytes!);
+    final rows = unitsFromTable(table);
+    if (rows.isEmpty) {
+      if (context.mounted) JphUi.toast(context, {'success': false, 'message': 'مش لاقي عمود «رقم الوحدة» في أول صف، أو الشيت فاضي'});
+      return null;
+    }
+    if (rows.length > 2000) {
+      if (context.mounted) JphUi.toast(context, {'success': false, 'message': 'الشيت فيه ${rows.length} وحدة — أقصى 2000 في المرة'});
+      return null;
+    }
+    return (x.name, rows);
+  } catch (_) {
+    if (context.mounted) JphUi.toast(context, {'success': false, 'message': 'الملف ده مش مقروء — احفظه xlsx أو CSV وجرّب تاني'});
+    return null;
+  }
+}
+
+/// «نموذج الشيت»: an empty sheet with the columns, ready to fill
+Future<void> _downloadUnitsTemplate(BuildContext context) async {
+  await saveXlsx('units-template', writeXlsx('الوحدات', _unitTemplate, [
+    ['A-101', 'سكني', '1', 95, 110, 25000, '', 'شقة', 'مثال — امسح الصف ده'],
+  ]));
+  if (context.mounted) JphUi.toast(context, {'success': true, 'message': 'اتنزل نموذج الشيت ✅'});
+}
+
+/// send the units to the project; the result (added / skipped with why) in a dialog
+Future<bool> _importUnits(BuildContext context, String projectId, List<Map<String, dynamic>> rows) async {
+  final r = await _post('/exclusive/projects/$projectId/inventory/import', {'rows': rows}, 'اتضافت الوحدات ✅');
+  if (!context.mounted) return r['success'] == true;
+  if (r['success'] != true) {
+    JphUi.toast(context, r);
+    return false;
+  }
+  final failed = _l(r['failed']);
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => GlassAlertDialog(
+      title: const Text('نتيجة استيراد الوحدات'),
+      content: SingleChildScrollView(
+        child: Text('اتضافت ${r['created']} وحدة من ${rows.length}.'
+            '${failed.isEmpty ? '' : '\n\nماتضافش ${failed.length}:\n${failed.take(60).map((f) => 'صف ${_n(f['row']).toInt() + 1}${'${f['unitNo'] ?? ''}'.isEmpty ? '' : ' (${f['unitNo']})'}: ${f['error']}').join('\n')}'}'),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('تمام'))],
+    ),
+  );
+  return true;
+}
+
+/// the sheet picker in a form: «اختار الشيت» + «نموذج الشيت»
+Widget _unitsSheetPicker(BuildContext context, bool isDark, (String, List<Map<String, dynamic>>)? picked, ValueChanged<(String, List<Map<String, dynamic>>)?> on) =>
+    Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      JphUi.picker(
+        isDark: isDark,
+        icon: Icons.table_view_rounded,
+        iconColor: Ar.green,
+        label: 'وحدات المشروع من شيت إكسيل (اختياري)',
+        value: picked == null ? 'اختار الشيت (xlsx / csv)' : '${picked.$1} — ${picked.$2.length} وحدة',
+        onTap: () async {
+          final x = await _pickUnitsSheet(context);
+          if (x != null) on(x);
+        },
+      ),
+      Row(children: [
+        Expanded(
+          child: Text('أول صف: رقم الوحدة، النوع، الدور، المساحة الصافية، المساحة، سعر المتر، السعر، النشاط، ملاحظات',
+              style: TextStyle(fontSize: 11.5, color: JphUi.sub(isDark))),
+        ),
+        TextButton.icon(onPressed: () => _downloadUnitsTemplate(context), icon: const Icon(Icons.download_rounded, size: 18), label: const Text('نموذج الشيت')),
+      ]),
+      if (picked != null)
+        Text('أول وحدة: ${picked.$2.first['unitNo']}${picked.$2.first['unitType'] == null ? '' : ' — ${picked.$2.first['unitType']}'}',
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: JphUi.text(isDark))),
+    ]);
+
 class _InventoryList extends StatefulWidget {
   final String projectId;
   final bool isDark;
@@ -754,6 +882,21 @@ class _InventoryListState extends State<_InventoryList> {
         _btn(isDark, 'إضافة وحدة للمشروع', Icons.add_home_work_rounded, () async {
           if (await _editInventory(context, isDark, widget.projectId)) _load();
         }),
+      if (_edit)
+        Row(children: [
+          Expanded(
+            child: _btn(isDark, 'استيراد وحدات من إكسيل', Icons.table_view_rounded, () async {
+              final x = await _pickUnitsSheet(context);
+              if (x == null || !context.mounted) return;
+              if (await _importUnits(context, widget.projectId, x.$2)) _load();
+            }, color: Ar.green),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: IconButton.outlined(tooltip: 'نموذج الشيت', onPressed: () => _downloadUnitsTemplate(context), icon: const Icon(Icons.download_rounded)),
+          ),
+        ]),
       if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
       if (!_loading && _units.isEmpty)
         Padding(padding: const EdgeInsets.all(24), child: Text('مفيش وحدات متسجلة للمشروع لسه', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),

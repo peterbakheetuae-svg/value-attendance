@@ -369,3 +369,24 @@ test('a marketing unit: the salesman uploads «استمارة الحجز» and �
   assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${id}/files/${f.id}/delete`, {})).status, 200);
   assert.equal((await h.call(c.t.e1, 'GET', `/exclusive/units/${id}`)).body.files.length, 1);
 });
+
+test('project units from an Excel sheet at once: priced like «إضافة وحدة», repeated / existing numbers and bad rows reported, office only', async () => {
+  const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج الاستيراد', ownerName: 'أ. حسام', ownerPhone: '0112' })).body.project.id;
+  assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/inventory`, { unitNo: 'A-1' })).status, 201);
+  const rows = [
+    { unitNo: 'A-1', unitType: 'سكني' },                                       // already in the project
+    { unitNo: 'A-2', unitType: 'سكني', floor: '2', areaM2: 120, meterPrice: 20_000 },
+    { unitNo: 'A-3', unitType: 'سكني', floor: '3', unitPrice: 2_500_000, notes: 'بحري' },
+    { unitNo: 'a-2 ', unitType: 'سكني' },                                      // repeated in the sheet
+    { unitNo: '', unitType: 'سكني' },                                          // no number
+    { unitNo: 'A-4', areaM2: -5 },                                             // a bad area
+  ];
+  assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/projects/${pid}/inventory/import`, { rows })).status, 403);
+  const r = await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/inventory/import`, { rows });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.created, 2);
+  assert.deepEqual(r.body.failed.map((f: any) => f.row), [1, 4, 5, 6]);
+  const units = (await h.call(c.t.owner, 'GET', `/exclusive/projects/${pid}/inventory`)).body.units;
+  assert.deepEqual(units.map((u: any) => [u.unitNo, u.unitPrice]), [['A-1', null], ['A-2', 2_400_000], ['A-3', 2_500_000]]);
+  assert.equal((await h.call(c.t.owner, 'POST', `/exclusive/projects/${pid}/inventory/import`, { rows: [] })).status, 400);
+});

@@ -1478,6 +1478,42 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     return ok({ unit: shapeInv((await one(db, `${invSelect} WHERE i.id = $1`, [x.id]))) }, 201);
   });
 
+  // the project's units from an Excel sheet, all at once (up to 2000): each row as «إضافة وحدة»; a unit number already in the
+  // project (or repeated in the sheet) is skipped and reported — the rest are added in one transaction
+  r.post('/exclusive/projects/:id/inventory/import', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canSetup(a)) throw forbidden('إضافة الوحدات للمدير العام والمحاسب');
+    if (!isUuid(req.params.id)) throw notFound();
+    const b = obj(req.body);
+    if (!Array.isArray(b.rows) || !b.rows.length) throw invalid('الملف فاضي', { field: 'rows' });
+    if (b.rows.length > 2000) throw invalid('أقصى 2000 وحدة في المرة', { field: 'rows' });
+    const out = await db.tx(async (q) => {
+      const p = await one(q, `SELECT id FROM commission_projects WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!p) throw notFound();
+      const have = new Set((await q.query(`SELECT lower(trim(unit_no)) k FROM ex_inventory WHERE project_id = $1`, [p.id])).rows.map((x) => x.k as string));
+      const failed: { row: number; unitNo: string; error: string }[] = [];
+      let created = 0;
+      for (let i = 0; i < (b.rows as unknown[]).length; i++) {
+        const raw = (b.rows as unknown[])[i];
+        let f: ReturnType<typeof invBody>;
+        try { f = invBody(obj(raw)); } catch (e: any) {
+          failed.push({ row: i + 1, unitNo: String((raw as any)?.unitNo ?? ''), error: e?.message ?? 'بيانات غلط' });
+          continue;
+        }
+        const k = f.unitNo.toLowerCase();
+        if (have.has(k)) { failed.push({ row: i + 1, unitNo: f.unitNo, error: 'رقم الوحدة متسجل بالفعل' }); continue; }
+        have.add(k);
+        await q.query(`INSERT INTO ex_inventory (project_id, unit_no, unit_type, floor, net_area_m2, area_m2, meter_price, unit_price, activity, notes, created_by)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [p.id, f.unitNo, f.unitType, f.floor, f.net, f.area, f.meter, f.price, f.activity, f.notes, a.id]);
+        created++;
+      }
+      await audit(q, a.id, 'exclusive.inventory.import', 'commission_project', p.id, undefined, { rows: (b.rows as unknown[]).length, created, skipped: failed.length });
+      return { created, failed };
+    });
+    return ok(out, out.created ? 201 : 200);
+  });
+
   r.patch('/exclusive/inventory/:id', async (req) => {
     const a = await authenticate(db, req);
     if (!canSetup(a)) throw forbidden('تعديل الوحدات للمدير العام والمحاسب');

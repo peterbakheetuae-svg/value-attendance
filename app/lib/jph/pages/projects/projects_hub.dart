@@ -84,6 +84,7 @@ class _ProjectsListState extends State<ProjectsList> {
     bool newDev = false;
     if (!mounted) return;
     (String, String)? img; // صورة المشروع (اختياري)
+    (String, List<Map<String, dynamic>>)? sheet; // وحدات المشروع من إكسيل (اختياري)
     final total = TextEditingController(text: '5'), contract = TextEditingController(text: '3'), sales = TextEditingController(text: '0.2'),
         manager = TextEditingController(text: '0.1'), inst = TextEditingController(text: '0.5'), mkPct = TextEditingController(text: '0');
     num office() => (num.tryParse(total.text) ?? 0) - (num.tryParse(sales.text) ?? 0) - (num.tryParse(manager.text) ?? 0);
@@ -116,6 +117,7 @@ class _ProjectsListState extends State<ProjectsList> {
               if (x != null) set(() => img = x);
             },
           ),
+          _unitsSheetPicker(context, isDark, sheet, (x) => set(() => sheet = x)),
           // the same picker as «اختار الموظف» in تقرير الحضور
           JphUi.picker(
             isDark: isDark,
@@ -176,6 +178,7 @@ class _ProjectsListState extends State<ProjectsList> {
       if (mounted) JphUi.toast(context, r);
       final id = _m(r['project'])['id'];
       if (r['success'] == true && img != null && id != null && mounted) await _uploadProjectImage(context, '$id', img!);
+      if (r['success'] == true && sheet != null && id != null && mounted) await _importUnits(context, '$id', sheet!.$2);
       return r['success'] == true;
     });
     if (ok) _load();
