@@ -38,3 +38,11 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 * **Backend not deployed**: production still runs `main` @ `d457faf`. Until the backend of this branch is deployed (needs
   approval) and migrations 083 → 087 are applied (each needs the owner's approval, see FINANCIAL_INTEGRITY), the app shows
   resale / rental as «needs 087», hides expense groups, and R3–R6 server speed-ups are not live.
+
+## Backend + web deployed (2026-11-23 10:05Z)
+
+* `main` fast-forwarded `d457faf → d4073bb` (owner-approved). Vercel production: value-attendance `dpl_58SBwBmHtAC5Zy75YJPbrLcc2XKc`,
+  value-attendance-api `dpl_Hs4BEU2c3LxBRF9RNva9z7sz7aZT`; migrations «already up to date» (73), seed skipped. Web on
+  Hostinger = web-1.0.157 (same code). Android stays 1.0.155. Gmail SMTP sender name: VALUNIVO.
+* Backend rollback: promote `dpl_Cz1hmuKfsHPFkzza6dbiGCvPawhE` / `dpl_CTXwXhj7yLhEZ5hY3WN6rLdcz5fW` (main @ d457faf).
+* Still waiting for the owner: migrations 083 → 087 (decisions: the 2026-11-18 clean-up yes / no; 085 baseline month).
