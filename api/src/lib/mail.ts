@@ -1,11 +1,92 @@
+import nodemailer, { type SendMailOptions } from 'nodemailer';
+
 /**
- * Transactional email through Brevo (free plan: 300 emails/day, no card). Configured only by
- * environment variables on the API host (Vercel) — BREVO_API_KEY (secret) and MAIL_FROM (a sender verified in Brevo).
- * Without them, email is simply off and callers fall back to showing the value on screen.
+ * Transactional email. Two transports, chosen only by environment variables on the API host (Vercel):
+ *
+ *  - SMTP (TEMPORARY: a dedicated Gmail account until the company's own sending domain is authenticated) — used when
+ *    SMTP_HOST, SMTP_USER and SMTP_PASS are all set. SMTP_PORT (default 465) and SMTP_SECURE (default true for 465) are
+ *    optional. The sender is SMTP_FROM, else SMTP_USER (Gmail only sends as the signed-in account). SMTP_PASS is a Google
+ *    App Password, never the account password. Gmail is a low-volume provider (a few hundred messages a day at most, with throttling) — fine for
+ *    these one-recipient codes, not a permanent transactional service.
+ *  - Brevo HTTP API — used when SMTP is not configured and BREVO_API_KEY + MAIL_FROM are set (unchanged behaviour).
+ *
+ * Without either, email is simply off and callers fall back to showing the value on screen. One attempt per message, no
+ * automatic retries. Acceptance by the provider is not proof of inbox delivery. Errors never carry secrets or addresses.
  */
-export const mailEnabled = () => !!process.env.BREVO_API_KEY && !!process.env.MAIL_FROM;
+type Smtp = { host: string; port: number; secure: boolean; user: string; pass: string; from: string };
+
+export function smtpConfig(): Smtp | null {
+  const host = process.env.SMTP_HOST?.trim(), user = process.env.SMTP_USER?.trim(), pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass) return null;
+  const port = Number(process.env.SMTP_PORT ?? 465);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  const sec = (process.env.SMTP_SECURE ?? '').trim().toLowerCase();
+  const secure = sec === '' ? port === 465 : sec === 'true' || sec === '1';
+  return { host, port, secure, user, pass, from: process.env.SMTP_FROM?.trim() || user };
+}
+
+/** Which transport a message would use now — for logs and diagnostics (never a secret). */
+export const mailTransport = (): 'smtp' | 'brevo' | null =>
+  smtpConfig() ? 'smtp' : process.env.BREVO_API_KEY && process.env.MAIL_FROM ? 'brevo' : null;
+
+export const mailEnabled = () => mailTransport() !== null;
+
+type Sender = (msg: SendMailOptions) => Promise<{ accepted?: unknown[]; rejected?: unknown[]; response?: string }>;
+/** The connection settings for a configured SMTP account (exported for tests). */
+export function smtpTransportOptions(c: Smtp) {
+  return {
+    host: c.host, port: c.port, secure: c.secure, auth: { user: c.user, pass: c.pass },
+    requireTLS: !c.secure, // never send credentials or codes in clear text
+    connectionTimeout: 8000, greetingTimeout: 8000, socketTimeout: 10000, // the request must not hang
+    pool: false, // serverless: one short connection per message
+  };
+}
+function defaultSmtp(c: Smtp): Sender {
+  const t = nodemailer.createTransport(smtpTransportOptions(c));
+  return (msg) => t.sendMail(msg);
+}
+let makeSmtp: (c: Smtp) => Sender = defaultSmtp;
+/** tests only: replace the SMTP connection factory (e.g. to point at a local test server); null restores the default */
+export function __setSmtpFactoryForTests(f: ((c: Smtp) => Sender) | null) { makeSmtp = f ?? defaultSmtp; }
+
+/** A provider message reduced to something safe to store / log: no addresses, no credentials, bounded length. */
+export function safeMailError(s: string, secrets: (string | undefined)[] = []): string {
+  let out = s;
+  for (const v of secrets) if (v && v.length >= 4) out = out.split(v).join('***');
+  return out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<addr>').replace(/\s+/g, ' ').slice(0, 300);
+}
+
+function logMail(level: 'info' | 'error', msg: string, extra: Record<string, unknown>) {
+  const line = JSON.stringify({ t: new Date().toISOString(), level, msg, ...extra });
+  level === 'error' ? console.error(line) : console.log(line);
+}
 
 export async function sendMail(m: { to: string; toName?: string; subject: string; html: string; text: string }): Promise<boolean> {
+  const smtp = smtpConfig();
+  if (smtp) {
+    try {
+      const r = await makeSmtp(smtp)({
+        from: { name: process.env.MAIL_FROM_NAME || 'Value Attendance', address: smtp.from },
+        to: m.toName ? { name: m.toName, address: m.to } : m.to,
+        subject: m.subject, html: m.html, text: m.text,
+      });
+      const ok = Array.isArray(r.accepted) && r.accepted.length > 0 && !(Array.isArray(r.rejected) && r.rejected.length);
+      if (ok) {
+        lastMailError = null;
+        // provider acceptance only (not inbox delivery); the SMTP reply code, never the address
+        logMail('info', 'mail_accepted', { transport: 'smtp', reply: safeMailError(String(r.response ?? '').slice(0, 40), [smtp.pass, smtp.user]) });
+      } else {
+        lastMailError = `smtp rejected: ${safeMailError(String(r.response ?? ''), [smtp.pass, smtp.user])}`;
+        logMail('error', 'mail_failed', { transport: 'smtp', detail: lastMailError });
+      }
+      return ok;
+    } catch (e) {
+      const err = e as { code?: string; responseCode?: number; message?: string };
+      lastMailError = `smtp ${err.code ?? 'error'}${err.responseCode ? ' ' + err.responseCode : ''}: ${safeMailError(String(err.message ?? e), [smtp.pass, smtp.user])}`;
+      logMail('error', 'mail_failed', { transport: 'smtp', detail: lastMailError });
+      return false;
+    }
+  }
   if (!mailEnabled()) return false;
   try {
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -31,7 +112,7 @@ export async function sendMail(m: { to: string; toName?: string; subject: string
   }
 }
 
-/** Last Brevo failure reason (no secrets) — kept for the admin diagnostics. */
+/** Last send failure reason (no secrets, no addresses) — kept for the admin diagnostics. */
 export let lastMailError: string | null = null;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
