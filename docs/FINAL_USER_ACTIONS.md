@@ -71,3 +71,12 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
   search / sort / view kept, expense groups follow the cashbox page's top filter.
 * Android 1.0.161 (sha256 `3bad025786614635e886387fca574c0cb46c81e4c109dc63c9c672f484886f91`, 89,038,512 bytes) published;
   1.0.158 backed up in `~/va-backups/android-20261123T141242Z` (rollback input).
+
+## 2026-11-23 18:10 Cairo — resale / rental listings (088) + Android 1.0.164 (owner-approved)
+- Neon backup branch before the migration: `backup-before-088` (`br-sweet-paper-bagauybe`, no compute).
+- `main` fast-forwarded b73e503 → 01e7dc3; Vercel applied `088_brokerage_listings.sql` (80 migrations; `/readyz` ok on both).
+  Checked after: 59 employees and 5 receipts unchanged; old resale rule replaced by `brokerage_deals_resale_terms`.
+- Android 1.0.164 published (sha256 e9e6206c66e046992ae23a94b39c8cfc2ddd4acd0bad1d865ab2af5e0230d6fb), both public paths verified;
+  previous 1.0.161 backed up to `~/va-backups/android-20261123T161655Z`; GitHub release v1.0.164 → 01e7dc3.
+- Rollback: DB `db/proposed/088_rollback.sql` (test copy / owner decision only) or restore from the backup branch;
+  Android: `android_rollback_from=android-20261123T161655Z`.
