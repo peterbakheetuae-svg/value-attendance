@@ -4,6 +4,7 @@ import { forbidden, invalid } from '../http/errors.ts';
 import { adminOfficerSql, audit, authenticate, has, notSettled } from '../auth/context.ts';
 import { local } from '../lib/time.ts';
 import { mailEnabled, sendMail } from '../lib/mail.ts';
+import { hasBackupToken } from '../lib/backup-token.ts';
 import { STAGE_AR, type Stage } from './leads.ts';
 
 /**
@@ -11,7 +12,7 @@ import { STAGE_AR, type Stage } from './leads.ts';
  * the leads added that day, every action on them, and who worked most. Owner's request 2026-11-23.
  *
  * The trigger (a scheduled GitHub workflow, see .github/workflows/leads-daily-report.yml) only knocks on
- * /leads/daily-report/run; the server decides: it sends only inside the day's window (from 23:55 Cairo until 06:00 the
+ * /leads/daily-report/run with the X-Backup-Token secret; the server decides: it sends only inside the day's window (from 23:55 Cairo until 06:00 the
  * next morning, for a late scheduler) and only once per day (kept in the audit log, under a lock) — so a call at any other
  * time, or a second call, sends nothing. Nobody can make it send early, twice, or to anyone else.
  */
@@ -173,12 +174,17 @@ export async function runDailyLeadsReport(db: Db, now: Date, opts: { send?: type
 }
 
 export const leadsDailyModule: Module = (r, { db, clock }) => {
-  // the scheduler's knock — no secret needed: the server sends only in the window, once a day, to the fixed recipients
-  const run = async () => {
+  // the scheduler's knock (2026-11-24: no longer anonymous): the scheduler sends the host's BACKUP_TOKEN in X-Backup-Token
+  // (the same secret the owner's Apps Script already uses); a signed-in person needs «leads.read_all» (owner / GM / admin
+  // officer). Either way the server still sends only in the window, once a day, to the fixed recipients.
+  r.post('/leads/daily-report/run', async (req) => {
+    if (!hasBackupToken(req.headers)) {
+      const a = await authenticate(db, req);
+      if (!has(a, 'leads.read_all')) throw forbidden();
+    }
     if (!mailEnabled()) return ok({ sent: false, reason: 'mail_off' });
     return ok(await runDailyLeadsReport(db, clock()));
-  };
-  r.post('/leads/daily-report/run', run);
+  });
 
   // a preview of any day's report for the owner / GM / admin officer (the same content, nothing sent)
   r.get('/leads/daily-report', async (req) => {

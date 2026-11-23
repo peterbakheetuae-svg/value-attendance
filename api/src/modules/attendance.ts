@@ -7,6 +7,34 @@ import { cairoInstant, local, actionTime } from '../lib/time.ts';
 import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
 import { effectiveSql } from '../auth/permission-admin.ts';
+import type { Req } from '../http/router.ts';
+import { browserPunchPolicy, isBrowserRequest } from '../lib/client-platform.ts';
+
+/**
+ * G1 (2026-11-24): may THIS request record attendance / location? Decided on the server from what the client cannot fake
+ * from a browser (the Origin header) and from the server's own records (the session's device, its approval) — never from
+ * a platform field or header the client sends. Not a browser → true (the phone app). See lib/client-platform.ts.
+ */
+export async function punchClientAllowed(q: Q, a: Actor, req: Req): Promise<boolean> {
+  if (!isBrowserRequest(req.headers)) return true;
+  const policy = browserPunchPolicy();
+  if (policy === 'allow') return true;
+  if (policy === 'deny') return false;
+  // approved_device: this browser is a device the administration approved for him, with «ربط الحساب بالجهاز» on
+  // (with it off, any browser signs in without approval, so an old approval row proves nothing about this one)
+  return !!(await one(q, `
+    SELECT 1 FROM sessions s
+      JOIN employees e ON e.id = s.employee_id AND e.device_lock
+      JOIN employee_devices d ON d.employee_id = s.employee_id AND d.device_id = s.device_id AND d.status = 'approved'
+     WHERE s.id = $1`, [a.sessionId]));
+}
+
+/** refuses (403, audited) an attendance step sent from a browser that may not record attendance */
+export async function assertPunchClient(q: Q, a: Actor, req: Req, step: string) {
+  if (await punchClientAllowed(q, a, req)) return;
+  await audit(q, a.id, 'attendance.browser_refused', 'employee', a.id, undefined, { step, policy: browserPunchPolicy() });
+  throw new AppError('forbidden', 'تسجيل الحضور والانصراف من تطبيق الموبايل بس — مش من المتصفح', { reason: 'browser_punch_refused' });
+}
 
 /**
  * The time of a check-in / check-out / «I'm back» — with an offline record's own time (`offlineAt`) trusted only when
@@ -173,6 +201,7 @@ function breakShape(b: any, now: Date) {
 export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-in', async (req) => {
     const a = await authenticate(db, req);
+    await assertPunchClient(db, a, req, 'حضور');
     const b = obj(req.body ?? {});
     const { at: now, offline } = await trustedTime(db, a, b, clock(), 'حضور'); const l = local(now);
     const row = await db.tx(async (q) => {
@@ -211,6 +240,7 @@ export const attendanceModule: Module = (r, { db, clock }) => {
 
   r.post('/attendance/check-out', async (req) => {
     const a = await authenticate(db, req);
+    await assertPunchClient(db, a, req, 'انصراف');
     const b = obj(req.body ?? {});
     const { at: now, offline } = await trustedTime(db, a, b, clock(), 'انصراف'); const l = local(now);
     const row = await db.tx(async (q) => {

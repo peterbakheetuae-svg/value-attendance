@@ -5,7 +5,7 @@ import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, type Actor, notSettled } from '../auth/context.ts';
 import { cairoInstant, local } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
-import { geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
+import { assertPunchClient, geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
 
@@ -226,6 +226,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
   /** "I'm back" — closes the current permission/visit. */
   r.post('/outings/return', async (req) => {
     const a = await authenticate(db, req);
+    await assertPunchClient(db, a, req, 'رجوع من إذن'); // an office-checked step: the same client rule as check-in (G1)
     const body = obj(req.body ?? {});
     const { at: now, offline } = await trustedTime(db, a, body, clock(), 'رجوع من إذن'); const l = local(now);
     await db.tx(async (q) => {

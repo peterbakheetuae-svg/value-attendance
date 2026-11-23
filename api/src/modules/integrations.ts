@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
@@ -12,6 +12,10 @@ import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { seal, unseal } from '../lib/secretbox.ts';
 import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
+import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
+
+// the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
+export { metaSignatureOk };
 
 /**
  * الربط التلقائي (see db/migrations/062_integrations.sql):
@@ -47,19 +51,6 @@ const PHONE = ['phone', 'phone_number', 'mobile', 'mobile_number', 'whatsapp', '
 const EMAIL = ['email', 'mail', 'contact_email'];
 const MSG = ['message', 'notes', 'note', 'details', 'body', 'comment', 'inquiry', 'description'];
 const PROJECT_NAME = ['project_name', 'project_title', 'compound_name', 'project'];
-
-/** true when no app secret is configured yet (backward compatible) or the body is signed by one of them */
-export function metaSignatureOk(raw: Buffer | undefined, header: unknown): boolean {
-  const secrets = (process.env.META_APP_SECRETS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-  if (!secrets.length) return true;
-  const h = typeof header === 'string' ? header.trim() : '';
-  if (!/^sha256=[0-9a-f]{64}$/i.test(h) || !raw?.length) return false;
-  const got = Buffer.from(h.slice(7).toLowerCase(), 'hex');
-  return secrets.some((s) => {
-    const want = createHmac('sha256', s).update(raw).digest();
-    return want.length === got.length && timingSafeEqual(want, got);
-  });
-}
 
 export const integrationsModule: Module = (r, { db, clock }) => {
   const admin = async (req: Req, partnerToo = false) => {
@@ -531,7 +522,12 @@ export const integrationsModule: Module = (r, { db, clock }) => {
   r.post('/public/hooks/meta', async (req) => {
     // VA-09: Meta signs every delivery with the app secret (X-Hub-Signature-256 = sha256=HMAC(raw body)). Once the apps'
     // secrets are configured (META_APP_SECRETS, comma-separated, one per Meta app) an unsigned / wrongly signed call is refused.
-    if (!metaSignatureOk(req.raw, req.headers['x-hub-signature-256'])) throw new AppError('unauthenticated', 'Bad signature');
+    if (!metaSignatureOk(req.raw, req.headers['x-hub-signature-256'])) {
+      // production with no META_APP_SECRETS: refused (fail closed) — and said on the integrations page, so a missing key
+      // is seen at once instead of leads silently not arriving
+      if (!metaAppSecrets().length) await noteError('meta', 'META_APP_SECRETS مش متسجل على السيرفر — leads Meta بتترفض لحد ما يتسجل');
+      throw new AppError('unauthenticated', 'Bad signature');
+    }
     const it = await row('meta');
     if (!it?.active || (!it.access_token && !(await one(db, `SELECT 1 FROM meta_pages LIMIT 1`)))) return ok({ ok: true, skipped: 'off' });
     const b = obj(req.body);

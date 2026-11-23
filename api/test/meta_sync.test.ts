@@ -103,8 +103,27 @@ test('VA-09: with the apps\' secrets configured, only deliveries signed by one o
     assert.equal((await post({ 'x-hub-signature-256': sig('wrong-secret') })).status, 401, 'wrong app secret');
     assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one') }, raw.replace('5001', '5009'))).status, 401, 'modified body');
     assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one', '') }, '')).status, 401, 'empty body');
+    assert.equal((await post({ 'x-hub-signature-256': 'sha256=zz' })).status, 401, 'malformed signature');
+    assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one').slice(7) })).status, 401, 'no sha256= prefix');
     assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-one') })).status, 200, 'app one');
     assert.equal((await post({ 'x-hub-signature-256': sig('secret-app-two') })).status, 200, 'app two (retries welcome: the lead comes in once)');
   } finally { delete process.env.META_APP_SECRETS; }
-  assert.equal((await post({})).status, 200, 'not configured yet: unchanged behaviour');
+  assert.equal((await post({})).status, 200, 'not configured, not production (laptop / CI): unchanged behaviour');
+});
+
+test('2026-11-24: in production with no META_APP_SECRETS every delivery is refused (fail closed) and the page says why', async () => {
+  const { createHmac } = await import('node:crypto');
+  const raw = JSON.stringify({ entry: [{ id: '1001', changes: [{ field: 'leadgen', value: { leadgen_id: '5001' } }] }] });
+  const post = (headers: Record<string, string>) => fetch(h.base + '/public/hooks/meta', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: raw });
+  process.env.VERCEL_ENV = 'production';
+  try {
+    assert.equal((await post({})).status, 401, 'unsigned');
+    assert.equal((await post({ 'x-hub-signature-256': 'sha256=' + createHmac('sha256', 'any').update(raw).digest('hex') })).status, 401, 'signed, but nothing to check it with');
+    const it = (await h.db.query(`SELECT last_error FROM integrations WHERE source = 'meta'`)).rows[0];
+    assert.match(String(it?.last_error ?? ''), /META_APP_SECRETS/);
+    // configured in production: a correct signature is accepted again
+    process.env.META_APP_SECRETS = 'secret-app-one';
+    assert.equal((await post({ 'x-hub-signature-256': 'sha256=' + createHmac('sha256', 'secret-app-one').update(raw).digest('hex') })).status, 200);
+    assert.equal((await post({})).status, 401);
+  } finally { delete process.env.VERCEL_ENV; delete process.env.META_APP_SECRETS; }
 });

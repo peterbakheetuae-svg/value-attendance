@@ -53,8 +53,17 @@ test('the report: the day\'s new leads, the actions, the top salesman; sent once
   assert.equal((await runDailyLeadsReport(h.db, new Date('2026-11-14T21:59:30Z'), { send })).reason, 'already_sent');
   assert.equal((await runDailyLeadsReport(h.db, new Date('2026-11-14T23:30:00Z'), { send })).reason, 'already_sent');
   assert.equal(sent.length, 2);
-  // the public knock answers without sending outside the window; the preview is the managers'
-  assert.equal((await h.call(null, 'POST', '/leads/daily-report/run')).status, 200);
+  // the knock (2026-11-24): anonymous → 401; the scheduler's X-Backup-Token or a person with «leads.read_all» → answered
+  // (nothing is sent outside the window); a salesman → 403. The preview is the managers'
+  const TOKEN = 'daily-report-test-token-0123456789';
+  process.env.BACKUP_TOKEN = TOKEN;
+  try {
+    assert.equal((await h.call(null, 'POST', '/leads/daily-report/run')).status, 401, 'anonymous');
+    assert.equal((await h.call(null, 'POST', '/leads/daily-report/run', undefined, { 'x-backup-token': 'wrong-token-wrong-token-wrong' })).status, 401, 'wrong token');
+    assert.equal((await h.call(null, 'POST', '/leads/daily-report/run', undefined, { 'x-backup-token': TOKEN })).status, 200, 'the scheduler');
+    assert.equal((await h.call(c.t.e1, 'POST', '/leads/daily-report/run')).status, 403, 'a salesman');
+    assert.equal((await h.call(c.t.owner, 'POST', '/leads/daily-report/run')).status, 200, 'the owner');
+  } finally { delete process.env.BACKUP_TOKEN; }
   assert.equal((await h.call(c.t.e1, 'GET', '/leads/daily-report?date=2026-11-14')).status, 403);
   const p = (await h.call(c.t.owner, 'GET', '/leads/daily-report?date=2026-11-14')).body.report;
   assert.deepEqual([p.newLeads, p.actions, p.top.name], [2, 3, 'موظف ١']);

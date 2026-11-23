@@ -5,7 +5,8 @@ import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
 import { audit, authenticate, can, notSettled, readableIds, requireCan, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes, actionTime } from '../lib/time.ts';
-import { haversineM } from './attendance.ts';
+import { haversineM, punchClientAllowed } from './attendance.ts';
+import { boardInside, isWeakFix, neverPingedDue, silentCause, SILENT_CAUSE_AR, WEAK_GPS_M, weakStreakDue, type SilentCause } from '../lib/tracking-health.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
 import { WORK_TRACKING_SQL } from './employees.ts';
 import { pushTo, type PushResult } from '../lib/fcm.ts';
@@ -22,6 +23,19 @@ async function watchersOf(q: Q, employeeId: string): Promise<string[]> {
       JOIN employees x ON x.id IN (t.manager_id, e.sales_manager_id)
      WHERE e.id = $1 AND x.id <> $1 AND x.status = 'active' AND ${notSettled('x')}`, [employeeId]);
   return [...new Set([...all, ...mgr.rows.map((r) => r.id)])];
+}
+
+/**
+ * Why an employee's locations stopped (or never started), from what the server already keeps: his signed-in Android
+ * phones with the app (push tokens) and whether one of them talked to the server in the last [staleMin] minutes.
+ */
+async function silentCauseOf(q: Q, employeeId: string, now: Date, staleMin: number): Promise<SilentCause> {
+  const r = await one(q, `
+    SELECT count(DISTINCT COALESCE(s.device_id, s.id::text))::int AS phones,
+           COALESCE(bool_or(s.last_seen_at > $2::timestamptz - make_interval(mins => $3)), false) AS seen
+      FROM sessions s JOIN push_tokens p ON p.session_id = s.id AND p.platform = 'android'
+     WHERE s.employee_id = $1 AND s.revoked_at IS NULL AND s.expires_at > $2`, [employeeId, now, staleMin]);
+  return silentCause({ androidPhones: r?.phones ?? 0, androidSeenRecently: r?.seen === true });
 }
 
 async function tellWatchers(q: Q, employeeId: string, type: string, title: string, body: string, dedupeKey: string) {
@@ -98,6 +112,8 @@ export async function sweep(q: Q, now: Date) {
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
            EXISTS (SELECT 1 FROM attendance_breaks b WHERE b.attendance_id = a.id AND b.ended_at IS NULL) AS on_break,
            (SELECT max(ts.last_ping_at) FROM tracking_state ts WHERE ts.employee_id = e.id AND ts.work_date = $1) AS last_ping_at,
+           (SELECT ts.accuracy_m FROM tracking_state ts WHERE ts.employee_id = e.id AND ts.work_date = $1
+             ORDER BY ts.last_ping_at DESC LIMIT 1) AS last_acc,
            ${WORK_TRACKING_SQL('e')} AS work_tracking
       FROM employees e
       JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
@@ -134,12 +150,38 @@ export async function sweep(q: Q, now: Date) {
         `not_checked_out:${r.id}:${l.date}`);
     }
     const stale = claimed.tracking_stale_minutes;
-    if (claimed.tracking_enabled && r.work_tracking && stale > 0 && r.att_id && !r.check_out_at) {
+    if (claimed.tracking_enabled && r.work_tracking && stale > 0 && r.att_id && r.check_in_at && !r.check_out_at) {
       const last = r.last_ping_at ? new Date(r.last_ping_at).getTime() : null;
       const silentMin = last === null ? null : Math.floor((now.getTime() - last) / 60000);
       if (silentMin !== null && silentMin >= stale) {
+        const why = SILENT_CAUSE_AR[await silentCauseOf(q, r.id, now, stale)];
         await tellWatchers(q, r.id, 'tracking_stopped', `التتبع وقف عند ${r.full_name}`,
-          `آخر موقع من ${silentMin} دقيقة (قفل التطبيق أو الـ GPS أو النت).`, `tracking_stopped:${r.id}:${l.date}:${Math.floor(last! / 3_600_000)}`);
+          `آخر موقع من ${silentMin} دقيقة — ${why}.`, `tracking_stopped:${r.id}:${l.date}:${Math.floor(last! / 3_600_000)}`);
+      } else if (last === null && neverPingedDue(new Date(r.check_in_at), now, stale)) {
+        // T2: checked in and not ONE location since — the watchers are told too (before, only his own phone rang);
+        // one notification per person per day (the dedupe key), a later silence after pings resume is the case above
+        const why = SILENT_CAUSE_AR[await silentCauseOf(q, r.id, now, stale)];
+        const sinceMin = Math.floor((now.getTime() - new Date(r.check_in_at).getTime()) / 60000);
+        await tellWatchers(q, r.id, 'tracking_stopped', `التتبع مش شغال عند ${r.full_name}`,
+          `سجّل حضور من ${sinceMin} دقيقة ومفيش ولا موقع وصل — ${why}.`, `tracking_stopped:${r.id}:${l.date}:none`);
+      } else if (last !== null && isWeakFix(r.last_acc === null ? null : Number(r.last_acc))) {
+        // G2: locations arrive but none is usable (accuracy worse than 200 m — e.g. «الموقع التقريبي» on Android): nobody
+        // can tell inside from outside. One weak sample never warns; a run of them since the last usable fix does.
+        const w = await one(q, `
+          WITH good AS (SELECT max(at) AS at FROM tracking_pings
+                         WHERE employee_id = $1 AND at >= $2 AND (accuracy_m IS NULL OR accuracy_m <= $3))
+          SELECT good.at AS last_good,
+                 (SELECT count(*)::int FROM tracking_pings p WHERE p.employee_id = $1 AND p.at >= $2 AND p.accuracy_m > $3
+                     AND p.at > COALESCE(good.at, '-infinity'::timestamptz)) AS weak
+            FROM good`, [r.id, r.check_in_at, WEAK_GPS_M]);
+        const lastGood = w?.last_good ? new Date(w.last_good) : null;
+        if (weakStreakDue({ lastGoodAt: lastGood, checkInAt: new Date(r.check_in_at), now, staleMin: stale, weakSince: w?.weak ?? 0 })) {
+          const from = lastGood ?? new Date(r.check_in_at);
+          const mins = Math.floor((now.getTime() - from.getTime()) / 60000);
+          await tellWatchers(q, r.id, 'tracking_weak_gps', `موقع ${r.full_name} مش دقيق`,
+            `آخر ${w.weak} مواقع دقتها أضعف من ${WEAK_GPS_M} متر (من ${mins} دقيقة${lastGood ? ' من آخر موقع دقيق' : ' من الحضور'}) — مش معروف هو جوه ولا بره المكتب. ممكن يكون مشغّل «الموقع التقريبي» أو الـ GPS ضعيف.`,
+            `tracking_weak:${r.id}:${l.date}:${Math.floor(from.getTime() / 3_600_000)}`);
+        }
       }
     }
     // the account is open on more than one phone: EVERY phone must be followed, so whichever one leaves the office rings.
@@ -215,6 +257,9 @@ export const trackingModule: Module = (r, { db, clock }) => {
     // the company follow-up + «تتبع أثناء العمل» + «حضور وانصراف»: otherwise nothing is followed (the app stops)
     const elig = await trackingEligibility(db, a.id);
     if (!elig.on) return ok({ tracking: false, reason: elig.reason });
+    // G1: a browser that may not record attendance does not feed the follow-up either (its office location could hide a
+    // silent phone) — answered like «not followed», so the web app simply stops sending
+    if (!(await punchClientAllowed(db, a, req))) return ok({ tracking: false, reason: 'browser_not_allowed' });
     // the phone rang by itself (it saw the office left with no permission) — logged, no location kept
     const localAlarm = b.localAlarm === true;
     const att = await one(db, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);
@@ -230,7 +275,9 @@ export const trackingModule: Module = (r, { db, clock }) => {
       await securityAlert(db, `mock:${a.id}:${l.date}`, 'تنبيه: موقع متزيّف', `${a.fullName} — الموبايل بيبعت موقع من برنامج تغيير الموقع أثناء الشغل`);
       await audit(db, a.id, 'tracking.mock_location', 'employee', a.id, undefined, { lat, lng });
     }
-    const inside = mocked ? false : outside === null ? null : (acc !== null && acc > 200) ? null : outside <= cfg.away_margin_m;
+    // a weak fix (> 200 m) is neither inside nor outside: kept with its accuracy (evidence), never an exit, never a proof of
+    // staying — the board shows «unknown» and a run of them warns the watchers (sweep, G2)
+    const inside = mocked ? false : outside === null ? null : isWeakFix(acc) ? null : outside <= cfg.away_margin_m;
     // every phone of the account is followed on its own: any phone that leaves the office raises the alert
     const dv = await one(db, `
       SELECT COALESCE(s.device_id, '') AS key, d.label,
@@ -339,7 +386,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
              ts.lat, ts.lng, ts.accuracy_m, ts.inside, ts.distance_m, ts.away_since, ts.away_minutes, ts.device_label,
              (SELECT max(z.last_ping_at) FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1) AS last_ping_at,
              (SELECT COALESCE(json_agg(json_build_object('label', z.device_label, 'inside', z.inside, 'distanceM', z.distance_m,
-                       'lastPingAt', z.last_ping_at) ORDER BY z.last_ping_at DESC), '[]')
+                       'lastPingAt', z.last_ping_at, 'accuracyM', z.accuracy_m) ORDER BY z.last_ping_at DESC), '[]')
                 FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1) AS devices
         FROM employees e
         LEFT JOIN teams t ON t.id = e.team_id
@@ -351,12 +398,15 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const live = rows.rows.map((x) => {
       const silent = x.last_ping_at ? Math.floor((now.getTime() - new Date(x.last_ping_at).getTime()) / 60000) : null;
       const awayNow = x.away_since ? Math.round((now.getTime() - new Date(x.away_since).getTime()) / 60000) : 0;
+      // G2: a device whose LAST fix was weak is not shown as «inside» (unknown instead); «outside» stays outside
+      const acc = x.accuracy_m === null || x.accuracy_m === undefined ? null : Number(x.accuracy_m);
+      const devices = (x.devices ?? []).map((d: any) => ({ ...d, inside: boardInside(d.inside ?? null, d.accuracyM ?? null), weakGps: isWeakFix(d.accuracyM ?? null) }));
       return {
-        devices: x.devices, outDevice: x.inside === false ? x.device_label : null,
+        devices, outDevice: x.inside === false ? x.device_label : null, weakGps: isWeakFix(acc),
         employeeId: x.id, fullName: x.full_name, code: x.code, hasPhoto: x.has_photo, teamName: x.team_name,
         checkIn: x.check_in_at, checkOut: x.check_out_at, lastPingAt: x.last_ping_at, silentMinutes: silent,
         stopped: !x.check_out_at && cfg.tracking_stale_minutes > 0 && (silent === null || silent >= cfg.tracking_stale_minutes),
-        inside: x.inside, distanceM: x.distance_m, awayMinutesToday: x.away_minutes + awayNow,
+        inside: boardInside(x.inside, acc), distanceM: x.distance_m, awayMinutesToday: x.away_minutes + awayNow,
         // the place itself only with «عرض مواقع الموظفين» (inside / outside and minutes away stay)
         position: x.lat === null || !(seeLoc || x.id === a.id) ? null : { lat: x.lat, lng: x.lng, accuracyM: x.accuracy_m },
       };

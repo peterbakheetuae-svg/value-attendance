@@ -15,9 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - run: |
+      # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel);
+      # since 2026-11-24 the server refuses an anonymous knock (401)
+      - env:
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+        run: |
+          if [ -z "$BACKUP_TOKEN" ]; then echo "::error::repository secret BACKUP_TOKEN is not set — the daily leads report cannot be triggered"; exit 1; fi
           for i in 1 2 3; do
-            out=$(curl -s -m 60 -X POST https://valunivo.vercel.app/leads/daily-report/run) && echo "$out" && exit 0
+            code=$(curl -s -m 60 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/leads/daily-report/run) || code=000
+            cat out.json 2>/dev/null; echo
+            [ "$code" = "200" ] && exit 0
+            if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
             sleep 20
           done
           echo "::warning::the API did not answer"
