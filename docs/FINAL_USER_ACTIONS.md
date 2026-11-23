@@ -90,3 +90,11 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 - windows.yml run 41 on main 01f328d: build, smoke test, signed exe + updater, install/uninstall and in-app update test passed, published.
 - jaurea.com/valunivo/windows/latest.json → 1.0.41, installer VALUNIVO-Setup-1.0.41.exe sha256 130cbac3c6ea95dae0bb40581c603606620e3e81ee39915d9e64f05d57312964 (verified live);
   permanent copy: release windows-v1.0.41. Previous 1.0.36 stays available (rollback: windows.yml rollback_to=1.0.36).
+
+## 2026-11-23 ~22:10 Cairo — units from Excel, «ليد جديد» box, daily leads email + Android 1.0.173 + Windows 1.0.42 (owner-approved)
+- `main` 01f328d → 00b8052 (no migration; 80 applied); `/readyz` ok on both; `POST /leads/daily-report/run` answers not_due outside 23:55–06:00.
+- Daily leads email: workflow `leads-daily-report.yml` (active) knocks at 20:59 / 21:59 / 22:30 UTC; the server sends once per Cairo day
+  to the owners / GM and the administrative officer (audit_log action `leads.daily_report`, entity_id = the date).
+- Android 1.0.173 (sha256 d8f6d113843576616bc5f03f4860bfec9031bbfa385b40b5038d088b96748cdd) both paths verified; 1.0.167 backed up to
+  `~/va-backups/android-20261123T194307Z`.
+- Windows 1.0.42 (VALUNIVO-Setup-1.0.42.exe sha256 2c3881b5bf84e62e9baee5f94ac65902124ab0a7b8ef47ec8e234aec77e14576) verified live; 1.0.41 remains for rollback.
