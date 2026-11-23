@@ -31,6 +31,16 @@ export function dueReportDate(now: Date): string | null {
   return null;
 }
 
+/**
+ * The owner's minute heartbeat (POST /backup/sweep, already authenticated with X-Backup-Token) is a second trigger, so the
+ * report never depends on one scheduler: it knocks only from 23:59 (the time the report is meant to go — never with the
+ * last minutes of the day missing) until 06:00. Sent once a day either way (runDailyLeadsReport).
+ */
+export function heartbeatReportDue(now: Date): boolean {
+  const m = local(now).minutes;
+  return m >= 23 * 60 + 59 || m < WINDOW_LATE;
+}
+
 const DAY = (col: string) => `(${col} AT TIME ZONE 'Africa/Cairo')::date = $1::date`;
 
 export async function dailyLeadsData(q: Q, date: string) {

@@ -18,7 +18,7 @@ import { browserPunchPolicy, isBrowserRequest } from '../lib/client-platform.ts'
 export async function punchClientAllowed(q: Q, a: Actor, req: Req): Promise<boolean> {
   if (!isBrowserRequest(req.headers)) return true;
   const policy = browserPunchPolicy();
-  if (policy === 'allow') return true;
+  if (policy === 'allow' || policy === 'audit') return true;
   if (policy === 'deny') return false;
   // approved_device: this browser is a device the administration approved for him, with «ربط الحساب بالجهاز» on
   // (with it off, any browser signs in without approval, so an old approval row proves nothing about this one)
@@ -29,8 +29,13 @@ export async function punchClientAllowed(q: Q, a: Actor, req: Req): Promise<bool
      WHERE s.id = $1`, [a.sessionId]));
 }
 
-/** refuses (403, audited) an attendance step sent from a browser that may not record attendance */
+/** refuses (403, audited) an attendance step sent from a browser that may not record attendance; in «audit» mode (the
+ *  default) it is accepted and only written to the audit log */
 export async function assertPunchClient(q: Q, a: Actor, req: Req, step: string) {
+  if (isBrowserRequest(req.headers) && browserPunchPolicy() === 'audit') {
+    await audit(q, a.id, 'attendance.browser_punch', 'employee', a.id, undefined, { step });
+    return;
+  }
   if (await punchClientAllowed(q, a, req)) return;
   await audit(q, a.id, 'attendance.browser_refused', 'employee', a.id, undefined, { step, policy: browserPunchPolicy() });
   throw new AppError('forbidden', 'تسجيل الحضور والانصراف من تطبيق الموبايل بس — مش من المتصفح', { reason: 'browser_punch_refused' });
