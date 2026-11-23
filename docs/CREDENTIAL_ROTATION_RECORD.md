@@ -315,6 +315,34 @@ projects: `value-attendance` 07:39:37Z, `value-attendance-api` 07:40:07Z. Values
 **Status.** Not deployed. Brevo old key not revoked. Production email still not delivered on the current deployment
 (§6B); the immediate fix without new code is the Instant Rollback above.
 
+## 6D. Gmail SMTP activation and rollback (2026-11-23)
+
+- **Activated** (owner's approval):
+  - `hotfix/gmail-smtp` `d457faf` pushed.
+  - `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` added (Production, both projects).
+  - Production deployments `dpl_CR4NK85fzefoCxn87H5cwVM6kt5g` (value-attendance) and `dpl_3kQBBntgwKWqUxmLYBDq3NemgrGN`
+    (value-attendance-api), both READY. `/readyz` ok.
+- **Controlled test (owner).** Vercel runtime logs, value-attendance, `POST /auth/forgot`:
+  - 07:48:22Z and 07:50:06Z (two requests): `mail_accepted transport=smtp reply="250 2.0.0 OK …"`.
+  - No `mail_failed`, no auth, connection or recipient error. value-attendance-api: no mail log.
+  - **Gmail authenticated the account and accepted both messages for delivery. The owner reports no arrival.** The cause
+    is past SMTP (spam / filtering / recipient address); the logs cannot show it.
+  - Not checked: the dedicated account's *Sent* folder, and the recipient's Spam / All Mail.
+- **Rollback (agreed failure plan).**
+  - Vercel Instant Rollback to two deployments back is refused on the Hobby plan (402). Both known-good deployments were
+    therefore **promoted** instead (no rebuild).
+  - `valunivo.vercel.app` / `value-attendance.vercel.app` → `dpl_4trXqNhosA7wWEz9E7wFbUYy1KnU` READY.
+  - `value-attendance-api-eight.vercel.app` → `dpl_BtQAq2pxMzH6WdjdDzXQXLqs7dae` READY (both `main` @ `cbd00b3`).
+  - `/readyz`: `{"ok":true,"migrations":73,"push":true,"mail":true,"backup":true}` and, for api,
+    `{"ok":true,"migrations":73,"push":true,"mail":true,"backup":false}`.
+- **Now live:** the old Brevo key (baked into those builds). Its delivery has **not** been verified in this work.
+  **Email delivery is unverified on every path.**
+- Kept for diagnosis:
+  - branch `hotfix/gmail-smtp`, commits `d457faf` / `992e5ed`;
+  - Vercel variables `SMTP_*` (inert on the `cbd00b3` builds);
+  - the new Brevo key, the old Brevo key.
+- Not merged into `main`.
+
 ## 7. Log
 
 | Date | Item | Action | Evidence |
