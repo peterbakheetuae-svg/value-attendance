@@ -41,17 +41,17 @@ import { expenseClassesModule } from './modules/expense-classes.ts';
 import { brokerageModule } from './modules/brokerage.ts';
 import { pushEnabled } from './lib/fcm.ts';
 import { mailEnabled } from './lib/mail.ts';
+import { hasBackupToken } from './lib/backup-token.ts';
 
 export function buildRouter(ctx: Ctx): Router {
   const r = new Router();
   r.get('/healthz', async () => ({ json: { ok: true } }));
   /**
-   * Speed check (no secrets): where the API runs, which region the database is in (from its host name only), and
-   * how long a database round trip takes from here. A far database makes every screen slow.
+   * Speed check: how long a database round trip takes from here (a far database makes every screen slow). Anyone gets
+   * only ok + the round trips (the keep-warm monitor reads the status code). Where the API and the database run
+   * (regions, pooling) is infrastructure detail: only with the scheduler's X-Backup-Token (2026-11-24).
    */
-  r.get('/healthz/latency', async () => {
-    let dbRegion = 'unknown';
-    try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -2).join('.') || 'unknown'; } catch { /* keep */ }
+  r.get('/healthz/latency', async (req) => {
     const ms: number[] = [];
     try {
       for (let i = 0; i < 4; i++) {
@@ -62,6 +62,9 @@ export function buildRouter(ctx: Ctx): Router {
     } catch {
       return { status: 503, json: { ok: false } };
     }
+    if (!hasBackupToken(req.headers)) return { json: { ok: true, dbRoundTripMs: ms } };
+    let dbRegion = 'unknown';
+    try { dbRegion = new URL(process.env.DATABASE_URL ?? '').hostname.split('.').slice(1, -2).join('.') || 'unknown'; } catch { /* keep */ }
     return { json: { ok: true, apiRegion: process.env.VERCEL_REGION ?? 'local', dbRegion,
       pooled: process.env.VA_DB_DIRECT !== '1', dbRoundTripMs: ms } };
   });

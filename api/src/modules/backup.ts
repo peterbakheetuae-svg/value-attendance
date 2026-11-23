@@ -1,9 +1,9 @@
-import { timingSafeEqual, createHash } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { AppError, notFound } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { sweep } from './tracking.ts';
 import { backupKeyConfigured, seal } from '../lib/secretbox.ts';
+import { hasBackupToken } from '../lib/backup-token.ts';
 
 /**
  * Daily backup export, read by a Google Apps Script in the owner's Google Drive.
@@ -23,13 +23,8 @@ export const SECRET_COLUMN = /(password_hash|token_hash|code_hash|key_hash|acces
 
 const MAX_CHUNK = 3_500_000; // keep each reply under the hosting limit
 
-function authorized(req: Req): boolean {
-  const want = process.env.BACKUP_TOKEN ?? '';
-  const got = String(req.headers['x-backup-token'] ?? '');
-  if (want.length < 24 || !got) return false;
-  const a = createHash('sha256').update(want).digest(), b = createHash('sha256').update(got).digest();
-  return timingSafeEqual(a, b);
-}
+// the token check is shared with the scheduler's other knocks (lib/backup-token.ts — the same rule as before)
+const authorized = (req: Req): boolean => hasBackupToken(req.headers);
 
 
 export const backupModule: Module = (r, { db, clock }) => {
