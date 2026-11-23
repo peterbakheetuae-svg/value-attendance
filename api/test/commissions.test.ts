@@ -253,7 +253,11 @@ test('paying a commission through صرف مالية; a paid month is closed; a s
   assert.equal((await h.call(c.t.owner, 'POST', `/commissions/requests/${reqA}/void`, { reason: 'الصفقة اتلغت' })).status, 409);
 
   // March salary of e2 handed over and received → March is closed for him
-  const sal = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'salary', amount: 5000, month: '2026-03' });
+  // F2: a free-form salary payout is refused — the salary goes through صرف الراتب / the payroll sheet
+  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'salary', amount: 5000, month: '2026-03' })).body.error.details.reason, 'salary_path_required');
+  // a salary payment made by a payroll sheet (a sheet line pays any part of the salary)
+  const sal = { status: 201, body: { payout: (await h.db.query(`INSERT INTO payouts (employee_id, kind, amount_egp, period, note, created_by)
+      VALUES ($1,'salary',5000,'2026-03-01','مرتب',(SELECT id FROM employees WHERE code = 'HR1')) RETURNING *`, [c.ids.e2])).rows[0] } };
   await confirmPayout(h, c.t.e2, c.t.hr, sal.body.payout.id);
   const d1 = (await h.call(c.t.e2, 'GET', '/commissions/requests')).body.requests.find((x: any) => x.unitNo === 'D-1');
   const closed = await h.call(tGm, 'POST', `/commissions/requests/${d1.id}/decision`, { decision: 'approve', month: '2026-03' });

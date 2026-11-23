@@ -6,7 +6,8 @@ import { local } from '../lib/time.ts';
 import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
-import { computePayroll, loadRules } from './payroll-calc.ts';
+import { computePayroll, computePayrollMany, loadRules } from './payroll-calc.ts';
+import { legacyCoveredItem } from './legacy-coverage.ts';
 import { companySalaryRows } from './company-payouts.ts';
 
 const KINDS = ['salary', 'advance', 'commission', 'work_expense'] as const;
@@ -58,6 +59,21 @@ const OPEN = ['pending', 'disputed'];
 export async function tellRecipient(q: Q, x: { id: string; employee_id: string; kind: string; amount_egp: unknown }, payerName: string) {
   await notify(q, { to: x.employee_id, type: 'payout_otp', title: `${PAYOUT_AR[x.kind] ?? 'صرف'}: ${Math.round(Number(x.amount_egp) * 100) / 100} جنيه — مستني تأكيدك`,
     body: `افتح التطبيق: هيظهرلك كود من 4 أرقام، قوله لـ ${payerName} وهو يكتبه`, entity: 'payout', entityId: x.id, dedupeKey: `payout:${x.id}:otp` });
+}
+
+/**
+ * F1: how much of an approved item (commission entitlement / work-expense request) is still to pay: its amount minus what
+ * an OLDER payroll-sheet line of its month already paid for it inside the salary (legacy-coverage.ts — from that line's
+ * own records, never from a salary amount). Fully covered → refused; partly covered → only the rest may be paid.
+ */
+async function itemLeftToPay(q: Q, employeeId: string, period: string, itemId: string, itemAmount: number) {
+  const covered = await legacyCoveredItem(q, employeeId, period, itemId);
+  const left = Math.round((itemAmount - covered) * 100) / 100;
+  if (left <= 0.009) {
+    throw new AppError('conflict', 'المبلغ ده اتصرف قبل كده ضمن كشف مرتبات الشهر (كشف قديم) — مش هيتصرف تاني',
+      { reason: 'settled_in_payroll', coveredBySalary: covered });
+  }
+  return { left, covered };
 }
 
 /**
@@ -124,6 +140,15 @@ export const payoutsModule: Module = (r, { db, clock }) => {
         if (!ok) throw invalid('Cash can only be handed to someone who pays employees (HR)', { field: 'employeeId' });
       } else {
         if (!has(a, 'finance.disburse')) throw forbidden('Only HR pays employees');
+        // F2: a salary goes through صرف الراتب or the payroll sheet (they know what is due); a commission only against its
+        // approved entitlement — never a free amount
+        if (kind === 'salary') {
+          throw new AppError('unprocessable', 'المرتب بيتصرف من «صرف الراتب» أو كشف المرتبات بس', { reason: 'salary_path_required' });
+        }
+        if (kind === 'commission' && !entitlementId) {
+          throw new AppError('unprocessable', 'العمولة بتتصرف على عمولة معتمدة بس', { reason: 'entitlement_required', field: 'entitlementId' });
+        }
+
         // the HR cashbox may go below zero (approved policy): the deficit shows to the manager as money to transfer
         if (advanceId) {
           // paying an approved financial request (سلفة / مصاريف عمل): the amount is the approved one
@@ -131,18 +156,23 @@ export const payoutsModule: Module = (r, { db, clock }) => {
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });
           if (adv.kind !== kind) throw invalid('The payment kind does not match the request', { field: 'kind' });
           if (adv.paid_outside) throw conflict('This advance was already handed over outside the cashbox');
-          if (Math.round(Number(adv.amount_egp) * 100) !== Math.round(amount * 100)) throw invalid(`The approved amount is ${Number(adv.amount_egp)}`, { field: 'amount' });
           if (await one(q, `SELECT 1 FROM payouts WHERE advance_id = $1 AND status <> 'cancelled'`, [advanceId])) throw conflict('This advance was already paid');
+          // a work expense an older payroll sheet already paid (in full / in part) inside the salary: only what is left
+          const due = kind === 'work_expense'
+            ? (await itemLeftToPay(q, employeeId, String(adv.period).slice(0, 10), adv.id, Number(adv.amount_egp))).left : Number(adv.amount_egp);
+          if (Math.round(due * 100) !== Math.round(amount * 100)) throw invalid(`The amount to pay is ${due}`, { field: 'amount', due });
         }
         if (entitlementId) {
           // paying an approved deal commission: amount and month come from the entitlement, never from the app
           const ce = await one(q, `SELECT * FROM commission_entitlements WHERE id = $1 FOR UPDATE`, [entitlementId]);
           if (!ce || ce.employee_id !== employeeId || ce.status !== 'active') throw invalid('The commission is not approved', { field: 'entitlementId' });
-          if (Number(ce.amount_egp) !== amount) throw invalid(`The commission amount is ${Number(ce.amount_egp)}`, { field: 'amount' });
           if (String(ce.period).slice(0, 10) !== period) throw invalid('The commission belongs to another payroll month', { field: 'month' });
           if (await one(q, `SELECT 1 FROM payouts WHERE commission_entitlement_id = $1 AND status <> 'cancelled'`, [entitlementId])) {
             throw conflict('This commission was already paid');
           }
+          // the entitlement's amount — less what an older payroll sheet already paid for it inside the salary
+          const { left } = await itemLeftToPay(q, employeeId, period, ce.id, Number(ce.amount_egp));
+          if (Math.round(left * 100) !== Math.round(amount * 100)) throw invalid(`The commission amount is ${left}`, { field: 'amount', due: left });
         }
       }
       const p = await one(q, `INSERT INTO payouts (employee_id, kind, amount_egp, period, note, advance_id, created_by, commission_entitlement_id)
@@ -159,11 +189,12 @@ export const payoutsModule: Module = (r, { db, clock }) => {
    * The month's salary of every active employee who has one: what is due in cash — the payroll's net without the
    * commissions and the work expenses (those are paid on their own: صرف العمولة / صرف الطلب) — and what was paid.
    */
-  async function salaryRow(q: Q, e: { id: string; full_name: string; code?: string }, period: string, rules: any, t: string) {
-    const p: any = await computePayroll(q, e.id, period, t, rules);
+  async function salaryRow(q: Q, e: { id: string; full_name: string; code?: string }, period: string, rules: any, t: string, pre?: any, prePays?: any[]) {
+    const p: any = pre ?? await computePayroll(q, e.id, period, t, rules);
     if (p?.net == null) return null;
-    const due = Math.round((Number(p.net) - Number(p.commissions) - Number(p.workExpenses)) * 100) / 100;
-    const pays = await q.query(`SELECT id, amount_egp, status, created_at, received_at, created_by FROM payouts
+    // the salary part — the one rule shared with the payroll sheet (payroll-calc settlementComponents)
+    const due = Number(p.salaryDue);
+    const pays = prePays ? { rows: prePays } : await q.query(`SELECT id, amount_egp, status, created_at, received_at, created_by FROM payouts
                                  WHERE employee_id = $1 AND period = $2 AND kind = 'salary' AND status <> 'cancelled'
                                  ORDER BY created_at`, [e.id, period]);
     const paid = Math.round(pays.rows.reduce((s, x) => s + Number(x.amount_egp), 0) * 100) / 100;
@@ -186,14 +217,21 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const t = local(clock()).date;
     const emps = await db.query(`SELECT e.id, e.full_name, e.code FROM employees e JOIN employee_salaries s ON s.employee_id = e.id
                                   WHERE e.status = 'active' ORDER BY e.full_name`);
-    // a few employees at a time (the connection pool is small) instead of one after another
+    // every employee's payroll in a fixed number of queries; then a few rows at a time (the connection pool is small)
+    const pays = await computePayrollMany(db, emps.rows.map((e) => e.id as string), period, t, rules);
+    const salPays = new Map<string, any[]>();
+    for (const x of (await db.query(`SELECT employee_id, id, amount_egp, status, created_at, received_at, created_by FROM payouts
+                                       WHERE employee_id = ANY($1::uuid[]) AND period = $2 AND kind = 'salary' AND status <> 'cancelled'
+                                       ORDER BY created_at`, [emps.rows.map((e) => e.id), period])).rows) {
+      const l = salPays.get(x.employee_id) ?? []; l.push(x); salPays.set(x.employee_id, l);
+    }
     const out: any[] = new Array(emps.rows.length);
     let next = 0;
     await Promise.all([0, 1, 2].map(async () => {
       while (next < emps.rows.length) {
         const i = next++;
         const e = emps.rows[i];
-        const x = await salaryRow(db, e, period, rules, t);
+        const x = await salaryRow(db, e, period, rules, t, pays.get(e.id), salPays.get(e.id) ?? []);
         out[i] = x ? { ...x, canPay: x.remaining > 0.009 && paysSalaries(a) && e.id !== a.id,
           // the payment waiting for the code this person must enter (he paid it)
           verifyPayoutId: x.payments.find((p) => OPEN.includes(p.status) && p.createdBy === a.id)?.id ?? null } : null;

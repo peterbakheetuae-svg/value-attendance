@@ -177,8 +177,24 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (role) { vals.push(role); where.push(`e.role_key = $${vals.length}`); }
     const search = req.query.get('q');
     if (search) { vals.push(`%${search}%`); where.push(`(e.full_name ILIKE $${vals.length} OR e.code ILIKE $${vals.length} OR e.job_title ILIKE $${vals.length})`); }
+    // pages (additive): ?limit=N[&cursor=…] → N employees after the cursor + nextCursor while there are more. Without
+    // `limit` the whole list comes back as before — but no longer cut at 500 (employees beyond it were silently hidden).
+    const lim = req.query.get('limit');
+    if (lim !== null && !/^[1-9]\d{0,5}$/.test(lim)) throw invalid('limit must be 1–1000', { field: 'limit' });
+    const limit = lim === null ? null : Math.min(1000, Number(lim));
+    const cur = req.query.get('cursor');
+    if (cur) {
+      let c: { n: string; id: string };
+      try { c = JSON.parse(Buffer.from(cur, 'base64url').toString('utf8')); } catch { throw invalid('cursor is invalid', { field: 'cursor' }); }
+      if (typeof c?.n !== 'string' || !isUuid(c?.id)) throw invalid('cursor is invalid', { field: 'cursor' });
+      vals.push(c.n, c.id); where.push(`(e.full_name, e.id) > ($${vals.length - 1}, $${vals.length}::uuid)`);
+    }
     const rows = await db.query(`SELECT ${PROFILE_COLS} ${PROFILE_FROM}
-      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.full_name LIMIT 500`, vals);
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.full_name, e.id${limit ? ` LIMIT ${limit + 1}` : ''}`, vals);
+    const more = !!limit && rows.rows.length > limit;
+    if (more) rows.rows.length = limit!;
+    const last = rows.rows[rows.rows.length - 1];
+    const nextCursor = more && last ? Buffer.from(JSON.stringify({ n: last.full_name, id: last.id })).toString('base64url') : null;
     // Team-scoped readers get a reduced card, never contact/emergency/notes of others
     const full = has(a, 'employee.read_all');
     const canSal = has(a, 'employee.salary_read');
@@ -191,7 +207,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       const by = new Map(sal.rows.map((x) => [x.employee_id, x.base_salary]));
       for (const e of out as any[]) e.base_salary = by.get(e.id) ?? null;
     }
-    return ok({ employees: out });
+    return ok({ employees: out, ...(limit ? { hasMore: more, nextCursor } : {}) });
   });
 
   r.get('/employees/:id', async (req) => {

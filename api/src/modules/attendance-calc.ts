@@ -60,14 +60,26 @@ export interface MonthSummary {
  * Builds the day-by-day calendar for one employee and month from stored data only.
  * Working days are counted up to `today` (inclusive) so a running month is labelled incomplete.
  */
-export async function computeMonth(q: Q, employeeId: string, period: string, today: string): Promise<{ days: DayEntry[]; summary: MonthSummary }> {
-  const emp = await one(q, `
-    SELECT e.joining_date, e.status, COALESCE(ws.weekend_days, dws.weekend_days) AS weekend_days,
+/** Everything computeMonth reads for one employee and month (fetched one employee at a time, or for many at once). */
+export interface MonthData {
+  emp: { joining_date: string; status: string; weekend_days: number[] | null; settled_from: string | null } | null;
+  att: (AttendanceRow & { has_selfie: boolean })[];
+  hol: { day: string; name: string }[];
+  abs: { start_date: string; end_date: string; absence_type: string }[];
+  hourly: { day: string; duration_minutes: number }[];
+  weekendRule: boolean;
+}
+
+const EMP_MONTH_SQL = (where: string) => `
+    SELECT e.id, e.joining_date, e.status, COALESCE(ws.weekend_days, dws.weekend_days) AS weekend_days,
            to_char(${settledFromSql('e')}, 'YYYY-MM-DD') AS settled_from
       FROM employees e
       LEFT JOIN work_schedules ws ON ws.id = e.schedule_id
       LEFT JOIN work_schedules dws ON dws.is_default
-     WHERE e.id = $1`, [employeeId]);
+     WHERE ${where}`;
+
+async function fetchMonth(q: Q, employeeId: string, period: string): Promise<MonthData> {
+  const emp = await one(q, EMP_MONTH_SQL('e.id = $1'), [employeeId]);
   const days = daysInMonth(period);
   const first = days[0], last = days[days.length - 1];
   const [att, hol, abs, hourly, cfg] = await Promise.all([
@@ -82,7 +94,64 @@ export async function computeMonth(q: Q, employeeId: string, period: string, tod
                 AND status = 'approved' AND day BETWEEN $2 AND $3`, [employeeId, first, last]),
     q.query(`SELECT weekend_absence_rule FROM company_settings LIMIT 1`),
   ]);
+  return { emp: emp ?? null, att: att.rows, hol: hol.rows, abs: abs.rows, hourly: hourly.rows, weekendRule: cfg.rows[0]?.weekend_absence_rule === true };
+}
+
+/**
+ * The same reads as fetchMonth, for many employees in a fixed number of queries (no query per employee).
+ * Rows are grouped per employee; the calculation (buildMonth) is the very same function.
+ */
+export async function fetchMonthMany(q: Q, employeeIds: string[], period: string): Promise<Map<string, MonthData>> {
+  const days = daysInMonth(period);
+  const first = days[0], last = days[days.length - 1];
+  const [emps, att, hol, abs, hourly, cfg] = await Promise.all([
+    q.query(EMP_MONTH_SQL('e.id = ANY($1::uuid[])'), [employeeIds]),
+    q.query(`SELECT a.*, EXISTS (SELECT 1 FROM attendance_selfies s WHERE s.attendance_id = a.id) AS has_selfie
+               FROM attendance a WHERE a.employee_id = ANY($1::uuid[]) AND a.work_date BETWEEN $2 AND $3`, [employeeIds, first, last]),
+    q.query(`SELECT day, name FROM holidays WHERE day BETWEEN $1 AND $2`, [first, last]),
+    q.query(`SELECT employee_id, start_date, end_date, absence_type FROM requests
+              WHERE employee_id = ANY($1::uuid[]) AND type = 'full_day_absence' AND status = 'approved'
+                AND start_date <= $3 AND end_date >= $2`, [employeeIds, first, last]),
+    q.query(`SELECT employee_id, day, duration_minutes FROM requests
+              WHERE employee_id = ANY($1::uuid[]) AND type IN ('hourly_permission','short_leave','emergency_permission')
+                AND status = 'approved' AND day BETWEEN $2 AND $3`, [employeeIds, first, last]),
+    q.query(`SELECT weekend_absence_rule FROM company_settings LIMIT 1`),
+  ]);
+  const group = <T extends { employee_id: string }>(rows: T[]) => {
+    const m = new Map<string, Omit<T, 'employee_id'>[]>();
+    for (const r of rows) {
+      const { employee_id, ...rest } = r;
+      const list = m.get(employee_id) ?? [];
+      list.push(rest); m.set(employee_id, list);
+    }
+    return m;
+  };
+  const attBy = group(att.rows), absBy = group(abs.rows), hourlyBy = group(hourly.rows);
+  const empBy = new Map(emps.rows.map((e) => { const { id, ...rest } = e; return [id as string, rest]; }));
   const weekendRule = cfg.rows[0]?.weekend_absence_rule === true;
+  const out = new Map<string, MonthData>();
+  for (const id of employeeIds) {
+    out.set(id, { emp: (empBy.get(id) as any) ?? null, att: (attBy.get(id) ?? []) as any, hol: hol.rows, abs: (absBy.get(id) ?? []) as any,
+      hourly: (hourlyBy.get(id) ?? []) as any, weekendRule });
+  }
+  return out;
+}
+
+/**
+ * Builds the day-by-day calendar for one employee and month from stored data only.
+ * Working days are counted up to `today` (inclusive) so a running month is labelled incomplete.
+ */
+export async function computeMonth(q: Q, employeeId: string, period: string, today: string): Promise<{ days: DayEntry[]; summary: MonthSummary }> {
+  return buildMonth(await fetchMonth(q, employeeId, period), period, today);
+}
+
+/** The month's calculation itself — pure, from the data fetched above. */
+export function buildMonth(data: MonthData, period: string, today: string): { days: DayEntry[]; summary: MonthSummary } {
+  const { emp } = data;
+  const days = daysInMonth(period);
+  const last = days[days.length - 1];
+  const att = { rows: data.att }, hol = { rows: data.hol }, abs = { rows: data.abs }, hourly = { rows: data.hourly };
+  const weekendRule = data.weekendRule;
   const attBy = new Map(att.rows.map((a) => [a.work_date, a]));
   const holBy = new Map(hol.rows.map((h) => [h.day, h.name]));
   const hourlyBy = new Map<string, number>();

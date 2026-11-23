@@ -174,7 +174,11 @@ test('السجل: «الكل» for the office, each payout names who got it; tra
 test('the existing صرف مالية payments count against the HR cashbox', async () => {
   await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 9000, $2) ON CONFLICT DO NOTHING`, [c.ids.e1, c.ids.owner]);
   const before = (await sum(c.t.hr)).hr.bookBalance;
-  const p = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
+  // F2: a free-form salary payout is refused — the salary goes through صرف الراتب / the payroll sheet
+  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' })).body.error.details.reason, 'salary_path_required');
+  // a salary payment made by a payroll sheet (a sheet line pays any part of the salary)
+  const p = { status: 201, body: { payout: (await h.db.query(`INSERT INTO payouts (employee_id, kind, amount_egp, period, note, created_by)
+      VALUES ($1,'salary',3000,'2026-03-01','مرتب',(SELECT id FROM employees WHERE code = 'HR1')) RETURNING *`, [c.ids.e1])).rows[0] } };
   assert.equal(p.status, 201);
   assert.equal((await sum(c.t.hr)).hr.bookBalance, before, 'not out of the cashbox until the employee confirms');
   assert.equal((await confirmPayout(h, c.t.e1, c.t.hr, p.body.payout.id)).status, 200);

@@ -425,5 +425,8 @@ class JphUi {
       'paid' => ('اتصرفت', Ar.green),
       'handed' => ('اتسلمت للموظف — مستني التأكيد', Ar.green),
       'cancelled' => ('ملغاة', Ar.grey),
+      // an older payroll sheet paid it (all / part) inside the month's salary
+      'paid_in_payroll' => ('اتصرفت ضمن كشف المرتبات', Ar.green),
+      'partly_in_payroll' => ('جزء منها اتصرف في كشف المرتبات', Ar.amber),
       _ => ('لسه ماتصرفتش', Ar.amber),
     };

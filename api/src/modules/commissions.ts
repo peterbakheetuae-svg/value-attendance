@@ -7,6 +7,8 @@ import { audit, authenticate, can, canOwnerOnly, has, type Actor } from '../auth
 import { companyCommissionRows } from './company-payouts.ts';
 import { holdersOf, notify } from './notify.ts';
 import { resolveDeveloper } from './exclusive.ts';
+import { brokerageInstalled } from './brokerage.ts';
+import { legacyCoverage } from './legacy-coverage.ts';
 
 /**
  * إدارة عمولات المشاريع — projects with a commission split, "عمولة صفقة" requests by salespeople, approval by
@@ -97,8 +99,28 @@ const REQ_FROM = `FROM commission_requests cr
   LEFT JOIN employees sm ON sm.id = cr.sales_manager_id
   LEFT JOIN employees d ON d.id = cr.decided_by`;
 
+/**
+ * F1: what an OLDER payroll sheet (full net) paid for each of these entitlements inside the salary — from that sheet
+ * line's own records (legacy-coverage.ts), never inferred from a salary amount. id → covered amount (only those > 0).
+ */
+export async function payrollCoverage(q: Q, ents: { id: string; employee_id: string; period: unknown; status: string; payout_id?: string | null }[]) {
+  const covered = new Map<string, number>();
+  const open = ents.filter((x) => x.status === 'active' && !x.payout_id);
+  const byPeriod = new Map<string, Set<string>>();
+  for (const x of open) {
+    const p = String(x.period instanceof Date ? x.period.toISOString() : x.period).slice(0, 10);
+    (byPeriod.get(p) ?? byPeriod.set(p, new Set()).get(p)!).add(x.employee_id);
+  }
+  for (const [period, emps] of byPeriod) {
+    for (const cov of (await legacyCoverage(q, [...emps], period)).values()) {
+      for (const [id, amt] of cov.items) if (amt > 0.009) covered.set(id, amt);
+    }
+  }
+  return covered;
+}
+
 /** Payroll status of each entitlement of these requests (HR view / own view). */
-async function attachPayroll(q: Q, rows: any[], a: Actor) {
+async function attachPayroll(q: Q, rows: any[], a: Actor, today = local(new Date()).date) {
   if (!rows.length) return rows;
   const ents = await q.query(`
     SELECT ce.*, e.full_name AS employee_name, po.id AS payout_id, po.status AS payout_status, po.received_at, po.created_by AS payout_created_by
@@ -106,8 +128,10 @@ async function attachPayroll(q: Q, rows: any[], a: Actor) {
       JOIN employees e ON e.id = ce.employee_id
       LEFT JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
      WHERE ce.request_id = ANY($1::uuid[])`, [rows.map((r) => r.id)]);
+  const inPayroll = await payrollCoverage(q, ents.rows);
   const by = new Map<string, any[]>();
   for (const x of ents.rows) {
+    x.covered_in_payroll = inPayroll.get(x.id) ?? 0;
     if (!canAll(a) && x.employee_id !== a.id) continue; // own entitlements only
     const list = by.get(x.request_id) ?? [];
     list.push(shapeEntitlement(x, a));
@@ -122,7 +146,13 @@ function shapeEntitlement(x: any, a?: Actor) {
     id: x.id, requestId: x.request_id, employeeId: x.employee_id, employeeName: x.employee_name, role: x.role,
     amount: Number(x.amount_egp), period: String(x.period).slice(0, 7), status: x.status,
     includedAt: x.included_at, payrollIncluded: x.status === 'active',
-    payment: x.status !== 'active' ? 'cancelled' : !x.payout_id ? 'unpaid' : x.payout_status === 'received' ? 'paid' : 'handed',
+    // paid_in_payroll / partly_in_payroll: an older payroll sheet paid it (all / part) inside the salary — no payout of its own
+    payment: x.status !== 'active' ? 'cancelled'
+      : !x.payout_id && Number(x.covered_in_payroll ?? 0) + 0.009 >= Number(x.amount_egp) ? 'paid_in_payroll'
+        : !x.payout_id && Number(x.covered_in_payroll ?? 0) > 0.009 ? 'partly_in_payroll'
+          : !x.payout_id ? 'unpaid' : x.payout_status === 'received' ? 'paid' : 'handed',
+    coveredInPayroll: Number(x.covered_in_payroll ?? 0),
+    leftToPay: x.status === 'active' && !x.payout_id ? Math.round((Number(x.amount_egp) - Number(x.covered_in_payroll ?? 0)) * 100) / 100 : 0,
     payoutId: x.payout_id ?? null, receivedAt: x.received_at ?? null,
     canVerify: !!a && !!x.payout_id && ['pending', 'disputed'].includes(x.payout_status) && x.payout_created_by === a.id,
     awaitingMyCode: !!a && !!x.payout_id && ['pending', 'disputed'].includes(x.payout_status) && x.employee_id === a.id,
@@ -318,7 +348,7 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     else { vals.push(a.id); scope = `cr.employee_id = $2`; } // a salesperson sees only his own units
     const units = await db.query(`SELECT ${REQ_COLS} ${REQ_FROM}
        WHERE cr.project_id = $1 AND cr.status = 'approved' AND ${scope} ORDER BY cr.decided_at DESC`, vals);
-    await attachPayroll(db, units.rows, a);
+    await attachPayroll(db, units.rows, a, local(clock()).date);
     const st = {
       units: units.rows.length,
       sales_value: units.rows.reduce((s, x) => s + Number(x.unit_value), 0),
@@ -365,7 +395,7 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     if (pid && isUuid(pid)) { vals.push(pid); where.push(`cr.project_id = $${vals.length}`); }
     const rows = await db.query(`SELECT ${REQ_COLS} ${REQ_FROM} ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                                  ORDER BY cr.created_at DESC LIMIT 500`, vals);
-    await attachPayroll(db, rows.rows, a);
+    await attachPayroll(db, rows.rows, a, local(clock()).date);
     return ok({ currency: 'EGP', requests: rows.rows.map((x) => shapeRequest(x, a)) });
   });
 
@@ -449,7 +479,7 @@ export const commissionsModule: Module = (r, { db, clock }) => {
       return y.id;
     });
     const row = await one(db, `SELECT ${REQ_COLS} ${REQ_FROM} WHERE cr.id = $1`, [out]);
-    await attachPayroll(db, [row], a);
+    await attachPayroll(db, [row], a, local(clock()).date);
     return ok({ request: shapeRequest(row, a) });
   });
 
@@ -470,6 +500,11 @@ export const commissionsModule: Module = (r, { db, clock }) => {
       const paid = await one(q, `SELECT 1 FROM commission_entitlements ce JOIN payouts po ON po.commission_entitlement_id = ce.id
                                   WHERE ce.request_id = $1 AND po.status <> 'cancelled'`, [x.id]);
       if (paid) throw new AppError('conflict', 'This commission was already paid out — cancel the payout first', { reason: 'already_paid' });
+      // F8: nor once it went out inside a month's salary (an older payroll sheet) — the history stays as it is
+      const ents = (await q.query(`SELECT id, employee_id, period, status, included_at FROM commission_entitlements WHERE request_id = $1`, [x.id])).rows;
+      if ((await payrollCoverage(q, ents)).size) {
+        throw new AppError('conflict', 'This commission was already paid inside a payroll sheet — it cannot be cancelled', { reason: 'settled_in_payroll' });
+      }
       await q.query(`UPDATE commission_requests SET status = 'voided', voided_by = $2, voided_at = now(), void_reason = $3 WHERE id = $1`,
         [x.id, a.id, reason]);
       await q.query(`UPDATE commission_entitlements SET status = 'cancelled', cancelled_at = now() WHERE request_id = $1`, [x.id]);
@@ -490,16 +525,23 @@ export const commissionsModule: Module = (r, { db, clock }) => {
     if (m) { vals.push(monthParam(m)); where.push(`ce.period = $${vals.length}`); }
     const e = req.query.get('employeeId');
     if (all && e && isUuid(e)) { vals.push(e); where.push(`ce.employee_id = $${vals.length}`); }
+    // a resale / rental share (087) is a commission entitlement too — named by its deal (before 087 every row has a request)
+    const deals = await brokerageInstalled(db);
     const rows = await db.query(`
-      SELECT ce.*, e.full_name AS employee_name, p.name AS project_name, cr.unit_no, cr.decided_at,
+      SELECT ce.*, e.full_name AS employee_name, cr.decided_at,
+             ${deals ? `COALESCE(p.name, CASE bd.kind WHEN 'resale' THEN 'إعادة بيع' ELSE 'إيجار' END) AS project_name, COALESCE(cr.unit_no, bd.property) AS unit_no,`
+                     : `p.name AS project_name, cr.unit_no,`}
              po.id AS payout_id, po.status AS payout_status, po.received_at, po.created_by AS payout_created_by
         FROM commission_entitlements ce
         JOIN employees e ON e.id = ce.employee_id
-        JOIN commission_requests cr ON cr.id = ce.request_id
-        JOIN commission_projects p ON p.id = cr.project_id
+        LEFT JOIN commission_requests cr ON cr.id = ce.request_id
+        LEFT JOIN commission_projects p ON p.id = cr.project_id
+        ${deals ? `LEFT JOIN brokerage_shares bs ON bs.id = ce.brokerage_share_id LEFT JOIN brokerage_deals bd ON bd.id = bs.deal_id` : ''}
         LEFT JOIN payouts po ON po.commission_entitlement_id = ce.id AND po.status <> 'cancelled'
        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY ce.period DESC, e.full_name LIMIT 1000`, vals);
+    const inPayroll = await payrollCoverage(db, rows.rows);
+    for (const x of rows.rows) x.covered_in_payroll = inPayroll.get(x.id) ?? 0;
     const list = rows.rows.map((x) => shapeEntitlement(x, a));
     const active = list.filter((x) => x.status === 'active');
     // the commission marketing companies (what they earned, on their payment day) — paid with the company's code, once 084 runs

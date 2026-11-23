@@ -6,7 +6,7 @@ import { isUuid, monthParam, num, obj, oneOf, str } from '../http/validate.ts';
 import { audit, authenticate, has, type Actor, notSettled } from '../auth/context.ts';
 import { notify } from './notify.ts';
 import { tellRecipient } from './payouts.ts';
-import { computePayroll, loadRules } from './payroll-calc.ts';
+import { computePayrollMany, loadRules } from './payroll-calc.ts';
 
 /**
  * Financial system, phase 3 — monthly payroll batches and advance repayment.
@@ -27,6 +27,29 @@ const MAX_STAGES = 2;
 
 async function salaryPaidOut(q: Q, employeeId: string, period: string) {
   return !!(await one(q, `SELECT 1 FROM payouts WHERE employee_id = $1 AND period = $2 AND kind = 'salary' AND status = 'received'`, [employeeId, period]));
+}
+
+/** advanceState for many advances in two queries (the lists used to run two queries per advance) */
+async function advanceStates(q: Q, ids: string[]) {
+  if (!ids.length) return [];
+  const as = await q.query(`SELECT ar.*, e.full_name AS employee_name FROM advance_requests ar JOIN employees e ON e.id = ar.employee_id
+                             WHERE ar.id = ANY($1::uuid[])`, [ids]);
+  const ds = await q.query(`SELECT d.*, c.full_name AS created_by_name FROM advance_deductions d JOIN employees c ON c.id = d.created_by
+                             WHERE d.advance_id = ANY($1::uuid[]) ORDER BY d.period, d.created_at`, [ids]);
+  const byA = new Map(as.rows.map((a) => [a.id as string, a]));
+  return ids.filter((id) => byA.has(id)).map((id) => stateOf(byA.get(id), ds.rows.filter((d) => d.advance_id === id)));
+}
+
+function stateOf(a: any, rows: any[]) {
+  const active = rows.filter((x) => x.status === 'active');
+  const planned = active.reduce((s, x) => s + Number(x.amount_egp), 0);
+  return {
+    advance: a,
+    deductions: rows,
+    planned: active.length ? r2(planned) : Number(a.amount_egp),
+    remaining: active.length ? r2(Number(a.amount_egp) - planned) : 0,
+    mode: active.length ? 'manual' : 'default',
+  };
 }
 
 async function advanceState(q: Q, advanceId: string) {
@@ -63,22 +86,14 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canPrepare(a) && !canApprove(a)) throw forbidden();
     const rows = await db.query(`SELECT id FROM advance_requests WHERE kind = 'advance' AND status = 'confirmed' ORDER BY period DESC, created_at DESC LIMIT 300`);
-    const out = [];
-    for (const x of rows.rows) {
-      const s = await advanceState(db, x.id);
-      if (s) out.push(shapeAdvance(s));
-    }
+    const out = (await advanceStates(db, rows.rows.map((x) => x.id as string))).map(shapeAdvance);
     return ok({ currency: 'EGP', advances: out });
   });
 
   r.get('/advances/mine', async (req) => {
     const a = await authenticate(db, req);
     const rows = await db.query(`SELECT id FROM advance_requests WHERE kind = 'advance' AND status = 'confirmed' AND employee_id = $1 ORDER BY period DESC`, [a.id]);
-    const out = [];
-    for (const x of rows.rows) {
-      const s = await advanceState(db, x.id);
-      if (s) out.push(shapeAdvance(s));
-    }
+    const out = (await advanceStates(db, rows.rows.map((x) => x.id as string))).map(shapeAdvance);
     return ok({ currency: 'EGP', advances: out });
   });
 
@@ -149,6 +164,8 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
                      'receivedAt', po.received_at, 'disputeReason', po.dispute_reason) ORDER BY po.created_at)
                 FROM payouts po WHERE po.batch_line_id = l.id AND po.status <> 'cancelled') AS payments
         FROM payroll_batch_lines l JOIN employees e ON e.id = l.employee_id WHERE l.batch_id = $1 ORDER BY e.full_name`, [id]);
+    // each part's settlement as it stands now (the snapshot keeps the figures of when the sheet was prepared)
+    const live = await computePayrollMany(q, lines.rows.map((l) => l.employee_id as string), String(b.period).slice(0, 10), today(), await loadRules(q));
     const shaped = lines.rows.map((l) => {
       const pays = (l.payments ?? []) as any[];
       const paid = pays.reduce((s, p) => s + Number(p.amount), 0);
@@ -159,6 +176,9 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
             : pays.every((p) => p.status === 'received') ? 'confirmed' : 'awaiting_confirmation';
       return { id: l.id, employeeId: l.employee_id, employeeName: l.employee_name, employeeCode: l.employee_code, net,
         paid: r2(paid), remaining: r2(Math.max(0, net - paid)), status, snapshot: l.snapshot,
+        // salary_only: a sheet prepared under F1; legacy: an older sheet whose net included commissions / work expenses
+        settles: l.snapshot?.settles === 'salary_only' ? 'salary_only' : 'legacy_full_net',
+        components: live.get(l.employee_id)?.components ?? null,
         payments: pays.map((p) => ({ ...p, amount: Number(p.amount) })) };
     });
     const total = shaped.reduce((s, l) => s + l.net, 0);
@@ -186,11 +206,22 @@ export const payrollBatchesModule: Module = (r, { db, clock }) => {
     const emps = await q.query(`
       SELECT e.id FROM employees e WHERE e.status = 'active' AND e.role_key <> 'owner'
          AND EXISTS (SELECT 1 FROM employee_salaries s WHERE s.employee_id = e.id) ORDER BY e.full_name`);
+    const all = await computePayrollMany(q, emps.rows.map((e) => e.id as string), period, today(), rules);
+    const ids: string[] = [], snaps: string[] = [], nets: number[] = [];
     for (const e of emps.rows) {
-      const p = await computePayroll(q, e.id, period, today(), rules);
+      const p = all.get(e.id)!;
       if (p.net === null) continue;
-      await q.query(`INSERT INTO payroll_batch_lines (batch_id, employee_id, snapshot, net_egp) VALUES ($1,$2,$3,$4)`,
-        [batchId, e.id, JSON.stringify(p), Math.max(0, Number(p.net))]);
+      // the sheet pays the SALARY part only (F1): commissions and work expenses are settled on their own linked paths
+      // (صرف العمولة / صرف الطلب) and are shown in the snapshot with their own status — never paid twice
+      // the snapshot freezes the figures; each part's paid / unpaid status is attached live when the sheet is viewed
+      const { components: _live, ...frozen } = p;
+      ids.push(e.id); snaps.push(JSON.stringify({ ...frozen, settles: 'salary_only' })); nets.push(Math.max(0, Number(p.salaryDue)));
+    }
+    // one statement for every line (in the same order as before)
+    if (ids.length) {
+      await q.query(`INSERT INTO payroll_batch_lines (batch_id, employee_id, snapshot, net_egp)
+                     SELECT $1, x.id, x.snap::jsonb, x.net FROM unnest($2::uuid[], $3::text[], $4::numeric[]) WITH ORDINALITY AS x(id, snap, net, i) ORDER BY x.i`,
+        [batchId, ids, snaps, nets]);
     }
   }
 

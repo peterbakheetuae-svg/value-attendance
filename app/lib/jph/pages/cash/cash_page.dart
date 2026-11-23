@@ -14,6 +14,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../forms/payment_voucher_pdf.dart';
 import 'cash_overview.dart';
+import 'expense_classes.dart';
 import '../../widgets/glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -908,11 +909,15 @@ class _ExpensesTab extends StatefulWidget {
 class _ExpensesTabState extends State<_ExpensesTab> {
   List<Map<String, dynamic>> _items = [];
   bool _loading = true;
+  // مجموعات وتصنيفات المصروفات (once 086 runs): optional, classification only
+  ExpenseClasses _classes = const ExpenseClasses();
+  String? _gid, _cid;
 
   @override
   void initState() {
     super.initState();
     _load();
+    ExpenseClasses.load().then((c) { if (mounted) setState(() => _classes = c); });
   }
 
   Future<void> _load() async {
@@ -949,6 +954,8 @@ class _ExpensesTabState extends State<_ExpensesTab> {
       'cashbox': _box, 'amount': num.tryParse(_amount.text.trim()), 'category': _category.text.trim(), 'reason': _reason.text.trim(),
       'beneficiary': _beneficiary.text.trim(), 'notes': _notes.text.trim(), 'clientRef': _ref, 'paymentMethod': _method,
       if (_mk != null && _category.text.trim() == 'شركة تسويق') 'marketingCompanyId': _mk!['id'],
+      if (_gid != null) 'groupId': _gid,
+      if (_cid != null) 'categoryId': _cid,
     }, ok: 'اتسجل المصروف ✅');
     if (!mounted) return;
     setState(() => _saving = false);
@@ -958,6 +965,7 @@ class _ExpensesTabState extends State<_ExpensesTab> {
         c.clear();
       }
       _ref = newClientRef();
+      setState(() { _gid = null; _cid = null; });
       await _load();
       await widget.onChanged();
     }
@@ -987,11 +995,13 @@ class _ExpensesTabState extends State<_ExpensesTab> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 100), children: [
         if (_canRecord) ...[
-          JphUi.tabs(isDark, const [('مصاريف', Icons.shopping_bag_rounded), ('مصاريف ثابتة', Icons.event_repeat_rounded)], _view,
-              (i) => setState(() => _view = i)),
+          JphUi.tabs(isDark, [('مصاريف', Icons.shopping_bag_rounded), ('مصاريف ثابتة', Icons.event_repeat_rounded),
+            if (_classes.installed) ('المجموعات', Icons.folder_rounded)], _view, (i) => setState(() => _view = i)),
           const SizedBox(height: 14),
         ],
-        if (_canRecord && _view == 1)
+        if (_canRecord && _view == 2 && _classes.installed)
+          ExpenseClassesView(isDark: isDark)
+        else if (_canRecord && _view == 1)
           _FixedExpenses(isDark: isDark, can: widget.can, onChanged: () async {
             await _load();
             await widget.onChanged();
@@ -1025,6 +1035,11 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                         if (_amount.text.trim().isEmpty && ((m['monthlyFee'] as num?) ?? 0) > 0) _amount.text = '${m['monthlyFee']}';
                       })),
                   ]),
+                ],
+                if (_classes.installed) ...[
+                  const SizedBox(height: 14),
+                  ExpenseClassFields(isDark: isDark, classes: _classes, groupId: _gid, categoryId: _cid,
+                      onChanged: (g, c) => setState(() { _gid = g; _cid = c; })),
                 ],
                 const SizedBox(height: 14),
                 _segmented(isDark, const {'cash': 'نقدي', 'bank': 'من البنك'}, _method, (v) => setState(() => _method = v)),
@@ -1070,7 +1085,20 @@ class _ExpensesTabState extends State<_ExpensesTab> {
                 if (x['reviewedAt'] != null) JphUi.chip('اتراجع: ${x['reviewedByName'] ?? ''}', Ar.grey),
                 if ('${x['rejectReason'] ?? ''}'.isNotEmpty) JphUi.chip('السبب: ${x['rejectReason']}', Ar.red),
                 if ('${x['reverseReason'] ?? ''}'.isNotEmpty) JphUi.chip('عكس: ${x['reverseReason']}', Ar.grey),
+                if (_classes.installed) expenseClassChip(x),
               ]),
+              // تصنيف (metadata only): المدير / المالك any expense, the accountant his own cashbox's
+              if (_classes.installed && (office || (widget.can['hrDesk'] == true && x['cashbox'] == 'hr')))
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      if (await reclassifyExpense(context, isDark, _classes, x)) await _load();
+                    },
+                    icon: const Icon(Icons.sell_rounded, size: 18),
+                    label: const Text('تصنيف'),
+                  ),
+                ),
               if (office || widget.can['approve'] == true || widget.can['reverse'] == true)
                 Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
                   if (x['status'] == 'pending_approval' && widget.can['approve'] == true) ...[

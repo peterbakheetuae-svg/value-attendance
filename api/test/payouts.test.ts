@@ -23,11 +23,17 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   assert.equal((await confirmPayout(h, c.t.hr, tGm, fund.body.payout.id)).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 5000);
 
-  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' });
+  // F2: a free-form salary payout is refused — the salary goes through صرف الراتب / the payroll sheet
+  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'salary', amount: 3000, month: '2026-03' })).body.error.details.reason, 'salary_path_required');
+  // a salary payment made by a payroll sheet (a sheet line pays any part of the salary)
+  const pay = { status: 201, body: { payout: (await h.db.query(`INSERT INTO payouts (employee_id, kind, amount_egp, period, note, created_by)
+      VALUES ($1,'salary',3000,'2026-03-01','مرتب',(SELECT id FROM employees WHERE code = 'HR1')) RETURNING *`, [c.ids.e1])).rows[0] } };
   assert.equal(pay.status, 201);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 5000, 'not out of HR cash until the employee confirms');
   // approved policy: the HR cashbox may go below zero — the deficit is what the office owes it
-  const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 });
+  // F2: a commission is paid only against its approved entitlement
+  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 })).body.error.details.reason, 'entitlement_required');
+  const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'advance', amount: 2500 });
   assert.equal(over.status, 201);
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${over.body.payout.id}/cancel`, {})).status, 200);
   // the employee sees it, confirms receipt; others cannot

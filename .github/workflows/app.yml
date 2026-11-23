@@ -11,7 +11,8 @@ on:
       web_from_run: { description: 'run id whose deploy-out (web.zip, the web that is live now) goes with it', required: false, default: '' }
 permissions:
   contents: write   # keeps a copy of each build as a release (backup); the live app and its updates are on Hostinger
-concurrency: { group: app-build, cancel-in-progress: true }
+# release-prep/* candidates get their own queue: they never cancel (or wait behind) a main / tracking-controls build
+concurrency: { group: "${{ startsWith(github.ref, 'refs/heads/release-prep/') && format('app-candidate-{0}', github.ref) || 'app-build' }}", cancel-in-progress: true }
 env:
   FLUTTER_VERSION: '3.38.10'
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
@@ -53,8 +54,17 @@ jobs:
             # Public API URL (not a secret). Override with the repository variable API_BASE_URL if it moves.
             echo "API_BASE_URL=https://valunivo.vercel.app" >> "$GITHUB_ENV"
           fi
+      - name: Release candidate (release-prep/* manual run) — its version; no publish / deploy step runs on these branches
+        if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/release-prep/')
+        run: |
+          # Web and Android of one run carry ONE version, 1.0.<run>+<run> (the Android channel's rule: the third part is the
+          # build). Windows keeps its own channel numbering (windows.yml) — its updater compares Windows builds only.
+          echo "CANDIDATE=1" >> "$GITHUB_ENV"
+          echo "RV=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "VERSION_ARGS=--build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "candidate 1.0.${{ github.run_number }}+${{ github.run_number }} from ${{ github.sha }}"
       - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
-        run: flutter build web --release --wasm --base-href "/valunivo/" --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+        run: flutter build web --release --wasm --base-href "/valunivo/" $VERSION_ARGS --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
       - name: Web Push (notifications for the web app on iPhone / browsers) — its worker + helper next to the app
         run: |
           cp web_push/push-sw.js web_push/va-push.js build/web/
@@ -133,12 +143,42 @@ jobs:
         run: |
           # a manual run builds the APK on main only (the tracking-controls branch run is web-only)
           W=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" = "refs/heads/main" ] && W=1
+          # a release candidate (release-prep/*) builds the APK too — signed with the release key or not at all
+          if [ "$CANDIDATE" = "1" ]; then
+            [ "$SIGNED" = "1" ] || { echo "::error::release candidate: the release signing key is not available — no APK (never a debug-signed one)"; exit 1; }
+            W=1
+          fi
           printf '%s' "$COMMIT_MSG" | head -n1 | grep -q '\[apk\]' && W=1
           echo "BUILD_APK=$W" >> "$GITHUB_ENV"; echo "build APK: $W"
       - name: Build Android APK
         # a web-only update skips the (slow) Android build entirely, so the web goes out quickly
         if: env.BUILD_APK == '1'
-        run: flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
+        run: flutter build apk --release ${VERSION_ARGS:---build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
+      - name: Release candidate — verify the APK (signature, same certificate as the published release, package, version)
+        if: env.CANDIDATE == '1'
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee apk-verify.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' apk-verify.txt || { echo "::error::no v2 signature"; exit 1; }
+          ! grep -qi 'CN=Android Debug' apk-verify.txt || { echo "::error::debug-signed"; exit 1; }
+          # the permanent copy of the last published Android release (GitHub release, read only)
+          PREV=$(gh api "repos/${{ github.repository }}/releases?per_page=50" -q '[.[] | select(.prerelease | not) | select(.draft | not) | .tag_name | select(test("^v1[.]0[.][0-9]+$"))][0]')
+          [ -n "$PREV" ] || { echo "::error::no published Android release to compare the certificate with"; exit 1; }
+          gh release download "$PREV" -R "${{ github.repository }}" -p value-attendance.apk -O published.apk
+          grep 'SHA-256 digest' apk-verify.txt | head -1 | tee new.cert
+          "$BT/apksigner" verify --print-certs published.apk | grep 'SHA-256 digest' | head -1 | tee old.cert
+          cmp new.cert old.cert || { echo "::error::signing certificate differs from the published $PREV"; exit 1; }
+          "$BT/aapt2" dump badging "$APK" | head -1 | tee badging.txt
+          grep -q "package: name='com.jph.valueattendance" badging.txt || { echo "::error::application id"; exit 1; }
+          grep -q "versionCode='${{ github.run_number }}'" badging.txt && grep -q "versionName='$RV'" badging.txt || { echo "::error::version"; exit 1; }
+          echo "candidate APK $RV (${{ github.run_number }}) — same signing certificate as $PREV; sha256 $(sha256sum "$APK" | cut -d' ' -f1)"
+          mkdir -p ../candidate && cp "$APK" "../candidate/VALUNIVO-$RV-android.apk" && cp apk-verify.txt badging.txt ../candidate/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: env.CANDIDATE == '1'
+        with: { name: release-candidate-android, path: candidate, retention-days: 30 }
       - name: Publish the update (backup copy as a release; phones and browsers get it from Hostinger)
         # the web-only pre-release never needs the Android key; an Android ([apk]) release does
         id: pub

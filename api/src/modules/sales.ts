@@ -5,7 +5,7 @@ import { local } from '../lib/time.ts';
 import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { createHash } from 'node:crypto';
 import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../auth/context.ts';
-import { canHrOperate, canOffice, parseReceipt, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
+import { canHrOperate, canOffice, parseReceipt, priorByClientRef, sameAmount, recordReceipt, RECEIPT_SELECT, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
 import { holdersOf, notify } from './notify.ts';
 
@@ -324,8 +324,23 @@ export const salesModule: Module = (r, { db, clock }) => {
       const base = parseReceipt({ ...b, kind: reqKind, payerName: b.payerName || s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
         purpose: b.purpose || `${p.name} — وحدة ${s.unit_no}` }, a, clock());
       if (base.ref) {
-        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [base.ref]);
-        if (dup) return { ids: [dup.id], duplicate: true };
+        // the retry of THIS sale's collection. Only the first receipt of a split collection carries the reference; the
+        // others were written in the same transaction (same created_at), by the same person, on the same sale and cashbox.
+        // The retry answers with that whole set — in the order first sent — and only when the set is this request: same
+        // sale, cashbox, kind and the same total. Another sale / kind / box / total → 409, nothing of the original.
+        const dup = await priorByClientRef(q, 'cash_receipts', base.ref, a.id, (r) => r.sale_id === s.id && r.cashbox === base.box
+          && (reqKind === 'installment' ? r.kind === 'installment' : r.kind === reqKind));
+        if (dup) {
+          const set: { id: string; amount_egp: string }[] = (await q.query(`
+            SELECT r.id, r.amount_egp FROM cash_receipts r, cash_receipts f
+             WHERE f.id = $1 AND r.sale_id = f.sale_id AND r.recorded_by = f.recorded_by AND r.cashbox = f.cashbox
+               AND r.created_at = f.created_at AND (r.id = f.id OR r.client_ref IS NULL)
+             ORDER BY r.ref_no`, [dup.id])).rows;
+          if (!sameAmount(set.reduce((t, x) => t + Number(x.amount_egp), 0), base.amount)) {
+            throw new AppError('conflict', 'رقم الطلب ده اتسجل لحركة تانية', { reason: 'client_ref_reused' });
+          }
+          return { ids: set.map((x) => x.id), duplicate: true };
+        }
       }
       const open = (await q.query(`
         SELECT i.*, COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.installment_id = i.id AND r.status = 'posted'), 0) AS paid
@@ -593,7 +608,8 @@ export const salesModule: Module = (r, { db, clock }) => {
       const input = parseReceipt({ ...b, kind, payerName: b.payerName ?? s.buyer_name, payerPhone: b.payerPhone ?? s.buyer_phone,
         purpose: `${p.name} — وحدة ${s.unit_no} — ${line.seq === 0 ? (kind === 'reservation' ? 'حجز' : 'مقدم') : `قسط ${line.seq}`}` }, a, clock());
       if (input.ref) {
-        const dup = await one(q, `SELECT id FROM cash_receipts WHERE client_ref = $1`, [input.ref]);
+        const dup = await priorByClientRef(q, 'cash_receipts', input.ref, a.id, (r) => r.sale_id === s.id && r.installment_id === line.id
+          && r.kind === kind && r.cashbox === input.box && sameAmount(r.amount_egp, input.amount));
         if (dup) return { id: dup.id, duplicate: true };
       }
       const paid = await one(q, `SELECT COALESCE(sum(amount_egp), 0) AS s FROM cash_receipts WHERE installment_id = $1 AND status = 'posted'`, [line.id]);
