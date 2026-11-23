@@ -115,3 +115,10 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
   points at them), with their sessions (51), leave balances (51), notifications (57), device (1).
 - Kept: 8 active employees, 25 leads, 5 projects, 2 units, 3 listings, 2 owner shares, 8 custody records, 2 fixed expenses,
   the audit log (1023 + 1 entry recording this run). No trigger left disabled. Restore = Neon backup branch above.
+
+## 2026-11-24 ~00:40 Cairo — sell / rent a listing from the lead (089) + Android 1.0.180 + Windows 1.0.44 (owner-approved)
+- Neon backup branch `backup-before-089` (`br-little-term-ba0pa6at`, no compute).
+- `main` d356b8e → 0d23322; Vercel applied `089_brokerage_deal_lead.sql` (81 migrations; `/readyz` ok); data unchanged (8 active, 25 leads, 3 listings).
+- Android 1.0.180 (sha256 3b0e59f3af5453b0ab31786964b78cb40239b7ac64afff375f7d357745a20b5d) both paths verified; 1.0.177 backed up to
+  `~/va-backups/android-20261123T221715Z`.
+- Windows 1.0.44 (sha256 e0ffca6d9205553fdc3f6eabfae001d1eb417e46888eb42db0692acc80664901) verified live; 1.0.43 remains for rollback.
