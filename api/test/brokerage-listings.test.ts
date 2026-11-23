@@ -140,3 +140,40 @@ test('nobody receives a sale he is part of', async () => {
   const r = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/receive`, { amount: 9_000, shares: [{ role: 'closer', employeeId: c.ids.e2, mode: 'pct', value: 10 }], recipient: 'manager' });
   assert.equal(r.status, 201, 'the general manager instead');
 });
+
+test('from the sales board (089): the salesman sells / rents a listing to his lead — the lead follows the deal', async () => {
+  const lead = async (name: string, phone: string) => {
+    const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع ' + phone, ownerName: 'مالك', ownerPhone: '0100' })).body.project.id;
+    const channel = (await h.call(c.t.owner, 'GET', '/leads/meta')).body.channels[0].id;
+    const r = await h.call(c.t.owner, 'POST', '/leads', { fullName: name, phone, projectId: pid, channelId: channel, assignees: [c.ids.e2] });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return r.body.lead;
+  };
+  const l = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'شقة الليد' }))).body.listing;
+  const ld = await lead('عميل الليد', '01099900001');
+  const sell = { clientName: 'عميل الليد', clientPhone: '01099900001', finalPrice: 2_000_000, commission: 20_000, leadId: ld.id };
+  assert.equal(reason(await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, sell)), 'deal_lead_not_installed', 'before 089');
+  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); });
+  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); });
+  assert.equal((await h.call(c.t.e3, 'POST', `/brokerage/listings/${l.id}/sell`, sell)).status, 400, 'not his lead');
+  const s = await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, sell);
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.equal(s.body.deal.leadId, ld.id);
+  const stage = async (id: string) => (await h.db.query(`SELECT stage, last_comment FROM leads WHERE id = $1`, [id])).rows[0];
+  assert.equal((await stage(ld.id)).stage, 'reservation');
+  assert.match((await stage(ld.id)).last_comment, /مستني استلام العمولة/);
+  // the administrative officer receives it → the lead is a done deal
+  const r = await h.call(aoT, 'POST', `/brokerage/deals/${s.body.deal.id}/receive`, { amount: 20_000, shares: [{ role: 'closer', employeeId: c.ids.e2, mode: 'pct', value: 30 }], recipient: 'hr' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal((await stage(ld.id)).stage, 'done_deal');
+  // a rental from another lead, then cancelled → back to follow-up
+  const l2 = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ kind: 'rental', title: 'محل الليد', price: 12_000 }))).body.listing;
+  const ld2 = await lead('مستأجر الليد', '01099900002');
+  const s2 = await h.call(c.t.e2, 'POST', `/brokerage/listings/${l2.id}/sell`, { clientName: 'مستأجر', finalPrice: 12_000, commission: 12_000, leadId: ld2.id });
+  assert.equal(s2.status, 201, JSON.stringify(s2.body));
+  assert.equal((await stage(ld2.id)).stage, 'reservation');
+  assert.equal((await h.call(c.t.e2, 'POST', `/brokerage/deals/${s2.body.deal.id}/cancel`, {})).status, 200);
+  assert.equal((await stage(ld2.id)).stage, 'following');
+  // a done deal can't be sold again from the lead
+  assert.equal((await h.call(c.t.e2, 'POST', `/brokerage/listings/${l2.id}/sell`, { ...sell, leadId: ld.id })).status, 409);
+});

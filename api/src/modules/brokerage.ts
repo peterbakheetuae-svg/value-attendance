@@ -6,6 +6,7 @@ import { adminOfficerSql, audit, authenticate, can, type Actor } from '../auth/c
 import { holdersOf, notify } from './notify.ts';
 import { local } from '../lib/time.ts';
 import { canHrOperate, canOffice, parseReceipt, recordReceipt } from './cash.ts';
+import { leadForReservation } from './leads.ts';
 
 /**
  * Resale (إعادة بيع) and rental (إيجار) under «التسويق» — PROPOSED migration 087; until it runs every route answers
@@ -188,6 +189,7 @@ async function collectSide(q: Q, a: Actor, d: any, side: 'owner' | 'client', b: 
        WHERE commission_entitlements.status = 'cancelled'`, [d.id, period, now]);
     await audit(q, a.id, 'brokerage.collected', 'brokerage_deal', d.id, { status: 'approved' }, { status: 'collected', period });
     await syncListing(q, d.id);
+    await leadFromDeal(q, d.id, 'collected', a.id, now);
   }
   return { id: rec.id, duplicate: rec.duplicate };
 }
@@ -241,6 +243,37 @@ function photoInput(b: Record<string, unknown>) {
   return { mime, data };
 }
 
+/** 089: brokerage_deals.lead_id exists */
+async function dealLeadInstalled(q: Q) {
+  return !!(await one(q, `SELECT 1 AS ok FROM information_schema.columns WHERE table_name = 'brokerage_deals' AND column_name = 'lead_id'`))?.ok;
+}
+/**
+ * A sale / rental made from a lead: the lead follows its deal like a project unit's reservation — sold → «حجز» (waiting for
+ * the commission), the commission received → «صفقة مكتملة», cancelled / rejected → «متابعة» (follow up tomorrow).
+ * Each step is a system action on the lead.
+ */
+async function leadFromDeal(q: Q, dealId: string, event: 'sold' | 'collected' | 'cancel', byId: string | null, now: Date) {
+  if (!(await dealLeadInstalled(q))) return;
+  const d = await one(q, `SELECT d.id, d.kind, d.lead_id, d.price_egp, l.title FROM brokerage_deals d LEFT JOIN brokerage_listings l ON l.id = d.listing_id
+                           WHERE d.id = $1`, [dealId]);
+  if (!d?.lead_id) return;
+  const lead = await one(q, `SELECT id, stage FROM leads WHERE id = $1 FOR UPDATE`, [d.lead_id]);
+  if (!lead || (lead.stage === 'done_deal' && event !== 'collected')) return;
+  const what = d.kind === 'rental' ? 'إيجار' : 'بيع';
+  const text = {
+    sold: `${what} عقار «${d.title ?? ''}» بـ ${N(d.price_egp).toLocaleString('en-US')} ج — مستني استلام العمولة`,
+    collected: `تم ${what === 'إيجار' ? 'تأجير' : 'بيع'} عقار «${d.title ?? ''}» 🎉`,
+    cancel: `اتلغى ${what} عقار «${d.title ?? ''}»`,
+  }[event];
+  const stage = event === 'collected' ? 'done_deal' : event === 'cancel' ? 'following' : 'reservation';
+  const next = event === 'cancel' ? new Date(now.getTime() + 24 * 3600_000) : null;
+  await q.query(`INSERT INTO lead_actions (lead_id, stage, answered, comment, next_at, auto, by_id, created_at) VALUES ($1,$2,true,$3,$4,true,$5,$6)`,
+    [lead.id, stage, text, next, byId, now]);
+  await q.query(`UPDATE leads SET stage = $2, stage_changed_at = CASE WHEN stage = $2 THEN stage_changed_at ELSE $3 END, next_at = $4, reminded_at = NULL,
+      last_action_at = $3, last_action_by = COALESCE($5, last_action_by), last_comment = $6, updated_at = $3 WHERE id = $1`,
+    [lead.id, stage, now, next, byId, text]);
+}
+
 const mine = (a: Actor, d: any) => [d.proposed_by, d.contributor_id, d.closer_id, d.sales_manager_id].includes(a.id);
 
 async function load(q: Q, ids: string[], a: Actor) {
@@ -291,7 +324,7 @@ async function load(q: Q, ids: string[], a: Actor) {
         canSettle: !s.employee_id && !s.settlement_id && d.status === 'collected' && canOffice(a) })),
       canApprove: d.status === 'proposed' && canApprove(a) && !mine(a, d),
       canCollect: d.status === 'approved' && canCollect(a),
-      listingId: d.listing_id ?? null,
+      listingId: d.listing_id ?? null, leadId: d.lead_id ?? null,
       canReceive: d.status === 'proposed' && !!d.listing_id && receiver && !mine(a, d),
     };
   });
@@ -402,6 +435,7 @@ export const brokerageModule: Module = (r, { db, clock }) => {
         await q.query(`UPDATE brokerage_deals SET status = 'rejected', decided_by = $2, decided_at = $3, decision_note = $4, updated_at = $3 WHERE id = $1`, [d.id, a.id, now, note]);
         await audit(q, a.id, 'brokerage.reject', 'brokerage_deal', d.id, { status: 'proposed' }, { status: 'rejected', note });
         await syncListing(q, d.id);
+        await leadFromDeal(q, d.id, 'cancel', a.id, now);
         return;
       }
       await approveDeal(q, a, d, b.shares as unknown[], note, now);
@@ -483,6 +517,7 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       await q.query(`UPDATE brokerage_deals SET status = 'cancelled', updated_at = $2 WHERE id = $1`, [d.id, clock()]);
       await audit(q, a.id, 'brokerage.cancel', 'brokerage_deal', d.id, { status: d.status }, { status: 'cancelled', note: (str(b, 'note', { optional: true, max: 300 }) ?? '') });
       await syncListing(q, d.id);
+      await leadFromDeal(q, d.id, 'cancel', a.id, clock());
     });
     return ok({ deal: (await load(db, [req.params.id], a))[0] });
   });
@@ -663,6 +698,11 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       const price = num(b, 'finalPrice', { min: 1, max: 10_000_000_000 })!;
       const commission = r2(num(b, 'commission', { min: 1, max: 10_000_000_000 })!);
       const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
+      // from the sales board: the client's lead (its salesman / his manager) — the lead then follows the deal
+      const leadId = typeof b.leadId === 'string' && b.leadId ? b.leadId : null;
+      if (leadId && !isUuid(leadId)) throw invalid('leadId must be a uuid', { field: 'leadId' });
+      if (leadId && !(await dealLeadInstalled(q))) throw new AppError('conflict', 'البيع من الليد محتاج تحديث قاعدة البيانات (089)', { reason: 'deal_lead_not_installed' });
+      const lead = leadId ? await leadForReservation(q, a, leadId) : null;
       const lister = (await one(q, `SELECT id FROM employees WHERE id = $1 AND status = 'active'`, [l.listed_by]))?.id ?? a.id;
       const now = clock();
       const d = await one(q, `
@@ -672,6 +712,10 @@ export const brokerageModule: Module = (r, { db, clock }) => {
         [l.kind, `${l.title} — ${l.address}`.slice(0, 300), l.owner_name.trim().length >= 2 ? l.owner_name.trim() : 'مالك العقار', l.owner_phone,
           clientName, clientPhone, price, commission, lister, a.id, notes, ref, l.id, now]);
       await q.query(`UPDATE brokerage_listings SET status = 'pending', updated_at = $2 WHERE id = $1`, [l.id, now]);
+      if (lead) {
+        await q.query(`UPDATE brokerage_deals SET lead_id = $2 WHERE id = $1`, [d.id, lead.id]);
+        await leadFromDeal(q, d.id, 'sold', a.id, now);
+      }
       await audit(q, a.id, 'brokerage.listing.sell', 'brokerage_deal', d.id, undefined,
         { listingId: l.id, kind: l.kind, clientName, price, commission, lister, seller: a.id });
       // the administrative officer(s) — or, when none is set, whoever approves commissions

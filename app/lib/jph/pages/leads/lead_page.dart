@@ -12,6 +12,7 @@ import 'leads_api.dart';
 import 'leads_extra.dart';
 import 'tasks_page.dart' show editTask;
 import 'deals_page.dart' show editDeal;
+import '../projects/brokerage_page.dart' show sellListingToLead;
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 /// One lead (a side panel on the computer): its data, «إضافة أكشن», the reservation from it, the comments and replies,
@@ -270,6 +271,9 @@ class _LeadPageState extends State<LeadPage> {
         dirBtn(isDark, tr('اتصال'), Icons.call_rounded, () => callPhone(phone, leadId: l['id']), color: Ar.green),
         dirBtn(isDark, tr('واتساب'), Icons.chat_rounded, () => whatsAppWithTemplate(context, isDark, l), color: const Color(0xFF1FA855)),
         if (can['reserve'] == true) dirBtn(isDark, tr('حجز'), Icons.bookmark_add_rounded, () => _reserve(isDark, l)),
+        // «بيع / إيجار عقار»: one of the listed resale / rental properties, straight to this client (the lead follows the deal)
+        if (can['act'] == true && l['stage'] != 'done_deal')
+          dirBtn(isDark, tr('بيع / إيجار عقار'), Icons.real_estate_agent_rounded, () async => _after(await sellListingToLead(context, isDark, l))),
         if (can['edit'] == true)
           dirBtn(isDark, tr('تعديل'), Icons.edit_rounded, () async => _after(await editLead(context, isDark, _meta, lead: l, can: can))),
         if (can['assign'] == true)

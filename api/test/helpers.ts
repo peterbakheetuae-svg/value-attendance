@@ -56,7 +56,7 @@ async function ensureTemplate() {
 /** the migrations the 2026-11-23 release moved from db/proposed into db/migrations (each also stays in db/proposed) */
 export const RELEASE_2026_11_23 = ['066_fine_grained_permissions.sql', '083_financial_year_closing.sql', '084_marketing_company_payment_otp.sql',
   '085_financial_integrity.sql', '086_expense_classification.sql', '087_brokerage_deals.sql',
-  '088_brokerage_listings.sql'];
+  '088_brokerage_listings.sql', '089_brokerage_deal_lead.sql'];
 
 export interface Harness {
   db: Db; base: string; now: { value: Date }; server: Server; dbName: string;

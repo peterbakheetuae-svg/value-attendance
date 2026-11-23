@@ -237,6 +237,152 @@ Widget _modeToggle(String mode, ValueChanged<String> on) => SegmentedButton<Stri
       onSelectionChanged: (v) => on(v.first),
     );
 
+/// «بيع» / «تأجير» a listing: the client, the final price and the commission taken — from the listing, or from the sales
+/// board with the client's lead (its name / phone filled in; the lead then follows the deal). True when recorded.
+Future<bool> sellListingForm(BuildContext context, bool isDark, Map<String, dynamic> l, {Map<String, dynamic>? lead}) async {
+  final resale = l['kind'] != 'rental';
+  final client = TextEditingController(text: '${lead?['fullName'] ?? ''}'), phone = TextEditingController(text: '${lead?['phone'] ?? ''}');
+  final price = TextEditingController(text: _fmt(_n(l['price'])).replaceAll(',', ''));
+  final commission = TextEditingController(), notes = TextEditingController();
+  final ref = uuidV4();
+  return _form(context, isDark, '${resale ? 'بيع' : 'تأجير'} — ${l['title']}', (set) => [
+        if (lead != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Glass.blue.withOpacity(0.10), borderRadius: BorderRadius.circular(14)),
+            child: Row(children: [
+              const Icon(Icons.person_pin_rounded, color: Glass.blue),
+              const SizedBox(width: 8),
+              Expanded(child: Text('العميل من الليد: ${lead['fullName']} — الليد هيتحدّث لوحده', style: TextStyle(fontSize: 13, color: JphUi.text(isDark)))),
+            ]),
+          ),
+        JphUi.input(isDark: isDark, label: resale ? 'اسم المشتري *' : 'اسم المستأجر *', controller: client, icon: Icons.person_rounded, big: false),
+        JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, big: false),
+        JphUi.input(isDark: isDark, label: resale ? 'سعر البيع النهائي *' : 'الإيجار الشهري النهائي *', controller: price, number: true, suffix: 'ج',
+            icon: Icons.payments_rounded, big: false),
+        JphUi.input(isDark: isDark, label: 'العمولة اللي اتاخدت *', controller: commission, number: true, suffix: 'ج', icon: Icons.savings_rounded,
+            big: false),
+        _area(isDark, 'ملاحظات', notes),
+        Text('هيوصل إشعار للمسؤول الإداري يستلم العمولة ويحدد التقسيمة.', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+      ], () async {
+    if (client.text.trim().length < 2 || (_num(price) ?? 0) <= 0 || (_num(commission) ?? 0) <= 0) {
+      JphUi.toast(context, {'success': false, 'message': 'كمّل البيانات المطلوبة (*)'});
+      return false;
+    }
+    final r = await _send('/brokerage/listings/${l['id']}/sell', {
+      'clientName': client.text.trim(), 'clientPhone': phone.text.trim(), 'finalPrice': _num(price), 'commission': _num(commission),
+      'notes': notes.text.trim(), 'clientRef': ref, if (lead != null) 'leadId': lead['id'],
+    }, ok: 'اتسجل ✅ — اتبعت للمسؤول الإداري');
+    if (context.mounted) JphUi.toast(context, r);
+    return r['success'] == true;
+  }, saveLabel: resale ? 'تسجيل البيع' : 'تسجيل الإيجار', saveIcon: Icons.handshake_rounded);
+}
+
+/// from the sales board (a lead's page): pick an available resale / rental property, then sell / rent it to the lead
+Future<bool> sellListingToLead(BuildContext context, bool isDark, Map<String, dynamic> lead) async {
+  final r = await _get('/brokerage/listings');
+  if (!context.mounted) return false;
+  if (r['success'] == false || r['installed'] == false) {
+    JphUi.toast(context, r['success'] == false ? r : {'success': false, 'message': 'عرض العقارات لسه مش متفعّل'});
+    return false;
+  }
+  final all = _rows(r['listings']).where((l) => l['status'] == 'available' && _map(l['can'])['sell'] == true).toList();
+  if (all.isEmpty) {
+    JphUi.toast(context, {'success': false, 'message': 'مفيش عقارات معروضة متاحة دلوقتي — اعرض عقار الأول من «إعادة بيع / إيجار»'});
+    return false;
+  }
+  var kind = 'resale';
+  final q = TextEditingController();
+  final picked = await showAppSheet<Map<String, dynamic>>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => Directionality(
+      textDirection: ui.TextDirection.rtl,
+      child: StatefulBuilder(builder: (ctx, set) {
+        final shown = all.where((l) => l['kind'] == kind && (q.text.trim().isEmpty ||
+            [l['title'], l['address'], l['description']].any((v) => '${v ?? ''}'.contains(q.text.trim())))).toList();
+        return Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
+          decoration: Glass.sheet(isDark, r: 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(child: Text('بيع / إيجار عقار — ${lead['fullName']}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: JphUi.text(isDark)))),
+              IconButton(onPressed: () => Navigator.pop(ctx), icon: Icon(Icons.close_rounded, color: JphUi.sub(isDark))),
+            ]),
+            const SizedBox(height: 8),
+            GlassSegments(
+              isDark: isDark,
+              expand: true,
+              items: [
+                ('إعادة بيع', all.where((l) => l['kind'] == 'resale').length),
+                ('إيجار', all.where((l) => l['kind'] == 'rental').length),
+              ],
+              selected: kind == 'resale' ? 0 : 1,
+              onTap: (i) => set(() => kind = i == 0 ? 'resale' : 'rental'),
+            ),
+            const SizedBox(height: 10),
+            JphUi.input(isDark: isDark, label: 'دوّر على عقار أو عنوان', controller: q, icon: Icons.search_rounded, big: false, onChanged: (_) => set(() {})),
+            const SizedBox(height: 10),
+            Flexible(
+              child: shown.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(kind == 'resale' ? 'مفيش عقارات إعادة بيع متاحة' : 'مفيش عقارات إيجار متاحة',
+                          textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark))),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: shown.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final l = shown[i];
+                        final photos = ((l['photos'] as List?) ?? const []).map((e) => '$e').toList();
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => Navigator.pop(ctx, l),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: JphUi.box(isDark),
+                            child: Row(children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: SizedBox(
+                                  width: 64,
+                                  height: 52,
+                                  child: photos.isEmpty
+                                      ? Container(color: Glass.blue.withOpacity(0.08), child: const Icon(Icons.home_work_rounded, color: Glass.blue))
+                                      : _ListingPhoto(listing: '${l['id']}', id: photos.first),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('${l['title']} · ${finishingAr(l['finishing'] as String?)}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
+                                  Text('${l['address']} · ${_fmt(_n(l['area']))} م²', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+                                ]),
+                              ),
+                              Text(l['kind'] == 'rental' ? '${_egp(l['price'])}/شهر' : _egp(l['price']),
+                                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: JphUi.primary(isDark))),
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ]),
+        );
+      }),
+    ),
+  );
+  if (picked == null || !context.mounted) return false;
+  return sellListingForm(context, isDark, picked, lead: lead);
+}
+
 class BrokeragePage extends StatefulWidget {
   final String kind; // resale | rental
   /// inside «المشاريع»'s bar (المشاريع / إعادة بيع / إيجار): no own background / header
@@ -802,31 +948,7 @@ class _BrokeragePageState extends State<BrokeragePage> {
 
   // ----------------------------------------------------------------- «بيع» / «تأجير» a listing
   Future<void> _sell(bool isDark, Map<String, dynamic> l) async {
-    final client = TextEditingController(), phone = TextEditingController();
-    final price = TextEditingController(text: _fmt(_n(l['price'])).replaceAll(',', ''));
-    final commission = TextEditingController(), notes = TextEditingController();
-    final ref = uuidV4();
-    final ok = await _form(context, isDark, '${_resale ? 'بيع' : 'تأجير'} — ${l['title']}', (set) => [
-          JphUi.input(isDark: isDark, label: _resale ? 'اسم المشتري *' : 'اسم المستأجر *', controller: client, icon: Icons.person_rounded, big: false),
-          JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, big: false),
-          JphUi.input(isDark: isDark, label: _resale ? 'سعر البيع النهائي *' : 'الإيجار الشهري النهائي *', controller: price, number: true, suffix: 'ج',
-              icon: Icons.payments_rounded, big: false),
-          JphUi.input(isDark: isDark, label: 'العمولة اللي اتاخدت *', controller: commission, number: true, suffix: 'ج', icon: Icons.savings_rounded,
-              big: false),
-          _area(isDark, 'ملاحظات', notes),
-          Text('هيوصل إشعار للمسؤول الإداري يستلم العمولة ويحدد التقسيمة.', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
-        ], () async {
-      if (client.text.trim().length < 2 || (_num(price) ?? 0) <= 0 || (_num(commission) ?? 0) <= 0) {
-        JphUi.toast(context, {'success': false, 'message': 'كمّل البيانات المطلوبة (*)'});
-        return false;
-      }
-      final r = await _send('/brokerage/listings/${l['id']}/sell', {
-        'clientName': client.text.trim(), 'clientPhone': phone.text.trim(), 'finalPrice': _num(price), 'commission': _num(commission),
-        'notes': notes.text.trim(), 'clientRef': ref,
-      }, ok: 'اتسجل ✅ — اتبعت للمسؤول الإداري');
-      if (mounted) JphUi.toast(context, r);
-      return r['success'] == true;
-    }, saveLabel: _resale ? 'تسجيل البيع' : 'تسجيل الإيجار', saveIcon: Icons.handshake_rounded);
+    final ok = await sellListingForm(context, isDark, l);
     if (ok) setState(() => _tab = 0);
     _load();
   }
