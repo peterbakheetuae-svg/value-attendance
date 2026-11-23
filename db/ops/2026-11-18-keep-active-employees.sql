@@ -1,3 +1,5 @@
+-- ⚠ SUPERSEDED (2026-11-23): the owner narrowed the clean-up — use db/ops/2026-11-23-clear-attendance-finance-former-employees.sql.
+--   Do NOT run this file.
 -- VALUNIVO — one-time clean-up asked by the owner (2026-11-18):
 --   KEEP   the employees on the job (status active, not «تم التصفيه») with their files, salaries, leave balances,
 --          devices, permissions and custody; the marketing companies (accounts, files, sign-ins); the forms; the
