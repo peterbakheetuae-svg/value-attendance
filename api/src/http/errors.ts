@@ -29,8 +29,10 @@ export function fromDbError(e: any): AppError | null {
     case '23503': return new AppError('unprocessable', 'Referenced record does not exist');
     case '23514': return new AppError('unprocessable', cleanMsg(e.message) ?? 'Rule violated');
     case '23502': return new AppError('validation_failed', 'Missing required field');
-    case '42501': return new AppError('conflict', cleanMsg(e.message) ?? 'Operation not allowed');
-    case '22P02': case '22007': case '22008': case '22003':
+    // our own triggers RAISE this code with a readable message; a real database privilege error is not shown as-is
+    case '42501': return new AppError('conflict', /^permission denied for /.test(String(e?.message)) ? 'Operation not allowed' : (cleanMsg(e.message) ?? 'Operation not allowed'));
+    // 22021 / 22P05: text the database cannot store (e.g. a NUL character) — the caller's input, not a server fault
+    case '22P02': case '22007': case '22008': case '22003': case '22021': case '22P05':
       return new AppError('validation_failed', 'Invalid value');
     default: return null;
   }
