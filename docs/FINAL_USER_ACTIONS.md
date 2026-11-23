@@ -85,3 +85,8 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 - `main` 01e7dc3 → 01f328d (no migration; 80 applied). Vercel prod: dpl_CpZnupSvH4VRwhijPcZzAviePmzn (web) / dpl_Ftc1jpBNLvduHKXTpxgbCDRv4hbK (api); `/readyz` ok.
 - Android 1.0.167 published (sha256 93eec1466f27eb60c0bdd18a5ee55e074228f2f769f5e456f26ff2ea3428db86), both public paths verified;
   1.0.164 backed up to `~/va-backups/android-20261123T174531Z` (rollback: `android_rollback_from=android-20261123T174531Z`).
+
+## 2026-11-23 ~20:15 Cairo — Windows 1.0.41 published (owner-approved)
+- windows.yml run 41 on main 01f328d: build, smoke test, signed exe + updater, install/uninstall and in-app update test passed, published.
+- jaurea.com/valunivo/windows/latest.json → 1.0.41, installer VALUNIVO-Setup-1.0.41.exe sha256 130cbac3c6ea95dae0bb40581c603606620e3e81ee39915d9e64f05d57312964 (verified live);
+  permanent copy: release windows-v1.0.41. Previous 1.0.36 stays available (rollback: windows.yml rollback_to=1.0.36).
