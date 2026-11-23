@@ -7,6 +7,10 @@ import { browserPunchPolicy, isBrowserRequest } from '../src/lib/client-platform
 import { boardInside, isWeakFix, neverPingedDue, silentCause, weakStreakDue, WEAK_GPS_M, WEAK_STREAK_MIN } from '../src/lib/tracking-health.ts';
 import { isProductionRuntime, metaSignatureOk } from '../src/lib/meta-signature.ts';
 import { hasBackupToken } from '../src/lib/backup-token.ts';
+// @ts-ignore — plain .mjs shared with the build script
+import { retiredDeployment } from '../scripts/deployment-guard.mjs';
+// @ts-ignore — plain .mjs build script
+import { decide } from '../scripts/migrate-if-production.mjs';
 
 test('G1: a browser is recognised by Origin only; client claims are ignored', () => {
   assert.equal(isBrowserRequest({ origin: 'https://jaurea.com' }), true);
@@ -18,9 +22,9 @@ test('G1: a browser is recognised by Origin only; client claims are ignored', ()
   assert.equal(isBrowserRequest({ 'sec-fetch-mode': 'cors' } as any), false, 'Node fetch / tools add sec-fetch-mode: not used as a signal');
 });
 
-test('G1: policy values — unset = audit (nothing changes for users), explicit values, anything else = deny', () => {
-  assert.equal(browserPunchPolicy({}), 'audit');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: '' }), 'audit');
+test('G1: policy values — unset = approved_device (the owner\'s choice), explicit values, anything else = deny', () => {
+  assert.equal(browserPunchPolicy({}), 'approved_device');
+  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: '' }), 'approved_device');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'AUDIT' }), 'audit');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: ' Approved_Device ' }), 'approved_device');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'deny' }), 'deny');
@@ -112,4 +116,26 @@ test('scheduler token: ≥ 24 characters on the host, exact match, constant-time
   assert.equal(hasBackupToken({}, env), false);
   assert.equal(hasBackupToken({ 'x-backup-token': 'short' }, { BACKUP_TOKEN: 'short' }), false, 'a host token under 24 characters is off');
   assert.equal(hasBackupToken({ 'x-backup-token': 'anything-anything-anything' }, {}), false, 'no host token');
+});
+
+test('C1: only the retired Vercel project is stopped — never the real API', () => {
+  const T = 'x'.repeat(32);
+  const orphan = { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main',
+    VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app', VERCEL_URL: 'value-attendance-api-k3j2h1g0f-peter.vercel.app' };
+  assert.equal(retiredDeployment(orphan), true, 'the orphan as seen live (no BACKUP_TOKEN)');
+  assert.equal(retiredDeployment({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: '' }), true, 'by its deployment URL alone');
+  assert.equal(retiredDeployment({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api.vercel.app', VERCEL_URL: '' }), true);
+  assert.equal(retiredDeployment({ ...orphan, BACKUP_TOKEN: T }), false, 'has the production secret → never stopped');
+  assert.equal(retiredDeployment({ ...orphan, VERCEL_ENV: 'preview' }), false, 'not production');
+  // the real API under its names
+  for (const host of ['valunivo.vercel.app', 'value-attendance.vercel.app', 'value-attendance-k3j2h1g0f-peter.vercel.app',
+    'value-attendance-apixyz123-peter.vercel.app', 'valunivo-k3j2h1g0f-peter.vercel.app']) {
+    assert.equal(retiredDeployment({ VERCEL_ENV: 'production', VERCEL_PROJECT_PRODUCTION_URL: host, VERCEL_URL: host }), false, host);
+    assert.equal(retiredDeployment({ VERCEL_ENV: 'production', VERCEL_PROJECT_PRODUCTION_URL: host, VERCEL_URL: host, BACKUP_TOKEN: T }), false, host);
+  }
+  assert.equal(retiredDeployment({}), false, 'a laptop / CI');
+  // the build never migrates from the orphan; the real production build still does
+  assert.equal(decide(orphan).allow, false);
+  assert.equal(decide({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app', VERCEL_URL: 'valunivo-abc-peter.vercel.app', BACKUP_TOKEN: T }).allow, true);
+  assert.equal(decide({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' }).allow, true, 'no system URLs exposed: unchanged');
 });

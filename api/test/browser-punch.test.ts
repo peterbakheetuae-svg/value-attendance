@@ -17,8 +17,9 @@ const refusedAudits = async (id: string) =>
 const seenAudits = async (id: string) =>
   (await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'attendance.browser_punch' AND actor_id = $1`, [id])).rows[0].n as number;
 
-test('default (unset) = audit: nothing changes for anyone — a browser punch is accepted and written to the audit log', async () => {
-  delete process.env.ATTENDANCE_BROWSER_PUNCH;
+test('audit (escape hatch): a browser punch is accepted and written to the audit log', async () => {
+  process.env.ATTENDANCE_BROWSER_PUNCH = 'audit';
+  try {
   await h.db.query(`UPDATE employees SET device_lock = false WHERE id = $1`, [c.ids.sm2]);
   const sm2 = await h.login('SM2', PW);
   const r = await h.call(sm2, 'POST', '/attendance/check-in', {}, BROWSER);
@@ -32,6 +33,7 @@ test('default (unset) = audit: nothing changes for anyone — a browser punch is
   await h.call(c.t.owner, 'PATCH', '/settings', { trackingEnabled: true, trackingStaleMinutes: 20 });
   assert.equal((await h.call(sm2, 'POST', '/tracking/ping', { lat: 30.0286, lng: 31.4085, accuracyM: 10 }, BROWSER)).body.tracking, true);
   await h.call(c.t.owner, 'PATCH', '/settings', { trackingEnabled: false });
+  } finally { delete process.env.ATTENDANCE_BROWSER_PUNCH; }
 });
 
 test('approved_device: a browser of an employee without an approved linked device is refused; the phone app is not', async () => {
@@ -127,4 +129,17 @@ test('L2: /healthz/latency tells anyone only ok + round trips; regions only with
     const full = await h.call(null, 'GET', '/healthz/latency', undefined, { 'x-backup-token': process.env.BACKUP_TOKEN });
     assert.ok('dbRegion' in full.body && 'apiRegion' in full.body && 'pooled' in full.body);
   } finally { delete process.env.BACKUP_TOKEN; }
+});
+
+test('unset = approved_device (the owner\'s choice): a browser that is not an approved linked device is refused', async () => {
+  delete process.env.ATTENDANCE_BROWSER_PUNCH;
+  // SM2 (device lock off) checked in from a browser under «audit» above; with no setting his browser check-out is refused
+  h.now.value = new Date('2026-03-10T12:00:00Z');
+  const sm2 = await h.login('SM2', PW);
+  const r = await h.call(sm2, 'POST', '/attendance/check-out', {}, BROWSER);
+  assert.equal(r.status, 403, JSON.stringify(r.body));
+  assert.equal(r.body.error.details.reason, 'browser_punch_refused');
+  assert.equal((await h.call(sm2, 'POST', '/attendance/check-out', {})).status, 200, 'the phone app');
+  // E1's approved linked browser still works with no setting
+  assert.notEqual((await h.call(c.t.e1, 'POST', '/attendance/check-out', {}, BROWSER)).status, 403);
 });
