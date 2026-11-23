@@ -30,6 +30,7 @@ import 'top_tabs_team.dart';
 import 'dash_mode_team.dart';
 import '../notifications/notifications_page.dart';
 import '../../services/api_service.dart';
+import '../../widgets/new_leads_card.dart';
 import '../../widgets/performance_avatar.dart';
 import '../../services/jph_bridge.dart';
 import '../../widgets/outing_dialogs.dart';
@@ -1068,6 +1069,9 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                         ],
                       ),
                       ),
+
+                      // «ليدز جديدة»: the newest new lead assigned to him + «عرض المزيد» (nothing when he has none)
+                      NewLeadsCard(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 18),
                       Text(

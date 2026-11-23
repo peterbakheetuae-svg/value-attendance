@@ -33,6 +33,7 @@ import 'break_page.dart';
 import 'fingerprint_config.dart';
 import 'top_tabs.dart';
 import '../../services/api_service.dart';
+import '../../widgets/new_leads_card.dart';
 import 'dash_mode.dart';
 import '../notifications/notifications_page.dart';
 import '../notifications/notification_settings.dart'; // ✅ إضافة صفحة إعدادات الإشعارات
@@ -1708,6 +1709,9 @@ class _DashboardPageState extends State<DashboardPage>
                       ),
                       ),
                       ],
+
+                      // «ليدز جديدة»: the newest new lead assigned to him + «عرض المزيد» (nothing when he has none)
+                      NewLeadsCard(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 18),
                       Text(
