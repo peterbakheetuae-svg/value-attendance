@@ -14,8 +14,29 @@ after(async () => { await h.close(); delete process.env.ATTENDANCE_BROWSER_PUNCH
 
 const refusedAudits = async (id: string) =>
   (await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'attendance.browser_refused' AND actor_id = $1`, [id])).rows[0].n as number;
+const seenAudits = async (id: string) =>
+  (await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'attendance.browser_punch' AND actor_id = $1`, [id])).rows[0].n as number;
 
-test('default policy: a browser of an employee without an approved linked device is refused; the phone app is not', async () => {
+test('default (unset) = audit: nothing changes for anyone — a browser punch is accepted and written to the audit log', async () => {
+  delete process.env.ATTENDANCE_BROWSER_PUNCH;
+  await h.db.query(`UPDATE employees SET device_lock = false WHERE id = $1`, [c.ids.sm2]);
+  const sm2 = await h.login('SM2', PW);
+  const r = await h.call(sm2, 'POST', '/attendance/check-in', {}, BROWSER);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(await seenAudits(c.ids.sm2), 1, 'audited as a browser punch');
+  assert.equal(await refusedAudits(c.ids.sm2), 0);
+  // the phone app: no audit entry of this kind
+  assert.equal((await h.call(c.t.sm1, 'POST', '/attendance/check-in', {})).status, 201);
+  assert.equal(await seenAudits(c.ids.sm1), 0);
+  // pings from a browser keep working as before
+  await h.call(c.t.owner, 'PATCH', '/settings', { trackingEnabled: true, trackingStaleMinutes: 20 });
+  assert.equal((await h.call(sm2, 'POST', '/tracking/ping', { lat: 30.0286, lng: 31.4085, accuracyM: 10 }, BROWSER)).body.tracking, true);
+  await h.call(c.t.owner, 'PATCH', '/settings', { trackingEnabled: false });
+});
+
+test('approved_device: a browser of an employee without an approved linked device is refused; the phone app is not', async () => {
+  process.env.ATTENDANCE_BROWSER_PUNCH = 'approved_device';
+  try {
   // E2 without «ربط الحساب بالجهاز»: any browser signs him in, so no browser of his is an approved device
   await h.db.query(`UPDATE employees SET device_lock = false WHERE id = $1`, [c.ids.e2]);
   const e2 = await h.login('E2', PW);
@@ -39,9 +60,12 @@ test('default policy: a browser of an employee without an approved linked device
   assert.equal((await h.call(e2, 'POST', '/outings/return', {}, BROWSER)).status, 403, 'browser «I am back» refused before anything else');
   assert.equal((await h.call(e2, 'POST', '/outings/return', {})).status, 409, 'the phone app reaches the normal rule (not out)');
   assert.equal((await h.call(e2, 'POST', '/attendance/check-out', {})).status, 200, 'phone check-out');
+  } finally { delete process.env.ATTENDANCE_BROWSER_PUNCH; }
 });
 
-test('default policy: a browser that IS the employee\'s approved linked device may punch (e.g. an iPhone Home Screen app)', async () => {
+test('approved_device: a browser that IS the employee\'s approved linked device may punch (e.g. an iPhone Home Screen app)', async () => {
+  process.env.ATTENDANCE_BROWSER_PUNCH = 'approved_device';
+  try {
   // E1: device lock on (helpers default), his first sign-in device was approved by itself — that session punches from a browser
   h.now.value = new Date('2026-03-10T08:05:00Z');
   const r = await h.call(c.t.e1, 'POST', '/attendance/check-in', {}, BROWSER);
@@ -56,6 +80,7 @@ test('default policy: a browser that IS the employee\'s approved linked device m
   h.now.value = new Date('2026-03-10T09:00:00Z');
   assert.equal((await h.call(c.t.e1, 'POST', '/attendance/check-out', {}, BROWSER)).status, 403, 'approval withdrawn → refused');
   await h.db.query(`UPDATE employee_devices SET status = 'approved' WHERE id = $1`, [d.id]);
+  } finally { delete process.env.ATTENDANCE_BROWSER_PUNCH; }
 });
 
 test('ATTENDANCE_BROWSER_PUNCH=deny refuses every browser; =allow is the old behaviour; a typo counts as deny', async () => {

@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { harness, cast, type Harness } from './helpers.ts';
-import { dueReportDate, runDailyLeadsReport } from '../src/modules/leads-daily.ts';
+import { dueReportDate, heartbeatReportDue, runDailyLeadsReport } from '../src/modules/leads-daily.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let pid = ''; let channel = '';
 before(async () => {
@@ -22,7 +22,14 @@ test('the window: from 23:55 Cairo that day, a late scheduler until 06:00 the ne
   assert.equal(dueReportDate(new Date('2026-11-14T21:00:00Z')), null, '23:00');
   assert.equal(dueReportDate(new Date('2026-11-14T10:00:00Z')), null, 'noon');
   assert.equal(dueReportDate(new Date('2026-07-14T20:59:00Z')), '2026-07-14', 'summer time (UTC+3): 23:59');
+  // the heartbeat's second trigger (2026-11-24): from 23:59 only (never with the day's last minutes missing) until 06:00
+  assert.equal(heartbeatReportDue(new Date('2026-11-14T21:58:00Z')), false, '23:58');
+  assert.equal(heartbeatReportDue(new Date('2026-11-14T21:59:00Z')), true, '23:59');
+  assert.equal(heartbeatReportDue(new Date('2026-11-14T22:30:00Z')), true, '00:30');
+  assert.equal(heartbeatReportDue(new Date('2026-11-15T04:00:00Z')), false, '06:00');
+  assert.equal(heartbeatReportDue(new Date('2026-11-14T10:00:00Z')), false, 'noon');
 });
+
 
 test('the report: the day\'s new leads, the actions, the top salesman; sent once, to the GM and the admin officer only', async () => {
   const lead = async (name: string, phone: string, who: string) =>
@@ -67,4 +74,15 @@ test('the report: the day\'s new leads, the actions, the top salesman; sent once
   assert.equal((await h.call(c.t.e1, 'GET', '/leads/daily-report?date=2026-11-14')).status, 403);
   const p = (await h.call(c.t.owner, 'GET', '/leads/daily-report?date=2026-11-14')).body.report;
   assert.deepEqual([p.newLeads, p.actions, p.top.name], [2, 3, 'موظف ١']);
+});
+
+test('the heartbeat (/backup/sweep with the token) also sends the report from 23:59 — once, shared with the scheduler', async () => {
+  // mail is off in the test suite: the heartbeat answers ok and sends nothing (the sending itself is covered above)
+  process.env.BACKUP_TOKEN = 'heartbeat-test-token-0123456789ab';
+  try {
+    h.now.value = new Date('2026-11-14T21:59:30Z');
+    const r = await h.call(null, 'POST', '/backup/sweep', {}, { 'x-backup-token': process.env.BACKUP_TOKEN });
+    assert.equal(r.status, 200);
+    assert.equal((await h.call(null, 'POST', '/backup/sweep', {})).status, 401, 'the heartbeat itself still needs the token');
+  } finally { delete process.env.BACKUP_TOKEN; h.now.value = new Date('2026-11-14T08:00:00Z'); }
 });

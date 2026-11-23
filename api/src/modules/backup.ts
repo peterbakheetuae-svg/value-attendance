@@ -4,6 +4,8 @@ import type { Req } from '../http/router.ts';
 import { sweep } from './tracking.ts';
 import { backupKeyConfigured, seal } from '../lib/secretbox.ts';
 import { hasBackupToken } from '../lib/backup-token.ts';
+import { mailEnabled } from '../lib/mail.ts';
+import { heartbeatReportDue, runDailyLeadsReport } from './leads-daily.ts';
 
 /**
  * Daily backup export, read by a Google Apps Script in the owner's Google Drive.
@@ -41,6 +43,10 @@ export const backupModule: Module = (r, { db, clock }) => {
   r.post('/backup/sweep', async (req) => {
     guard(req);
     await sweep(db, clock());
+    // the daily leads report's second trigger (from 23:59, once a day) — it never fails the heartbeat
+    if (mailEnabled() && heartbeatReportDue(clock())) {
+      try { await runDailyLeadsReport(db, clock()); } catch { /* the GitHub knock or the next minute tries again */ }
+    }
     return ok({ ok: true });
   });
 

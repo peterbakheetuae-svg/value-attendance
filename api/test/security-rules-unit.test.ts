@@ -18,9 +18,10 @@ test('G1: a browser is recognised by Origin only; client claims are ignored', ()
   assert.equal(isBrowserRequest({ 'sec-fetch-mode': 'cors' } as any), false, 'Node fetch / tools add sec-fetch-mode: not used as a signal');
 });
 
-test('G1: policy values — unset = approved_device, explicit values, anything else = deny', () => {
-  assert.equal(browserPunchPolicy({}), 'approved_device');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: '' }), 'approved_device');
+test('G1: policy values — unset = audit (nothing changes for users), explicit values, anything else = deny', () => {
+  assert.equal(browserPunchPolicy({}), 'audit');
+  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: '' }), 'audit');
+  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'AUDIT' }), 'audit');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: ' Approved_Device ' }), 'approved_device');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'deny' }), 'deny');
   assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'ALLOW' }), 'allow');
