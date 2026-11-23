@@ -4,7 +4,7 @@ import { harness, cast, type Harness } from './helpers.ts';
 
 /**
  * Runs only with TEST_APP_ROLE=1 (the whole suite then talks to the API through a least-privilege role: no CREATE,
- * no TRUNCATE, DELETE on the 19 runtime tables only, no UPDATE on audit_log). The one feature that needs more — the
+ * no TRUNCATE, DELETE on the runtime tables only (RUNTIME_DELETE_TABLES), no UPDATE on audit_log). The one feature that needs more — the
  * owner-only data reset (TRUNCATE) — must then refuse cleanly and change nothing.
  */
 const on = process.env.TEST_APP_ROLE === '1';
@@ -26,4 +26,18 @@ test('least privilege: the runtime role cannot change the schema or the audit tr
     has_table_privilege('va_app_test', 'audit_log', 'UPDATE') AS u, has_table_privilege('va_app_test', 'audit_log', 'DELETE') AS d,
     has_table_privilege('va_app_test', 'employees', 'TRUNCATE') AS t, has_table_privilege('va_app_test', 'cash_receipts', 'DELETE') AS cd`);
   assert.deepEqual(r.rows[0], { c: false, u: false, d: false, t: false, cd: false });
+});
+
+test('least privilege: the DELETE grant list matches every "DELETE FROM" in the API and the production role script', async () => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { RUNTIME_DELETE_TABLES } = await import('./helpers.ts');
+  const src = new URL('../src/', import.meta.url).pathname;
+  const files = (d: string): string[] => readdirSync(d).flatMap((f) => statSync(join(d, f)).isDirectory() ? files(join(d, f)) : f.endsWith('.ts') ? [join(d, f)] : []);
+  const used = new Set(files(src).flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/DELETE FROM ([a-z_]+)/g)].map((m) => m[1])));
+  assert.deepEqual([...used].sort(), [...RUNTIME_DELETE_TABLES].sort(), 'test helper grants = tables the API deletes from');
+  const sql = readFileSync(new URL('../../db/roles/valunivo_app_least_privilege.sql', import.meta.url), 'utf8');
+  const arr = sql.slice(sql.indexOf('FOREACH t IN ARRAY ARRAY['), sql.indexOf('LOOP'));
+  const inScript = [...arr.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(inScript)].sort(), [...used].sort(), 'production role script grants = tables the API deletes from');
 });

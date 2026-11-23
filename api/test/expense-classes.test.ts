@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, regrantAppRole, type Harness } from './helpers.ts';
 import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 /**
@@ -40,6 +40,7 @@ test('086: groups and categories — create, edit, archive, reactivate, search, 
   assert.ok(old.rows.length >= 1, 'there is an expense recorded before 086');
   await run(file('086_expense_classification.sql'));
   await run(file('086_expense_classification.sql')); // a second run changes nothing
+  await regrantAppRole(h); // least-privilege run: the role script is rerun after 086 (DELETE on expense_group_categories)
   assert.deepEqual(await recs(), old.rows, '086 changes no existing expense');
   assert.equal(await bal('office'), old.office); assert.equal(await bal('hr'), old.hr);
   assert.equal(Number((await h.db.query(`SELECT count(*) n FROM cash_expenses WHERE expense_group_id IS NOT NULL OR expense_category_id IS NOT NULL`)).rows[0].n), 0,

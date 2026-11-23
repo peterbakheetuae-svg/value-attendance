@@ -102,8 +102,18 @@ export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harnes
 /** the tables the API itself deletes from (src/** "DELETE FROM …"): the only DELETE grants the runtime role gets */
 export const RUNTIME_DELETE_TABLES = ['web_push_subscriptions', 'role_permissions', 'push_tokens', 'holidays', 'employee_permissions',
   'employee_documents', 'notifications', 'employee_devices', 'deals', 'tracking_pings', 'payroll_batch_lines', 'meta_pages',
-  'marketing_company_files', 'lead_targets', 'lead_routes', 'lead_attachments', 'ex_unit_files', 'evaluations', 'attendance_selfies'];
+  'marketing_company_files', 'lead_targets', 'lead_routes', 'lead_attachments', 'ex_unit_files', 'evaluations', 'attendance_selfies',
+  // proposed 086 (expense groups / categories): granted once the table exists — as db/roles/valunivo_app_least_privilege.sql
+  'expense_group_categories'];
 const APP_ROLE = 'va_app_test', APP_PW = 'app-role-test-only';
+/** DELETE on the runtime tables that exist now (idempotent) — like rerunning the role script after a migration */
+async function grantRuntimeDeletes(q: { query: (sql: string) => Promise<unknown> }) {
+  for (const t of RUNTIME_DELETE_TABLES) await q.query(`DO $$ BEGIN IF to_regclass('public.${t}') IS NOT NULL THEN EXECUTE 'GRANT DELETE ON ${t} TO ${APP_ROLE}'; END IF; END $$`);
+}
+/** after a test applies a (proposed) migration: the runtime role gets the grants the role script gives in production */
+export async function regrantAppRole(h: { db: Db }) {
+  if (process.env.TEST_APP_ROLE === '1') await grantRuntimeDeletes(h.db);
+}
 async function appRoleDb(dbName: string): Promise<Db> {
   await admin(async (p) => {
     await p.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
@@ -121,7 +131,7 @@ async function appRoleDb(dbName: string): Promise<Db> {
     // as in production (ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner): tables the owner adds later are usable too
     await own.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO ${APP_ROLE}`);
     await own.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${APP_ROLE}`);
-    for (const t of RUNTIME_DELETE_TABLES) await own.query(`DO $$ BEGIN IF to_regclass('public.${t}') IS NOT NULL THEN EXECUTE 'GRANT DELETE ON ${t} TO ${APP_ROLE}'; END IF; END $$`);
+    await grantRuntimeDeletes(own);
   } finally { await own.end(); }
   const a = new URL(u.toString()); a.username = APP_ROLE; a.password = APP_PW;
   return createDb(a.toString());
