@@ -10,13 +10,14 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
+import 'support_help_pages.dart';
 
 class SupportPolicyPage extends StatelessWidget {
   const SupportPolicyPage({super.key});
 
   // روابط التواصل
   // official VALUNIVO contact (the only support phone / email shown in the app)
-  static const String supportEmail = 'info@valueaqar.com';
+  static const String supportEmail = 'VALUNIVO@gmail.com';
   static const String websiteUrl = 'https://valueaqar.com';
   static const String supportPhone = '01080660100';
   static const String whatsappNumber = '01080660100';
@@ -443,21 +444,25 @@ VALUNIVO Support:
         'title': AppLocalizations.of(context, 'frequently_asked_questions') ?? 'الأسئلة الشائعة',
         'icon': Icons.question_answer,
         'color': Ar.info,
+        'page': const FaqPage(),
       },
       {
         'title': AppLocalizations.of(context, 'user_guide') ?? 'دليل المستخدم',
         'icon': Icons.book,
         'color': Ar.green,
+        'page': const UserGuidePage(),
       },
       {
         'title': AppLocalizations.of(context, 'troubleshooting') ?? 'استكشاف الأخطاء',
         'icon': Icons.build,
         'color': Ar.amber,
+        'page': const TroubleshootingPage(),
       },
       {
         'title': AppLocalizations.of(context, 'report_issue') ?? 'الإبلاغ عن مشكلة',
         'icon': Icons.bug_report,
         'color': Ar.red,
+        'page': const ReportIssuePage(),
       },
     ];
 
@@ -494,10 +499,7 @@ VALUNIVO Support:
               elevation: 2,
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  // يمكنك إضافة التنقل للصفحات المناسبة هنا
-                  _showComingSoonDialog(context);
-                },
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => link['page'] as Widget)),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -564,7 +566,7 @@ VALUNIVO Support:
           _buildInfoRow(
             icon: Icons.computer,
             title: AppLocalizations.of(context, 'technical_support') ?? 'الدعم الفني',
-            value: 'Available',
+            value: 'متاح',
             color: Ar.info,
             isDark: isDark,
           ),
@@ -575,7 +577,7 @@ VALUNIVO Support:
           _buildInfoRow(
             icon: Icons.person,
             title: AppLocalizations.of(context, 'account_support') ?? 'دعم الحساب',
-            value: 'Available',
+            value: 'متاح',
             color: Ar.accent,
             isDark: isDark,
           ),
@@ -586,7 +588,7 @@ VALUNIVO Support:
           _buildInfoRow(
             icon: Icons.receipt,
             title: AppLocalizations.of(context, 'billing_support') ?? 'دعم الفواتير',
-            value: 'Available',
+            value: 'متاح',
             color: Ar.amber,
             isDark: isDark,
           ),

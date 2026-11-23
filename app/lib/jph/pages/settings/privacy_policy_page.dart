@@ -14,7 +14,7 @@ class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
 
   static String get lastUpdated => I18n.lang == 'ar' ? '13 نوفمبر 2026' : 'November 13, 2026';
-  static const String privacyEmail = 'info@valueaqar.com';
+  static const String privacyEmail = 'VALUNIVO@gmail.com';
 
   Future<void> _sendEmail() async {
     final uri = Uri.parse('mailto:$privacyEmail');
