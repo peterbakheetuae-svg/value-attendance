@@ -25,3 +25,16 @@ provider's own dashboard. After each step I verify read-only and report.
 Note for 8: after merging, proposed migration 086 (release branch) adds `expense_group_categories`, which the API deletes
 from; rerun the role script (6) after 086 is applied so that table gets DELETE. Everything else in the merged tree passed
 the least-privilege run too, except those four 086 tests (DELETE on that table).
+
+## Android 1.0.155 (integration release, 2026-11-23)
+
+* Branch `release-prep/integration-2026-11-23` = `main` @ `d457faf` + PR #9 (`31c1800`) + R1–R7 + security fixes
+  (d3a96f4) + least-privilege role work (4b79bea, 67d8c4e) + integration fixes. Cloudflare gateway / staging code not included.
+* APK 1.0.155 (versionCode 155), built from `0bfb89e` (run 45144467818), sha256
+  `c72b22850a42760769188d22cbc1877d414fab976665647c57e39c29418af413`, 89,120,436 bytes, same signing certificate as 1.0.150.
+  Published by run 45148611808 to `jaurea.com/valunivo/android/` and `jaurea.com/value-attendance/android/`; web unchanged.
+* Backup of 1.0.150 on the server: `~/va-backups/android-20261123T093722Z`. Rollback: Actions → App → Run workflow on this
+  branch with `android_rollback_from = android-20261123T093722Z` (phones that already installed 1.0.155 keep it).
+* **Backend not deployed**: production still runs `main` @ `d457faf`. Until the backend of this branch is deployed (needs
+  approval) and migrations 083 → 087 are applied (each needs the owner's approval, see FINANCIAL_INTEGRITY), the app shows
+  resale / rental as «needs 087», hides expense groups, and R3–R6 server speed-ups are not live.
