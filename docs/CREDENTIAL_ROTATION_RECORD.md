@@ -242,6 +242,75 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
     `dpl_4trXqNhosA7wWEz9E7wFbUYy1KnU` (same `cbd00b3`, old key still valid). This is a production action; owner's
     decision.
 
+## 6C. Temporary Gmail SMTP transport (replaces Brevo for delivery) — implemented, **not activated**
+
+**Why.** Brevo test failed (§6B). The Brevo account the owner controls has no authenticated sending domain. Until the
+company buys and authenticates its own domain, email goes through a dedicated Gmail account. Gmail is a low-volume
+provider (a few hundred messages a day at most, throttling), **not** a permanent transactional-email service.
+
+**Code.**
+- Commit `d457faf` on local branch `hotfix/gmail-smtp`, cut from the production baseline `main` @ `cbd00b3` (not pushed).
+- The same change is cherry-picked as `992e5ed` on `cloudflare/worker-migration`.
+- PR #9 does not have it yet; `mail.ts` is identical on `main`, this branch and PR #9.
+- Contents:
+  - `api/src/lib/mail.ts`:
+    - SMTP is used when `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` are all set; otherwise the Brevo path is unchanged.
+    - Default port 465 with implicit TLS; on any other port STARTTLS is required.
+    - Timeouts 8 / 8 / 10 s, no pool, one attempt, no retries.
+    - Sender is `SMTP_FROM`, else the Gmail account.
+  - Errors are stored without the password, the account or any address. Success logs only the SMTP reply code (provider
+    acceptance, not inbox delivery).
+  - Dependency `nodemailer ^10.6.1`, bundled by the existing esbuild build; `npm audit`: 0 vulnerabilities.
+- Unchanged: email texts, OTP logic and expiry, limits, password-reset rules, API, UI, permissions.
+- All four flows call the same `sendMail`: forgot-password code, payout / action code, HR password reset, email-change /
+  marketing-company code.
+
+**Tests (no real email; a local SMTP server).** `api/test/mail-smtp.test.ts`, 9 tests:
+- config / precedence;
+- App Password auth;
+- sender;
+- Arabic content;
+- refused authentication (1 connection, no secret in error or log);
+- refused recipient;
+- unreachable server;
+- Brevo unchanged;
+- forgot-password end to end (the emailed code verifies; a refused send is audited without secrets);
+- HR reset.
+
+Full suites:
+- `hotfix/gmail-smtp`: 371 / 371.
+- `cloudflare/worker-migration`: 408 tests, 406 pass, 2 skipped, 0 fail; least-privilege run 407 / 407.
+
+**Configuration for activation** (Production, both `value-attendance` and `value-attendance-api`; nothing removed):
+
+| Variable | Value | Who enters it |
+|---|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` | Claude or owner |
+| `SMTP_PORT` | `465` | Claude or owner |
+| `SMTP_SECURE` | `true` | Claude or owner |
+| `SMTP_USER` | the dedicated Gmail address | owner |
+| `SMTP_PASS` | Google **App Password** (2-Step Verification on; never the account password) | **owner only, Sensitive** |
+| `MAIL_FROM`, `MAIL_FROM_NAME`, `BREVO_API_KEY` | unchanged (Brevo stays configured, unused while SMTP is set) | — |
+
+**Activation plan (needs the owner's explicit approval).**
+1. Push `hotfix/gmail-smtp`. Vercel may build a preview of it: a preview has no production variables and never
+   migrates.
+2. Production deployment of that branch, sequentially, `value-attendance` then `value-attendance-api`.
+   - The build skips migrations for a non-`main` ref, so nothing changes in the database.
+3. `/readyz` (`mail:true`).
+4. One controlled forgot-password test.
+   - Vercel log `mail_accepted transport=smtp reply=250 …`.
+   - Owner confirms inbox arrival.
+5. Merge `hotfix/gmail-smtp` into `main` (separate approval). Otherwise the next `main` deploy drops SMTP again.
+
+**Rollback.**
+- Vercel Instant Rollback of `value-attendance` to `dpl_4trXqNhosA7wWEz9E7wFbUYy1KnU` (and `value-attendance-api` to
+  `dpl_BtQAq2pxMzH6WdjdDzXQXLqs7dae`): the `cbd00b3` builds with the **old** Brevo key, which still delivers.
+- Removing `SMTP_PASS` alone falls back to the current Brevo key, which does not deliver (§6B).
+
+**Status.** Not deployed. Brevo old key not revoked. Production email still not delivered on the current deployment
+(§6B); the immediate fix without new code is the Instant Rollback above.
+
 ## 7. Log
 
 | Date | Item | Action | Evidence |
