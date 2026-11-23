@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jph_real_estate_hr/jph/forms/unit_quote_pdf.dart';
 
-/// «عرض سعر واستمارة حجز» of a unit: the owner's example (محل دور أرضي G - 19) gives exactly his figures.
+/// «عرض سعر» of a unit / a resale / a rental: the owner's example (محل دور أرضي G - 19) gives exactly his figures.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -43,10 +43,29 @@ void main() {
 
   test('the A4 PDF is built (Arabic fonts, no developer logo needed)', () async {
     final q = UnitQuote.of({'unitType': 'محل', 'floor': 'أرضي', 'unitNo': 'G - 19', 'areaM2': 42.12, 'meterPrice': 160000}, {'name': 'VALUE SQUARE'});
-    final bytes = await UnitQuotePdf.build(q);
+    final bytes = await UnitQuotePdf.build(q, loadLogos: false);
     expect(bytes.length, greaterThan(10000));
     expect(String.fromCharCodes(bytes.sublist(0, 5)), '%PDF-');
     final out = Platform.environment['QUOTE_PDF_OUT'];
     if (out != null) File(out).writeAsBytesSync(bytes);
+  });
+
+  test('a resale listing: cash by default (the whole price), a plan when chosen; meter price from price / area', () async {
+    final q = UnitQuote.listing({'kind': 'resale', 'title': 'شقة', 'address': 'التجمع', 'area': 120, 'price': 2400000, 'finishingAr': 'سوبر لوكس'});
+    expect([q.kind, q.cash, q.meterPrice, q.down, q.remaining, q.count, q.valid], ['resale', true, 20000, 2400000, 0, 0, true]);
+    q.cash = false;
+    expect([q.down, q.count > 0, q.valid], [240000, true, true]);
+    final bytes = await UnitQuotePdf.build(q, loadLogos: false);
+    expect(String.fromCharCodes(bytes.sublist(0, 5)), '%PDF-');
+  });
+
+  test('a rental listing: the rent paid every N months, the insurance, the first payment, the year', () async {
+    final q = UnitQuote.listing({'kind': 'rental', 'title': 'محل', 'area': 60, 'price': 15000});
+    q
+      ..rentEveryMonths = 3
+      ..insuranceMonths = 2;
+    expect([q.rental, q.installments, q.rentPayment, q.insurance, q.firstRentPayment, q.yearlyRent, q.valid], [true, false, 45000, 30000, 75000, 180000, true]);
+    final bytes = await UnitQuotePdf.build(q, loadLogos: false);
+    expect(bytes.length, greaterThan(10000));
   });
 }

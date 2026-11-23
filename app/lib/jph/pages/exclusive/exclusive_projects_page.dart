@@ -897,6 +897,9 @@ class _InventoryListState extends State<_InventoryList> {
             child: IconButton.outlined(tooltip: 'نموذج الشيت', onPressed: () => _downloadUnitsTemplate(context), icon: const Icon(Icons.download_rounded)),
           ),
         ]),
+      // «عرض سعر» for a unit that isn't in the list (the project's name filled in, everything else typed)
+      _btn(isDark, 'عرض سعر لوحدة في المشروع', Icons.request_quote_rounded,
+          () => printUnitQuote(context, isDark, const {}, widget.project), color: Ar.accent),
       if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
       if (!_loading && _units.isEmpty)
         Padding(padding: const EdgeInsets.all(24), child: Text('مفيش وحدات متسجلة للمشروع لسه', textAlign: TextAlign.center, style: TextStyle(color: JphUi.sub(isDark)))),
@@ -912,7 +915,7 @@ class _InventoryListState extends State<_InventoryList> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   Expanded(child: Text('وحدة ${u['unitNo']}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
-                  // «عرض سعر واستمارة حجز»: the unit's figures filled in, the plan editable, then print / share
+                  // «عرض سعر»: the unit's figures filled in, the plan editable, then print / share
                   IconButton(
                     tooltip: 'طباعة عرض سعر',
                     visualDensity: VisualDensity.compact,

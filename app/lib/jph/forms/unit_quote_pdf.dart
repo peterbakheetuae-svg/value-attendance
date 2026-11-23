@@ -16,18 +16,32 @@ import '../widgets/glass_dialog.dart';
 import '../widgets/glass_ui.dart';
 import '../widgets/jph_form_ui.dart';
 
-/// «عرض سعر واستمارة حجز» of one unit of a project (the print button on each unit in «وحدات المشروع»):
-/// the unit's own data is filled in (name, area, meter price, total), the payment plan is editable before printing
-/// (المقدم ٪, a second payment after N months ٪, the years and how often an installment is due), and the figures follow.
+/// «عرض سعر» of any property: a unit of a project (the print button on each unit in «وحدات المشروع»), or a listed
+/// resale / rental property (إعادة بيع / إيجار). Its own data is filled in, and everything is editable before printing:
+///  - a project unit / a resale: المقدم ٪, a second payment after N months ٪, the years and how often an installment is
+///    due — or cash (the whole price at once);
+///  - a rental: the monthly rent, paid every N months, the insurance (months of rent) and the contract's years.
 class UnitQuote {
-  String unitName, project;
+  /// unit (a project's unit) · resale · rental
+  String kind;
+  String unitName, project, address, finishing;
   num area, meterPrice, total, downPct, secondPct, years;
   int secondMonths, everyMonths;
+  /// a resale (or unit) paid all at once
+  bool cash;
+  /// rental: insurance in months of rent, the rent paid every N months, the contract's years
+  num insuranceMonths, contractYears;
+  int rentEveryMonths;
   String? developerId;
   Object? developerLogoAt;
 
   UnitQuote({required this.unitName, required this.project, required this.area, required this.meterPrice, required this.total,
-      this.downPct = 10, this.secondPct = 10, this.secondMonths = 3, this.years = 3, this.everyMonths = 3, this.developerId, this.developerLogoAt});
+      this.kind = 'unit', this.address = '', this.finishing = '', this.cash = false,
+      this.downPct = 10, this.secondPct = 10, this.secondMonths = 3, this.years = 3, this.everyMonths = 3,
+      this.insuranceMonths = 1, this.rentEveryMonths = 1, this.contractYears = 1, this.developerId, this.developerLogoAt});
+
+  bool get rental => kind == 'rental';
+  bool get resale => kind == 'resale';
 
   /// from a unit of the project's inventory (and the project it belongs to)
   factory UnitQuote.of(Map<String, dynamic> u, Map<String, dynamic> project) {
@@ -45,12 +59,33 @@ class UnitQuote {
         developerId: project['developerId']?.toString(), developerLogoAt: project['developerLogoAt']);
   }
 
-  num get down => total * downPct / 100;
-  num get second => total * secondPct / 100;
+  /// from a listed resale / rental property (إعادة بيع / إيجار): a resale is cash unless a plan is set
+  factory UnitQuote.listing(Map<String, dynamic> l) {
+    num n(Object? v) => v is num ? v : num.tryParse('${v ?? ''}') ?? 0;
+    final rental = l['kind'] == 'rental';
+    final area = n(l['area']), price = n(l['price']);
+    return UnitQuote(
+      kind: rental ? 'rental' : 'resale', unitName: '${l['title'] ?? ''}'.trim(), project: '', address: '${l['address'] ?? ''}'.trim(),
+      finishing: '${l['finishingAr'] ?? ''}'.trim(), area: area, total: price,
+      meterPrice: !rental && area > 0 ? (price / area).round() : 0, cash: !rental,
+    );
+  }
+
+  bool get installments => !rental && !cash;
+  num get down => cash ? total : total * downPct / 100;
+  num get second => cash ? 0 : total * secondPct / 100;
   num get remaining => total - down - second;
-  int get count => everyMonths <= 0 ? 0 : (years * 12 / everyMonths).round();
+  int get count => !installments || everyMonths <= 0 ? 0 : (years * 12 / everyMonths).round();
   num get installment => count <= 0 ? 0 : remaining / count;
   num get monthly => everyMonths <= 0 ? 0 : installment / everyMonths;
+  // rental
+  num get rentPayment => total * rentEveryMonths;
+  num get insurance => total * insuranceMonths;
+  num get firstRentPayment => rentPayment + insurance;
+  num get yearlyRent => total * 12;
+
+  /// the figures make a printable quote
+  bool get valid => total > 0 && (rental ? rentEveryMonths > 0 && insuranceMonths >= 0 : cash || (count > 0 && remaining >= 0));
 }
 
 /// 6739200 → «6,739,200»
@@ -69,14 +104,26 @@ String quoteUnitWord(num v) => v.abs() >= 1000000 ? 'مليون' : v.abs() >= 10
 String _pct(num v) => v == v.roundToDouble() ? '${v.toInt()}%' : '$v%';
 String _num(num v) => v == v.roundToDouble() ? '${v.toInt()}' : v.toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
 String _everyAr(int m) => m == 1 ? 'كل شهر' : m == 2 ? 'كل شهرين' : m <= 10 ? 'كل $m شهور' : 'كل $m شهراً';
+String _monthsAr(num m) => m == 1 ? 'شهر' : m == 2 ? 'شهرين' : m <= 10 ? '${_num(m)} شهور' : '${_num(m)} شهراً';
 String _yearsAr(num y) => y == 1 ? 'سنة' : y == 2 ? 'سنتين' : y <= 10 ? '${_num(y)} سنوات' : '${_num(y)} سنة';
 
 class UnitQuotePdf {
-  static Future<Uint8List> build(UnitQuote q) async {
+  /// [loadLogos] false: no network (tests) — the header falls back to the company's name
+  static Future<Uint8List> build(UnitQuote q, {bool loadLogos = true}) async {
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Bold.ttf'));
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Regular.ttf'));
-    final logoBytes = q.developerId == null ? null : await DocLogos.developer(q.developerId!, at: q.developerLogoAt);
+    // top right: the company's logo (the owner's choice); a document without one shows the developer's, else the name
+    Uint8List? logoBytes;
+    String company = 'VALUNIVO';
+    if (loadLogos) {
+      try {
+        logoBytes = await DocLogos.company();
+        if (logoBytes == null && q.developerId != null) logoBytes = await DocLogos.developer(q.developerId!, at: q.developerLogoAt);
+        company = await DocLogos.companyName();
+      } catch (_) {}
+    }
     final logo = logoBytes == null ? null : pw.MemoryImage(logoBytes);
+    final sub = q.rental ? 'إيجار' : q.resale ? 'إعادة بيع' : q.project;
 
     const orange = PdfColor.fromInt(0xFFD97706), ink = PdfColor.fromInt(0xFF111827), muted = PdfColor.fromInt(0xFF6B7280);
     const line = PdfColor.fromInt(0xFFE5E7EB), soft = PdfColor.fromInt(0xFFF8FAFC), purple = PdfColor.fromInt(0xFF7E22CE);
@@ -112,20 +159,20 @@ class UnitQuotePdf {
           ],
         );
 
-    final doc = pw.Document(title: 'عرض سعر ${q.unitName}', author: q.project);
+    final doc = pw.Document(title: 'عرض سعر ${q.unitName}', author: company);
     doc.addPage(pw.Page(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.fromLTRB(36, 34, 36, 28),
       textDirection: pw.TextDirection.rtl,
       build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
-        // ---- header: the developer's logo · the title and the project · the unit
+        // ---- header: the company's logo · the title and the project (or resale / rental) · the property
         pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
           pw.SizedBox(width: 140, child: pw.Align(alignment: pw.Alignment.centerRight,
-              child: logo == null ? txt(q.project, t(13, color: ink)) : pw.Image(logo, height: 34, fit: pw.BoxFit.contain))),
+              child: logo == null ? txt(company, t(13, color: ink)) : pw.Image(logo, height: 40, fit: pw.BoxFit.contain))),
           pw.Expanded(
             child: pw.Column(children: [
-              txt('عرض سعر واستمارة حجز', t(18), align: pw.TextAlign.center),
-              if (q.project.isNotEmpty) txt(q.project, t(11.5, color: orange), align: pw.TextAlign.center),
+              txt('عرض سعر', t(18), align: pw.TextAlign.center),
+              if (sub.isNotEmpty) txt(sub, t(11.5, color: orange), align: pw.TextAlign.center),
             ]),
           ),
           pw.SizedBox(
@@ -144,17 +191,50 @@ class UnitQuotePdf {
         pw.SizedBox(height: 10),
         pw.Container(height: 2.5, color: orange),
         pw.SizedBox(height: 16),
-        // ---- the unit at a glance
+        // ---- the property at a glance
         pw.Container(
           padding: const pw.EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: pw.BoxDecoration(color: soft, borderRadius: pw.BorderRadius.circular(8), border: pw.Border.all(color: line)),
           child: pw.Row(children: [
-            cell('بيان الوحدة', txt(q.unitName, t(12.5), align: pw.TextAlign.center)),
-            cell('إجمالي المساحة', txt('${_num(q.area)} متر', t(14), align: pw.TextAlign.center)),
-            cell('سعر المتر', amount(q.meterPrice, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
-            cell('إجمالي سعر الوحدة', amount(q.total, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
+            cell(q.kind == 'unit' ? 'بيان الوحدة' : 'بيان العقار', txt(q.unitName, t(12.5), align: pw.TextAlign.center)),
+            if (q.area > 0) cell('إجمالي المساحة', txt('${_num(q.area)} متر', t(14), align: pw.TextAlign.center)),
+            if (q.finishing.isNotEmpty) cell('التشطيب', txt(q.finishing, t(12.5), align: pw.TextAlign.center)),
+            if (!q.rental && q.meterPrice > 0) cell('سعر المتر', amount(q.meterPrice, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
+            cell(q.rental ? 'الإيجار الشهري' : q.kind == 'unit' ? 'إجمالي سعر الوحدة' : 'السعر',
+                amount(q.total, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
           ]),
         ),
+        if (q.address.isNotEmpty) ...[
+          pw.SizedBox(height: 6),
+          txt('العنوان: ${q.address}', t(10, color: muted, b: false)),
+        ],
+        if (q.rental) ...[
+          // ---- a rental: the rent, how often it's paid, the insurance, the first payment
+          section('شروط الإيجار'),
+          pw.Table(
+            border: pw.TableBorder.all(color: line),
+            columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)},
+            children: [
+              row('البيان', txt('القيمة', t(10, color: muted)), head: true),
+              row('الإيجار الشهري', amount(q.total, size: 12.5)),
+              row('الدفع ${_everyAr(q.rentEveryMonths)}', amount(q.rentPayment, size: 12.5)),
+              if (q.insuranceMonths > 0) row('التأمين (${_monthsAr(q.insuranceMonths)})', amount(q.insurance, size: 12.5)),
+              row('أول دفعة عند التعاقد', amount(q.firstRentPayment, color: red, size: 12.5)),
+              row('مدة العقد', txt(_yearsAr(q.contractYears), t(12.5))),
+              row('إجمالي إيجار السنة', amount(q.yearlyRent, color: green, size: 12.5)),
+            ],
+          ),
+        ] else if (q.cash) ...[
+          section('طريقة السداد'),
+          pw.Table(
+            border: pw.TableBorder.all(color: line),
+            columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)},
+            children: [
+              row('البيان', txt('القيمة المدفوعة', t(10, color: muted)), head: true),
+              row('كاش — السعر بالكامل', amount(q.total, color: green, size: 12.5)),
+            ],
+          ),
+        ] else ...[
         // ---- the payments
         section('تفاصيل الدفعات والمقدم'),
         pw.Table(
@@ -192,11 +272,12 @@ class UnitQuotePdf {
           columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)},
           children: [row('كل شهر', amount(q.monthly, color: green, size: 14))],
         ),
+        ],
         pw.Spacer(),
         pw.Container(height: 0.8, color: line),
         pw.SizedBox(height: 6),
         pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-          txt('${q.project.isEmpty ? '' : '${q.project} - '}عرض سعر ${q.unitName}', t(8.5, color: muted, b: false)),
+          txt('عرض سعر ${q.unitName}', t(8.5, color: muted, b: false)),
           txt('صفحة 1 من 1', t(8.5, color: muted, b: false)),
         ]),
       ]),
@@ -218,19 +299,28 @@ class UnitQuotePdf {
       );
 }
 
-/// the print button: the plan (filled from the unit, every figure editable) → the A4 preview (print / share)
-Future<void> printUnitQuote(BuildContext context, bool isDark, Map<String, dynamic> unit, Map<String, dynamic> project) async {
-  final q = UnitQuote.of(unit, project);
+/// the print button of a project's unit: the plan (filled from the unit, every figure editable) → the A4 preview
+Future<void> printUnitQuote(BuildContext context, bool isDark, Map<String, dynamic> unit, Map<String, dynamic> project) =>
+    _editAndPrint(context, isDark, UnitQuote.of(unit, project));
+
+/// «عرض سعر» of a listed resale / rental property
+Future<void> printListingQuote(BuildContext context, bool isDark, Map<String, dynamic> listing) =>
+    _editAndPrint(context, isDark, UnitQuote.listing(listing));
+
+Future<void> _editAndPrint(BuildContext context, bool isDark, UnitQuote q) async {
   String s(num v) => v == 0 ? '' : _num(v);
   final name = TextEditingController(text: q.unitName), area = TextEditingController(text: s(q.area)),
       meter = TextEditingController(text: s(q.meterPrice)), total = TextEditingController(text: s(q.total)),
       down = TextEditingController(text: s(q.downPct)), second = TextEditingController(text: s(q.secondPct)),
       secondM = TextEditingController(text: '${q.secondMonths}'), years = TextEditingController(text: s(q.years)),
-      every = TextEditingController(text: '${q.everyMonths}');
+      every = TextEditingController(text: '${q.everyMonths}'), address = TextEditingController(text: q.address),
+      insurance = TextEditingController(text: s(q.insuranceMonths)), rentEvery = TextEditingController(text: '${q.rentEveryMonths}'),
+      contract = TextEditingController(text: s(q.contractYears));
   num n(TextEditingController c) => num.tryParse(c.text.trim().replaceAll(',', '')) ?? 0;
   void apply() {
     q
       ..unitName = name.text.trim()
+      ..address = address.text.trim()
       ..area = n(area)
       ..meterPrice = n(meter)
       ..total = n(total)
@@ -238,7 +328,10 @@ Future<void> printUnitQuote(BuildContext context, bool isDark, Map<String, dynam
       ..secondPct = n(second)
       ..secondMonths = n(secondM).toInt()
       ..years = n(years)
-      ..everyMonths = n(every).toInt();
+      ..everyMonths = n(every).toInt()
+      ..insuranceMonths = n(insurance)
+      ..rentEveryMonths = n(rentEvery).toInt()
+      ..contractYears = n(contract);
   }
 
   final ok = await showDialog<bool>(
@@ -263,40 +356,72 @@ Future<void> printUnitQuote(BuildContext context, bool isDark, Map<String, dynam
           );
       return GlassAlertDialog(
         icon: const Icon(Icons.print_rounded, color: Ar.accent, size: 32),
-        title: const Text('عرض سعر الوحدة'),
+        title: const Text('عرض سعر'),
         content: SizedBox(
           width: 460,
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              f('اسم الوحدة', name, number: false),
-              f('إجمالي المساحة', area, onChange: recalc, suffix: 'م'),
-              f('سعر المتر', meter, onChange: recalc),
-              f('إجمالي سعر الوحدة', total),
-              Row(children: [
-                Expanded(child: f('المقدم', down, suffix: '%')),
-                const SizedBox(width: 8),
-                Expanded(child: f('دفعة تانية', second, suffix: '%')),
-                const SizedBox(width: 8),
-                Expanded(child: f('بعد (شهور)', secondM)),
-              ]),
-              Row(children: [
-                Expanded(child: f('مدة التقسيط (سنين)', years)),
-                const SizedBox(width: 8),
-                Expanded(child: f('قسط كل (شهور)', every)),
-              ]),
-              const Divider(),
-              line('المقدم ${_pct(q.downPct)}', q.down),
-              if (q.secondPct > 0) line('بعد ${q.secondMonths} شهور ${_pct(q.secondPct)}', q.second),
-              line('المبلغ المتبقي', q.remaining, color: Ar.red),
-              line('القسط ${_everyAr(q.everyMonths)} (${q.count} قسط)', q.installment),
-              line('كل شهر', q.monthly, color: Ar.green),
+              f(q.kind == 'unit' ? 'اسم الوحدة' : 'العقار', name, number: false),
+              if (q.kind != 'unit') f('العنوان', address, number: false),
+              f('إجمالي المساحة', area, onChange: q.rental ? null : recalc, suffix: 'م'),
+              if (q.rental) ...[
+                f('الإيجار الشهري', total),
+                Row(children: [
+                  Expanded(child: f('الدفع كل (شهور)', rentEvery)),
+                  const SizedBox(width: 8),
+                  Expanded(child: f('التأمين (شهور)', insurance)),
+                  const SizedBox(width: 8),
+                  Expanded(child: f('مدة العقد (سنين)', contract)),
+                ]),
+                const Divider(),
+                line('الدفع ${_everyAr(q.rentEveryMonths)}', q.rentPayment),
+                if (q.insuranceMonths > 0) line('التأمين', q.insurance),
+                line('أول دفعة عند التعاقد', q.firstRentPayment, color: Ar.red),
+                line('إجمالي إيجار السنة', q.yearlyRent, color: Ar.green),
+              ] else ...[
+                f('سعر المتر', meter, onChange: recalc),
+                f(q.kind == 'unit' ? 'إجمالي سعر الوحدة' : 'السعر', total),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: true, label: Text('كاش'), icon: Icon(Icons.payments_rounded)),
+                    ButtonSegment(value: false, label: Text('تقسيط'), icon: Icon(Icons.event_repeat_rounded)),
+                  ],
+                  selected: {q.cash},
+                  onSelectionChanged: (v) => set(() => q.cash = v.first),
+                ),
+                const SizedBox(height: 10),
+                if (!q.cash) ...[
+                  Row(children: [
+                    Expanded(child: f('المقدم', down, suffix: '%')),
+                    const SizedBox(width: 8),
+                    Expanded(child: f('دفعة تانية', second, suffix: '%')),
+                    const SizedBox(width: 8),
+                    Expanded(child: f('بعد (شهور)', secondM)),
+                  ]),
+                  Row(children: [
+                    Expanded(child: f('مدة التقسيط (سنين)', years)),
+                    const SizedBox(width: 8),
+                    Expanded(child: f('قسط كل (شهور)', every)),
+                  ]),
+                ],
+                const Divider(),
+                if (q.cash)
+                  line('كاش — السعر بالكامل', q.total, color: Ar.green)
+                else ...[
+                  line('المقدم ${_pct(q.downPct)}', q.down),
+                  if (q.secondPct > 0) line('بعد ${q.secondMonths} شهور ${_pct(q.secondPct)}', q.second),
+                  line('المبلغ المتبقي', q.remaining, color: Ar.red),
+                  line('القسط ${_everyAr(q.everyMonths)} (${q.count} قسط)', q.installment),
+                  line('كل شهر', q.monthly, color: Ar.green),
+                ],
+              ],
             ]),
           ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
           FilledButton.icon(
-            onPressed: q.total > 0 && q.count > 0 && q.remaining >= 0 ? () => Navigator.pop(ctx, true) : null,
+            onPressed: q.valid ? () => Navigator.pop(ctx, true) : null,
             icon: const Icon(Icons.print_rounded),
             label: const Text('معاينة وطباعة'),
           ),
@@ -323,7 +448,7 @@ class UnitQuotePage extends StatelessWidget {
           backgroundColor: Colors.transparent,
           body: SafeArea(
             child: Column(children: [
-              JphUi.header(context, isDark: isDark, isRTL: true, title: 'عرض سعر واستمارة حجز'),
+              JphUi.header(context, isDark: isDark, isRTL: true, title: 'عرض سعر'),
               Expanded(
                 child: PdfPreview(
                   build: (_) => UnitQuotePdf.build(quote),
@@ -333,7 +458,7 @@ class UnitQuotePage extends StatelessWidget {
                   canDebug: false,
                   allowSharing: true,
                   allowPrinting: true,
-                  pdfFileName: 'عرض سعر ${quote.project} - ${quote.unitName}.pdf',
+                  pdfFileName: 'عرض سعر ${quote.unitName}.pdf',
                   dynamicLayout: false,
                   actionBarTheme: PdfActionBarTheme(backgroundColor: JphUi.primary(isDark), iconColor: Colors.white),
                 ),

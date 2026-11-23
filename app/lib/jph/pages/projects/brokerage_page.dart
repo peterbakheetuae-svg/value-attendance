@@ -16,6 +16,7 @@ import '../../widgets/app_background.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/side_sheet.dart';
+import '../../forms/unit_quote_pdf.dart' show printListingQuote;
 
 /// «التسويق» → إعادة بيع / إيجار (server: /brokerage — 087 deals, 088 listings).
 ///  - Any salesperson / employee lists a property: photos, name / type, address, area, price, finishing, description.
@@ -748,6 +749,7 @@ class _BrokeragePageState extends State<BrokeragePage> {
                       _btn(isDark, 'استلام العمولة وتقسيمها', Icons.call_split_rounded, () => Navigator.pop(ctx, action = 'receive'), color: Colors.green.shade700),
                     if (deal.isNotEmpty)
                       _btn(isDark, 'تفاصيل الصفقة', Icons.receipt_long_rounded, () => Navigator.pop(ctx, action = 'deal'), outlined: true),
+                    _btn(isDark, 'عرض سعر', Icons.request_quote_rounded, () => Navigator.pop(ctx, action = 'quote'), outlined: true),
                     if (can['edit'] == true)
                       _btn(isDark, 'تعديل', Icons.edit_rounded, () => Navigator.pop(ctx, action = 'edit'), outlined: true),
                     if (can['withdraw'] == true)
@@ -768,6 +770,8 @@ class _BrokeragePageState extends State<BrokeragePage> {
         await _receive(isDark, deal);
       case 'deal':
         await _open(isDark, deal);
+      case 'quote':
+        await printListingQuote(context, isDark, l);
       case 'edit':
         await _editListing(isDark, l);
       case 'withdraw':
