@@ -54,3 +54,12 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 * Android 1.0.158 (sha256 `ea630fd35fd5564cdb46adeb40d0cbd2e5dcdf13a86c4b6dd24c5335a7a9a207`, 89,366,196 bytes) published;
   1.0.155 backed up in `~/va-backups/android-20261123T093722Z`… and `android-20261123T125032Z` (rollback input).
 * Owner: the clean-up counts sales + installments, commission requests and advances as financial transactions (as written).
+
+## 2026-11-23 13:30Z — migrations 066 / 083–087 applied in production (owner-approved)
+
+* Backup first: Neon branch `backup-before-066-087` (`br-bold-credit-bawwsez9`, parent `production` at 13:29:43Z, no compute).
+* Pre-checks (read-only): 73 migrations, no duplicate live payouts, first money month 2026-11, 2 owners = 100%.
+* `main` → `051f152`; the Vercel build applied 066, 083, 084, 085, 086, 087 at 13:30:32–34Z → 79 migrations; owner shares
+  copied from 2026-11-01 (50 / 50), stated month in the audit log; 59 employees and 5 receipts unchanged; `/readyz` ok.
+* OTP «stopped»: the account that tests it reached the limit (8 codes in 24 h, first at 09:05 Cairo) — 3 later requests
+  were refused by design; it frees up from 09:05 tomorrow. Not a fault.
