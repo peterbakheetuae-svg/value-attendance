@@ -98,3 +98,9 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
 - Android 1.0.173 (sha256 d8f6d113843576616bc5f03f4860bfec9031bbfa385b40b5038d088b96748cdd) both paths verified; 1.0.167 backed up to
   `~/va-backups/android-20261123T194307Z`.
 - Windows 1.0.42 (VALUNIVO-Setup-1.0.42.exe sha256 2c3881b5bf84e62e9baee5f94ac65902124ab0a7b8ef47ec8e234aec77e14576) verified live; 1.0.41 remains for rollback.
+
+## 2026-11-23 ~23:50 Cairo — help pages, Egyptian law, translations, «عرض سعر» for any property + Android 1.0.177 + Windows 1.0.43 (owner-approved)
+- `main` 00b8052 → d356b8e (no migration; 80 applied); `/readyz` ok on both; web deployed.
+- Android 1.0.177 (sha256 ffa88206f72e9da03e043652d3f43911c04097d20d273162668d5caea6ef7f88) both paths verified; 1.0.173 backed up to
+  `~/va-backups/android-20261123T212739Z`.
+- Windows 1.0.43 (VALUNIVO-Setup-1.0.43.exe sha256 a8c5b728d8cd4e06d6ae2809bd1747ccc46441cddd2cc9dfd0671718166732fc) verified live; 1.0.42 remains for rollback.
