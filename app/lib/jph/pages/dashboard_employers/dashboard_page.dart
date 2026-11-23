@@ -1746,12 +1746,14 @@ class _DashboardPageState extends State<DashboardPage>
 
                       const SizedBox(height: 24),
 
+                      // «الموظفين دلوقتي»: HR and the admin officer only (shows nothing for anyone else) — right after the
+                      // attendance, like the general manager's square
+                      PresenceBox(isDark: Provider.of<AppController>(context).isDark),
+
                       // طلبات مستنية قرار (بتظهر بس لو فيه طلبات)
                       _buildLeaveRequestsCard(context),
                       _buildLoanRequestsCard(context),
 
-                      // «الموظفين دلوقتي»: HR and the admin officer only (shows nothing for anyone else)
-                      PresenceBox(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 90),
                     ],

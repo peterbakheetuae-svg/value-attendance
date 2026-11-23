@@ -11,7 +11,9 @@ import 'jph_form_ui.dart';
 /// anyone else.
 class PresenceBox extends StatefulWidget {
   final bool isDark;
-  const PresenceBox({super.key, required this.isDark});
+  /// shows only for the administrative officer (his main dashboard), not for HR
+  final bool adminOfficerOnly;
+  const PresenceBox({super.key, required this.isDark, this.adminOfficerOnly = false});
 
   @override
   State<PresenceBox> createState() => _PresenceBoxState();
@@ -35,6 +37,7 @@ class _PresenceBoxState extends State<PresenceBox> {
       return;
     }
     if (!mounted || r['success'] == false || r['hr'] != true) return;
+    if (widget.adminOfficerOnly && r['adminOfficer'] != true) return;
     final p = lm(r['presence']);
     setState(() => _p = p);
     final ids = ll(p['rows']).map((x) => '${x['id']}').where((x) => x.isNotEmpty).toList();

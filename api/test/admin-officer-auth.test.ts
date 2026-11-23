@@ -57,9 +57,11 @@ test('«الموظفين دلوقتي»: HR and the administrative officer (eith
     const r = await p(tok);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.hr, true);
+    // the admin officer's main dashboard shows the square too (like the GM's); HR keeps it on the attendance page
+    assert.equal(r.body.adminOfficer, tok !== c.t.hr);
   }
   const o = await p(c.t.owner);
-  assert.equal(o.status, 200); assert.equal(o.body.hr, false);
+  assert.equal(o.status, 200); assert.equal(o.body.hr, false); assert.equal(o.body.adminOfficer, false);
   assert.equal((await p(c.t.acc)).status, 403);
   assert.equal((await p(c.t.e1)).status, 403);
 });

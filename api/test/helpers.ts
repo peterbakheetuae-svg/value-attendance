@@ -104,7 +104,9 @@ export const RUNTIME_DELETE_TABLES = ['web_push_subscriptions', 'role_permission
   'employee_documents', 'notifications', 'employee_devices', 'deals', 'tracking_pings', 'payroll_batch_lines', 'meta_pages',
   'marketing_company_files', 'lead_targets', 'lead_routes', 'lead_attachments', 'ex_unit_files', 'evaluations', 'attendance_selfies',
   // proposed 086 (expense groups / categories): granted once the table exists — as db/roles/valunivo_app_least_privilege.sql
-  'expense_group_categories'];
+  'expense_group_categories',
+  // «إنجاز» a repeated lead (leads.ts duplicate-resolve): the repeat — or the original — goes with its own records
+  'leads', 'lead_actions', 'lead_checkins', 'lead_logs', 'lead_referrals', 'lead_requests', 'lead_whatsapp'];
 const APP_ROLE = 'va_app_test', APP_PW = 'app-role-test-only';
 /** DELETE on the runtime tables that exist now (idempotent) — like rerunning the role script after a migration */
 async function grantRuntimeDeletes(q: { query: (sql: string) => Promise<unknown> }) {

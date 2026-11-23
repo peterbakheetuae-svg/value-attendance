@@ -1,3 +1,4 @@
+import '../../widgets/presence_box.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -1076,6 +1077,9 @@ class _OwnerOverviewState extends State<OwnerOverview> {
             if (ready) ...[
               _kpis(),
               if (_view == 'employees' && _d!['presence'] != null) _presence(),
+              // the admin officer (المسؤول الإداري) with this board: «الموظفين دلوقتي» on every view, like the GM's
+              // employees view (the server shows it only to the admin officer / HR — nothing for the owner / GM here)
+              if (_view != 'employees') Padding(padding: const EdgeInsets.only(bottom: 14), child: PresenceBox(isDark: widget.isDark, adminOfficerOnly: true)),
               if (wide)
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(flex: 3, child: Column(children: [_chart(0), _pipeline(1), _ranked(2), _latest(3)])),

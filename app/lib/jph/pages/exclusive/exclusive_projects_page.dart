@@ -21,7 +21,9 @@ import '../../widgets/jph_form_ui.dart';
 import '../commissions/commission_project_page.dart';
 import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
+import '../../forms/unit_quote_pdf.dart';
 import 'unit_files.dart';
+import '../projects/brokerage_page.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
 part '../projects/projects_hub.dart';
@@ -714,7 +716,9 @@ Future<bool> _editInventory(BuildContext context, bool isDark, String projectId,
 class _InventoryList extends StatefulWidget {
   final String projectId;
   final bool isDark;
-  const _InventoryList({required this.projectId, required this.isDark});
+  /// the project (its name / developer) for «عرض سعر» of a unit
+  final Map<String, dynamic> project;
+  const _InventoryList({required this.projectId, required this.isDark, this.project = const {}});
 
   @override
   State<_InventoryList> createState() => _InventoryListState();
@@ -765,6 +769,13 @@ class _InventoryListState extends State<_InventoryList> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   Expanded(child: Text('وحدة ${u['unitNo']}', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+                  // «عرض سعر واستمارة حجز»: the unit's figures filled in, the plan editable, then print / share
+                  IconButton(
+                    tooltip: 'طباعة عرض سعر',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => printUnitQuote(context, isDark, u, widget.project),
+                    icon: Icon(Icons.print_rounded, size: 20, color: JphUi.primary(isDark)),
+                  ),
                   _pill(u['active'] == false ? 'موقوفة' : '${u['stateAr']}', u['active'] == false ? Ar.grey : _c('${u['state']}')),
                 ]),
                 const SizedBox(height: 4),
@@ -1178,7 +1189,7 @@ class _ExclusiveProjectPageState extends State<ExclusiveProjectPage> {
         ),
       ),
       if (_tab == 'inventory')
-        _InventoryList(projectId: '${p['id']}', isDark: isDark)
+        _InventoryList(projectId: '${p['id']}', isDark: isDark, project: p)
       else if (_tab == 'units') ...[
         if (u.isNotEmpty)
           SingleChildScrollView(

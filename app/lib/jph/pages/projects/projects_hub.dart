@@ -41,6 +41,10 @@ class _ProjectsListState extends State<ProjectsList> {
   bool _loading = true, _manage = false;
   List<Map<String, dynamic>> _items = [];
   String _kind = ''; // '' = المشاريع (الكل)
+  /// المشاريع / إعادة بيع / إيجار — the GM / admin officer get it under «تسويق», the sales people always
+  int _section = 0;
+  static bool get _brokerage => ApiService.can('cash.office') || ApiService.can('exclusive.reserve') ||
+      ApiService.can('cash.hr_operate') || ApiService.can('commission.approve');
   int _sort = 0; // الأحدث / العمولة / المبيعات أو الاسم
   bool _grid = true;
   final _q = TextEditingController();
@@ -242,9 +246,34 @@ class _ProjectsListState extends State<ProjectsList> {
                 ('تسويق', _items.where((p) => p['kind'] == 'marketing').length),
               ],
               selected: kinds.indexOf(_kind),
-              onTap: (i) => setState(() => _kind = kinds[i]),
+              onTap: (i) => setState(() { _kind = kinds[i]; _section = 0; }),
             )
           : null;
+      // المشاريع / إعادة بيع / إيجار: under «تسويق» for whoever sees the kinds; one bar for the sales people (no حصري / تسويق)
+      final showSections = _brokerage && (!_seesKind() || _kind == 'marketing');
+      final sectionBar = showSections
+          ? GlassSegments(
+              isDark: isDark,
+              expand: !wide,
+              items: const [('المشاريع', null), ('إعادة بيع', null), ('إيجار', null)],
+              selected: _section,
+              onTap: (i) => setState(() => _section = i),
+            )
+          : null;
+      if (showSections && _section != 0) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad, 6, pad, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              title,
+              const SizedBox(height: 14),
+              if (tabBar != null) ...[Align(alignment: AlignmentDirectional.centerStart, child: tabBar), const SizedBox(height: 12)],
+              Align(alignment: AlignmentDirectional.centerStart, child: sectionBar!),
+            ]),
+          ),
+          Expanded(child: BrokeragePage(key: ValueKey('brokerage$_section'), kind: _section == 1 ? 'resale' : 'rental', embedded: true)),
+        ]);
+      }
       final search = Container(
         height: 44,
         decoration: Glass.tile(isDark, r: 99),
@@ -296,6 +325,7 @@ class _ProjectsListState extends State<ProjectsList> {
             if (tabBar != null) ...[tabBar, const SizedBox(height: 12)],
             search,
           ],
+          if (sectionBar != null) ...[const SizedBox(height: 12), Align(alignment: AlignmentDirectional.centerStart, child: sectionBar)],
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             Flexible(child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: sortBar)),

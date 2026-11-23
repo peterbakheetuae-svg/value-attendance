@@ -672,7 +672,7 @@ export const ownerDashboardModule: Module = (r, { db, clock }) => {
     const me = await one(db, `SELECT e.role_key, ${adminOfficerSql('e')} AS admin_officer FROM employees e WHERE e.id = $1`, [a.id]);
     const hrSide = !!me && (me.role_key === 'hr_manager' || me.admin_officer === true);
     if (!hrSide && !canOffice(a)) throw forbidden();
-    return ok({ presence: await employeesPresence(db, local(clock()).date, clock()), hr: hrSide });
+    return ok({ presence: await employeesPresence(db, local(clock()).date, clock()), hr: hrSide, adminOfficer: me?.admin_officer === true });
   });
 
   r.get('/dashboard/owner', async (req) => {

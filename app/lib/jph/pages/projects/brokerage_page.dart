@@ -40,7 +40,9 @@ const _arrangements = [
 
 class BrokeragePage extends StatefulWidget {
   final String kind; // resale | rental
-  const BrokeragePage({super.key, required this.kind});
+  /// inside «المشاريع»'s bar (المشاريع / إعادة بيع / إيجار): no own background / header
+  final bool embedded;
+  const BrokeragePage({super.key, required this.kind, this.embedded = false});
   @override
   State<BrokeragePage> createState() => _BrokeragePageState();
 }
@@ -75,21 +77,12 @@ class _BrokeragePageState extends State<BrokeragePage> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
-    return AppBackground(
-      child: Directionality(
-        textDirection: ui.TextDirection.rtl,
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          floatingActionButton: _installed && _can['propose'] == true
+    final fab = _installed && _can['propose'] == true
               ? FloatingActionButton.extended(
                   backgroundColor: Glass.blue, foregroundColor: Colors.white,
                   onPressed: () => _propose(isDark), icon: const Icon(Icons.add_rounded), label: const Text('صفقة جديدة'))
-              : null,
-          body: SafeArea(
-            child: Column(children: [
-              JphUi.header(context, isDark: isDark, isRTL: true, title: _title),
-              Expanded(
-                child: _loading
+              : null;
+    final Widget content = _loading
                     ? const Center(child: CircularProgressIndicator())
                     : !_installed
                         ? _empty(isDark, '$_title هتشتغل بعد تحديث قاعدة البيانات (087) — مستنية موافقة المالك')
@@ -103,8 +96,18 @@ class _BrokeragePageState extends State<BrokeragePage> {
                                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                                     itemBuilder: (_, i) => _card(isDark, _deals[i]),
                                   ),
-                          ),
-              ),
+                          );
+    if (widget.embedded) return Scaffold(backgroundColor: Colors.transparent, floatingActionButton: fab, body: content);
+    return AppBackground(
+      child: Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          floatingActionButton: fab,
+          body: SafeArea(
+            child: Column(children: [
+              JphUi.header(context, isDark: isDark, isRTL: true, title: _title),
+              Expanded(child: content),
             ]),
           ),
         ),

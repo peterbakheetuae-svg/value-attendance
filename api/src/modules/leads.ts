@@ -215,6 +215,17 @@ async function findDuplicate(q: Q, phones: string[]) {
                   ORDER BY l.created_at LIMIT 1`, [norms]);
 }
 
+/** a repeated lead joins another one: its comments, steps, files, visits, shares, requests and chats move over; then it goes */
+async function mergeLead(q: Q, fromId: string, intoId: string) {
+  await q.query(`DELETE FROM lead_referrals f WHERE f.lead_id = $1 AND EXISTS (SELECT 1 FROM lead_referrals t WHERE t.lead_id = $2 AND t.employee_id = f.employee_id)`, [fromId, intoId]);
+  await q.query(`DELETE FROM lead_requests WHERE lead_id = $1 AND EXISTS (SELECT 1 FROM lead_requests WHERE lead_id = $2)`, [fromId, intoId]);
+  for (const t of ['lead_actions', 'lead_attachments', 'lead_checkins', 'lead_logs', 'lead_referrals', 'lead_requests', 'lead_whatsapp', 'tasks', 'deals', 'ex_units'])
+    await q.query(`UPDATE ${t} SET lead_id = $2 WHERE lead_id = $1`, [fromId, intoId]);
+  await q.query(`UPDATE leads SET duplicate_of = $2 WHERE duplicate_of = $1`, [fromId, intoId]);
+  await q.query(`UPDATE leads SET updated_at = now() WHERE id = $1`, [intoId]);
+  await q.query(`DELETE FROM leads WHERE id = $1`, [fromId]);
+}
+
 /** who may know which salesman has a repeated lead: المالك / المدير العام / مدير المبيعات / المسؤول الإداري */
 const WATCHERS_SQL = `e.status = 'active' AND (e.role_key IN ('owner', 'manager', 'sales_manager') OR ${adminOfficerSql('e')})`;
 export async function seesDuplicates(q: Q, id: string | null) {
@@ -634,6 +645,77 @@ export const leadsModule: Module = (r, { db, clock }) => {
       }
     });
     return ok({ ok: true });
+  });
+
+  // ------------------------------------------------------------------ «إنجاز» a repeated lead (مكرر)
+  // The management decides where a repeated lead (the same customer added again by another salesman) lives:
+  //   keep_old           — it stays with the original's salesman: the repeat (and its comments) joins the original
+  //   move_with_history  — it moves to the salesman who added it again, with the original's whole history
+  //   move_fresh         — it disappears from the original's salesman and stays with the new one as a fresh lead
+  //                        (the original's history is kept in the audit log only)
+  // Who: whoever may know who has the original (المالك / المدير العام / مدير المبيعات / المسؤول الإداري).
+  r.post('/leads/:id/duplicate-resolve', async (req) => {
+    const a = await auth(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    if (!await seesDuplicates(db, a.id)) throw forbidden();
+    const b = obj(req.body);
+    const decision = oneOf(b, 'decision', ['keep_old', 'move_with_history', 'move_fresh'] as const);
+    const now = clock();
+    const res = await db.tx(async (q) => {
+      const rep = await one(q, `SELECT * FROM leads WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!rep) throw notFound();
+      if (!rep.duplicate_of) throw invalid('الليد ده مش مكرر (أو اتقرر خلاص)', { reason: 'not_duplicate' });
+      const orig = await one(q, `SELECT * FROM leads WHERE id = $1 FOR UPDATE`, [rep.duplicate_of]);
+      if (!orig) throw notFound();
+      const oldOwner = orig.assigned_to as string | null, newOwner = rep.assigned_to as string | null;
+      if (decision === 'keep_old') {
+        await mergeLead(q, rep.id, orig.id);
+        await log(q, orig.id, 'duplicate', a.id, { resolved: decision, repeatRef: Number(rep.ref_no), from: newOwner, to: oldOwner });
+        return { decision, leadId: orig.id as string, notify: newOwner, other: oldOwner, owner: oldOwner, name: orig.full_name as string };
+      }
+      if (decision === 'move_with_history') {
+        await mergeLead(q, rep.id, orig.id);
+        await q.query(`UPDATE leads SET assigned_to = $2, assigned_at = $3, assigned_by = $4, updated_at = $3 WHERE id = $1`, [orig.id, newOwner, now, a.id]);
+        await log(q, orig.id, 'duplicate', a.id, { resolved: decision, repeatRef: Number(rep.ref_no), from: oldOwner, to: newOwner });
+        if (newOwner) await log(q, orig.id, 'assign', a.id, { from: oldOwner, to: newOwner, mode: 'duplicate' });
+        return { decision, leadId: orig.id as string, notify: oldOwner, other: newOwner, owner: newOwner, name: orig.full_name as string };
+      }
+      // move_fresh: the repeat stands alone with its salesman; the original (and its history) goes, kept in the audit log
+      const snap = {
+        lead: orig,
+        actions: (await q.query(`SELECT * FROM lead_actions WHERE lead_id = $1 ORDER BY created_at`, [orig.id])).rows,
+        logs: (await q.query(`SELECT * FROM lead_logs WHERE lead_id = $1 ORDER BY created_at`, [orig.id])).rows,
+      };
+      await audit(q, a.id, 'lead.duplicate_original_removed', 'lead', orig.id, snap as any, { keptLead: rep.id, keptRef: Number(rep.ref_no) } as any);
+      await q.query(`UPDATE leads SET duplicate_of = NULL, updated_at = $2 WHERE id = $1`, [rep.id, now]);
+      // the same customer's other records follow the lead that stays: other repeats, reservations, deals
+      await q.query(`UPDATE leads SET duplicate_of = $2 WHERE duplicate_of = $1`, [orig.id, rep.id]);
+      await q.query(`UPDATE ex_units SET lead_id = $2 WHERE lead_id = $1`, [orig.id, rep.id]);
+      await q.query(`UPDATE deals SET lead_id = $2 WHERE lead_id = $1`, [orig.id, rep.id]);
+      await q.query(`UPDATE tasks SET lead_id = NULL WHERE lead_id = $1`, [orig.id]);
+      // (each written out: the least-privilege role's DELETE grants are checked against these statements)
+      await q.query(`DELETE FROM lead_actions WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_attachments WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_checkins WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_logs WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_referrals WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_requests WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM lead_whatsapp WHERE lead_id = $1`, [orig.id]);
+      await q.query(`DELETE FROM leads WHERE id = $1`, [orig.id]);
+      await log(q, rep.id, 'duplicate', a.id, { resolved: decision, originalRef: Number(orig.ref_no), from: oldOwner, to: newOwner });
+      return { decision, leadId: rep.id as string, notify: oldOwner, other: newOwner, owner: newOwner, name: rep.full_name as string };
+    });
+    await audit(db, a.id, 'lead.duplicate_resolved', 'lead', res.leadId, undefined, { decision: res.decision } as any);
+    const titles: Record<'keep_old' | 'move_with_history' | 'move_fresh', string> = {
+      keep_old: `العميل ${res.name} فضل مع السيلز الأصلي`,
+      move_with_history: `العميل ${res.name} اتنقل للسيلز اللي ضافه تاني (بالسجل بتاعه)`,
+      move_fresh: `العميل ${res.name} اتنقل للسيلز اللي ضافه تاني`,
+    };
+    for (const to of new Set([res.notify, res.other].filter((x): x is string => !!x && x !== a.id))) {
+      await notify(db, { to, type: 'lead_duplicate_resolved', title: titles[res.decision as keyof typeof titles], entity: 'lead', entityId: res.leadId,
+        dedupeKey: `lead:${res.leadId}:dupres:${now.getTime()}:${to}` }).catch(() => undefined);
+    }
+    return ok({ ok: true, decision: res.decision, leadId: res.leadId });
   });
 
   // ------------------------------------------------------------------ the dashboard
@@ -1069,7 +1151,7 @@ export const leadsModule: Module = (r, { db, clock }) => {
         price: n(u.unit_price), deposit: n(u.deposit_amount), at: iso(u.created_at) })),
       can: { act: work, reserve: work && l.assigned_to != null && !CLOSED.includes(l.stage), edit: (work || canDistribute(a)) && has(a, 'leads.edit'),
         editPhone: canDistribute(a), editSource: canDistribute(a), assign: canDistribute(a) || (canTeam(a) && work),
-        refer: work, log: manager, reply: !a.partner },
+        refer: work, log: manager, reply: !a.partner, resolveDuplicate: !!l.duplicate_of && await seesDuplicates(db, a.id) },
     });
   });
 

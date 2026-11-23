@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' hide Text;
 import 'package:provider/provider.dart';
 
 import '../../services/app_controller.dart';
+import '../../widgets/glass_dialog.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
 import '../../widgets/app_nav.dart';
@@ -43,6 +44,93 @@ class _LeadPageState extends State<LeadPage> {
       _d = r[0]['success'] == true ? r[0] : {'error': r[0]['message'] ?? tr('الليد مش موجود')};
       _meta = r[1];
     });
+    // a repeated lead opened by the management: the «إنجاز» decision comes up right away (once per opening)
+    if (!_askedDuplicate && lm(_d?['can'])['resolveDuplicate'] == true) {
+      _askedDuplicate = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _resolveDuplicate(lm(_d!['lead'])); });
+    }
+  }
+
+  bool _askedDuplicate = false;
+
+  /// «إنجاز» a repeated lead: it stays with the original's salesman, or it moves to the one who added it again —
+  /// with its history, or as a fresh lead (gone from the original's salesman)
+  Future<void> _resolveDuplicate(Map<String, dynamic> l) async {
+    final oldName = '${lm(l['duplicateOf'])['owner'] ?? tr('مش متوزع')}';
+    final newName = '${lm(l['assignedTo'])['name'] ?? tr('مش متوزع')}';
+    final isDark = context.read<AppController>().isDark;
+    Widget choice(BuildContext ctx, String value, IconData icon, Color color, String title, String sub) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Material(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.pop(ctx, value),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(children: [
+                  Icon(icon, color: color, size: 26),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+                      const SizedBox(height: 2),
+                      Text(sub, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+    var decision = await showDialog<String>(
+      context: context,
+      builder: (ctx) => GlassAlertDialog(
+        icon: const Icon(Icons.content_copy_rounded, color: Ar.amber, size: 34),
+        title: Text(tr('إنجاز الليد المكرر')),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('${l['fullName']} — ${tr('الأصلي مع')} $oldName${tr('، واتضاف تاني مع')} $newName',
+                style: TextStyle(color: JphUi.sub(isDark))),
+            const SizedBox(height: 14),
+            choice(ctx, 'keep_old', Icons.person_pin_rounded, Ar.info, '${tr('يفضل عند القديم')} ($oldName)',
+                tr('الليد المكرر يتشال ويتضم للأصلي بتعليقاته')),
+            choice(ctx, 'move', Icons.swap_horiz_rounded, Ar.amber, '${tr('يترحل للجديد')} ($newName)', tr('تختار بعدها: بالسجل بتاعه ولا من غيره')),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('بعدين')))],
+      ),
+    );
+    if (!mounted || decision == null) return;
+    if (decision == 'move') {
+      decision = await showDialog<String>(
+        context: context,
+        builder: (ctx) => GlassAlertDialog(
+          icon: const Icon(Icons.swap_horiz_rounded, color: Ar.amber, size: 34),
+          title: Text('${tr('يترحل لـ')} $newName'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            choice(ctx, 'move_with_history', Icons.history_rounded, Ar.green, tr('يترحل بالسجل بتاعه'),
+                tr('الليد الأصلي بكل تعليقاته وسجله يروح للجديد')),
+            choice(ctx, 'move_fresh', Icons.fiber_new_rounded, Ar.red, tr('يختفي من عند القديم ويفضل مع الجديد'),
+                tr('يفضل ليد جديد من غير السجل القديم، والأصلي يتشال من عند القديم')),
+          ]),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('رجوع')))],
+        ),
+      );
+      if (!mounted || decision == null) return;
+    }
+    final r = await lpost('/leads/${l['id']}/duplicate-resolve', {'decision': decision}, ok: tr('اتنجز ✅'));
+    if (!mounted) return;
+    JphUi.toast(context, r);
+    if (r['success'] != true) return;
+    final keep = '${r['leadId'] ?? ''}';
+    // the repeat itself may be gone (it joined the original): show the lead that stays
+    if (keep.isNotEmpty && keep != widget.leadId) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    await _load();
   }
 
   int _waTick = 0;
@@ -126,6 +214,21 @@ class _LeadPageState extends State<LeadPage> {
     final kind = l['kind'] == 'cold' ? tr('مكالمات باردة') : tr('جديد');
     final rating = {'hot': (tr('ساخن 🔥'), Ar.red), 'warm': (tr('دافي'), Ar.amber), 'cold': (tr('بارد'), Ar.info)}[l['rating']];
     return ListView(padding: EdgeInsets.fromLTRB(widget.sheet ? 20 : 14, 6, widget.sheet ? 20 : 14, 40), children: [
+      // ------------------------------------------------ a repeated lead: the management's «إنجاز»
+      if (can['resolveDuplicate'] == true)
+        Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          decoration: BoxDecoration(color: Ar.amber.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Ar.amber.withValues(alpha: 0.45))),
+          child: Row(children: [
+            const Icon(Icons.content_copy_rounded, color: Ar.amber),
+            const SizedBox(width: 10),
+            Expanded(child: Text(tr('ليد مكرر — محتاج قرار: يفضل عند القديم ولا يترحل للجديد'),
+                style: TextStyle(fontWeight: FontWeight.w800, color: JphUi.text(isDark)))),
+            FilledButton(onPressed: () => _resolveDuplicate(l), child: Text(tr('إنجاز'))),
+          ]),
+        ),
       // ------------------------------------------------ the big avatar, its pills and the meta line
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         leadAvatar('${l['fullName']}', size: 72),
@@ -382,7 +485,12 @@ class _LeadPageState extends State<LeadPage> {
             : 'نقله من ${x['fromName'] ?? ''} لـ ${x['toName'] ?? ''}${x['mode'] == 'cold' ? ' — كولد كول' : x['mode'] == 'fresh' ? ' — فريش' : ''}',
         'edit' => tr('عدّل البيانات'),
         'view' => tr('فتح صفحة العميل'),
-        'duplicate' => 'الرقم ده موجود قبل كده (ليد #${x['ofRef'] ?? ''})',
+        'duplicate' => switch (x['resolved']) {
+            'keep_old' => 'اتنجز المكرر: فضل عند ${x['toName'] ?? 'القديم'} (اتضم له ليد #${x['repeatRef'] ?? ''})',
+            'move_with_history' => 'اتنجز المكرر: اترحل لـ ${x['toName'] ?? 'الجديد'} بالسجل بتاعه',
+            'move_fresh' => 'اتنجز المكرر: فضل مع ${x['toName'] ?? 'الجديد'} واتشال الأصلي (ليد #${x['originalRef'] ?? ''})',
+            _ => 'الرقم ده موجود قبل كده (ليد #${x['ofRef'] ?? ''})',
+          },
         'referral' => 'شاركه مع ${x['toName'] ?? ''}',
         _ => '${g['kind']}',
       };

@@ -18,7 +18,9 @@ DO $$ DECLARE t text; BEGIN
     'employee_documents','notifications','employee_devices','deals','tracking_pings','payroll_batch_lines','meta_pages',
     'marketing_company_files','lead_targets','lead_routes','lead_attachments','ex_unit_files','evaluations','attendance_selfies',
     -- after proposed migration 086 (release branch) is applied: rerun this script so this grant is added too
-    'expense_group_categories']
+    'expense_group_categories',
+    -- «إنجاز» a repeated lead (merge / remove one of the two copies of the same customer)
+    'leads','lead_actions','lead_checkins','lead_logs','lead_referrals','lead_requests','lead_whatsapp']
   LOOP IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE format('GRANT DELETE ON %I TO valunivo_app', t); END IF; END LOOP;
 END $$;
 ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO valunivo_app;
