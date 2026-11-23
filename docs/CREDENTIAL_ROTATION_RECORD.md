@@ -211,9 +211,36 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
 | Environments updated | **Yes**, both Vercel projects, Production `BREVO_API_KEY`: `value-attendance` updated 2026-11-22 21:03:06Z, `value-attendance-api` 2026-11-23 07:01:55Z (update dates only; values never read) |
 | Deployment | **Yes**, both redeployed from the live `main` @ `cbd00b3` deployments, no other change: `dpl_8wSdcUdzywS6naqf1xTre62ByPSS` (value-attendance, READY, aliases `valunivo.vercel.app`, `value-attendance.vercel.app`); `dpl_C4HdmomNggEKXVx7ZqeA9sTK5396` (value-attendance-api, READY, `value-attendance-api-eight.vercel.app`) |
 | `/readyz` | value-attendance `{"ok":true,"migrations":73,"push":true,"mail":true,"backup":true}`; value-attendance-api `…"mail":true,"backup":false}` (that project never had `BACKUP_TOKEN`; it is not used by the apps) |
-| Email test | **Pending** (needs the owner's controlled test account) |
+| Email test | **FAILED** (2026-11-23). See the diagnosis below. Production email is **not delivered** since the redeploy of 06:57Z. |
 | Old key revoked | **No.** It is **not** in the signed-in Brevo account: that account held no API keys and sent no transactional email in the previous 7 days. Either another Brevo account issued it, or it was already deleted. To be settled before this row can close. |
 | Remaining consumers of the old key | Netlify (`BREVO_API_KEY`, site locked and builds stopped) |
+
+**Diagnosis of the failed email (2026-11-23, from actual records; no further send was made).**
+- **What reached Brevo.** Three "forgot password" requests, triggered by the owner, reached the live deployment
+  `dpl_8wSdcUdzywS6naqf1xTre62ByPSS` and were accepted by the new key. The new key's Brevo account logs each one as
+  **Sent**, then **Error**: 09:05, 09:06 and 09:07 Cairo, recipient = the owner's own address, From =
+  `info@valueaqar.com`.
+  - So the new key is active at runtime.
+  - Brevo's API answered 2xx, which is why the API logged no `mail_failed` (Vercel runtime logs, last 55 min, none) and the
+    app treated each code as sent.
+- **Cause: account mismatch on the sender.** The account holding the new key has one verified sender (a personal
+  address) and **no authenticated domain**. `info@valueaqar.com` (MAIL_FROM) is neither, so Brevo drops each message
+  after accepting it.
+  - The old key evidently belongs to a **different Brevo account**, where `info@valueaqar.com` / `valueaqar.com` is set up.
+  - That matches this account having had no keys and no sends before.
+- **Limits of the evidence.**
+  - Vercel per-request records (path / status) are not available on this plan through the tools (observability query →
+    402).
+  - Brevo shows no error text in the log list. The message preview was not opened, because it contains the code.
+- **Fix (owner's choice; nothing changed yet):**
+  1. **Recommended:** generate the replacement key in the Brevo account that owns `valueaqar.com`. Put it in both Vercel
+     projects and redeploy. Test once. Then delete the old key **and** `valunivo-2026-11` in the personal account.
+  2. Or verify `info@valueaqar.com` / authenticate `valueaqar.com` in the personal account. This needs the mailbox or
+     DNS records.
+  3. Not recommended: change MAIL_FROM to the personal address (Brevo warns: free-mail sender, DMARC).
+  - **To restore email right now without a new key:** use Vercel Instant Rollback of `value-attendance` to
+    `dpl_4trXqNhosA7wWEz9E7wFbUYy1KnU` (same `cbd00b3`, old key still valid). This is a production action; owner's
+    decision.
 
 ## 7. Log
 
