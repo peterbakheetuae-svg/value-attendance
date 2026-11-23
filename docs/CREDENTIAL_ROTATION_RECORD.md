@@ -308,6 +308,10 @@ Full suites:
   `dpl_BtQAq2pxMzH6WdjdDzXQXLqs7dae`): the `cbd00b3` builds with the **old** Brevo key, which still delivers.
 - Removing `SMTP_PASS` alone falls back to the current Brevo key, which does not deliver (§6B).
 
+**Checkpoint 2026-11-23 07:40Z.** `SMTP_USER` and `SMTP_PASS` added by the owner as Secret, Production only, in both
+projects: `value-attendance` 07:39:37Z, `value-attendance-api` 07:40:07Z. Values were never read. They are inert until
+`SMTP_HOST` is set **and** the SMTP code is deployed.
+
 **Status.** Not deployed. Brevo old key not revoked. Production email still not delivered on the current deployment
 (§6B); the immediate fix without new code is the Instant Rollback above.
 
