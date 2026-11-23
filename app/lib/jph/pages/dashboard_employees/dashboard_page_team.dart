@@ -40,6 +40,7 @@ import '../../widgets/glass_ui.dart';
 import '../../widgets/logo_orbit.dart';
 import '../../widgets/windows_attendance_card.dart';
 import '../../widgets/presence_box.dart';
+import '../../widgets/new_leads_box.dart';
 import '../../../core/platform_info.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
 
@@ -1011,6 +1012,8 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
                       _buildHeader(),
 
                       const SizedBox(height: 18),
+                      // «ليد جديد»: the salesperson's newest new lead first; «عرض المزيد» for the rest
+                      NewLeadsBox(key: ValueKey('newleads-$_payoutsTick'), isDark: Provider.of<AppController>(context).isDark),
                       // money handed to me → "تم الاستلام"
                       PendingPayoutsCard(key: ValueKey('payouts-$_payoutsTick')),
                       // the Windows app: no check-in / check-out from the computer — his day as a dashboard instead
