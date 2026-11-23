@@ -67,6 +67,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         'attendance_corrected' => Icons.edit_calendar_rounded,
         'evaluation_published' => Icons.star_rounded,
         'finance_awaiting' => Icons.account_balance_wallet_rounded,
+        'brokerage_sale' => Icons.real_estate_agent_rounded,
         _ => Icons.notifications_rounded,
       };
 }

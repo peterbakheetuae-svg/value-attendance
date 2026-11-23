@@ -43,6 +43,8 @@ class _ProjectsListState extends State<ProjectsList> {
   String _kind = ''; // '' = المشاريع (الكل)
   /// المشاريع / إعادة بيع / إيجار — the GM / admin officer get it under «تسويق», the sales people always
   int _section = 0;
+  /// «إضافة عقار» in the header (GM / administrative officer): bumps this, the embedded BrokeragePage opens its form
+  final ValueNotifier<int> _addListing = ValueNotifier(0);
   static bool get _brokerage => ApiService.can('cash.office') || ApiService.can('exclusive.reserve') ||
       ApiService.can('cash.hr_operate') || ApiService.can('commission.approve');
   int _sort = 0; // الأحدث / العمولة / المبيعات أو الاسم
@@ -52,6 +54,7 @@ class _ProjectsListState extends State<ProjectsList> {
   @override
   void dispose() {
     _q.dispose();
+    _addListing.dispose();
     super.dispose();
   }
 
@@ -269,7 +272,7 @@ class _ProjectsListState extends State<ProjectsList> {
           style: TextStyle(fontSize: 16, color: Glass.ink(isDark)),
           decoration: InputDecoration(
             border: InputBorder.none,
-            hintText: txs('دوّر على مشروع أو مطور'),
+            hintText: txs(_brokerage && _section != 0 ? 'دوّر على عقار أو عنوان' : 'دوّر على مشروع أو مطور'),
             hintStyle: TextStyle(color: Glass.muted(isDark)),
             prefixIcon: Icon(Icons.search_rounded, size: 19, color: Glass.muted(isDark)),
             contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -296,15 +299,39 @@ class _ProjectsListState extends State<ProjectsList> {
         final dealSort = GlassSegments(
           isDark: isDark,
           big: false,
-          items: const [('الأحدث', null), ('العمولة', null), ('الاسم', null)],
+          items: const [('الأحدث', null), ('السعر', null), ('الاسم', null)],
           selected: _sort,
           onTap: (i) => setState(() => _sort = i),
         );
+        // the GM / the administrative officer: «إضافة عقار» where «إضافة مشروع» is; the sales people get the floating button
+        final headerAdd = _seesKind();
+        final listingBtn = headerAdd
+            ? SizedBox(
+                height: 44,
+                width: wide ? 190 : double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _addListing.value++,
+                  icon: const Icon(Icons.add_home_work_rounded, size: 20),
+                  label: const Text('إضافة عقار', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Glass.blue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: const StadiumBorder(),
+                  ),
+                ),
+              )
+            : null;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Padding(
             padding: EdgeInsets.fromLTRB(pad, 6, pad, 8),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              title,
+              if (wide)
+                Row(crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: title), if (listingBtn != null) listingBtn])
+              else ...[
+                title,
+                if (listingBtn != null) ...[const SizedBox(height: 14), listingBtn],
+              ],
               const SizedBox(height: 14),
               if (wide)
                 Row(children: [
@@ -328,7 +355,7 @@ class _ProjectsListState extends State<ProjectsList> {
           ),
           Expanded(
             child: BrokeragePage(key: ValueKey('brokerage$_section'), kind: _section == 1 ? 'resale' : 'rental', embedded: true,
-                query: _q.text, sort: _sort, grid: _grid),
+                query: _q.text, sort: _sort, grid: _grid, addSignal: _addListing, headerAdd: headerAdd),
           ),
         ]);
       }
