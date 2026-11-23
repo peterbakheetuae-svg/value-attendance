@@ -8,9 +8,12 @@
 // `npm run migrate` itself is unchanged for deliberate manual use.
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { retiredDeployment } from './deployment-guard.mjs';
 
 /** @returns {{ allow: boolean, why: string }} */
 export function decide(env) {
+  // C1: the retired Vercel project never migrates the shared database (scripts/deployment-guard.mjs)
+  if (retiredDeployment(env)) return { allow: false, why: 'retired Vercel project (value-attendance-api) — never migrates' };
   if (env.VERCEL === '1' || env.VERCEL_ENV) {
     const ok = env.VERCEL_ENV === 'production' && env.VERCEL_GIT_COMMIT_REF === 'main';
     return { allow: ok, why: `Vercel ${env.VERCEL_ENV || '?'} build of ${env.VERCEL_GIT_COMMIT_REF || '?'}` };

@@ -8,13 +8,12 @@ import type { IncomingMessage } from 'node:http';
  * Nothing the client says about itself (a platform field, a custom header, a device name) is read: it can be forged.
  * Limit (documented, same as fake GPS): a script outside a browser can omit Origin — the location rules still apply to it.
  *
- * ATTENDANCE_BROWSER_PUNCH (API host env):
- *  - audit (default, also when unset): nothing changes for anyone — every browser attendance step is still accepted and
- *    written to the audit log (attendance.browser_punch), so the owner sees who punches from a browser (the iPhone web
- *    app) before choosing a stricter mode
- *  - approved_device: a browser may punch only from a session whose device the administration approved («ربط الحساب
- *    بالجهاز» on for the employee and this browser's device approved) — e.g. an iPhone Home Screen app that is the
- *    employee's linked device. Any other browser is refused.
+ * ATTENDANCE_BROWSER_PUNCH (API host env) — the owner chose «approved device only» (2026-11-24 01:15):
+ *  - approved_device (default, also when unset): a browser may punch only from a session whose device the administration
+ *    approved («ربط الحساب بالجهاز» on for the employee and this browser's device approved) — e.g. an iPhone Home Screen
+ *    app that is the employee's linked device. Any other browser is refused.
+ *  - audit: every browser attendance step is accepted and written to the audit log (attendance.browser_punch) — a
+ *    temporary escape hatch if a group of employees must be let back in before their device lock is set
  *  - deny: no browser ever punches.
  *  - allow: accepted, not audited (the behaviour before this change).
  *  - anything else: treated as deny (a typo never opens it).
@@ -23,8 +22,8 @@ export type BrowserPunchPolicy = 'audit' | 'approved_device' | 'deny' | 'allow';
 
 export function browserPunchPolicy(env: Record<string, string | undefined> = process.env): BrowserPunchPolicy {
   const v = (env.ATTENDANCE_BROWSER_PUNCH ?? '').trim().toLowerCase();
-  if (v === '' || v === 'audit') return 'audit';
-  if (v === 'approved_device') return 'approved_device';
+  if (v === '' || v === 'approved_device') return 'approved_device';
+  if (v === 'audit') return 'audit';
   if (v === 'allow') return 'allow';
   return 'deny';
 }

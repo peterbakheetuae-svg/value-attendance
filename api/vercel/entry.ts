@@ -7,6 +7,8 @@ import { createDb, type Db } from '../src/db.ts';
 import { buildRouter } from '../src/app.ts';
 import { createHandler } from '../src/http/router.ts';
 import { systemClock } from '../src/lib/time.ts';
+// @ts-ignore — plain .mjs shared with the build script
+import { retiredDeployment } from '../scripts/deployment-guard.mjs';
 
 /**
  * Neon's connection pooler (same database, host name with "-pooler"): opening a connection through it is much
@@ -52,7 +54,15 @@ const corsOrigins = [...new Set([
 ].map((s) => s.trim()).filter(Boolean))];
 const log = (o: object) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
 
-const handler = url
+// C1: the retired Vercel project («value-attendance-api») answers every request with 410 and never touches the database
+// (no router, no sweep, no push / e-mail, no webhook) — see scripts/deployment-guard.mjs
+const retired = retiredDeployment(process.env);
+const handler = retired
+  ? async (_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(410, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+        .end(JSON.stringify({ error: { code: 'gone', message: 'This deployment is retired. The API is at valunivo.vercel.app' } }));
+    }
+  : url
   ? createHandler(buildRouter({ db: resilientDb(url, direct!), clock: systemClock }), { corsOrigins, log })
   : async (_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(503, { 'Content-Type': 'application/json' })
