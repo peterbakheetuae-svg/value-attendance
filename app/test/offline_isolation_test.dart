@@ -307,7 +307,7 @@ void main() {
         '/cash/bank-moves', '/cash/fixed-expenses', '/payouts', '/payouts/cashiers', '/finance/dashboard', '/finance/dashboard/details',
         '/finance/employee-account/x', '/finance/adjustments', '/payroll/employee/x', '/payroll-batches', '/advances', '/advances/open',
         '/sales', '/sales/installments/due', '/commissions/entitlements', '/commissions/requests', '/commissions/projects',
-        '/insights/employees', '/custody'];
+        '/insights/employees', '/custody', '/brokerage/deals', '/brokerage/status'];
       for (final p in paths) {
         await a.get(p);
         balance++;

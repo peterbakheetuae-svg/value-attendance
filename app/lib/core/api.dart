@@ -88,7 +88,9 @@ class ApiClient {
   /// Money (balances, ledgers, payouts, payroll, sales, commissions): always read from the server, because another
   /// person's expense or receipt changes them and a 5-minute-old balance must never be acted on. Identical reads in
   /// flight are still shared, and the per-person offline copy still answers when there is no connection.
-  static const _money = ['/cash', '/payouts', '/finance', '/payroll', '/advances', '/sales', '/commissions', '/insights', '/custody'];
+  static const _money = ['/cash', '/payouts', '/finance', '/payroll', '/advances', '/sales', '/commissions', '/insights', '/custody',
+    // resale / rental deals (PR #9): amounts, approvals, collections — money too
+    '/brokerage'];
   final Map<String, (Map<String, dynamic>, DateTime)> _mem = {};
   final Map<String, Future<Map<String, dynamic>>> _inflight = {};
 
