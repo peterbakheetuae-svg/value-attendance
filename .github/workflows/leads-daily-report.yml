@@ -1,0 +1,23 @@
+name: Daily leads report email (23:59 Cairo)
+# Knocks on the API once at 23:59 Cairo; the server decides — it sends the day's leads report (new leads, actions, the top
+# salesman) to the general manager(s) and the administrative officer only between 23:55 and 06:00, and only once per day.
+# Two knocks cover Egypt's summer (UTC+3) and winter (UTC+2) time; a third is a retry if the scheduler skipped one.
+on:
+  schedule:
+    - cron: '59 20 * * *'   # 23:59 Cairo in summer (UTC+3) — in winter 22:59, the server answers not_due
+    - cron: '59 21 * * *'   # 23:59 Cairo in winter (UTC+2)
+    - cron: '30 22 * * *'   # a retry (already_sent if the first one went)
+  workflow_dispatch:
+permissions: {}
+concurrency: { group: leads-daily-report, cancel-in-progress: false }
+jobs:
+  knock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: |
+          for i in 1 2 3; do
+            out=$(curl -s -m 60 -X POST https://valunivo.vercel.app/leads/daily-report/run) && echo "$out" && exit 0
+            sleep 20
+          done
+          echo "::warning::the API did not answer"
