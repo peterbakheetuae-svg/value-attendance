@@ -117,7 +117,9 @@ export async function regrantAppRole(h: { db: Db }) {
 async function appRoleDb(dbName: string): Promise<Db> {
   await admin(async (p) => {
     await p.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
-      CREATE ROLE ${APP_ROLE} LOGIN PASSWORD '${APP_PW}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`);
+      CREATE ROLE ${APP_ROLE} LOGIN PASSWORD '${APP_PW}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF;
+      -- test files run in parallel: another one may create the role between the check and the CREATE
+      EXCEPTION WHEN unique_violation OR duplicate_object THEN NULL; END $$`);
   });
   const u = new URL(ADMIN_URL); u.pathname = '/' + dbName;
   const own = new pg.Pool({ connectionString: u.toString(), max: 1 });
