@@ -203,6 +203,18 @@ Each redeploy is a production deployment and needs the owner's go-ahead; I verif
 - the owner's own Neon console.
 - The Apps Script backup never touches the database directly.
 
+## 6B. Brevo (#4) — in progress (checkpoint 2026-11-23 07:03Z)
+
+| Field | Status |
+|---|---|
+| Replacement created | **Yes**, 2026-11-22: key `valunivo-2026-11` in the owner's Brevo account; **Restricted, 1 scope (Transactional email)**; expires 2027-11-22 or after 90 days unused |
+| Environments updated | **Yes**, both Vercel projects, Production `BREVO_API_KEY`: `value-attendance` updated 2026-11-22 21:03:06Z, `value-attendance-api` 2026-11-23 07:01:55Z (update dates only; values never read) |
+| Deployment | **Yes**, both redeployed from the live `main` @ `cbd00b3` deployments, no other change: `dpl_8wSdcUdzywS6naqf1xTre62ByPSS` (value-attendance, READY, aliases `valunivo.vercel.app`, `value-attendance.vercel.app`); `dpl_C4HdmomNggEKXVx7ZqeA9sTK5396` (value-attendance-api, READY, `value-attendance-api-eight.vercel.app`) |
+| `/readyz` | value-attendance `{"ok":true,"migrations":73,"push":true,"mail":true,"backup":true}`; value-attendance-api `…"mail":true,"backup":false}` (that project never had `BACKUP_TOKEN`; it is not used by the apps) |
+| Email test | **Pending** (needs the owner's controlled test account) |
+| Old key revoked | **No.** It is **not** in the signed-in Brevo account: that account held no API keys and sent no transactional email in the previous 7 days. Either another Brevo account issued it, or it was already deleted. To be settled before this row can close. |
+| Remaining consumers of the old key | Netlify (`BREVO_API_KEY`, site locked and builds stopped) |
+
 ## 7. Log
 
 | Date | Item | Action | Evidence |
