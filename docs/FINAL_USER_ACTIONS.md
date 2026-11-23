@@ -80,3 +80,8 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
   previous 1.0.161 backed up to `~/va-backups/android-20261123T161655Z`; GitHub release v1.0.164 → 01e7dc3.
 - Rollback: DB `db/proposed/088_rollback.sql` (test copy / owner decision only) or restore from the backup branch;
   Android: `android_rollback_from=android-20261123T161655Z`.
+
+## 2026-11-23 19:45 Cairo — admin officer presence box, position titles, online users for managers only + Android 1.0.167 (owner-approved)
+- `main` 01e7dc3 → 01f328d (no migration; 80 applied). Vercel prod: dpl_CpZnupSvH4VRwhijPcZzAviePmzn (web) / dpl_Ftc1jpBNLvduHKXTpxgbCDRv4hbK (api); `/readyz` ok.
+- Android 1.0.167 published (sha256 93eec1466f27eb60c0bdd18a5ee55e074228f2f769f5e456f26ff2ea3428db86), both public paths verified;
+  1.0.164 backed up to `~/va-backups/android-20261123T174531Z` (rollback: `android_rollback_from=android-20261123T174531Z`).
