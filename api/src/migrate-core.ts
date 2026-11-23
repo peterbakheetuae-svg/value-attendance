@@ -6,7 +6,7 @@ import type { Db } from './db.ts';
 export const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'db', 'migrations');
 
 /** Applies pending migrations in order, each inside its own transaction. Returns names applied. */
-export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
+export async function migrate(db: Db, dir = MIGRATIONS_DIR, opts: { skip?: (name: string) => boolean } = {}): Promise<string[]> {
   // created only when missing: an up-to-date database needs no CREATE privilege, so the runtime role can run this check
   // (pending migrations still need the owner / migration role — see MIGRATION_DATABASE_URL)
   if (!(await db.query(`SELECT to_regclass('public.schema_migrations') IS NOT NULL AS ok`)).rows[0].ok)
@@ -15,7 +15,7 @@ export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
   const files = readdirSync(dir).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
   const applied: string[] = [];
   for (const f of files) {
-    if (done.has(f)) continue;
+    if (done.has(f) || opts.skip?.(f)) continue;
     const sql = readFileSync(join(dir, f), 'utf8');
     await db.tx(async (q) => {
       await q.query(sql);
