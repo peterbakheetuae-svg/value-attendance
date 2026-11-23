@@ -46,3 +46,11 @@ the least-privilege run too, except those four 086 tests (DELETE on that table).
   Hostinger = web-1.0.157 (same code). Android stays 1.0.155. Gmail SMTP sender name: VALUNIVO.
 * Backend rollback: promote `dpl_Cz1hmuKfsHPFkzza6dbiGCvPawhE` / `dpl_CTXwXhj7yLhEZ5hY3WN6rLdcz5fW` (main @ d457faf).
 * Still waiting for the owner: migrations 083 → 087 (decisions: the 2026-11-18 clean-up yes / no; 085 baseline month).
+
+## 2026-11-23 12:50Z — backend 923ff6d + Android 1.0.158
+
+* `main` → `923ff6d` (owner-approved): Vercel `dpl_J9MH2scYtfCGB4GFVzjDw7aiAaGu` / `dpl_2hZzi2GsV42NCfSb2pEQtpA44MCD`, no migration;
+  web redeployed. Features: repeated-lead «إنجاز», المشاريع / إعادة بيع / إيجار bar, admin officer «الموظفين دلوقتي», unit quote print.
+* Android 1.0.158 (sha256 `ea630fd35fd5564cdb46adeb40d0cbd2e5dcdf13a86c4b6dd24c5335a7a9a207`, 89,366,196 bytes) published;
+  1.0.155 backed up in `~/va-backups/android-20261123T093722Z`… and `android-20261123T125032Z` (rollback input).
+* Owner: the clean-up counts sales + installments, commission requests and advances as financial transactions (as written).
