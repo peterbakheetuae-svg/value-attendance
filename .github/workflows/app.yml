@@ -9,6 +9,8 @@ on:
       apk_version: { description: 'that APK version, e.g. 1.0.118', required: false, default: '' }
       apk_sha256: { description: 'expected SHA-256 of that APK', required: false, default: '' }
       web_from_run: { description: 'run id whose deploy-out (web.zip, the web that is live now) goes with it', required: false, default: '' }
+      # release-prep/integration-* only: put an earlier Android update back (folder name printed by the update's backup step)
+      android_rollback_from: { description: 'Android rollback: backup folder on the server, e.g. android-20261123T090000Z', required: false, default: '' }
 permissions:
   contents: write   # keeps a copy of each build as a release (backup); the live app and its updates are on Hostinger
 # release-prep/* candidates get their own queue: they never cancel (or wait behind) a main / tracking-controls build
@@ -28,7 +30,7 @@ env:
     --dart-define=FIREBASE_PROJECT_ID=bustling-syntax-480805-k4
 jobs:
   build:
-    if: ${{ !inputs.apk_from_run }}
+    if: ${{ !inputs.apk_from_run && !inputs.android_rollback_from }}
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: app } }
     steps:
@@ -386,3 +388,114 @@ jobs:
           curl -fsS --max-time 180 -o fixed.apk https://jaurea.com/valunivo/android/value-attendance.apk
           [ "$(sha256sum fixed.apk | cut -d' ' -f1)" = "$WANT_SHA" ]
           echo "update served: $V"
+
+  # Android-only update from a verified release candidate (release-prep/integration-* branch): no rebuild, the web is
+  # NOT touched. The candidate run's APK is checked again (SHA-256, package, version, not debug, same signing certificate
+  # as the APK phones have now, newer build), the served files are backed up on the server (verified) before anything
+  # is replaced, and the public URLs are downloaded afterwards and compared byte for byte. A rollback restores a backup.
+  android-update:
+    if: ${{ (inputs.apk_from_run || inputs.android_rollback_from) && startsWith(github.ref, 'refs/heads/release-prep/integration-') }}
+    runs-on: ubuntu-latest
+    permissions: { contents: write, actions: read }
+    env:
+      SSH_HOST: 82.198.227.7
+      SSH_PORT: '65002'
+      SSH_USER: u258219607
+      SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      SSH_PASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+      V: ${{ inputs.apk_version }}
+      WANT_SHA: ${{ inputs.apk_sha256 }}
+      RB: ${{ inputs.android_rollback_from }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { sparse-checkout: app/deploy/hostinger }
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: ${{ !inputs.android_rollback_from }}
+        with: { name: release-candidate-android, path: cand, run-id: '${{ inputs.apk_from_run }}', github-token: '${{ github.token }}' }
+      - name: Check the candidate APK (SHA-256, package, version, release-signed, same certificate as the published APK, newer)
+        if: ${{ !inputs.android_rollback_from }}
+        run: |
+          set -euo pipefail
+          [[ "$V" =~ ^1\.0\.([0-9]+)$ ]] || { echo "::error::bad version $V"; exit 1; }
+          B=${BASH_REMATCH[1]}
+          F="cand/VALUNIVO-$V-android.apk"; test -s "$F" || { echo "::error::candidate APK $F missing"; exit 1; }
+          SHA=$(sha256sum "$F" | cut -d' ' -f1); echo "sha256 $SHA"
+          [ "$SHA" = "$WANT_SHA" ] || { echo "::error::SHA-256 differs from the approved candidate"; exit 1; }
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/aapt2" dump badging "$F" | head -1 | tee badging.txt
+          grep -q "package: name='com.jph.valueattendance'" badging.txt || { echo "::error::application id"; exit 1; }
+          grep -q "versionCode='$B'" badging.txt && grep -q "versionName='$V'" badging.txt || { echo "::error::version"; exit 1; }
+          ! "$BT/aapt2" dump badging "$F" | grep -q "application-debuggable" || { echo "::error::debuggable APK"; exit 1; }
+          "$BT/apksigner" verify --verbose --print-certs "$F" | tee verify.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' verify.txt || { echo "::error::no v2 signature"; exit 1; }
+          ! grep -qi 'CN=Android Debug' verify.txt || { echo "::error::debug-signed"; exit 1; }
+          PUB=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/android/latest.json?t=$(date +%s)"); echo "published now: $PUB"
+          OLDAPK=$(printf '%s' "$PUB" | sed -n 's/.*"apk" *: *"\([^"]*\)".*/\1/p'); OLDB=$(printf '%s' "$PUB" | sed -n 's/.*"build" *: *\([0-9]*\).*/\1/p')
+          [ "$B" -gt "$OLDB" ] || { echo "::error::$B is not newer than the published $OLDB"; exit 1; }
+          curl -fsS --max-time 180 -o old.apk "https://jaurea.com/valunivo/android/$OLDAPK"
+          grep 'SHA-256 digest' verify.txt | head -1 > new.cert
+          "$BT/apksigner" verify --print-certs old.apk | grep 'SHA-256 digest' | head -1 > old.cert
+          cat new.cert old.cert
+          [ -s new.cert ] && cmp new.cert old.cert || { echo "::error::signing certificate differs from the published APK"; exit 1; }
+          mkdir -p out && cp "$F" "out/value-attendance-$V.apk"
+          SIZE=$(stat -c%s "$F")
+          printf '{"version":"%s","build":%s,"apk":"value-attendance-%s.apk","size":%s,"sha256":"%s"}\n' "$V" "$B" "$V" "$SIZE" "$SHA" > out/latest.json
+          cat out/latest.json
+      - name: Back up what is served, then update (or roll back) — Android files only
+        run: |
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] || [ -n "$SSH_PASS" ] || { echo "::error::no Hostinger secret"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat > ~/.ssh/known_hosts <<'KH'
+          [82.198.227.7]:65002 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINIEVbKu9K7AVrGNwujYEUbrw0wvECMboXFOKfpiiw3h
+          [82.198.227.7]:65002 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCHeIP4sUl5WiCE5CU68sEpg0WFGfq/jyVGW0RqVzi3v56HYIJhINFOZvD3XxttLN/k7t2ZEjA52H73cegg6QGY=
+          KH
+          sed -i 's/^ *//' ~/.ssh/known_hosts
+          OPTS="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -P $SSH_PORT"
+          if [ -n "$SSH_KEY" ]; then
+            printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+            SCP="scp $OPTS -i $HOME/.ssh/deploy"; SSH="ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT -i $HOME/.ssh/deploy"
+          else
+            sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y sshpass >/dev/null
+            export SSHPASS="$SSH_PASS"
+            SCP="sshpass -e scp $OPTS"; SSH="sshpass -e ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -p $SSH_PORT"
+          fi
+          if [ -n "$RB" ]; then
+            $SSH "$SSH_USER@$SSH_HOST" "bash -s -- rollback '$RB'" < app/deploy/hostinger/remote-android-update.sh
+          else
+            $SSH "$SSH_USER@$SSH_HOST" 'rm -rf ~/va-staging-android && mkdir -p ~/va-staging-android'
+            $SCP out/* "$SSH_USER@$SSH_HOST:va-staging-android/"
+            $SSH "$SSH_USER@$SSH_HOST" 'bash -s -- update' < app/deploy/hostinger/remote-android-update.sh
+          fi
+      - name: Check the public URLs (both addresses) serve exactly the approved file; WordPress unchanged
+        if: ${{ !inputs.android_rollback_from }}
+        run: |
+          set -eu
+          sleep 5
+          code() { curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$1"; }
+          for u in https://jaurea.com/ https://www.jaurea.com/; do c=$(code $u); echo "$u -> $c"; [ "$c" = 200 ]; done
+          curl -sL --max-time 30 https://jaurea.com/ | grep -q 'wp-content'
+          curl -s --max-time 30 https://jaurea.com/valunivo/ | grep -q '<base href="/valunivo/">'
+          for d in valunivo value-attendance; do
+            J=$(curl -fsS --max-time 30 "https://jaurea.com/$d/android/latest.json?t=$(date +%s)"); echo "$d: $J"
+            [ "$J" = "$(cat out/latest.json)" ] || { echo "::error::$d/android/latest.json is not the new one"; exit 1; }
+            for f in "value-attendance-$V.apk" value-attendance.apk; do
+              curl -fsS --max-time 300 -o got.apk "https://jaurea.com/$d/android/$f?t=$(date +%s)"
+              G=$(sha256sum got.apk | cut -d' ' -f1); echo "$d/android/$f sha256 $G size $(stat -c%s got.apk)"
+              [ "$G" = "$WANT_SHA" ] || { echo "::error::$d/android/$f differs from the approved APK"; exit 1; }
+            done
+            curl -sI --max-time 30 "https://jaurea.com/$d/android/value-attendance-$V.apk" | grep -iE 'content-type|content-length'
+          done
+          echo "update served: $V"
+      - name: Permanent copy as a GitHub release (as every Android update before it)
+        if: ${{ !inputs.android_rollback_from }}
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          cp out/value-attendance-$V.apk value-attendance.apk
+          # the commit the APK was built from (the candidate run), not the commit of this publishing run
+          SRC=$(gh api "repos/${{ github.repository }}/actions/runs/${{ inputs.apk_from_run }}" -q .head_sha)
+          gh release create "v$V" value-attendance.apk -R "${{ github.repository }}" --target "$SRC" \
+            --title "Value Attendance $V" --notes "تحديث أندرويد — نسخة الإصدار المتكامل (${{ github.ref_name }}). الويب لم يتغير." --latest
+      - name: Check after rollback
+        if: ${{ inputs.android_rollback_from }}
+        run: for d in valunivo value-attendance; do curl -fsS --max-time 30 "https://jaurea.com/$d/android/latest.json?t=$(date +%s)"; echo; done
