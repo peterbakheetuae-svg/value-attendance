@@ -243,7 +243,7 @@ test('a direct contract for a client / unit that has a reservation is refused; t
   assert.equal((await h.call(c.t.e1, 'POST', `/exclusive/units/${uid}/contract`, { paymentType: 'cash' })).status, 200);
   const after = await h.call(c.t.e1, 'PATCH', `/exclusive/units/${uid}`, { clientPhone: '01099998888', unitPrice: 1 });
   assert.equal(after.status, 200);
-  assert.equal(after.body.unit.clientPhone, '01099998888');
+  assert.equal(after.body.unit.clientPhone, '0101 222 3333', 'a lead\'s client keeps the lead\'s phone (never typed by hand)');
   assert.equal(after.body.unit.unitPrice, 950_000, 'the price is fixed after the contract');
 });
 

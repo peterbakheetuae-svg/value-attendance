@@ -249,7 +249,10 @@ test('the company\'s profile, its documents and its bell (its campaigns\' leads 
   const id = mk.body.company.id;
   await h.call(c.t.owner, 'PATCH', `/leads/partners/${id}/login`, { email: 'bell@co.com', password: 'Start#2026x' });
   await h.db.query(`UPDATE marketing_companies SET must_change_password = false, device_lock = false WHERE id = $1`, [id]);
-  await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [camp1], managerId: c.ids.acc, contractDate: '2026-10-01' });
+  // «حملة الشركة 1» runs with another company (an earlier test): freed there first — a campaign runs with one company only
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${camp1}/partner`, { companyId: null })).status, 200);
+  const prof = await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [camp1], managerId: c.ids.acc, contractDate: '2026-10-01' });
+  assert.equal(prof.status, 200, JSON.stringify(prof.body));
   await h.call(c.t.owner, 'PUT', `/marketing-companies/${id}/files/contract`, { fileName: 'c.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1 x').toString('base64') });
   const tok = (await h.call(null, 'POST', '/auth/login', { identifier: 'bell@co.com', password: 'Start#2026x' })).body.token;
   const pr = await h.call(tok, 'GET', '/partner/profile');
@@ -400,8 +403,8 @@ test('VA-11: company B never sees the Meta campaigns already feeding company A (
 });
 
 test('a campaign runs with one company only: another company cannot take it (file or leads settings) until it is freed', async () => {
-  const a1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة أ', kind: 'commission', defaultPct: 1 })).body.company.id;
-  const b1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة ب', kind: 'commission', defaultPct: 1 })).body.company.id;
+  const a1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الحملة الأولى', kind: 'commission', defaultPct: 1 })).body.company.id;
+  const b1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة الحملة التانية', kind: 'commission', defaultPct: 1 })).body.company.id;
   const ch = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
   const pid = (await h.db.query(`SELECT project_id FROM lead_campaigns WHERE id = $1`, [camp2])).rows[0].project_id;
   const mine = await h.call(c.t.acc, 'POST', '/leads/campaigns', { name: 'حملة حصرية', channelId: ch, projectId: pid });
