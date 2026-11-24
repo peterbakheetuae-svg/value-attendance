@@ -2,8 +2,13 @@
 // Run by Vercel after `npm install` (see vercel.json). No secrets are read here.
 import { build } from 'esbuild';
 import { mkdirSync, rmSync, writeFileSync, cpSync } from 'node:fs';
+import { deploymentStatus } from './deployment-guard.mjs';
 
 const out = process.argv[2] ?? '.vercel/output';
+// C1: the build's own verdict on which project this is, baked into the function (vercel/entry.ts also checks at run
+// time; either side saying «not serve» refuses). Only the verdict word is baked — no variable value, nothing secret.
+const builtStatus = deploymentStatus(process.env);
+console.log(`deployment identity at build: ${builtStatus}`);
 const fn = `${out}/functions/index.func`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(fn, { recursive: true });
@@ -19,6 +24,7 @@ await build({
   external: ['pg-native', 'pg-cloudflare', 'cloudflare:sockets'],
   // CommonJS deps (pg) call require(); give the ESM bundle a real one.
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
+  define: { __VA_BUILD_STATUS__: JSON.stringify(builtStatus) },
   logLevel: 'info',
 });
 

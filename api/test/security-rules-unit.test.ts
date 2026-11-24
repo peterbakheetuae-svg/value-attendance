@@ -8,7 +8,7 @@ import { boardInside, isWeakFix, neverPingedDue, silentCause, weakStreakDue, WEA
 import { isProductionRuntime, metaSignatureOk } from '../src/lib/meta-signature.ts';
 import { hasBackupToken } from '../src/lib/backup-token.ts';
 // @ts-ignore — plain .mjs shared with the build script
-import { deploymentStatus, REAL_API_DOMAINS, RETIRED_DOMAIN } from '../scripts/deployment-guard.mjs';
+import { combinedStatus, deploymentStatus, REAL_API_DOMAINS, RETIRED_DOMAIN } from '../scripts/deployment-guard.mjs';
 // @ts-ignore — plain .mjs build script
 import { decide } from '../scripts/migrate-if-production.mjs';
 
@@ -173,6 +173,23 @@ test('C1: fixed identities, secrets play no part, missing identity in production
   assert.equal(deploymentStatus({ VERCEL: '1', VERCEL_ENV: 'development' }), 'serve');
   assert.equal(deploymentStatus({}), 'serve', 'a laptop / CI');
   assert.equal(deploymentStatus({ NETLIFY: 'true', CONTEXT: 'production' }), 'serve', 'Netlify has its own entry');
+  // the real project proven by its Vercel-written deployment URL (project «value-attendance», team «hi-8dea») even when its
+  // production domain is not one of the listed ones (e.g. a custom domain added later)
+  assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'api.example.com', VERCEL_URL: 'value-attendance-k3j2h1g0f-hi-8dea.vercel.app' }), 'serve');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'value-attendance-k3j2h1g0f-hi-8dea.vercel.app' }), 'serve', 'deployment URL alone');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'value-attendance-api-k3j2h1g0f-hi-8dea.vercel.app' }), 'retired', 'the retired project never matches it');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'value-attendance-k3j2h1g0f-other-team.vercel.app' }), 'unverified', 'another team');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'value-attendance-k3j2h1g0f-hi-8dea.vercel.app.evil.com' }), 'unverified');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'xvalue-attendance-k3j2h1g0f-hi-8dea.vercel.app' }), 'unverified');
+  // build verdict AND run-time verdict: either one not «serve» refuses
+  const real = { ...base, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' };
+  assert.equal(combinedStatus('serve', real), 'serve');
+  assert.equal(combinedStatus(undefined, real), 'serve', 'a bundle built without the verdict (local) relies on the run-time check');
+  assert.equal(combinedStatus('retired', real), 'retired', 'built as the retired project');
+  assert.equal(combinedStatus('unverified', real), 'unverified', 'built unidentified');
+  assert.equal(combinedStatus('serve', orphan), 'retired', 'run-time says retired');
+  assert.equal(combinedStatus('serve', base), 'unverified', 'run-time identity missing');
+  assert.equal(combinedStatus('garbage', real), 'unverified', 'an unexpected baked value');
   // the build: only the real project's production build of main migrates
   assert.equal(decide({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' }).allow, true);
   assert.equal(decide(orphan).allow, false);
