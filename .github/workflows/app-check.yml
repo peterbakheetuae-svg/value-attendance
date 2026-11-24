@@ -1,7 +1,7 @@
 name: App — analyze only (waiting branch, no build / no deploy)
 on:
-  # pending-build-permissions: the permissions work's own check branch (owner-approved), same steps, nothing published
-  push: { branches: [pending-build, pending-build-permissions], paths: ['app/**', '.github/workflows/app-check.yml'] }
+  # pending-build-permissions / feature/ui-sales-commission-2026-11-24: owner-approved check branches, same steps, nothing published
+  push: { branches: [pending-build, pending-build-permissions, feature/ui-sales-commission-2026-11-24], paths: ['app/**', '.github/workflows/app-check.yml'] }
 permissions:
   contents: read
 jobs:
