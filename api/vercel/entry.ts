@@ -10,9 +10,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Db } from '../src/db.ts';
 // @ts-ignore — plain .mjs shared with the build script
-import { deploymentStatus } from '../scripts/deployment-guard.mjs';
+import { combinedStatus } from '../scripts/deployment-guard.mjs';
 
-const status: 'retired' | 'serve' | 'unverified' = deploymentStatus(process.env);
+// the build's verdict (baked by scripts/vercel-build.mjs) AND this instance's own — either one not «serve» refuses
+declare const __VA_BUILD_STATUS__: string | undefined;
+const built = typeof __VA_BUILD_STATUS__ === 'undefined' ? undefined : __VA_BUILD_STATUS__;
+const status: 'retired' | 'serve' | 'unverified' = combinedStatus(built, process.env);
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => unknown;
 const refuse = (code: number, error: object): Handler => async (_req, res) => {

@@ -13,8 +13,9 @@
 //
 // Decision (secrets play no part — a token being present or absent never changes it):
 //   retired   any Vercel domain of the deployment is the retired project's            → 410, no database, no migration
-//   serve     a Vercel production deployment whose project domain is the real API's  → normal API
-//   unverified a Vercel production deployment without a known project domain           → 503, no database, no migration
+//   serve     a Vercel production deployment whose project domain is the real API's, or whose own deployment URL is
+//             the real project's (value-attendance-<hash>-hi-8dea.vercel.app)              → normal API
+//   unverified a Vercel production deployment proven to be neither                        → 503, no database, no migration
 //   serve     not a Vercel production deployment (previews have no production secrets; Netlify / laptop / CI use
 //             their own entry points and the migrate guard's own rules)
 // Plain JavaScript: used by the build script (node, no TypeScript) and bundled into the Vercel function by esbuild.
@@ -22,6 +23,11 @@
 export const REAL_API_DOMAINS = Object.freeze(['valunivo.vercel.app', 'value-attendance.vercel.app']);
 export const RETIRED_DOMAIN = 'value-attendance-api-eight.vercel.app';
 const RETIRED_PROJECT_PREFIX = 'value-attendance-api-'; // every deployment URL of that project starts with its name
+// Vercel team «hi-8dea»: projects «value-attendance» (the real API) and «value-attendance-api» (retired) — both read from
+// Vercel's own commit statuses on 0d23322 («Vercel – value-attendance», «Vercel – value-attendance-api»).
+// Vercel names each deployment <project>-<hash>-<team>.vercel.app: a second, Vercel-written proof of the real project,
+// so the real API stays up even if its production domain is one not listed above.
+const REAL_PROJECT_DEPLOYMENT = /^value-attendance-[a-z0-9]+-hi-8dea\.vercel\.app$/;
 
 const clean = (x) => String(x ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
@@ -37,6 +43,18 @@ export function deploymentStatus(env) {
   // on Vercel: anything not proven to be a preview / development deployment is treated as production
   const production = env.VERCEL_ENV !== 'preview' && env.VERCEL_ENV !== 'development';
   if (!production) return 'serve';
-  return REAL_API_DOMAINS.includes(prod) ? 'serve' : 'unverified';
+  return REAL_API_DOMAINS.includes(prod) || REAL_PROJECT_DEPLOYMENT.test(clean(env.VERCEL_URL)) ? 'serve' : 'unverified';
+}
+
+/**
+ * The function's final word: what the BUILD decided (from the build's own Vercel variables, baked into the bundle by
+ * scripts/vercel-build.mjs) AND what the running instance sees — anything but «serve» on either side refuses.
+ * @param {string | undefined} built @param {Record<string, string | undefined>} env
+ */
+export function combinedStatus(built, env) {
+  const now = deploymentStatus(env);
+  if (built === 'retired' || now === 'retired') return 'retired';
+  if ((built !== undefined && built !== 'serve') || now !== 'serve') return 'unverified';
+  return 'serve';
 }
 
