@@ -1,36 +1,68 @@
 import type { IncomingMessage } from 'node:http';
 
 /**
- * G1 (2026-11-24) — which clients may record attendance (check-in / check-out / «I'm back») and feed location.
+ * G1 — who may record attendance (check-in / check-out / «I'm back») and feed location. Revised 2026-11-24 (second
+ * review): the decision rests on the server's own device-approval records, never on a request header.
  *
- * A browser is recognised by the `Origin` header: every browser adds it to a POST (cross-origin always, same-origin too)
- * and page script can neither remove nor change it. The phone app (Android, dart:io) and the Windows app never send it.
- * Nothing the client says about itself (a platform field, a custom header, a device name) is read: it can be forged.
- * Limit (documented, same as fake GPS): a script outside a browser can omit Origin — the location rules still apply to it.
+ * What is trusted, and what is not:
+ *  - DEVICE AUTHORIZATION (enforced): «ربط الحساب بالجهاز» (employees.device_lock) + the administration's approval of a
+ *    device id (employee_devices.status = 'approved'), checked against the device id the SESSION was created with
+ *    (sessions.device_id, written by the server at sign-in after the approval check). Checked again on every attendance
+ *    step, so a device refused after sign-in, a session without a device, or a device approved for someone else never
+ *    punches — whatever headers the request carries.
+ *  - CLIENT IDENTITY (NOT available): nothing proves the request comes from the genuine VALUNIVO app. A device id is a
+ *    random value the app keeps; whoever copies it (and the password) can present it. Only platform attestation
+ *    (Play Integrity) could prove the app — not in place. This module does not claim otherwise.
+ *  - HEADERS (never trusted): Origin / User-Agent / custom headers are client-controlled. An Origin header is used only to
+ *    REFUSE more (a browser of an employee whose account is not device-linked); its absence never grants anything that
+ *    the device rule would not grant anyway.
  *
- * ATTENDANCE_BROWSER_PUNCH (API host env) — the owner chose «approved device only» (2026-11-24 01:15):
- *  - approved_device (default, also when unset): a browser may punch only from a session whose device the administration
- *    approved («ربط الحساب بالجهاز» on for the employee and this browser's device approved) — e.g. an iPhone Home Screen
- *    app that is the employee's linked device. Any other browser is refused.
- *  - audit: every browser attendance step is accepted and written to the audit log (attendance.browser_punch) — a
- *    temporary escape hatch if a group of employees must be let back in before their device lock is set
- *  - deny: no browser ever punches.
- *  - allow: accepted, not audited (the behaviour before this change).
- *  - anything else: treated as deny (a typo never opens it).
+ * ATTENDANCE_DEVICE_POLICY (API host env):
+ *  - approved_device (default, also when unset):
+ *      device-linked employee → only from an approved device of his (any client: Android app, iPhone web app, …)
+ *      not device-linked     → the administration turned the link off for him: no device can be checked; the phone
+ *                              app keeps working, a browser is refused (the owner's choice: «approved device only»)
+ *  - strict: every attendance step needs a device-linked account and an approved device (employees whose link is off
+ *    are refused until the administration turns it on — use after checking the list in the report)
+ *  - anything else: strict (a typo never opens it)
  */
-export type BrowserPunchPolicy = 'audit' | 'approved_device' | 'deny' | 'allow';
+export type DevicePolicy = 'approved_device' | 'strict';
 
-export function browserPunchPolicy(env: Record<string, string | undefined> = process.env): BrowserPunchPolicy {
-  const v = (env.ATTENDANCE_BROWSER_PUNCH ?? '').trim().toLowerCase();
+export function devicePolicy(env: Record<string, string | undefined> = process.env): DevicePolicy {
+  const v = (env.ATTENDANCE_DEVICE_POLICY ?? '').trim().toLowerCase();
   if (v === '' || v === 'approved_device') return 'approved_device';
-  if (v === 'audit') return 'audit';
-  if (v === 'allow') return 'allow';
-  return 'deny';
+  return 'strict';
 }
 
-/** the request was sent by a browser (it carries an Origin header — "null" included) */
+/** a browser announced itself (Origin header, "null" included) — used only to refuse more, never to allow */
 export function isBrowserRequest(headers: IncomingMessage['headers']): boolean {
   const o: unknown = headers.origin;
   if (Array.isArray(o)) return o.length > 0;
   return typeof o === 'string' && o.trim().length > 0;
 }
+
+/** what the server knows about the session (from its own tables) */
+export interface SessionDevice {
+  /** the employee's «ربط الحساب بالجهاز» */
+  deviceLock: boolean;
+  /** the device id the session was created with (null: unknown device) */
+  deviceId: string | null;
+  /** that device id is approved for THIS employee */
+  approved: boolean;
+}
+
+export type PunchRefusal = 'device_not_approved' | 'device_link_off_browser' | 'device_link_required';
+
+/** the attendance decision: null = allowed, otherwise why not. Headers can only add a refusal. */
+export function punchRefusal(s: SessionDevice | null, browser: boolean, policy: DevicePolicy): PunchRefusal | null {
+  if (!s) return 'device_not_approved';
+  if (s.deviceLock) return s.deviceId && s.approved ? null : 'device_not_approved';
+  if (policy === 'strict') return 'device_link_required';
+  return browser ? 'device_link_off_browser' : null;
+}
+
+export const PUNCH_REFUSAL_AR: Record<PunchRefusal, string> = {
+  device_not_approved: 'الجهاز ده مش معتمد لحسابك — سجّل من جهازك المعتمد أو اطلب موافقة الإدارة',
+  device_link_off_browser: 'تسجيل الحضور من المتصفح محتاج «ربط الحساب بالجهاز» — سجّل من تطبيق الموبايل أو كلّم الإدارة',
+  device_link_required: 'تسجيل الحضور محتاج «ربط الحساب بالجهاز» — كلّم الإدارة',
+};

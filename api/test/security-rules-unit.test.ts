@@ -3,34 +3,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { browserPunchPolicy, isBrowserRequest } from '../src/lib/client-platform.ts';
+import { devicePolicy, isBrowserRequest, punchRefusal, type SessionDevice } from '../src/lib/client-platform.ts';
 import { boardInside, isWeakFix, neverPingedDue, silentCause, weakStreakDue, WEAK_GPS_M, WEAK_STREAK_MIN } from '../src/lib/tracking-health.ts';
 import { isProductionRuntime, metaSignatureOk } from '../src/lib/meta-signature.ts';
 import { hasBackupToken } from '../src/lib/backup-token.ts';
 // @ts-ignore — plain .mjs shared with the build script
-import { retiredDeployment } from '../scripts/deployment-guard.mjs';
+import { deploymentStatus, REAL_API_DOMAINS, RETIRED_DOMAIN } from '../scripts/deployment-guard.mjs';
 // @ts-ignore — plain .mjs build script
 import { decide } from '../scripts/migrate-if-production.mjs';
 
-test('G1: a browser is recognised by Origin only; client claims are ignored', () => {
-  assert.equal(isBrowserRequest({ origin: 'https://jaurea.com' }), true);
-  assert.equal(isBrowserRequest({ origin: 'null' }), true, 'opaque origin is still a browser');
-  assert.equal(isBrowserRequest({}), false, 'the phone app sends no Origin');
-  assert.equal(isBrowserRequest({ origin: '' }), false);
-  assert.equal(isBrowserRequest({ 'x-client-platform': 'android', 'user-agent': 'Dalvik/2.1.0' } as any), false);
-  assert.equal(isBrowserRequest({ origin: 'https://evil.example', 'x-client-platform': 'android' } as any), true, 'forged claim + Origin = browser');
-  assert.equal(isBrowserRequest({ 'sec-fetch-mode': 'cors' } as any), false, 'Node fetch / tools add sec-fetch-mode: not used as a signal');
+test('G1: the decision rests on the server\'s device records; no header can grant a punch', () => {
+  const approved: SessionDevice = { deviceLock: true, deviceId: 'dev-approved-1', approved: true };
+  const unapproved: SessionDevice = { deviceLock: true, deviceId: 'dev-other-123', approved: false };
+  const noDevice: SessionDevice = { deviceLock: true, deviceId: null, approved: false };
+  const unlinked: SessionDevice = { deviceLock: false, deviceId: 'dev-x', approved: false };
+  for (const browser of [false, true]) {
+    // 1+2: without Origin or with any Origin, an unapproved device of a device-linked employee is refused
+    assert.equal(punchRefusal(unapproved, browser, 'approved_device'), 'device_not_approved', `unapproved, browser=${browser}`);
+    assert.equal(punchRefusal(noDevice, browser, 'approved_device'), 'device_not_approved', `no device, browser=${browser}`);
+    // 4: the approved device punches from any client (Android app, iPhone web app)
+    assert.equal(punchRefusal(approved, browser, 'approved_device'), null, `approved, browser=${browser}`);
+    assert.equal(punchRefusal(approved, browser, 'strict'), null);
+    // no session row → refused
+    assert.equal(punchRefusal(null, browser, 'approved_device'), 'device_not_approved');
+  }
+  // the device-link is off for this employee: the app keeps working, a browser is refused (an Origin can only refuse more)
+  assert.equal(punchRefusal(unlinked, false, 'approved_device'), null);
+  assert.equal(punchRefusal(unlinked, true, 'approved_device'), 'device_link_off_browser');
+  assert.equal(punchRefusal(unlinked, false, 'strict'), 'device_link_required');
+  assert.equal(punchRefusal({ ...unlinked, approved: true }, false, 'strict'), 'device_link_required', 'an old approval without the link proves nothing');
+  // an approved flag without a device id is not enough
+  assert.equal(punchRefusal({ deviceLock: true, deviceId: null, approved: true }, false, 'approved_device'), 'device_not_approved');
 });
 
-test('G1: policy values — unset = approved_device (the owner\'s choice), explicit values, anything else = deny', () => {
-  assert.equal(browserPunchPolicy({}), 'approved_device');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: '' }), 'approved_device');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'AUDIT' }), 'audit');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: ' Approved_Device ' }), 'approved_device');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'deny' }), 'deny');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'ALLOW' }), 'allow');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'true' }), 'deny');
-  assert.equal(browserPunchPolicy({ ATTENDANCE_BROWSER_PUNCH: 'alow' }), 'deny', 'a typo never opens it');
+test('G1: Origin is read only as an extra refusal signal (absent / empty / "null" / array / forged)', () => {
+  assert.equal(isBrowserRequest({ origin: 'https://jaurea.com' }), true);
+  assert.equal(isBrowserRequest({ origin: 'null' }), true, 'opaque origin');
+  assert.equal(isBrowserRequest({}), false);
+  assert.equal(isBrowserRequest({ origin: '' }), false);
+  assert.equal(isBrowserRequest({ origin: '   ' }), false);
+  assert.equal(isBrowserRequest({ origin: ['a', 'b'] } as any), true, 'repeated header');
+  assert.equal(isBrowserRequest({ 'x-client-platform': 'android', 'user-agent': 'Dalvik/2.1.0' } as any), false, 'client claims are not read');
+});
+
+test('G1: policy values — unset = approved_device, strict, anything else = strict (fail closed)', () => {
+  assert.equal(devicePolicy({}), 'approved_device');
+  assert.equal(devicePolicy({ ATTENDANCE_DEVICE_POLICY: ' Approved_Device ' }), 'approved_device');
+  assert.equal(devicePolicy({ ATTENDANCE_DEVICE_POLICY: 'strict' }), 'strict');
+  for (const v of ['allow', 'audit', 'off', 'true', 'alow']) assert.equal(devicePolicy({ ATTENDANCE_DEVICE_POLICY: v }), 'strict', v);
+  assert.equal(devicePolicy({ ATTENDANCE_BROWSER_PUNCH: 'allow' }), 'approved_device', 'the first version\'s variable opens nothing');
 });
 
 test('G2: accuracy boundary — 200 m usable, above it weak; missing accuracy keeps the old meaning', () => {
@@ -118,24 +139,43 @@ test('scheduler token: ≥ 24 characters on the host, exact match, constant-time
   assert.equal(hasBackupToken({ 'x-backup-token': 'anything-anything-anything' }, {}), false, 'no host token');
 });
 
-test('C1: only the retired Vercel project is stopped — never the real API', () => {
-  const T = 'x'.repeat(32);
-  const orphan = { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main',
-    VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app', VERCEL_URL: 'value-attendance-api-k3j2h1g0f-peter.vercel.app' };
-  assert.equal(retiredDeployment(orphan), true, 'the orphan as seen live (no BACKUP_TOKEN)');
-  assert.equal(retiredDeployment({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: '' }), true, 'by its deployment URL alone');
-  assert.equal(retiredDeployment({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api.vercel.app', VERCEL_URL: '' }), true);
-  assert.equal(retiredDeployment({ ...orphan, BACKUP_TOKEN: T }), false, 'has the production secret → never stopped');
-  assert.equal(retiredDeployment({ ...orphan, VERCEL_ENV: 'preview' }), false, 'not production');
-  // the real API under its names
-  for (const host of ['valunivo.vercel.app', 'value-attendance.vercel.app', 'value-attendance-k3j2h1g0f-peter.vercel.app',
-    'value-attendance-apixyz123-peter.vercel.app', 'valunivo-k3j2h1g0f-peter.vercel.app']) {
-    assert.equal(retiredDeployment({ VERCEL_ENV: 'production', VERCEL_PROJECT_PRODUCTION_URL: host, VERCEL_URL: host }), false, host);
-    assert.equal(retiredDeployment({ VERCEL_ENV: 'production', VERCEL_PROJECT_PRODUCTION_URL: host, VERCEL_URL: host, BACKUP_TOKEN: T }), false, host);
+test('C1: fixed identities, secrets play no part, missing identity in production fails closed', () => {
+  const T = 'x'.repeat(40);
+  const base = { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' };
+  const orphan = { ...base, VERCEL_PROJECT_PRODUCTION_URL: RETIRED_DOMAIN, VERCEL_URL: 'value-attendance-api-k3j2h1g0f-peter.vercel.app' };
+  // retired project — with and without BACKUP_TOKEN, by any of its Vercel names, in production or preview
+  assert.equal(deploymentStatus(orphan), 'retired', 'token absent');
+  assert.equal(deploymentStatus({ ...orphan, BACKUP_TOKEN: T }), 'retired', 'token present');
+  assert.equal(deploymentStatus({ ...base, VERCEL_URL: 'value-attendance-api-k3j2h1g0f-peter.vercel.app' }), 'retired', 'deployment URL only');
+  assert.equal(deploymentStatus({ ...base, VERCEL_BRANCH_URL: 'value-attendance-api-git-main-peter.vercel.app' }), 'retired', 'branch URL only');
+  assert.equal(deploymentStatus({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'https://VALUE-ATTENDANCE-API-EIGHT.vercel.app/' }), 'retired', 'case / scheme');
+  assert.equal(deploymentStatus({ ...orphan, VERCEL_ENV: 'preview' }), 'retired', 'a preview of the retired project');
+  // a real-API domain written next to a retired deployment URL never rescues it
+  assert.equal(deploymentStatus({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' }), 'retired', 'conflicting identity');
+  // the real API
+  for (const d of REAL_API_DOMAINS) {
+    assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: d, VERCEL_URL: 'value-attendance-k3j2h1g0f-peter.vercel.app' }), 'serve', d);
+    assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: d, BACKUP_TOKEN: T }), 'serve', `${d} + token`);
+    assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: d }), 'serve', `${d}, token absent: still served`);
   }
-  assert.equal(retiredDeployment({}), false, 'a laptop / CI');
-  // the build never migrates from the orphan; the real production build still does
+  assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance.vercel.app', VERCEL_URL: 'value-attendance-apixyz123-peter.vercel.app' }), 'serve',
+    'a real deployment hash starting with «api» is not the retired project');
+  // production without a known identity: fail closed
+  assert.equal(deploymentStatus(base), 'unverified', 'no metadata');
+  assert.equal(deploymentStatus({ ...base, BACKUP_TOKEN: T }), 'unverified', 'no metadata, token present');
+  assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo-copy.vercel.app' }), 'unverified', 'unexpected domain');
+  assert.equal(deploymentStatus({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'evil.vercel.app.example.com' }), 'unverified');
+  assert.equal(deploymentStatus({ VERCEL: '1' }), 'unverified', 'on Vercel, environment unknown → treated as production');
+  assert.equal(deploymentStatus({ VERCEL_ENV: 'production' }), 'unverified');
+  assert.equal(deploymentStatus({ VERCEL: '1', VERCEL_ENV: 'weird' }), 'unverified');
+  // previews / development of the real project (no production secrets): served; not on Vercel: served by other rules
+  assert.equal(deploymentStatus({ VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'value-attendance-k3j2h1g0f-peter.vercel.app' }), 'serve');
+  assert.equal(deploymentStatus({ VERCEL: '1', VERCEL_ENV: 'development' }), 'serve');
+  assert.equal(deploymentStatus({}), 'serve', 'a laptop / CI');
+  assert.equal(deploymentStatus({ NETLIFY: 'true', CONTEXT: 'production' }), 'serve', 'Netlify has its own entry');
+  // the build: only the real project's production build of main migrates
+  assert.equal(decide({ ...base, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' }).allow, true);
   assert.equal(decide(orphan).allow, false);
-  assert.equal(decide({ ...orphan, VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app', VERCEL_URL: 'valunivo-abc-peter.vercel.app', BACKUP_TOKEN: T }).allow, true);
-  assert.equal(decide({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' }).allow, true, 'no system URLs exposed: unchanged');
+  assert.equal(decide({ ...orphan, BACKUP_TOKEN: T }).allow, false);
+  assert.equal(decide(base).allow, false, 'unidentified production build');
 });

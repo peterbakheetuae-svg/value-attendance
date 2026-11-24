@@ -5,7 +5,7 @@ import { conflict, invalid, notFound } from '../http/errors.ts';
 import { isUuid, num, obj } from '../http/validate.ts';
 import { audit, authenticate, can, notSettled, readableIds, requireCan, requirePerm } from '../auth/context.ts';
 import { local, timeToMinutes, actionTime } from '../lib/time.ts';
-import { haversineM, punchClientAllowed } from './attendance.ts';
+import { haversineM, punchRefusalOf } from './attendance.ts';
 import { boardInside, isWeakFix, neverPingedDue, silentCause, SILENT_CAUSE_AR, WEAK_GPS_M, weakStreakDue, type SilentCause } from '../lib/tracking-health.ts';
 import { generalManagerOf, holdersOf, notify } from './notify.ts';
 import { WORK_TRACKING_SQL } from './employees.ts';
@@ -257,9 +257,9 @@ export const trackingModule: Module = (r, { db, clock }) => {
     // the company follow-up + «تتبع أثناء العمل» + «حضور وانصراف»: otherwise nothing is followed (the app stops)
     const elig = await trackingEligibility(db, a.id);
     if (!elig.on) return ok({ tracking: false, reason: elig.reason });
-    // G1: a browser that may not record attendance does not feed the follow-up either (its office location could hide a
-    // silent phone) — answered like «not followed», so the web app simply stops sending
-    if (!(await punchClientAllowed(db, a, req))) return ok({ tracking: false, reason: 'browser_not_allowed' });
+    // G1: a session whose device may not record attendance does not feed the follow-up either (its office location could
+    // hide a silent phone) — answered like «not followed», so the app simply stops sending; nothing is kept
+    if (await punchRefusalOf(db, a, req)) return ok({ tracking: false, reason: 'device_not_authorized' });
     // the phone rang by itself (it saw the office left with no permission) — logged, no location kept
     const localAlarm = b.localAlarm === true;
     const att = await one(db, `SELECT id, check_out_at FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date]);

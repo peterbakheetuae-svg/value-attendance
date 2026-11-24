@@ -14,7 +14,14 @@ const ROOT = join(API, '..');
 
 test('decision: only an explicit production build of main migrates', () => {
   const cases: [Record<string, string>, boolean][] = [
-    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' }, true],
+    // 2026-11-24 (C1): a Vercel production build migrates only when Vercel names the real API's project
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' }, true],
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance.vercel.app' }, true],
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' }, false],                     // project unidentified
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app' }, false],
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app',
+       BACKUP_TOKEN: 'x'.repeat(40) }, false],                                                                 // a token never helps
+    [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'evil.example.com' }, false],
     [{ VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'feature/permissions' }, false],
     [{ VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'main' }, false],
     [{ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'feature/x' }, false],
@@ -52,9 +59,22 @@ test('the real script: a preview build never calls migrate or seed; production o
     assert.deepEqual(r.calls, [], `no npm call for ${JSON.stringify(env)}`);
     assert.match(r.out, /no migrate, no seed/);
   }
-  const prod = runGuard({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' });
+  const prod = runGuard({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' });
   assert.equal(prod.status, 0, prod.out);
   assert.deepEqual(prod.calls, ['run migrate', 'run seed:dev -- --if-empty']);
+  // C1: the retired project (with or without a BACKUP_TOKEN) and an unidentified production build never migrate
+  const retiredOrUnknown: Record<string, string>[] = [
+    { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app' },
+    { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app', BACKUP_TOKEN: 'x'.repeat(40) },
+    { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_URL: 'value-attendance-api-k3j2h1g0f-peter.vercel.app' },
+    { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main' },
+  ];
+  for (const env of retiredOrUnknown) {
+    const r = runGuard(env);
+    assert.equal(r.status, 0, r.out);
+    assert.deepEqual(r.calls, [], `no migrate for ${JSON.stringify(env)}`);
+    assert.match(r.out, /no migrate, no seed — (retired|Vercel production build of an unidentified)/);
+  }
 });
 
 test('every build / start command goes through the guard (no direct migrate or seed anywhere)', () => {
