@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
 import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 // Exclusive projects: a salesperson reaches only his own units / clients / papers whatever ids he sends, the client's
@@ -20,12 +20,12 @@ before(async () => {
   const pr = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'مشروع الصلاحيات', totalPct: 2, salesPct: 0.3, managerPct: 0.2, companyPct: 1.5 });
   assert.equal(pr.status, 201, JSON.stringify(pr.body));
   pid = pr.body.project.id;
-  const a = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'P-1', clientName: 'عميل إي ون', clientPhone: PHONE1,
-    clientNationalId: '29001011234567', clientAddress: 'مدينة نصر', unitPrice: 2_000_000, expectedContractDate: '2026-12-20' });
+  const a = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'P-1', clientName: 'عميل إي ون', clientPhone: PHONE1,
+    clientNationalId: '29001011234567', clientAddress: 'مدينة نصر', unitPrice: 2_000_000, expectedContractDate: '2026-12-20' }));
   assert.equal(a.status, 201, JSON.stringify(a.body));
   u1 = a.body.unit.id;
-  const b = await h.call(c.t.e3, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'P-3', clientName: 'عميل إي ثري', clientPhone: '01077700033',
-    unitPrice: 1_500_000, expectedContractDate: '2026-12-20' });
+  const b = await h.call(c.t.e3, 'POST', '/exclusive/units', await asLead(h, c.ids.e3, { projectId: pid, unitNo: 'P-3', clientName: 'عميل إي ثري', clientPhone: '01077700033',
+    unitPrice: 1_500_000, expectedContractDate: '2026-12-20' }));
   assert.equal(b.status, 201, JSON.stringify(b.body));
   u3 = b.body.unit.id;
   const f = await h.call(c.t.e1, 'POST', `/exclusive/units/${u1}/files`, { kind: 'reservation_form', fileName: 'استمارة.pdf', data: pdf });
@@ -108,11 +108,11 @@ test('only the management decides; a revoked «حجز وحدة» stops the sales
 });
 
 test('one unit number per project, whoever asks', async () => {
-  const dup = await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'p-1 ', clientName: 'عميل تاني', unitPrice: 1_000_000,
-    expectedContractDate: '2026-12-20' });
+  const dup = await h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: pid, unitNo: 'p-1 ', clientName: 'عميل تاني', unitPrice: 1_000_000,
+    expectedContractDate: '2026-12-20' }));
   assert.equal(dup.status, 409);
-  const [x, y] = await Promise.all([1, 2].map((i) => h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'P-9',
-    clientName: `عميل ${i}`, unitPrice: 1_000_000, expectedContractDate: '2026-12-20' })));
+  const [x, y] = await Promise.all([1, 2].map(async (i) => h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: pid, unitNo: 'P-9',
+    clientName: `عميل ${i}`, unitPrice: 1_000_000, expectedContractDate: '2026-12-20' }))));
   assert.deepEqual([x.status, y.status].sort(), [201, 409], 'two at once: one wins');
 });
 

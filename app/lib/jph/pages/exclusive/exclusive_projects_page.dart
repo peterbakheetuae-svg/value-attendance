@@ -19,6 +19,7 @@ import '../../widgets/glass_dialog.dart';
 import '../../widgets/doc_logos.dart';
 import '../../widgets/glass_ui.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/lead_client_picker.dart';
 import '../commissions/commission_project_page.dart';
 import '../attendance/attendance_widgets.dart' show SquareIconButton;
 import '../../forms/reservation_form_pdf.dart';
@@ -951,16 +952,16 @@ class _InventoryListState extends State<_InventoryList> {
 ///  حصري: العربون بيدخل خزنة المحاسب على طول (نقدي أو بنك)؛ تعاقد جديد = حجز + تعاقد مرة واحدة.
 ///  تسويق: مفيش فلوس بتدخل عندنا — عمولة محتملة لحد التعاقد.
 /// [lead]: «حجز وحدة» from a lead (نظام الليدز) — the client's name / phone / project come from it and the lead follows the reservation.
+/// Without [lead] the client is picked from the sales board («اختيار عميل», by name or mobile) — never typed: the server refuses
+/// a reservation / contract without a lead, whoever makes it. «مصدر العميل» is automatic (the lead's campaign; else the office).
 Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic>> projects,
     {bool contract = false, VoidCallback? then, Map<String, dynamic>? lead}) async {
   final active = projects.where((p) => p['status'] == 'active').toList();
-  final leadProject = '${(lead?['project'] as Map?)?['id'] ?? ''}';
-  String? pid = active.any((p) => '${p['id']}' == leadProject) ? leadProject : active.length == 1 ? '${active.first['id']}' : null;
-  final unit = TextEditingController(), client = TextEditingController(text: '${lead?['fullName'] ?? ''}'),
-      phone = TextEditingController(text: '${lead?['phone'] ?? ''}'),
+  String projectOf(Map<String, dynamic>? l) => '${(l?['project'] as Map?)?['id'] ?? l?['projectId'] ?? ''}';
+  String? pid = active.any((p) => '${p['id']}' == projectOf(lead)) ? projectOf(lead) : active.length == 1 ? '${active.first['id']}' : null;
+  Map<String, dynamic>? client = lead; // the chosen lead
+  final unit = TextEditingController(), phone = TextEditingController(text: '${lead?['phone'] ?? ''}'),
       price = TextEditingController(), deposit = TextEditingController(), notes = TextEditingController();
-  final mks = _l((await _get('/marketing-companies'))['companies']).where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
-  Map<String, dynamic>? mk;
   final terms = _Terms();
   DateTime? expected; // التاريخ المتوقع للتعاقد — the expected commission falls in that month
   final rf = _ResForm();
@@ -989,7 +990,6 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
     final c = r['client'];
     if (c is! Map) return;
     set(() {
-      if (client.text.trim().isEmpty) client.text = '${c['name'] ?? ''}';
       if (rf.nationalId.text.trim().isEmpty) rf.nationalId.text = '${c['nationalId'] ?? ''}';
       if (rf.address.text.trim().isEmpty) rf.address.text = '${c['address'] ?? ''}';
     });
@@ -1049,11 +1049,24 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
           },
         ),
       if (inv.isEmpty || manual) JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
-      JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true,
-          onChanged: (_) => lookup(set)),
-      JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
+      // the client: from his file on the sales board (fixed), or «اختيار عميل» — never typed
+      if (lead != null)
+        JphUi.readOnly(isDark: isDark, label: 'العميل', icon: Icons.person_rounded,
+            value: '${lead['fullName'] ?? ''}${'${lead['phone'] ?? ''}'.isEmpty ? '' : ' — ${lead['phone']}'}')
+      else
+        leadClientField(context, isDark, client, (v) async {
+          set(() {
+            client = v;
+            phone.text = '${v['phone'] ?? ''}';
+            final lp = projectOf(v);
+            if (pid == null && active.any((p) => '${p['id']}' == lp)) pid = lp;
+          });
+          if (inv.isEmpty && pid != null) await loadInv(set);
+          await lookup(set); // a client already on the system: his ID / address are filled
+        }),
       JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
-      _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
+      if (_seesKind())
+        Text('مصدر العميل بيتحدد لوحده من حملة الليد (شركة تسويق بالعمولة) — غير كده المكتب', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
       if (exclusive && !contract) ...[
         JphUi.input(isDark: isDark, label: 'العربون (بيدخل الخزنة)', controller: deposit, icon: Icons.savings_rounded, number: true, suffix: 'جنيه'),
         // الباقي من المقدم بعد العربون (the agreed down payment is filled further down)
@@ -1096,19 +1109,21 @@ Future<void> newUnit(BuildContext context, bool isDark, List<Map<String, dynamic
       JphUi.toast(context, {'success': false, 'message': 'اختار المشروع'});
       return false;
     }
+    if (client == null) {
+      JphUi.toast(context, {'success': false, 'message': 'اختار العميل من الليدز'});
+      return false;
+    }
     if (!contract && expected == null) {
       JphUi.toast(context, {'success': false, 'message': 'اختار التاريخ المتوقع للتعاقد'});
       return false;
     }
     final exclusive = project()['kind'] == 'exclusive';
     final r = await _post('/exclusive/units', {
-      'projectId': pid, 'unitNo': unit.text.trim(), 'clientName': client.text.trim(), 'clientPhone': phone.text.trim(),
+      'projectId': pid, 'unitNo': unit.text.trim(), 'leadId': client!['id'],
       'unitPrice': num.tryParse(price.text.replaceAll(',', '')), 'notes': notes.text.trim(),
       if (invId != null) 'inventoryId': invId,
-      if (lead != null) 'leadId': lead['id'],
       ...rf.body(),
       if (exclusive && !contract) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
-      if (mk != null) 'marketingCompanyId': mk!['id'],
       if (!contract && expected != null)
         'expectedContractDate': '${expected!.year}-${expected!.month.toString().padLeft(2, '0')}-${expected!.day.toString().padLeft(2, '0')}',
       if (contract) 'contract': exclusive ? terms.body() : {'paymentType': 'cash'},
@@ -1485,7 +1500,9 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
         phone = TextEditingController(text: '${u['clientPhone'] ?? ''}'), price = TextEditingController(text: '${u['unitPrice']}'),
         deposit = TextEditingController(text: '${u['depositAmount']}'), notes = TextEditingController(text: '${u['notes'] ?? ''}');
     DateTime? expected = u['expectedContractDate'] != null ? DateTime.tryParse('${u['expectedContractDate']}') : null;
-    final mks = contracted ? <Map<String, dynamic>>[] : _l((await _get('/marketing-companies'))['companies'])
+    // a unit of a lead: its client and «مصدر العميل» are the lead's (fixed — the server ignores them)
+    final ofLead = u['leadId'] != null;
+    final mks = contracted || ofLead ? <Map<String, dynamic>>[] : _l((await _get('/marketing-companies'))['companies'])
         .where((m) => m['kind'] == 'commission' && m['status'] == 'active').toList();
     final seeClient = _m(u['can'])['viewClient'] == true;
     final rf = _ResForm(_m(u['form']), seeClient);
@@ -1496,8 +1513,13 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
     if (!mounted) return;
     final ok = await _form(context, isDark, contracted ? 'تعديل التعاقد' : 'تعديل الحجز', (set) => [
           if (!contracted) JphUi.input(isDark: isDark, label: 'رقم الوحدة', controller: unit, icon: Icons.tag_rounded),
-          JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
-          if (seeClient) JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
+          if (ofLead)
+            JphUi.readOnly(isDark: isDark, label: 'العميل (من الليدز)', icon: Icons.person_rounded,
+                value: '${u['clientName']}${seeClient && '${u['clientPhone'] ?? ''}'.isNotEmpty ? ' — ${u['clientPhone']}' : ''}')
+          else ...[
+            JphUi.input(isDark: isDark, label: 'اسم العميل', controller: client, icon: Icons.person_rounded),
+            if (seeClient) JphUi.input(isDark: isDark, label: 'تليفون العميل', controller: phone, icon: Icons.phone_rounded, number: true),
+          ],
           if (!contracted) ...[
             JphUi.input(isDark: isDark, label: 'إجمالي سعر الوحدة', controller: price, icon: Icons.sell_rounded, number: true, suffix: 'جنيه'),
             if (exclusive && depositPending)
@@ -1512,21 +1534,22 @@ class _ExclusiveUnitPageState extends State<ExclusiveUnitPage> {
                 if (d != null) set(() => expected = d);
               },
             ),
-            _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
+            if (!ofLead) _sourcePicker(context, isDark, mks, mk, (m) => set(() => mk = m)),
           ],
           if (contracted) Text('بعد التعاقد الفلوس والأقساط ثابتة — بيتعدّل بيانات العميل والاستمارة والملاحظات بس.', style: TextStyle(color: JphUi.sub(isDark))),
           ...rf.fields(context, isDark, set, price: price, reservation: !contracted),
           JphUi.input(isDark: isDark, label: 'ملاحظات', controller: notes, icon: Icons.notes_rounded),
         ], () async {
       final r = await _post('/exclusive/units/${widget.unitId}', {
-        'clientName': client.text.trim(), if (seeClient) 'clientPhone': phone.text.trim(), 'notes': notes.text.trim(),
+        if (!ofLead) ...{'clientName': client.text.trim(), if (seeClient) 'clientPhone': phone.text.trim()},
+        'notes': notes.text.trim(),
         ...rf.body(),
         if (!contracted) ...{
           'unitNo': unit.text.trim(), 'unitPrice': num.tryParse(price.text.replaceAll(',', '')),
           if (exclusive && depositPending) 'depositAmount': num.tryParse(deposit.text.replaceAll(',', '')),
           if (expected != null)
             'expectedContractDate': '${expected!.year}-${expected!.month.toString().padLeft(2, '0')}-${expected!.day.toString().padLeft(2, '0')}',
-          'marketingCompanyId': mk?['id'],
+          if (!ofLead) 'marketingCompanyId': mk?['id'],
         },
       }, 'اتحفظ التعديل ✅', method: 'patch');
       if (mounted) JphUi.toast(context, r);

@@ -293,7 +293,7 @@ class _DashboardPageTeamState extends State<DashboardPageTeam>
     if (checkedIn && !dayFinished) {
       ShiftTracker.instance.start(JphBridge.api,
           notifTitle: 'فاليو نيفو — الحضور شغال',
-          notifText: 'بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف');
+          notifText: 'انت في وقت العمل');
     } else {
       ShiftTracker.instance.stop();
     }

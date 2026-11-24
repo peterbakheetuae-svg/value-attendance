@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
 import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 // Unit sales: own / team / all on the server for every id and query, the team view is the record only (no client
@@ -20,10 +20,10 @@ before(async () => {
   await h.db.query(`UPDATE employees SET must_change_password = false, password_hash = (SELECT password_hash FROM employees WHERE code = 'E1') WHERE id = $1`, [gmId]);
   tGm = await h.login('GM1', PW);
   project = (await h.call(tGm, 'POST', '/commissions/projects', { name: 'مشروع البيع', totalPct: 1.5, salesPct: 0.3, managerPct: 0.4, companyPct: 0.8 })).body.project.id;
-  const a = await h.call(c.t.e1, 'POST', '/sales', sale('S-1', 'عميل إي ون', PHONE1, { withCommission: true, pricePerM2: 10_000, areaM2: 100 }));
+  const a = await h.call(c.t.e1, 'POST', '/sales', await asLead(h, c.ids.e1, sale('S-1', 'عميل إي ون', PHONE1, { withCommission: true, pricePerM2: 10_000, areaM2: 100 })));
   assert.equal(a.status, 201, JSON.stringify(a.body));
   s1 = a.body.sale.id;
-  const b = await h.call(c.t.e3, 'POST', '/sales', sale('S-3', 'عميل إي ثري', '01099900033'));
+  const b = await h.call(c.t.e3, 'POST', '/sales', await asLead(h, c.ids.e3, sale('S-3', 'عميل إي ثري', '01099900033')));
   assert.equal(b.status, 201, JSON.stringify(b.body));
   s3 = b.body.sale.id;
   for (const id of [s1, s3]) assert.equal((await h.call(tGm, 'POST', `/sales/${id}/decision`, { decision: 'approve' })).status, 200);
@@ -80,7 +80,7 @@ test('all-scope (sales.view): everything as before; the clients\' keys never car
 });
 
 test('operations need their permissions; never your own approval; duplicates refused without the buyer\'s identity', async () => {
-  const p = await h.call(c.t.e2, 'POST', '/sales', sale('S-2', 'عميل إي تو', '01099900022'));
+  const p = await h.call(c.t.e2, 'POST', '/sales', await asLead(h, c.ids.e2, sale('S-2', 'عميل إي تو', '01099900022')));
   assert.equal(p.body.sale.status, 'pending');
   const line = p.body.schedule[0].id;
   for (const t of [c.t.e1, c.t.sm1, c.t.e2]) {
@@ -94,21 +94,21 @@ test('operations need their permissions; never your own approval; duplicates ref
   assert.equal((await h.call(c.t.e2, 'POST', `/sales/${p.body.sale.id}/decision`, { decision: 'approve' })).status, 403, 'not his own');
   await h.db.query(`DELETE FROM employee_permissions WHERE employee_id = $1`, [c.ids.e2]);
   // one live sale per unit: told so, without who bought it
-  const dup = await h.call(c.t.e3, 'POST', '/sales', sale('s-1', 'حد تاني', '01000000000'));
+  const dup = await h.call(c.t.e3, 'POST', '/sales', await asLead(h, c.ids.e3, sale('s-1', 'حد تاني', '01000000000')));
   assert.equal(dup.status, 409);
   assert.ok(!JSON.stringify(dup.body).includes('عميل إي ون') && !JSON.stringify(dup.body).includes(PHONE1));
-  const [x, y] = await Promise.all([1, 2].map((i) => h.call(c.t.e3, 'POST', '/sales', sale('S-9', `عميل ${i}`, `0109990009${i}`))));
+  const [x, y] = await Promise.all([1, 2].map(async (i) => h.call(c.t.e3, 'POST', '/sales', await asLead(h, c.ids.e3, sale('S-9', `عميل ${i}`, `0109990009${i}`)))));
   assert.deepEqual([x.status, y.status].sort(), [201, 409], 'two at once: one wins');
 });
 
 test('a commission for another salesperson: only with that permission (sales.manage before 066)', async () => {
-  const mine = await h.call(c.t.e1, 'POST', '/sales', sale('S-4', 'عميل 4', '01099900044', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 }));
+  const mine = await h.call(c.t.e1, 'POST', '/sales', await asLead(h, c.ids.e1, sale('S-4', 'عميل 4', '01099900044', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 })));
   assert.equal(mine.status, 201, JSON.stringify(mine.body));
   const r1 = await h.db.query(`SELECT employee_id FROM commission_requests WHERE id = (SELECT commission_request_id FROM unit_sales WHERE id = $1)`, [mine.body.sale.id]);
   assert.equal(r1.rows[0].employee_id, c.ids.e1, 'another employee id is ignored');
   assert.equal((await h.call(c.t.e1, 'GET', '/sales')).body.can.onBehalf, false);
   assert.equal((await h.call(tGm, 'GET', '/sales')).body.can.onBehalf, true);
-  const gm = await h.call(tGm, 'POST', '/sales', sale('S-5', 'عميل 5', '01099900055', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 }));
+  const gm = await h.call(tGm, 'POST', '/sales', await asLead(h, gmId, sale('S-5', 'عميل 5', '01099900055', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 })));
   const r2 = await h.db.query(`SELECT employee_id FROM commission_requests WHERE id = (SELECT commission_request_id FROM unit_sales WHERE id = $1)`, [gm.body.sale.id]);
   assert.equal(r2.rows[0].employee_id, c.ids.e2);
 });
@@ -149,7 +149,7 @@ test('after 066: client contact, team sales and filing for others are permission
   assert.ok(JSON.stringify(back.body).includes(PHONE1), 'with both permissions: the number');
   // filing for others withdrawn: sales.manage alone no longer does it
   await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow) VALUES ($1, 'commission.create_for_others', false)`, [gmId]);
-  const g = await h.call(tGm, 'POST', '/sales', sale('S-6', 'عميل 6', '01099900066', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 }));
+  const g = await h.call(tGm, 'POST', '/sales', await asLead(h, gmId, sale('S-6', 'عميل 6', '01099900066', { withCommission: true, pricePerM2: 10_000, areaM2: 100, employeeId: c.ids.e2 })));
   const r = await h.db.query(`SELECT employee_id FROM commission_requests WHERE id = (SELECT commission_request_id FROM unit_sales WHERE id = $1)`, [g.body.sale.id]);
   assert.equal(r.rows[0].employee_id, gmId);
   assert.equal((await h.call(tGm, 'GET', '/sales')).body.can.onBehalf, false);

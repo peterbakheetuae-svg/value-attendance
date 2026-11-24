@@ -289,12 +289,10 @@ class _Worker {
   void _status(bool? outside) {
     final s = service;
     if (s is! AndroidServiceInstance) return;
-    final now = DateTime.now();
-    String two(int n) => n.toString().padLeft(2, '0');
-    final where = outside == null ? '' : outside ? ' — برّه نطاق المكتب' : ' — جوه المكتب';
+    // the pinned notification says only that the shift is running (no time, no location) — the owner's wording
     s.setForegroundNotificationInfo(
       title: 'فاليو نيفو — الحضور شغال',
-      content: 'آخر موقع ${two(now.hour)}:${two(now.minute)}$where. التتبع بيقف لوحده بعد الانصراف',
+      content: 'انت في وقت العمل',
     );
   }
 }

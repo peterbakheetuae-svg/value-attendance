@@ -1,7 +1,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, insertEmployee, PW, confirmPayout, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, confirmPayout, type Harness, asLead } from './helpers.ts';
 import { advanceRecoveries, profitParts } from '../src/modules/cash.ts';
 import { computePayroll, loadRules } from '../src/modules/payroll-calc.ts';
 
@@ -235,8 +235,8 @@ describe('F4 exclusive collections under concurrency', () => {
   });
   after(async () => { await h.close(); });
   let k = 0;
-  const unit = async (deposit: number) => (await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: `C-${++k}`, clientName: `عميل ${k}`,
-    unitPrice: 1_000_000, depositAmount: deposit, paymentMethod: 'cash' })).body.unit.id as string;
+  const unit = async (deposit: number) => (await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: `C-${++k}`, clientName: `عميل ${k}`,
+    unitPrice: 1_000_000, depositAmount: deposit, paymentMethod: 'cash' }))).body.unit.id as string;
   const receipt = (u: string, amount: number, clientRef?: string, kind = 'reservation') =>
     h.call(c.t.hr, 'POST', `/exclusive/units/${u}/receipts`, { kind, amount, ...(clientRef ? { clientRef } : {}) });
   const total = async (u: string) => N((await h.db.query(`SELECT sum(amount_egp) s FROM cash_receipts WHERE ex_unit_id = $1 AND status = 'posted'`, [u])).rows[0].s);

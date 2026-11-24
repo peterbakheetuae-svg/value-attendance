@@ -191,3 +191,28 @@ export async function confirmPayout(h: Harness, recipientToken: string, payerTok
   if (c.status !== 200) return c;
   return h.call(payerToken, 'POST', `/payouts/${payoutId}/verify`, { code: c.body.code });
 }
+
+/**
+ * A reservation / contract / sale's client is ALWAYS an existing lead (the client is never typed): turns a body written
+ * with clientName / clientPhone (and a hand-picked marketingCompanyId) into one with a fresh lead of that name and phone,
+ * assigned to `assignee` — on a campaign of that marketing company when one was given (the source is then automatic).
+ */
+let leadSeq = 0;
+export async function asLead(h: { db: Db }, assignee: string, body: Record<string, any>) {
+  // a unit sale names them buyerName / buyerPhone
+  const { clientName: cn, clientPhone: cp, buyerName, buyerPhone, marketingCompanyId, ...rest } = body;
+  const clientName = cn ?? buyerName; const clientPhone = cp ?? buyerPhone;
+  leadSeq++;
+  const typed = String(clientPhone ?? '').trim();
+  const phone = typed.length >= 5 ? typed : `0105${String(5000000 + leadSeq)}`; // a lead's phone is at least 5 characters
+  const digits = phone.replace(/\D/g, '');
+  let campaign: string | null = null;
+  if (marketingCompanyId) {
+    campaign = (await h.db.query(`INSERT INTO lead_campaigns (name, project_id, marketing_company_id) VALUES ($1, $2, $3) RETURNING id`,
+      [`حملة اختبار ${leadSeq}`, typeof rest.projectId === 'string' ? rest.projectId : null, marketingCompanyId])).rows[0].id;
+  }
+  const l = await h.db.query(`INSERT INTO leads (full_name, phone, phone_norm, project_id, campaign_id, assigned_to, assigned_at, stage)
+                              VALUES ($1, $2, $3, $4, $5, $6, now(), 'interested') RETURNING id`,
+    [String(clientName ?? `عميل ${leadSeq}`), phone, digits, typeof rest.projectId === 'string' ? rest.projectId : null, campaign, assignee]);
+  return { ...rest, leadId: l.rows[0].id as string };
+}

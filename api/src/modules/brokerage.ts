@@ -1,3 +1,4 @@
+import { createHash, randomInt } from 'node:crypto';
 import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound } from '../http/errors.ts';
@@ -5,7 +6,7 @@ import { isUuid, num, obj, oneOf, str } from '../http/validate.ts';
 import { adminOfficerSql, audit, authenticate, can, type Actor } from '../auth/context.ts';
 import { holdersOf, notify } from './notify.ts';
 import { local } from '../lib/time.ts';
-import { canHrOperate, canOffice, parseReceipt, recordReceipt } from './cash.ts';
+import { canHrOperate, canOffice, parseReceipt, recordReceipt, type ReceiptInput } from './cash.ts';
 import { leadForReservation } from './leads.ts';
 
 /**
@@ -175,7 +176,13 @@ async function collectSide(q: Q, a: Actor, d: any, side: 'owner' | 'client', b: 
   }
   const rec = await recordReceipt(q, a, { ...input, brokerageDealId: d.id, brokerageSide: side });
   await audit(q, a.id, 'brokerage.collect', 'brokerage_deal', d.id, undefined, { side, amount: input.amount, receiptId: rec.id });
-  // all of it collected → the deal is closed and every employee share becomes a commission entitlement of this month
+  await closeIfCollected(q, a, d, at);
+  return { id: rec.id, duplicate: rec.duplicate };
+}
+
+/** an APPROVED deal whose commission is all in → closed, and every employee share becomes a commission entitlement of this
+ *  month (after a collection — or after the split of a commission already handed over against the recipient's code, 090) */
+async function closeIfCollected(q: Q, a: Actor, d: any, at: Date) {
   const all = N((await one(q, `SELECT COALESCE(sum(amount_egp), 0) s FROM cash_receipts WHERE brokerage_deal_id = $1 AND status = 'posted'`, [d.id])).s);
   if (cents(all) >= cents(N(d.total_commission_egp))) {
     const now = at; const period = local(now).date.slice(0, 7) + '-01';
@@ -191,7 +198,6 @@ async function collectSide(q: Q, a: Actor, d: any, side: 'owner' | 'client', b: 
     await syncListing(q, d.id);
     await leadFromDeal(q, d.id, 'collected', a.id, now);
   }
-  return { id: rec.id, duplicate: rec.duplicate };
 }
 
 // ------------------------------------------------------------------ listings (088): a property offered for resale / rent
@@ -215,6 +221,36 @@ async function isAdminOfficer(q: Q, id: string) {
 async function canReceive(q: Q, a: Actor) {
   return canCollect(a) && (canApprove(a) || await isAdminOfficer(q, a.id));
 }
+
+// ------------------------------------------------------------------ 090: the commission handed over against the recipient's code
+export async function handoverInstalled(q: Q) {
+  return !!(await one(q, `SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = 'public' AND table_name = 'brokerage_deals' AND column_name = 'handover_to'`));
+}
+async function needHandover(q: Q) {
+  if (!(await handoverInstalled(q))) {
+    throw new AppError('conflict', 'تسليم العمولة بالكود محتاج تحديث قاعدة البيانات (090)', { reason: 'handover_not_installed' });
+  }
+}
+/** who can receive a seller's commission: the general manager (or the owner), the accountant or an administrative officer —
+ *  holding the office cashbox (the receipt is written in his name; cash.ts refuses anyone else) — never the seller himself */
+async function handoverRecipients(q: Q, exclude: string) {
+  return (await q.query(`
+    SELECT e.id, e.full_name AS name,
+           CASE WHEN e.role_key IN ('manager', 'owner') THEN 'general_manager' WHEN e.role_key = 'accountant' THEN 'accountant'
+                ELSE 'admin_officer' END AS role
+      FROM employees e
+     WHERE e.status = 'active' AND (e.legacy_fields->>'status') IS DISTINCT FROM 'تم التصفيه' AND e.id <> $1
+       AND (e.role_key IN ('manager', 'owner', 'accountant') OR ${adminOfficerSql('e')})
+       AND EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key = 'cash.office')
+     ORDER BY e.full_name`, [exclude])).rows as { id: string; name: string; role: string }[];
+}
+/** the same rules as a payout's code (payouts.ts): only a hash is kept; a new code ends the previous one; 5 wrong tries end a
+ *  code; 15 wrong tries in an hour stop the deal for an hour; at most 5 codes in 15 minutes */
+const HANDOVER_OTP_TTL_MIN = Math.min(30, Math.max(2, Number(process.env.PAYOUT_OTP_TTL_MIN ?? 10) || 10));
+const handoverAction = (id: string) => `brokerage:${id}`;
+const handoverHash = (recipient: string, id: string, code: string) =>
+  createHash('sha256').update(`${recipient}:${handoverAction(id)}:${code}`).digest('hex');
 /** a listing follows its deal: waiting → pending, collected → sold, rejected / cancelled → available again */
 async function syncListing(q: Q, dealId: string) {
   if (!(await listingsInstalled(q))) return;
@@ -254,7 +290,7 @@ async function dealLeadInstalled(q: Q) {
  */
 async function leadFromDeal(q: Q, dealId: string, event: 'sold' | 'collected' | 'cancel', byId: string | null, now: Date) {
   if (!(await dealLeadInstalled(q))) return;
-  const d = await one(q, `SELECT d.id, d.kind, d.lead_id, d.price_egp, l.title FROM brokerage_deals d LEFT JOIN brokerage_listings l ON l.id = d.listing_id
+  const d = await one(q, `SELECT d.id, d.kind, d.lead_id, d.price_egp, COALESCE(l.title, d.property) AS title FROM brokerage_deals d LEFT JOIN brokerage_listings l ON l.id = d.listing_id
                            WHERE d.id = $1`, [dealId]);
   if (!d?.lead_id) return;
   const lead = await one(q, `SELECT id, stage FROM leads WHERE id = $1 FOR UPDATE`, [d.lead_id]);
@@ -279,9 +315,11 @@ const mine = (a: Actor, d: any) => [d.proposed_by, d.contributor_id, d.closer_id
 async function load(q: Q, ids: string[], a: Actor) {
   if (!ids.length) return [];
   const receiver = await canReceive(q, a);
+  const handover = await handoverInstalled(q);
   const deals = (await q.query(`
     SELECT d.*, pe.full_name AS proposed_by_name, ce.full_name AS contributor_name, cl.full_name AS closer_name,
            sm.full_name AS sales_manager_name, de.full_name AS decided_by_name,
+           ${handover ? `(SELECT full_name FROM employees WHERE id = d.handover_to)` : 'NULL'} AS handover_to_name,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.brokerage_deal_id = d.id AND r.brokerage_side = 'owner' AND r.status = 'posted'), 0) AS owner_collected,
            COALESCE((SELECT sum(r.amount_egp) FROM cash_receipts r WHERE r.brokerage_deal_id = d.id AND r.brokerage_side = 'client' AND r.status = 'posted'), 0) AS client_collected
       FROM brokerage_deals d
@@ -325,7 +363,15 @@ async function load(q: Q, ids: string[], a: Actor) {
       canApprove: d.status === 'proposed' && canApprove(a) && !mine(a, d),
       canCollect: d.status === 'approved' && canCollect(a),
       listingId: d.listing_id ?? null, leadId: d.lead_id ?? null,
-      canReceive: d.status === 'proposed' && !!d.listing_id && receiver && !mine(a, d),
+      canReceive: d.status === 'proposed' && !!d.listing_id && receiver && !mine(a, d) && !(d.handover_to && !d.handover_at),
+      // 090: the commission stated as a % or an amount, handed to one person against the code his app shows
+      commissionBasis: d.commission_basis ?? null, commissionPct: d.commission_pct == null ? null : N(d.commission_pct),
+      handover: d.handover_to ? {
+        to: { id: d.handover_to, name: d.handover_to_name }, at: d.handover_at ?? null,
+        waiting: d.status === 'proposed' && !d.handover_at,
+        canShowCode: d.status === 'proposed' && !d.handover_at && d.handover_to === a.id,   // the recipient
+        canEnterCode: d.status === 'proposed' && !d.handover_at && d.proposed_by === a.id,  // the seller
+      } : null,
     };
   });
 }
@@ -334,7 +380,7 @@ export const brokerageModule: Module = (r, { db, clock }) => {
   r.get('/brokerage/status', async (req) => {
     const a = await authenticate(db, req);
     return ok({ installed: await brokerageInstalled(db),
-      listings: await listingsInstalled(db),
+      listings: await listingsInstalled(db), handover: await handoverInstalled(db),
       can: { propose: canPropose(a), approve: canApprove(a), collect: canCollect(a), viewAll: canViewAll(a), receive: await canReceive(db, a) } });
   });
 
@@ -344,6 +390,14 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     if (!canPropose(a) && !canApprove(a)) throw forbidden();
     const rows = (await db.query(`SELECT id, full_name AS name FROM employees WHERE status = 'active' ORDER BY full_name LIMIT 2000`)).rows;
     return ok({ people: rows });
+  });
+
+  // 090: who the seller can hand a commission to (the general manager, the accountant, an administrative officer)
+  r.get('/brokerage/recipients', async (req) => {
+    const a = await authenticate(db, req);
+    if (!canPropose(a)) throw forbidden();
+    if (!(await handoverInstalled(db))) return ok({ installed: false, recipients: [] });
+    return ok({ installed: true, recipients: await handoverRecipients(db, a.id) });
   });
 
   r.get('/brokerage/deals', async (req) => {
@@ -377,6 +431,15 @@ export const brokerageModule: Module = (r, { db, clock }) => {
           return { id: dup.id, duplicate: true };
         }
       }
+      // the client is ALWAYS an existing lead (whoever proposes — the owner included): name and phone come from it
+      const leadId = typeof b.leadId === 'string' && b.leadId ? b.leadId : null;
+      if (!leadId) throw invalid('اختار العميل من الليدز — مينفعش تكتب بيانات عميل مش موجود في لوحة السيلز', { field: 'leadId', reason: 'lead_required' });
+      if (!isUuid(leadId)) throw invalid('leadId must be a uuid', { field: 'leadId' });
+      if (!(await dealLeadInstalled(q))) throw new AppError('conflict', 'الصفقة من الليد محتاجة تحديث قاعدة البيانات (089)', { reason: 'deal_lead_not_installed' });
+      const lead = await leadForReservation(q, a, leadId);
+      const clientName = String(lead.full_name ?? '').trim().slice(0, 120);
+      const clientPhone = String(lead.phone ?? '').trim().slice(0, 30);
+      if (clientName.length < 2) throw invalid('اسم العميل في الليد ناقص — كمّله من ملف العميل الأول', { field: 'leadId' });
       const t = commissionTerms(kind, b);
       const contributor = await employee(q, b.contributorId ?? a.id, 'contributorId');
       const closer = await employee(q, b.closerId ?? a.id, 'closerId');
@@ -386,11 +449,14 @@ export const brokerageModule: Module = (r, { db, clock }) => {
                owner_commission_egp, client_commission_egp, contributor_id, closer_id, sales_manager_id, proposed_by, notes, client_ref, created_at, updated_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18) RETURNING *`,
         [kind, str(b, 'property', { min: 2, max: 300 })!.trim(), str(b, 'ownerName', { min: 2, max: 120 })!.trim(),
-          (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim(), str(b, 'clientName', { min: 2, max: 120 })!.trim(),
-          (str(b, 'clientPhone', { optional: true, max: 30 }) ?? '').trim(), t.price, t.rate, t.arrangement, t.owner, t.client,
+          (str(b, 'ownerPhone', { optional: true, max: 30 }) ?? '').trim(), clientName,
+          clientPhone, t.price, t.rate, t.arrangement, t.owner, t.client,
           contributor, closer, manager, a.id, (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim(), ref, clock()]);
+      // the lead follows the deal (waiting → done deal when collected; back to follow-up if it is rejected / cancelled)
+      await q.query(`UPDATE brokerage_deals SET lead_id = $2 WHERE id = $1`, [d.id, lead.id]);
+      await leadFromDeal(q, d.id, 'sold', a.id, clock());
       await audit(q, a.id, 'brokerage.propose', 'brokerage_deal', d.id, undefined,
-        { kind, price: t.price, ratePct: t.rate, arrangement: t.arrangement, owner: t.owner, client: t.client, contributor, closer, manager });
+        { kind, leadId: lead.id, price: t.price, ratePct: t.rate, arrangement: t.arrangement, owner: t.owner, client: t.client, contributor, closer, manager });
       return { id: d.id, duplicate: false };
     });
     return ok({ deal: (await load(db, [out.id], a))[0], duplicate: out.duplicate }, out.duplicate ? 200 : 201);
@@ -432,6 +498,10 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       if (mine(a, d)) throw forbidden('مينفعش تعتمد صفقة إنت مقدمها أو ليك نصيب فيها');
       const now = clock();
       if (decision === 'reject') {
+        // a commission already in a cashbox (handed over against the recipient's code) is never left without its deal
+        if (await one(q, `SELECT 1 FROM cash_receipts WHERE brokerage_deal_id = $1 AND status = 'posted' LIMIT 1`, [d.id])) {
+          throw new AppError('conflict', 'العمولة اتسلمت وفي الخزنة — حدد التقسيمة، أو اعكس الإيصال الأول', { reason: 'commission_received' });
+        }
         await q.query(`UPDATE brokerage_deals SET status = 'rejected', decided_by = $2, decided_at = $3, decision_note = $4, updated_at = $3 WHERE id = $1`, [d.id, a.id, now, note]);
         await audit(q, a.id, 'brokerage.reject', 'brokerage_deal', d.id, { status: 'proposed' }, { status: 'rejected', note });
         await syncListing(q, d.id);
@@ -565,6 +635,47 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     return ok({ installed: true, listings: await loadListings(db, a, where.length ? 'WHERE ' + where.join(' AND ') : '', vals) });
   });
 
+  // «ملاك العقارات» (no table of their own): the owners named on the listings (name + phone), one per phone number; opening
+  // one shows all his properties — rental and resale, the available, the rented / sold and the withdrawn. The administration
+  // sees every owner; a salesperson only the owners of the listings he added (the owner's contact is never anyone else's).
+  r.get('/brokerage/owners', async (req) => {
+    const a = await authenticate(db, req);
+    viewer(a);
+    if (!(await listingsInstalled(db))) return ok({ installed: false, owners: [] });
+    const all = canViewAll(a) || canApprove(a) || canCollect(a);
+    const vals: unknown[] = []; const where: string[] = [`(l.owner_phone <> '' OR l.owner_name <> '')`];
+    if (!all) { vals.push(a.id); where.push(`l.listed_by = $${vals.length}`); }
+    const s = (req.query.get('q') ?? '').trim().toLowerCase().slice(0, 60);
+    if (s) {
+      vals.push(`%${s}%`);
+      const n = vals.length;
+      vals.push(`%${s.replace(/\D/g, '') || '∅'}%`);
+      where.push(`(lower(l.owner_name) LIKE $${n} OR regexp_replace(l.owner_phone, '\\D', '', 'g') LIKE $${vals.length})`);
+    }
+    const listings = await loadListings(db, a, 'WHERE ' + where.join(' AND '), vals);
+    // one owner per phone (its last 10 digits — 010… and +2010… are the same); no phone → by name
+    const key = (o: { name: string; phone: string }) => {
+      const d = String(o.phone ?? '').replace(/\D/g, '').slice(-10);
+      return d.length >= 8 ? 'p' + d : 'n' + String(o.name ?? '').trim().toLowerCase();
+    };
+    const owners = new Map<string, { key: string; name: string; phone: string; listings: any[] }>();
+    for (const l of listings) {
+      if (!l.owner) continue;
+      const k = key(l.owner);
+      const o = owners.get(k) ?? { key: k, name: l.owner.name, phone: l.owner.phone, listings: [] };
+      if (!o.name && l.owner.name) o.name = l.owner.name;
+      if (!o.phone && l.owner.phone) o.phone = l.owner.phone;
+      o.listings.push(l);
+      owners.set(k, o);
+    }
+    const count = (xs: any[], f: (x: any) => boolean) => xs.filter(f).length;
+    return ok({ installed: true, owners: [...owners.values()].map((o) => ({ ...o,
+      counts: { total: o.listings.length, rental: count(o.listings, (x) => x.kind === 'rental'), resale: count(o.listings, (x) => x.kind === 'resale'),
+        available: count(o.listings, (x) => x.status === 'available' || x.status === 'pending'),
+        rented: count(o.listings, (x) => x.kind === 'rental' && x.status === 'sold'), sold: count(o.listings, (x) => x.kind === 'resale' && x.status === 'sold') },
+    })).sort((x, y) => y.counts.total - x.counts.total || String(x.name).localeCompare(String(y.name), 'ar')) });
+  });
+
   r.post('/brokerage/listings', async (req) => {
     const a = await authenticate(db, req);
     if (!canPropose(a)) throw forbidden();
@@ -693,16 +804,32 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       const l = await one(q, `SELECT * FROM brokerage_listings WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!l) throw notFound();
       if (l.status !== 'available') throw new AppError('conflict', l.status === 'withdrawn' ? 'العقار ده اتشال من العرض' : 'العقار ده اتباع أو عليه بيع قبل كده', { reason: 'listing_not_available' });
-      const clientName = str(b, 'clientName', { min: 2, max: 120 })!.trim();
-      const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? '').trim();
-      const price = num(b, 'finalPrice', { min: 1, max: 10_000_000_000 })!;
-      const commission = r2(num(b, 'commission', { min: 1, max: 10_000_000_000 })!);
-      const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
-      // from the sales board: the client's lead (its salesman / his manager) — the lead then follows the deal
+      // the client is ALWAYS an existing lead of the sales board (whoever sells — the owner included): never typed by hand.
+      // Its name and phone come from the lead; clientName / clientPhone in the request are ignored.
       const leadId = typeof b.leadId === 'string' && b.leadId ? b.leadId : null;
-      if (leadId && !isUuid(leadId)) throw invalid('leadId must be a uuid', { field: 'leadId' });
-      if (leadId && !(await dealLeadInstalled(q))) throw new AppError('conflict', 'البيع من الليد محتاج تحديث قاعدة البيانات (089)', { reason: 'deal_lead_not_installed' });
-      const lead = leadId ? await leadForReservation(q, a, leadId) : null;
+      if (!leadId) throw invalid('اختار العميل من الليدز — مينفعش تكتب بيانات عميل مش موجود في لوحة السيلز', { field: 'leadId', reason: 'lead_required' });
+      if (!isUuid(leadId)) throw invalid('leadId must be a uuid', { field: 'leadId' });
+      if (!(await dealLeadInstalled(q))) throw new AppError('conflict', 'البيع من الليد محتاج تحديث قاعدة البيانات (089)', { reason: 'deal_lead_not_installed' });
+      const lead = await leadForReservation(q, a, leadId);
+      const clientName = String(lead.full_name ?? '').trim().slice(0, 120);
+      const clientPhone = String(lead.phone ?? '').trim().slice(0, 30);
+      if (clientName.length < 2) throw invalid('اسم العميل في الليد ناقص — كمّله من ملف العميل الأول', { field: 'leadId' });
+      const price = num(b, 'finalPrice', { min: 1, max: 10_000_000_000 })!;
+      // the commission: a percentage of the sale price / the monthly rent, or an amount — the amount is what is stored
+      const basis = oneOf(b, 'commissionBasis', ['amount', 'percent'] as const, true) ?? 'amount';
+      const pct = basis === 'percent' ? num(b, 'commissionPct', { min: 0.01, max: 100 })! : null;
+      const commission = pct != null ? r2(price * pct / 100) : r2(num(b, 'commission', { min: 1, max: 10_000_000_000 })!);
+      if (commission < 1) throw invalid('العمولة طلعت أقل من جنيه', { field: 'commissionPct' });
+      const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
+      // 090: the person the commission is handed to — he receives it against the code his app shows
+      const handover = await handoverInstalled(q);
+      let recipient: { id: string; name: string } | null = null;
+      if (handover) {
+        const rid = typeof b.recipientId === 'string' && isUuid(b.recipientId) ? b.recipientId : null;
+        if (!rid) throw invalid('اختار مين هيستلم العمولة', { field: 'recipientId' });
+        recipient = (await handoverRecipients(q, a.id)).find((x) => x.id === rid) ?? null;
+        if (!recipient) throw invalid('المستلم لازم يكون المدير العام أو المحاسب أو مسؤول إداري ماسك خزنة المكتب', { field: 'recipientId' });
+      }
       const lister = (await one(q, `SELECT id FROM employees WHERE id = $1 AND status = 'active'`, [l.listed_by]))?.id ?? a.id;
       const now = clock();
       const d = await one(q, `
@@ -712,16 +839,25 @@ export const brokerageModule: Module = (r, { db, clock }) => {
         [l.kind, `${l.title} — ${l.address}`.slice(0, 300), l.owner_name.trim().length >= 2 ? l.owner_name.trim() : 'مالك العقار', l.owner_phone,
           clientName, clientPhone, price, commission, lister, a.id, notes, ref, l.id, now]);
       await q.query(`UPDATE brokerage_listings SET status = 'pending', updated_at = $2 WHERE id = $1`, [l.id, now]);
-      if (lead) {
-        await q.query(`UPDATE brokerage_deals SET lead_id = $2 WHERE id = $1`, [d.id, lead.id]);
-        await leadFromDeal(q, d.id, 'sold', a.id, now);
+      await q.query(`UPDATE brokerage_deals SET lead_id = $2 WHERE id = $1`, [d.id, lead.id]);
+      await leadFromDeal(q, d.id, 'sold', a.id, now);
+      if (handover) {
+        await q.query(`UPDATE brokerage_deals SET commission_basis = $2, commission_pct = $3, handover_to = $4 WHERE id = $1`,
+          [d.id, basis, pct, recipient!.id]);
       }
       await audit(q, a.id, 'brokerage.listing.sell', 'brokerage_deal', d.id, undefined,
-        { listingId: l.id, kind: l.kind, clientName, price, commission, lister, seller: a.id });
-      // the administrative officer(s) — or, when none is set, whoever approves commissions
+        { listingId: l.id, kind: l.kind, leadId: lead.id, clientName, price, commission, basis, pct, recipient: recipient?.id ?? null, lister, seller: a.id });
+      const what = l.kind === 'resale' ? 'بيع' : 'إيجار';
+      if (recipient) {
+        // the recipient is told a commission waits for his code — the code itself never travels in a notification
+        await notify(q, { to: recipient.id, type: 'brokerage_handover', title: `${what} عقار — عمولة ${commission.toLocaleString('en-US')} ج مستنية تأكيدك`,
+          body: `${l.title} — ${clientName}. افتح التطبيق: هيظهرلك كود من 4 أرقام، قوله لـ ${a.fullName} وهو يكتبه`,
+          entity: 'brokerage_deal', entityId: d.id, dedupeKey: `brokerage_handover:${d.id}` });
+        return { id: d.id, duplicate: false };
+      }
+      // before 090: the administrative officer(s) — or, when none is set, whoever approves commissions
       let to = (await q.query(`SELECT e.id FROM employees e WHERE e.status = 'active' AND ${adminOfficerSql('e')} AND e.id <> $1`, [a.id])).rows.map((x) => x.id as string);
       if (!to.length) to = await holdersOf(q, 'brokerage.approve', [a.id]);
-      const what = l.kind === 'resale' ? 'بيع' : 'إيجار';
       for (const id of to) {
         await notify(q, { to: id, type: 'brokerage_sale', title: `${what} عقار — عمولة ${commission.toLocaleString('en-US')} ج`,
           body: `${l.title} — ${clientName}. استلم العمولة وحدد التقسيمة`, entity: 'brokerage_deal', entityId: d.id, dedupeKey: `brokerage_sale:${d.id}` });
@@ -729,6 +865,88 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       return { id: d.id, duplicate: false };
     });
     return ok({ deal: (await load(db, [out.id], a))[0], duplicate: out.duplicate }, out.duplicate ? 200 : 201);
+  });
+
+  // 090 — the recipient's code for a commission handed to him (a new one each time; the previous one ends)
+  r.post('/brokerage/deals/:id/handover/code', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const out = await db.tx(async (q) => {
+      await needHandover(q);
+      const d = await one(q, `SELECT d.*, s.full_name AS seller FROM brokerage_deals d JOIN employees s ON s.id = d.proposed_by
+                               WHERE d.id = $1 FOR UPDATE OF d`, [req.params.id]);
+      if (!d || d.handover_to !== a.id) throw notFound(); // only the recipient — the seller never sees the code
+      if (d.status !== 'proposed' || d.handover_at) throw conflict('العمولة دي اتسلمت أو الصفقة اتقفلت');
+      const act = handoverAction(d.id);
+      const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND action = $2 AND created_at > now() - interval '15 minutes'`, [a.id, act]);
+      if (recent.n >= 5) throw new AppError('rate_limited', 'طلبت أكواد كتير للعمولة دي — استنى ربع ساعة', { reason: 'otp_rate_limited' });
+      const code = String(randomInt(0, 10_000)).padStart(4, '0');
+      await q.query(`UPDATE action_otps SET expires_at = now() WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()`, [a.id, act]);
+      const o = await one(q, `INSERT INTO action_otps (employee_id, action, code_hash, expires_at) VALUES ($1, $2, $3, now() + make_interval(mins => $4))
+                              RETURNING expires_at`, [a.id, act, handoverHash(a.id, d.id, code), HANDOVER_OTP_TTL_MIN]);
+      await audit(q, a.id, 'brokerage.handover_code_issued', 'brokerage_deal', d.id, undefined, { expiresAt: o.expires_at }); // never the code
+      return { code, expiresAt: o.expires_at, amount: N(d.client_commission_egp), kind: d.kind, property: d.property, client: d.client_name, sellerName: d.seller };
+    });
+    return ok(out);
+  });
+
+  // 090 — the seller enters the code the recipient told him: only then the commission is in the recipient's office cashbox
+  // (a numbered receipt in his name). The split is set afterwards («استلام وتقسيم» → POST /brokerage/deals/:id/receive).
+  r.post('/brokerage/deals/:id/handover/verify', async (req) => {
+    const a = await authenticate(db, req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const code = obj(req.body).code;
+    const bad = (reason = 'otp_invalid') => new AppError('validation_failed',
+      reason === 'otp_locked' ? 'اتكتب كود غلط كتير — استنى ساعة أو اطلب من المستلم كود جديد بعدها' : 'الكود غلط أو خلص وقته — اطلب من المستلم كود جديد',
+      { reason, field: 'code' });
+    if (typeof code !== 'string' || !/^\d{4}$/.test(code)) throw bad();
+    const now = clock();
+    const res = await db.tx(async (q) => {
+      await needHandover(q);
+      const d = await one(q, `SELECT * FROM brokerage_deals WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      if (!d || !d.handover_to || d.proposed_by !== a.id) throw notFound(); // the seller of this very deal
+      if (d.status !== 'proposed' || d.handover_at) throw new AppError('conflict', 'العمولة دي اتسلمت أو الصفقة اتقفلت', { reason: 'not_open' });
+      const act = handoverAction(d.id);
+      const tries = await one(q, `SELECT COALESCE(sum(attempts), 0)::int AS n FROM action_otps WHERE employee_id = $1 AND action = $2 AND created_at > now() - interval '1 hour'`,
+        [d.handover_to, act]);
+      if (tries.n >= 15) return { fail: 'otp_locked' as const };
+      const o = await one(q, `SELECT * FROM action_otps WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()
+                               ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [d.handover_to, act]);
+      if (!o || o.attempts >= 5) return { fail: 'otp_invalid' as const };
+      if (o.code_hash !== handoverHash(d.handover_to, d.id, code)) return { fail: 'otp_invalid' as const, wrong: o.id as string };
+      await q.query(`UPDATE action_otps SET used_at = now() WHERE id = $1`, [o.id]);
+      const side = d.kind === 'resale' ? 'المشتري' : 'المستأجر';
+      const input: ReceiptInput = {
+        box: 'office', recipientId: d.handover_to, kind: 'commission', amount: N(d.client_commission_egp),
+        payerName: d.client_name, payerPhone: d.client_phone ?? '',
+        purpose: `عمولة ${d.kind === 'resale' ? 'إعادة بيع' : 'إيجار'} — ${d.property} (${side})`.slice(0, 300),
+        method: 'cash', externalNo: null, notes: 'اتسلمت للمستلم بالكود اللي ظهرله', ref: null, att: null, occurred: now,
+        brokerageDealId: d.id, brokerageSide: 'client',
+      };
+      const rec = await recordReceipt(q, a, input);
+      await q.query(`UPDATE brokerage_deals SET handover_at = $2, updated_at = $2 WHERE id = $1`, [d.id, now]);
+      await audit(q, a.id, 'brokerage.handover', 'brokerage_deal', d.id, { handedOver: false },
+        { handedOver: true, by: 'otp', recipient: d.handover_to, amount: N(d.client_commission_egp), receiptId: rec.id });
+      // whoever sets the split (the administrative officer(s), else whoever approves commissions) — never a party of the deal
+      const parties = [d.proposed_by, d.contributor_id, d.closer_id, d.sales_manager_id].filter(Boolean) as string[];
+      let to = (await q.query(`SELECT e.id FROM employees e WHERE e.status = 'active' AND ${adminOfficerSql('e')} AND NOT e.id = ANY($1::uuid[])`, [parties]))
+        .rows.map((x) => x.id as string);
+      if (!to.length) to = await holdersOf(q, 'brokerage.approve', parties);
+      for (const id of to) {
+        await notify(q, { to: id, type: 'brokerage_sale', title: `عمولة ${N(d.client_commission_egp).toLocaleString('en-US')} ج اتسلمت — حدد التقسيمة`,
+          body: `${d.property} — ${d.client_name}`, entity: 'brokerage_deal', entityId: d.id, dedupeKey: `brokerage_split:${d.id}` });
+      }
+      return { receiptId: rec.id };
+    });
+    if ('fail' in res) {
+      // a wrong try is counted on its own (outside the refused step, so it is never rolled back)
+      if (res.wrong) {
+        await db.query(`UPDATE action_otps SET attempts = attempts + 1 WHERE id = $1`, [res.wrong]);
+        await audit(db, a.id, 'brokerage.handover_code_wrong', 'brokerage_deal', req.params.id);
+      }
+      throw bad(res.fail);
+    }
+    return ok({ receiptId: res.receiptId, deal: (await load(db, [req.params.id], a))[0] });
   });
 
   // the administrative officer receives the commission of a listing sale and sets its split in one step:
@@ -749,9 +967,18 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       if (!d.listing_id) throw conflict('الصفقة دي مش من عرض عقار');
       if (d.status !== 'proposed') throw conflict('العمولة اتستلمت أو الصفقة اتقفلت');
       if (mine(a, d)) throw forbidden('مينفعش تستلم وتقسم عمولة صفقة إنت طرف فيها');
+      // 090: waiting for the recipient's code → nothing to split yet; handed over → split only (the receipt exists)
+      if (d.handover_to && !d.handover_at) {
+        throw new AppError('conflict', 'العمولة لسه متسلمتش — مستنية كود المستلم', { reason: 'handover_pending' });
+      }
+      const handedOver = !!d.handover_at;
       const now = clock();
-      // the commission actually received (the seller's figure unless corrected) and the sales manager of the split
-      const amount = r2(num(b, 'amount', { min: 1, max: 10_000_000_000 })!);
+      // the commission actually received (the seller's figure unless corrected) and the sales manager of the split;
+      // a commission handed over against the code keeps the amount that entered the cashbox
+      const amount = handedOver ? N(d.client_commission_egp) : r2(num(b, 'amount', { min: 1, max: 10_000_000_000 })!);
+      if (handedOver && b.amount !== undefined && b.amount !== null && cents(Number(b.amount)) !== cents(amount)) {
+        throw new AppError('conflict', `العمولة اتسلمت بـ ${amount} — مينفعش تتغير`, { reason: 'handover_amount_fixed', amount });
+      }
       const manager = await employee(q, b.salesManagerId, 'salesManagerId', true);
       if (manager === a.id) throw forbidden('مينفعش تحدد نصيب ليك');
       if (cents(amount) !== cents(N(d.client_commission_egp)) || (manager ?? null) !== (d.sales_manager_id ?? null)) {
@@ -762,6 +989,11 @@ export const brokerageModule: Module = (r, { db, clock }) => {
       }
       await approveDeal(q, a, d, b.shares as unknown[], (str(b, 'note', { optional: true, max: 500 }) ?? '').trim(), now);
       d = await one(q, `SELECT * FROM brokerage_deals WHERE id = $1`, [d.id]);
+      if (handedOver) {
+        await closeIfCollected(q, a, d, now);
+        const rec = await one(q, `SELECT id FROM cash_receipts WHERE brokerage_deal_id = $1 AND status = 'posted' ORDER BY created_at LIMIT 1`, [d.id]);
+        return { id: rec.id as string, duplicate: false };
+      }
       return collectSide(q, a, d, 'client', { ...b, amount }, now);
     });
     return ok({ receiptId: out.id, duplicate: out.duplicate, deal: (await load(db, [req.params.id], a))[0] }, out.duplicate ? 200 : 201);

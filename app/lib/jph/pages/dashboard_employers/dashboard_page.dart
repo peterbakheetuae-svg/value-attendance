@@ -286,7 +286,7 @@ class _DashboardPageState extends State<DashboardPage>
     if (checkedIn && !dayFinished) {
       ShiftTracker.instance.start(JphBridge.api,
           notifTitle: 'فاليو نيفو — الحضور شغال',
-          notifText: 'بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف');
+          notifText: 'انت في وقت العمل');
     } else {
       ShiftTracker.instance.stop();
     }
@@ -1657,6 +1657,9 @@ class _DashboardPageState extends State<DashboardPage>
                         ),
 
                       const SizedBox(height: 18),
+                      // «ليدز جديدة»: at the top, right under the header — the same place as on the salesperson's dashboard
+                      // (the newest new lead assigned to him + «عرض المزيد»; nothing when he has none)
+                      NewLeadsBox(isDark: Provider.of<AppController>(context).isDark),
                       // عربون حجز / مقدم تعاقد مستني «تم الاستلام» (المحاسب / المدير العام)
                       const PendingSalesMoneyCard(),
                       _buildPendingOutingsCard(),
@@ -1709,9 +1712,6 @@ class _DashboardPageState extends State<DashboardPage>
                       ),
                       ),
                       ],
-
-                      // «ليدز جديدة»: the newest new lead assigned to him + «عرض المزيد» (nothing when he has none)
-                      NewLeadsBox(isDark: Provider.of<AppController>(context).isDark),
 
                       const SizedBox(height: 18),
                       Text(

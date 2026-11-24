@@ -1,17 +1,18 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
 
 /** Financial system phase 2: unit sales — reservation → down payment → installments, collections, cancellation. */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
-let tGm = ''; let project = ''; let saleId = '';
+let tGm = ''; let gmId = ''; let project = ''; let saleId = '';
 
 before(async () => {
   h = await harness('2026-03-10T08:00:00Z'); c = await cast(h);
   await h.call(c.t.owner, 'POST', '/employees', { code: 'GM1', fullName: 'المدير العام', role: 'manager' });
   await h.db.query(`UPDATE employees SET must_change_password = false, password_hash = (SELECT password_hash FROM employees WHERE code = 'E1') WHERE code = 'GM1'`);
   tGm = await h.login('GM1', PW);
+  gmId = (await h.db.query(`SELECT id FROM employees WHERE code = 'GM1'`)).rows[0].id;
   project = (await h.call(tGm, 'POST', '/commissions/projects', { name: 'Kayan', totalPct: 1.5, salesPct: 0.3, managerPct: 0.4, companyPct: 0.8 })).body.project.id;
 });
 after(async () => { await h.close(); });
@@ -36,17 +37,17 @@ test('register a sale: one buyer per unit, schedule generated, totals exact', as
   assert.equal((await h.call(c.t.e1, 'POST', '/sales', {})).status, 400, 'a salesperson may submit, but not an empty sale');
   const body = { projectId: project, unitNo: 'A-101', buyerName: 'أحمد علي', buyerPhone: '0100', totalPrice: 4_500_000, downPayment: 450_000,
     saleDate: '2026-03-10', downPaymentDueDate: '2026-03-20', frequency: 'monthly', installmentsCount: 36, firstDueDate: '2026-04-10' };
-  const s = await h.call(c.t.hr, 'POST', '/sales', body);
+  const s = await h.call(c.t.hr, 'POST', '/sales', await asLead(h, c.ids.hr, body));
   assert.equal(s.status, 201, JSON.stringify(s.body));
   saleId = s.body.sale.id;
   assert.equal(s.body.schedule.length, 37);
   assert.equal(s.body.schedule[0].kind, 'down_payment');
   assert.equal(s.body.schedule.reduce((x: number, l: any) => x + Math.round(l.amount * 100), 0), 450_000_000);
   assert.equal(s.body.sale.stage, 'reserved');
-  const dup = await h.call(tGm, 'POST', '/sales', { ...body, unitNo: ' a-101 ', buyerName: 'شخص تاني' });
+  const dup = await h.call(tGm, 'POST', '/sales', await asLead(h, gmId, { ...body, unitNo: ' a-101 ', buyerName: 'شخص تاني' }));
   assert.equal(dup.status, 409);
   assert.equal(dup.body.error.details.reason, 'unit_has_buyer');
-  assert.equal((await h.call(tGm, 'POST', '/sales', { ...body, unitNo: 'B-1', downPayment: 5_000_000 })).status, 400, 'down > price');
+  assert.equal((await h.call(tGm, 'POST', '/sales', await asLead(h, gmId, { ...body, unitNo: 'B-1', downPayment: 5_000_000 }))).status, 400, 'down > price');
 });
 
 test('reservation then the rest of the down payment, partial installment, no over-collection, receipts in the cashbox', async () => {
@@ -116,8 +117,8 @@ test('cancel (manager / owner) → lines cancelled, collections kept, full refun
   assert.ok(!fd.rows.some((x: any) => x.title.startsWith('استرداد وحدة')));
   assert.equal((await h.call(tGm, 'GET', '/cash/summary')).body.office.bookBalance, 0);
   // the unit can be sold again now
-  assert.equal((await h.call(c.t.hr, 'POST', '/sales', { projectId: project, unitNo: 'A-101', buyerName: 'مشتري جديد', totalPrice: 1000, downPayment: 1000,
-    saleDate: '2026-05-10', downPaymentDueDate: '2026-05-10' })).status, 201);
+  assert.equal((await h.call(c.t.hr, 'POST', '/sales', await asLead(h, c.ids.hr, { projectId: project, unitNo: 'A-101', buyerName: 'مشتري جديد', totalPrice: 1000, downPayment: 1000,
+    saleDate: '2026-05-10', downPaymentDueDate: '2026-05-10' }))).status, 201);
   // and nothing about the sale can be edited or deleted
   await assert.rejects(h.db.query(`UPDATE sale_installments SET amount_egp = 1 WHERE sale_id = $1`, [saleId]), /cannot be edited/);
   await assert.rejects(h.db.query(`DELETE FROM unit_sales WHERE id = $1`, [saleId]), /never deleted/);
@@ -126,13 +127,13 @@ test('cancel (manager / owner) → lines cancelled, collections kept, full refun
 test('a salesperson submits a sale with its commission: waits for the management, no collecting before approval', async () => {
   const body = { projectId: project, unitNo: 'S-7', buyerName: 'منى حسن', buyerPhone: '01000000000', totalPrice: 1_000_000, downPayment: 1_000_000,
     saleDate: '2026-03-10', downPaymentDueDate: '2026-03-10', withCommission: true, pricePerM2: 10_000, areaM2: 100 };
-  const s = await h.call(c.t.e1, 'POST', '/sales', body);
+  const s = await h.call(c.t.e1, 'POST', '/sales', await asLead(h, c.ids.e1, body));
   assert.equal(s.status, 201, JSON.stringify(s.body));
   assert.equal(s.body.sale.status, 'pending');
   assert.equal(s.body.sale.paymentMethod, 'cash');
   assert.equal(s.body.sale.commission.status, 'pending');
   const id = s.body.sale.id;
-  assert.equal((await h.call(c.t.e1, 'POST', '/sales', { ...body, withCommission: false })).body.error.details.reason, 'unit_has_buyer', 'a waiting unit is taken');
+  assert.equal((await h.call(c.t.e1, 'POST', '/sales', await asLead(h, c.ids.e1, { ...body, withCommission: false }))).body.error.details.reason, 'unit_has_buyer', 'a waiting unit is taken');
   assert.equal((await h.call(c.t.hr, 'POST', `/sales/${id}/collect`, { installmentId: s.body.schedule[0].id, amount: 10, recipient: 'hr' })).status, 409);
   // the salesperson sees only his own; cannot decide
   const mine = (await h.call(c.t.e1, 'GET', '/sales')).body.sales;
@@ -148,14 +149,14 @@ test('a salesperson submits a sale with its commission: waits for the management
 test('rejected sale frees the unit and rejects its waiting commission; HR files the commission for the salesperson', async () => {
   const body = { projectId: project, unitNo: 'S-8', buyerName: 'كريم', totalPrice: 500_000, downPayment: 100_000, saleDate: '2026-03-10',
     downPaymentDueDate: '2026-03-15', frequency: 'monthly', installmentsCount: 4, firstDueDate: '2026-04-10', withCommission: true, pricePerM2: 5000, areaM2: 100 };
-  const s = await h.call(c.t.e2, 'POST', '/sales', body);
+  const s = await h.call(c.t.e2, 'POST', '/sales', await asLead(h, c.ids.e2, body));
   assert.equal(s.body.sale.paymentMethod, 'installments');
   assert.equal((await h.call(tGm, 'POST', `/sales/${s.body.sale.id}/decision`, { decision: 'reject' })).status, 400, 'a reason is required');
   const rej = await h.call(tGm, 'POST', `/sales/${s.body.sale.id}/decision`, { decision: 'reject', reason: 'السعر غلط' });
   assert.equal(rej.body.sale.status, 'rejected');
   assert.equal(rej.body.sale.commission.status, 'rejected');
   // HR / المدير may file the commission for the salesperson (a salesperson's employeeId is ignored)
-  const hr = await h.call(c.t.hr, 'POST', '/sales', { ...body, employeeId: c.ids.e2 });
+  const hr = await h.call(c.t.hr, 'POST', '/sales', await asLead(h, c.ids.hr, { ...body, employeeId: c.ids.e2 }));
   assert.equal(hr.status, 201, JSON.stringify(hr.body));
   assert.equal(hr.body.sale.status, 'active', 'HR records directly');
   assert.equal(hr.body.sale.commission.employeeName, 'موظف ٢');
@@ -164,7 +165,7 @@ test('rejected sale frees the unit and rejects its waiting commission; HR files 
 test('clients: built from the sales; detail has counts, amounts and the schedule; cashbox collection links automatically', async () => {
   const body = { projectId: project, unitNo: 'C-9', buyerName: 'منى حسن', buyerPhone: '01011112222', totalPrice: 120_000, downPayment: 20_000,
     saleDate: '2026-03-10', downPaymentDueDate: '2026-03-10', frequency: 'monthly', installmentsCount: 4, firstDueDate: '2026-04-10' };
-  const s = await h.call(c.t.hr, 'POST', '/sales', body);
+  const s = await h.call(c.t.hr, 'POST', '/sales', await asLead(h, c.ids.hr, body));
   assert.equal(s.status, 201, JSON.stringify(s.body));
   const id = s.body.sale.id;
   const list = (await h.call(c.t.hr, 'GET', '/sales/clients?q=01011112222')).body.clients;

@@ -573,7 +573,7 @@
  "tracking_enabled_help": "From check-in to check-out: get notified when someone leaves or returns, or their tracking stops",
  "tracking_interval_minutes": "Update every (min)",
  "tracking_live": "In-shift follow-up",
- "tracking_notif_text": "Your location is shared during your shift only; it stops at check-out",
+ "tracking_notif_text": "You are in working hours",
  "tracking_notif_title": "VALUNIVO — on shift",
  "tracking_off_hint": "Tracking is off — turn it on in company settings",
  "tracking_stale_minutes": "Alert if silent (min)",

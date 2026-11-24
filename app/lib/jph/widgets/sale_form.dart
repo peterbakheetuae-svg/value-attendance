@@ -4,6 +4,7 @@ import '../pages/cash/cash_page.dart';
 import '../pages/sales/sales_page.dart';
 import '../services/api_service.dart';
 import 'jph_form_ui.dart';
+import 'lead_client_picker.dart';
 import 'glass_dialog.dart';
 import 'glass_ui.dart';
 import 'package:jph_real_estate_hr/jph/l10n/tx_text.dart';
@@ -52,8 +53,8 @@ class _SalesTabState extends State<SalesTab> {
   final _unit = TextEditingController();
   final _price = TextEditingController();
   final _area = TextEditingController();
-  final _client = TextEditingController();
-  final _phone = TextEditingController();
+  /// «اختيار عميل»: the buyer is always a client of the sales board (never typed by hand)
+  Map<String, dynamic>? _lead;
   final _down = TextEditingController();
   final _count = TextEditingController();
   final _notes = TextEditingController();
@@ -70,7 +71,7 @@ class _SalesTabState extends State<SalesTab> {
 
   @override
   void dispose() {
-    for (final c in [_unit, _price, _area, _client, _phone, _down, _count, _notes]) {
+    for (final c in [_unit, _price, _area, _down, _count, _notes]) {
       c.dispose();
     }
     super.dispose();
@@ -133,10 +134,8 @@ class _SalesTabState extends State<SalesTab> {
       err = 'اكتب رقم الوحدة';
     } else if (total == null || total <= 0) {
       err = 'اكتب المساحة وسعر المتر';
-    } else if (_client.text.trim().length < 2) {
-      err = 'اكتب اسم العميل';
-    } else if (_phone.text.trim().length < 8) {
-      err = 'اكتب رقم موبايل العميل';
+    } else if (_lead == null) {
+      err = 'اختار العميل من الليدز';
     } else if (_installments && ((_n(_count) ?? 0) < 1)) {
       err = 'اكتب عدد الأقساط';
     } else if (_installments && (_n(_down) ?? 0) >= total) {
@@ -150,7 +149,7 @@ class _SalesTabState extends State<SalesTab> {
     final now = DateTime.now();
     final r = await cashPost('/sales', {
       'projectId': _project!['id'], 'unitNo': _unit.text.trim(),
-      'buyerName': _client.text.trim(), 'buyerPhone': _phone.text.trim(),
+      'leadId': _lead!['id'],
       'totalPrice': total, 'saleDate': _iso(now),
       'downPayment': _installments ? (_n(_down) ?? 0) : total,
       'downPaymentDueDate': _iso(_installments ? _downDue : now),
@@ -163,10 +162,10 @@ class _SalesTabState extends State<SalesTab> {
     setState(() => _saving = false);
     JphUi.toast(context, r);
     if (r['success'] == true) {
-      for (final c in [_unit, _price, _area, _client, _phone, _down, _count, _notes]) {
+      for (final c in [_unit, _price, _area, _down, _count, _notes]) {
         c.clear();
       }
-      setState(() => _seller = null);
+      setState(() { _seller = null; _lead = null; });
       _load();
     }
   }
@@ -301,10 +300,7 @@ class _SalesTabState extends State<SalesTab> {
         const SizedBox(height: 18),
         Text('بيانات العميل', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         const SizedBox(height: 10),
-        JphUi.input(isDark: isDark, label: 'اسم العميل *', controller: _client, icon: Icons.person_rounded, big: false),
-        const SizedBox(height: 14),
-        JphUi.input(isDark: isDark, label: 'رقم الموبايل *', controller: _phone, hint: '01xxxxxxxxx', icon: Icons.phone_iphone_rounded,
-            number: true, big: false),
+        leadClientField(context, isDark, _lead, (v) => setState(() => _lead = v)),
         const SizedBox(height: 18),
         Text('طريقة الدفع', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),
         const SizedBox(height: 10),

@@ -727,6 +727,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
    * a marketing unit holds no money of ours. With `contract` it is a direct contract (تعاقد جديد) in one go.
    * «مصدر العميل»: the office, or a marketing company paid by commission (the project's marketing %).
    */
+  /** the marketing company a lead came through: its campaign's company, only when it is active and works by commission
+   *  (a fixed-fee company, or no campaign → the office: no marketing commission) */
+  async function leadMarketingCompany(q: Q, lead: { campaign_id?: string | null }) {
+    if (!lead.campaign_id) return null;
+    return (await one(q, `SELECT m.* FROM lead_campaigns c JOIN marketing_companies m ON m.id = c.marketing_company_id
+                           WHERE c.id = $1 AND m.status = 'active' AND m.kind = 'commission'`, [lead.campaign_id])) ?? null;
+  }
+
   r.post('/exclusive/units', async (req) => {
     const a = await authenticate(db, req);
     if (!canReserve(a)) throw forbidden();
@@ -737,21 +745,26 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const inv = inventoryId ? await one(db, `SELECT * FROM ex_inventory WHERE id = $1 AND project_id = $2 AND active`, [inventoryId, projectId]) : null;
     if (inventoryId && !inv) throw invalid('اختار وحدة من وحدات المشروع', { field: 'inventoryId' });
     const unitNo = inv ? String(inv.unit_no) : str(b, 'unitNo', { min: 1, max: 60 })!.trim();
-    const clientName = str(b, 'clientName', { min: 2, max: 120 })!.trim();
-    const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? '').trim();
     const price = num(b, 'unitPrice', { min: 1, max: 10_000_000_000 })!;
     const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? '').trim();
     const method = oneOf(b, 'paymentMethod', METHODS, true) ?? 'cash';
     const salesId = canManage(a) && typeof b.salesId === 'string' && isUuid(b.salesId) ? b.salesId : a.id;
-    const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
     const contract = b.contract && typeof b.contract === 'object' ? obj(b.contract) : null;
     // «التاريخ المتوقع للتعاقد»: the expected commission falls in that month
     const expected = contract ? null : date(b, 'expectedContractDate', true) ?? null;
     if (expected && expected < local(clock()).date) throw invalid('التاريخ المتوقع للتعاقد لازم يكون النهارده أو بعده', { field: 'expectedContractDate' });
+    // the client is ALWAYS an existing lead (for every role — never typed by hand): its name and phone come from the lead
     const leadId = typeof b.leadId === 'string' && isUuid(b.leadId) ? b.leadId : null;
+    if (!leadId) throw new AppError('validation_failed', 'اختار العميل من الليدز', { reason: 'lead_required', field: 'leadId' });
     const u = await db.tx(async (q) => {
       // «حجز» from a lead: the lead's salesman reserves for him (the lead shows the reservation, its deposit, the contract)
-      const lead = leadId ? await leadForReservation(q, a, leadId) : null;
+      const lead = await leadForReservation(q, a, leadId);
+      const clientName = String(lead.full_name ?? '').trim().slice(0, 120);
+      const clientPhone = String(lead.phone ?? '').trim().slice(0, 30);
+      if (clientName.length < 2) throw invalid('اسم العميل في الليد ناقص — كمّله من ملف العميل الأول', { field: 'leadId' });
+      // «مصدر العميل» is automatic: the marketing company of the lead's campaign when it works by commission; else the office
+      const mk = await leadMarketingCompany(q, lead);
+      const mkId: string | null = mk?.id ?? null;
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1 FOR SHARE`, [projectId]);
       if (!p || p.status !== 'active') throw invalid('المشروع ده مش بيستقبل حجوزات دلوقتي', { field: 'projectId' });
       const exclusive = p.kind === 'exclusive';
@@ -760,9 +773,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (deposit > price) throw invalid('العربون أكبر من سعر الوحدة', { field: 'depositAmount' });
       await noDuplicate(q, p.id, { unitNo, clientName, clientPhone }, null, !!contract);
       let mkPct = 0;
-      if (mkId) {
-        const mk = await one(q, `SELECT * FROM marketing_companies WHERE id = $1 AND status = 'active' AND kind = 'commission'`, [mkId]);
-        if (!mk) throw invalid('اختار شركة التسويق', { field: 'marketingCompanyId' });
+      if (mk) {
         mkPct = n(p.marketing_pct) > 0 ? n(p.marketing_pct) : n(mk.default_pct);
         if (canManage(a)) mkPct = num(b, 'marketingPct', { optional: true, min: 0, max: 100 }) ?? mkPct;
         if (mkPct > n(p.company_pct) + 0.00001) throw invalid(`نسبة شركة التسويق أكبر من نصيب المكتب (${n(p.company_pct)}٪)`, { field: 'marketingPct' });
@@ -776,10 +787,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (expected) await q.query(`UPDATE ex_units SET expected_contract_date = $2 WHERE id = $1`, [x.id, expected]);
       await saveForm(q, x.id, formFields(b), price);
       if (inv) await q.query(`UPDATE ex_units SET inventory_id = $2 WHERE id = $1`, [x.id, inv.id]);
-      if (lead) {
-        await q.query(`UPDATE ex_units SET lead_id = $2 WHERE id = $1`, [x.id, lead.id]);
-        if (!contract) await leadFromUnit(q, x.id, 'reserved', a.id, clock()); // a direct contract tells the lead in makeContract
-      }
+      await q.query(`UPDATE ex_units SET lead_id = $2 WHERE id = $1`, [x.id, lead.id]);
+      if (!contract) await leadFromUnit(q, x.id, 'reserved', a.id, clock()); // a direct contract tells the lead in makeContract
       await audit(q, a.id, 'exclusive.unit.reserve', 'ex_unit', x.id, undefined, x);
       // a direct contract: the deposit is part of its down payment (one pending payment for the whole of it)
       if (exclusive && deposit > 0 && !contract) await requestPayment(q, a, x, p.name, 'reservation', deposit, method);
@@ -901,6 +910,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       if (!ownUnit(a, u) && !canManage(a)) throw forbidden();
       if (!['reserving', 'reserved', 'contracted'].includes(u.status)) throw conflict('الوحدة دي مش بتتعدّل دلوقتي');
       const p = await one(q, `SELECT * FROM commission_projects WHERE id = $1`, [u.project_id]);
+      // a unit of a lead keeps the lead's client and its automatic «مصدر العميل» (never typed / picked by hand)
+      if (u.lead_id) { delete b.clientName; delete b.clientPhone; delete b.marketingCompanyId; }
       const clientName = (str(b, 'clientName', { optional: true, min: 2, max: 120 }) ?? u.client_name).trim();
       const clientPhone = (str(b, 'clientPhone', { optional: true, max: 30 }) ?? u.client_phone).trim();
       const notes = (str(b, 'notes', { optional: true, max: 1000 }) ?? u.notes).trim();

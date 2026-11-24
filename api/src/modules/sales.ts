@@ -8,6 +8,7 @@ import { audit, authenticate, can, has, teamMemberIds, type Actor } from '../aut
 import { canHrOperate, canOffice, parseReceipt, priorByClientRef, sameAmount, recordReceipt, RECEIPT_SELECT, receiptListSelect, shapeReceipt } from './cash.ts';
 import { createCommissionRequest, parseCommissionRequest } from './commissions.ts';
 import { holdersOf, notify } from './notify.ts';
+import { leadForReservation } from './leads.ts';
 
 /**
  * Financial system, phase 2 — unit sales: reservation → down payment → installments.
@@ -376,8 +377,9 @@ export const salesModule: Module = (r, { db, clock }) => {
     const projectId = typeof b.projectId === 'string' ? b.projectId : '';
     if (!isUuid(projectId)) throw invalid('Choose the project', { field: 'projectId' });
     const unitNo = str(b, 'unitNo', { min: 1, max: 60 })!.trim();
-    const buyerName = str(b, 'buyerName', { min: 2, max: 120 })!.trim();
-    const buyerPhone = (str(b, 'buyerPhone', { optional: true, max: 30 }) ?? '').trim();
+    // the buyer is ALWAYS an existing lead (for every role — never typed by hand): his name and phone come from the lead
+    const leadId = typeof b.leadId === 'string' && isUuid(b.leadId) ? b.leadId : null;
+    if (!leadId) throw new AppError('validation_failed', 'اختار العميل من الليدز — مينفعش تكتب بيانات عميل مش موجود في لوحة السيلز', { reason: 'lead_required', field: 'leadId' });
     const buyerContact = (str(b, 'buyerContact', { optional: true, max: 300 }) ?? '').trim();
     const total = num(b, 'totalPrice', { min: 1, max: 10_000_000_000 })!;
     const down = num(b, 'downPayment', { min: 0, max: 10_000_000_000 })!;
@@ -392,6 +394,10 @@ export const salesModule: Module = (r, { db, clock }) => {
     const lines = buildSchedule({ total, down, downDue, frequency, count, installmentAmount: instAmount, firstDue });
     const commission = b.withCommission === true ? parseCommissionRequest({ ...b, projectId, unitNo, note: b.commissionNote ?? '' }, a) : null;
     const id = await db.tx(async (q) => {
+      const lead = await leadForReservation(q, a, leadId);
+      const buyerName = String(lead.full_name ?? '').trim().slice(0, 120);
+      const buyerPhone = String(lead.phone ?? '').trim().slice(0, 30);
+      if (buyerName.length < 2) throw invalid('اسم العميل في الليد ناقص — كمّله من ملف العميل الأول', { field: 'leadId' });
       // the project row is locked: two submissions for the same unit at once cannot both pass the check below
       // (a waiting sale is not covered by the database's one-active-sale index)
       const p = await one(q, `SELECT id, status FROM commission_projects WHERE id = $1 AND kind = 'marketing' FOR UPDATE`, [projectId]);
@@ -410,7 +416,7 @@ export const salesModule: Module = (r, { db, clock }) => {
         await q.query(`INSERT INTO sale_installments (sale_id, seq, due_date, amount_egp) VALUES ($1,$2,$3,$4)`, [s.id, l.seq, l.due, l.amount]);
       }
       await audit(q, a.id, 'sales.create', 'unit_sale', s.id, undefined,
-        { projectId, unitNo, buyerName, total, down, frequency, installments: lines.length - 1, status: direct ? 'active' : 'pending' });
+        { projectId, unitNo, buyerName, leadId: lead.id, total, down, frequency, installments: lines.length - 1, status: direct ? 'active' : 'pending' });
       if (!direct) {
         // the approvers by the same permission resolution as everywhere (individual grants / restrictions count)
         for (const apId of await holdersOf(q, 'sales.approve', [a.id])) {

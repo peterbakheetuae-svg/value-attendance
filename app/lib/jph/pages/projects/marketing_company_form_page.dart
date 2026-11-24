@@ -60,6 +60,12 @@ class _MarketingCompanyFormPageState extends State<MarketingCompanyFormPage> {
 
   bool get _isNew => widget.id == null;
 
+  /// a campaign runs with one company only: this company's campaigns and the free ones — never another company's
+  List<Map<String, dynamic>> get _freeCampaigns => [
+        for (final x in _l(_opt['campaigns']))
+          if (x['companyId'] == null || (!_isNew && '${x['companyId']}' == widget.id) || _campaigns.contains('${x['id']}')) x,
+      ];
+
   @override
   void initState() {
     super.initState();
@@ -366,11 +372,12 @@ class _MarketingCompanyFormPageState extends State<MarketingCompanyFormPage> {
                                 const SizedBox(height: 4),
                                 Text('الشركة بتشوف ليدز الحملات دي بس، وتقدر تضيف عليها ليدز.', style: TextStyle(fontSize: 12.5, color: isDark ? Colors.white60 : Ar.grey[600])),
                                 const SizedBox(height: 8),
-                                if (_l(_opt['campaigns']).isEmpty)
-                                  Text('مفيش حملات — اعملها من إعدادات الليدز ← الحملات', style: TextStyle(color: isDark ? Colors.white60 : Ar.grey[600]))
+                                if (_freeCampaigns.isEmpty)
+                                  Text('مفيش حملات متاحة — اعملها من إعدادات الليدز ← الحملات (الحملة اللي شغالة مع شركة تانية مش بتظهر هنا)',
+                                      style: TextStyle(color: isDark ? Colors.white60 : Ar.grey[600]))
                                 else
                                   Wrap(spacing: 8, runSpacing: 8, children: [
-                                    for (final x in _l(_opt['campaigns']))
+                                    for (final x in _freeCampaigns)
                                       FilterChip(
                                         selected: _campaigns.contains('${x['id']}'),
                                         label: Text('${x['name']}${x['active'] == false ? ' (موقوفة)' : ''}'),
