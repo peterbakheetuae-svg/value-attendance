@@ -42,8 +42,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (!d.allow) {
     console.log(`no migrate, no seed — ${d.why}`);
   } else {
-    console.log(`migrate + seed — ${d.why}`);
+    // B1 (2026-11-24): a production build never creates an account (it used to seed the owner on an empty database and
+    // print the temporary password into the build log). The first owner is created once, by the owner, outside the build.
+    console.log(`migrate (no seed) — ${d.why}`);
     run('npm', ['run', 'migrate']);
-    run('npm', ['run', 'seed:dev', '--', '--if-empty']);
   }
 }
