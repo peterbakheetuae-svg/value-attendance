@@ -61,7 +61,7 @@ test('the real script: a preview build never calls migrate or seed; production o
   }
   const prod = runGuard({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'valunivo.vercel.app' });
   assert.equal(prod.status, 0, prod.out);
-  assert.deepEqual(prod.calls, ['run migrate', 'run seed:dev -- --if-empty']);
+  assert.deepEqual(prod.calls, ['run migrate'], 'a production build never seeds an account (B1)');
   // C1: the retired project (with or without a BACKUP_TOKEN) and an unidentified production build never migrate
   const retiredOrUnknown: Record<string, string>[] = [
     { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_REF: 'main', VERCEL_PROJECT_PRODUCTION_URL: 'value-attendance-api-eight.vercel.app' },
