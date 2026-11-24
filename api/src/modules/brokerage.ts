@@ -662,7 +662,7 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     for (const l of listings) {
       if (!l.owner) continue;
       const k = key(l.owner);
-      const o = owners.get(k) ?? { key: k, name: l.owner.name, phone: l.owner.phone, listings: [] };
+      const o = owners.get(k) ?? { key: k, name: l.owner.name, phone: l.owner.phone, listings: [] as any[] };
       if (!o.name && l.owner.name) o.name = l.owner.name;
       if (!o.phone && l.owner.phone) o.phone = l.owner.phone;
       o.listings.push(l);
