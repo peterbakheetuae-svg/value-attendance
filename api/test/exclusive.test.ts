@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, insertEmployee, PW, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, type Harness, asLead } from './helpers.ts';
 
 /**
  * المشاريع الحصري, one step after the other from «المبيعات»:
@@ -26,12 +26,12 @@ test('exclusive project: reservation → contract → collected → owner payout
   assert.ok(!(await h.call(c.t.owner, 'GET', '/commissions/projects')).body.projects.some((p: any) => p.id === pid), 'not in the marketing list');
 
   // حجز: the deposit waits for «تم استلام المبلغ» (the accountant / المدير العام are told); nobody types an amount
-  assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000 })).status, 400,
+  assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000 }))).status, 400,
     'an exclusive reservation needs its deposit');
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000,
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'A-12', clientName: 'عميل حصري', unitPrice: 3_000_000,
     depositAmount: 50_000, paymentMethod: 'bank_transfer', expectedContractDate: '2026-12-15',
     unitType: 'تجاري', floor: 'أرضي', areaM2: 42.5, clientNationalId: '29001011234567', clientAddress: 'المعادي', maintenanceDeposit: 150_000,
-    plannedDownPayment: 250_000, downPaymentDue: '2026-12-01', plannedInstallments: 8, plannedEveryMonths: 3, depositPaidOn: '2026-11-10' });
+    plannedDownPayment: 250_000, downPaymentDue: '2026-12-01', plannedInstallments: 8, plannedEveryMonths: 3, depositPaidOn: '2026-11-10' }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
   assert.equal(u.body.unit.status, 'reserving');
@@ -168,8 +168,8 @@ test('exclusive project: reservation → contract → collected → owner payout
 
 test('a direct cash contract (تعاقد جديد): the whole price in, 5% at once; a cancelled reservation gives the deposit back', async () => {
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'كمبوند الواحة', ownerName: 'أ. هاني' })).body.project.id;
-  const u = await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V1', clientName: 'عميل كاش', unitPrice: 1_000_000,
-    contract: { paymentType: 'cash' } });
+  const u = await h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: pid, unitNo: 'V1', clientName: 'عميل كاش', unitPrice: 1_000_000,
+    contract: { paymentType: 'cash' } }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   assert.equal(u.body.unit.status, 'contracted');
   assert.equal(u.body.unit.money.pending, 1_000_000, 'cash: the whole price waits for «تم استلام المبلغ»');
@@ -182,15 +182,15 @@ test('a direct cash contract (تعاقد جديد): the whole price in, 5% at on
   assert.equal(s.commission.staff, 3_000, '0.2% + 0.1% even for cash');
 
   // made by المالك / المدير العام for the salesperson → the staff commission is approved at once
-  const m = await h.call(owner2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V3', clientName: 'عميل المدير', unitPrice: 500_000,
-    depositAmount: 10_000, salesId: c.ids.e2 });
+  const m = await h.call(owner2, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'V3', clientName: 'عميل المدير', unitPrice: 500_000,
+    depositAmount: 10_000, salesId: c.ids.e2 }));
   assert.equal(m.status, 201, JSON.stringify(m.body));
   const mp = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === m.body.unit.id);
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${mp.id}/receive`, {})).status, 200);
   assert.equal((await h.call(owner2, 'POST', `/exclusive/units/${m.body.unit.id}/contract`, { paymentType: 'cash' })).status, 200);
   assert.equal((await h.db.query(`SELECT status FROM commission_requests WHERE ex_unit_id = $1`, [m.body.unit.id])).rows[0].status, 'approved');
 
-  const v = (await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'V2', clientName: 'عميل لغى', unitPrice: 800_000, depositAmount: 30_000 })).body.unit;
+  const v = (await h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: pid, unitNo: 'V2', clientName: 'عميل لغى', unitPrice: 800_000, depositAmount: 30_000 }))).body.unit;
   const vp = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === v.id);
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${vp.id}/receive`, {})).status, 200);
   assert.equal((await h.call(c.t.e2, 'POST', `/exclusive/units/${v.id}/cancel`, { reason: 'العميل اعتذر' })).status, 200);
@@ -211,8 +211,8 @@ test('a direct cash contract (تعاقد جديد): the whole price in, 5% at on
 
 test('a direct contract for a client / unit that has a reservation is refused; the salesperson edits his reservation', async () => {
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج الأمل', ownerName: 'أ. كريم' })).body.project.id;
-  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'B-1', clientName: 'أحمد سمير', clientPhone: '0101 222 3333',
-    unitPrice: 900_000, depositAmount: 20_000, expectedContractDate: '2027-01-10' });
+  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'B-1', clientName: 'أحمد سمير', clientPhone: '0101 222 3333',
+    unitPrice: 900_000, depositAmount: 20_000, expectedContractDate: '2027-01-10' }));
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const uid = r.body.unit.id;
   for (const [what, body] of [
@@ -220,14 +220,14 @@ test('a direct contract for a client / unit that has a reservation is refused; t
     ['same client name', { unitNo: 'B-2', clientName: ' أحمد سمير', clientPhone: '0109' }],
     ['same phone', { unitNo: 'B-3', clientName: 'اسم مختلف', clientPhone: '+20 101 222 3333' }],
   ] as const) {
-    const k = await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: pid, unitPrice: 900_000, contract: { paymentType: 'cash' }, ...body });
+    const k = await h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: pid, unitPrice: 900_000, contract: { paymentType: 'cash' }, ...body }));
     assert.equal(k.status, 409, what);
     assert.match(k.body.error?.message ?? k.body.message ?? JSON.stringify(k.body), /حجز|حوّل/, what);
   }
   // another project: fine
   const other = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'برج تاني', ownerName: 'أ. كريم' })).body.project.id;
-  assert.equal((await h.call(c.t.e2, 'POST', '/exclusive/units', { projectId: other, unitNo: 'B-1', clientName: 'أحمد سمير', unitPrice: 900_000,
-    contract: { paymentType: 'cash' } })).status, 201);
+  assert.equal((await h.call(c.t.e2, 'POST', '/exclusive/units', await asLead(h, c.ids.e2, { projectId: other, unitNo: 'B-1', clientName: 'أحمد سمير', unitPrice: 900_000,
+    contract: { paymentType: 'cash' } }))).status, 201);
 
   // edit: only his own; the deposit while it waits; nothing financial after the contract
   assert.equal((await h.call(c.t.e2, 'PATCH', `/exclusive/units/${uid}`, { clientName: 'مش بتاعه' })).status, 403);
@@ -235,7 +235,7 @@ test('a direct contract for a client / unit that has a reservation is refused; t
     depositAmount: 25_000, expectedContractDate: '2027-02-01' });
   assert.equal(ed.status, 200, JSON.stringify(ed.body));
   assert.deepEqual([ed.body.unit.clientName, ed.body.unit.unitNo, ed.body.unit.unitPrice, ed.body.unit.depositAmount, ed.body.unit.expectedContractDate],
-    ['أحمد سمير علي', 'B-10', 950_000, 25_000, '2027-02-01']);
+    ['أحمد سمير', 'B-10', 950_000, 25_000, '2027-02-01'], 'the client stays the lead\'s (never renamed by hand)');
   const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments.find((x: any) => x.unitId === uid);
   assert.equal(pay.amount, 25_000, 'the waiting deposit follows the edit');
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/payments/${pay.id}/receive`, {})).status, 200);
@@ -267,9 +267,9 @@ test('project units, auto-filled reservation, client lookup, % deposits, picture
   assert.ok((await h.call(c.t.owner, 'GET', '/exclusive/projects?kind=all')).body.projects.find((p: any) => p.id === pid).imageAt);
 
   // the salesperson picks the unit: its number comes from it; maintenance 8% and a 10% agreed down payment become amounts
-  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, inventoryId: iv.body.unit.id, clientName: 'سارة علي',
+  const r = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, inventoryId: iv.body.unit.id, clientName: 'سارة علي',
     clientPhone: '01055501234', clientNationalId: '29505051234567', clientAddress: 'الدقي', unitPrice: 3_000_000, depositAmount: 100_000,
-    netAreaM2: 40, areaM2: 50, meterPrice: 60_000, maintenancePct: 8, plannedDownPct: 10, expectedContractDate: '2026-12-20' });
+    netAreaM2: 40, areaM2: 50, meterPrice: 60_000, maintenancePct: 8, plannedDownPct: 10, expectedContractDate: '2026-12-20' }));
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const f = r.body.unit.form;
   assert.deepEqual([r.body.unit.unitNo, f.maintenanceDeposit, f.plannedDownPayment, f.netAreaM2, f.areaM2, f.meterPrice, f.inventoryId],
@@ -325,8 +325,8 @@ test('developers: the company and its owner (accounts show both), its picture an
   assert.equal((await h.call(c.t.owner, 'PUT', `/exclusive/developers/${id}/image/photo`, { mime: 'image/png', image: png })).status, 200);
   assert.ok(String((await h.call(c.t.e1, 'GET', `/exclusive/developers/${id}/image/logo`)).body.image).startsWith('data:image/png'));
   // a unit of the project knows its development company
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pr.body.project.id, unitNo: 'N-1', clientName: 'عميل النيل',
-    unitPrice: 1_000_000, depositAmount: 10_000, expectedContractDate: '2026-12-30' });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pr.body.project.id, unitNo: 'N-1', clientName: 'عميل النيل',
+    unitPrice: 1_000_000, depositAmount: 10_000, expectedContractDate: '2026-12-30' }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   assert.equal(u.body.unit.developerName, 'شركة النيل للتطوير');
   assert.ok(u.body.unit.developerLogoAt);
@@ -340,8 +340,8 @@ test('a marketing unit: the salesman uploads «استمارة الحجز» and �
   const pr = await h.call(c.t.owner, 'POST', '/commissions/projects', { name: 'كمبوند تسويق المستندات', totalPct: 2, salesPct: 0.3, managerPct: 0.2, companyPct: 1.5 });
   assert.equal(pr.status, 201, JSON.stringify(pr.body));
   const pid = pr.body.project.id;
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'M-7', clientName: 'عميل تسويق', unitPrice: 2_000_000,
-    expectedContractDate: '2026-12-20' });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'M-7', clientName: 'عميل تسويق', unitPrice: 2_000_000,
+    expectedContractDate: '2026-12-20' }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const id = u.body.unit.id;
   const pdf = Buffer.from('%PDF-1.4\n% reservation form\n').toString('base64');

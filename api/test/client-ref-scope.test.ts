@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let project = '';
 before(async () => {
@@ -17,8 +17,8 @@ before(async () => {
 });
 let n = 0;
 async function sale() {
-  const s = await h.call(c.t.hr, 'POST', '/sales', { projectId: project, unitNo: `CR-${++n}`, buyerName: 'مشتري', buyerPhone: '0105550' + String(1000 + n),
-    totalPrice: 100_000, downPayment: 10_000, saleDate: '2026-03-10', downPaymentDueDate: '2026-03-20', frequency: 'monthly', installmentsCount: 3, firstDueDate: '2026-04-10' });
+  const s = await h.call(c.t.hr, 'POST', '/sales', await asLead(h, c.ids.hr, { projectId: project, unitNo: `CR-${++n}`, buyerName: 'مشتري', buyerPhone: '0105550' + String(1000 + n),
+    totalPrice: 100_000, downPayment: 10_000, saleDate: '2026-03-10', downPaymentDueDate: '2026-03-20', frequency: 'monthly', installmentsCount: 3, firstDueDate: '2026-04-10' }));
   assert.equal(s.status, 201, JSON.stringify(s.body));
   return { id: s.body.sale.id as string, lines: s.body.schedule as any[] };
 }

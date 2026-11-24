@@ -316,7 +316,7 @@ T.update({
 'meters_away': ('على بُعد {m} متر', '{m} m away'), 'open_map': ('افتح على الخريطة', 'Open map'),
 'left_for_day': ('انصرف', 'Checked out'),
 'tracking_notif_title': ('فاليو نيفو — الحضور شغال', 'VALUNIVO — on shift'),
-'tracking_notif_text': ('بنسجّل مكانك أثناء الشيفت بس، والتتبع بيقف لوحده بعد الانصراف', 'Your location is shared during your shift only; it stops at check-out'),
+'tracking_notif_text': ('انت في وقت العمل', 'You are in working hours'),
 'checkin_reminder_minutes': ('تذكير الحضور بعد (دقيقة) — 0 = مفيش', 'Check-in reminder after (min) — 0 = off'),
 'tracking_enabled': ('متابعة المكان أثناء الشيفت (أندرويد)', 'In-shift location follow-up (Android)'),
 'tracking_enabled_help': ('من الحضور للانصراف: يوصلك إشعار لو حد خرج برة المكتب أو رجع، أو لو التتبع عنده وقف', 'From check-in to check-out: get notified when someone leaves or returns, or their tracking stops'),

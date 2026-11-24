@@ -7,6 +7,7 @@ import '../../services/api_service.dart';
 import '../../services/app_controller.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/jph_form_ui.dart';
+import '../../widgets/lead_client_picker.dart';
 import '../../widgets/swipe_tabs.dart';
 import '../attendance/attendance_widgets.dart';
 import '../cash/cash_page.dart';
@@ -517,7 +518,9 @@ class NewSalePage extends StatefulWidget {
 class _NewSalePageState extends State<NewSalePage> {
   List<Map<String, dynamic>> _projects = [];
   Map<String, dynamic>? _project;
-  final _unit = TextEditingController(), _buyer = TextEditingController(), _phone = TextEditingController(), _contact = TextEditingController();
+  final _unit = TextEditingController(), _contact = TextEditingController();
+  /// «اختيار عميل»: the buyer is always a client of the sales board (never typed by hand)
+  Map<String, dynamic>? _lead;
   final _total = TextEditingController(), _down = TextEditingController(), _count = TextEditingController(), _each = TextEditingController();
   final _notes = TextEditingController();
   DateTime _saleDate = DateTime.now(), _downDue = DateTime.now();
@@ -569,8 +572,8 @@ class _NewSalePageState extends State<NewSalePage> {
       err = 'اختار المشروع';
     } else if (_unit.text.trim().isEmpty) {
       err = 'اكتب رقم الوحدة';
-    } else if (_buyer.text.trim().length < 2) {
-      err = 'اكتب اسم المشتري';
+    } else if (_lead == null) {
+      err = 'اختار المشتري من الليدز';
     } else if (t == null || t <= 0) {
       err = 'اكتب سعر البيع';
     } else if (d == null || d < 0 || d > t) {
@@ -584,7 +587,7 @@ class _NewSalePageState extends State<NewSalePage> {
     }
     setState(() => _saving = true);
     final r = await cashPost('/sales', {
-      'projectId': _project!['id'], 'unitNo': _unit.text.trim(), 'buyerName': _buyer.text.trim(), 'buyerPhone': _phone.text.trim(),
+      'projectId': _project!['id'], 'unitNo': _unit.text.trim(), 'leadId': _lead!['id'],
       'buyerContact': _contact.text.trim(), 'totalPrice': t, 'downPayment': d, 'saleDate': _iso(_saleDate), 'downPaymentDueDate': _iso(_downDue),
       if (d! < t!) ...{
         'frequency': _freq, 'firstDueDate': _iso(_firstDue!),
@@ -626,9 +629,7 @@ class _NewSalePageState extends State<NewSalePage> {
                         const SizedBox(height: 12),
                         JphUi.input(isDark: isDark, label: 'رقم الوحدة * (نفس طريقة العمولات)', controller: _unit, big: false),
                         const SizedBox(height: 12),
-                        JphUi.input(isDark: isDark, label: 'اسم المشتري *', controller: _buyer, big: false),
-                        const SizedBox(height: 12),
-                        JphUi.input(isDark: isDark, label: 'موبايل المشتري', controller: _phone, big: false),
+                        leadClientField(context, isDark, _lead, (v) => setState(() => _lead = v), label: 'المشتري *'),
                         const SizedBox(height: 12),
                         JphUi.input(isDark: isDark, label: 'بيانات تواصل أخرى (عنوان / رقم قومي)', controller: _contact, big: false),
                         const SizedBox(height: 12),

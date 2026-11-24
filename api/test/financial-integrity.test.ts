@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, insertEmployee, PW, confirmPayout, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, confirmPayout, type Harness, asLead } from './helpers.ts';
 import { computePayroll, computePayrollMany, loadRules } from '../src/modules/payroll-calc.ts';
 import { profitParts } from '../src/modules/cash.ts';
 
@@ -125,8 +125,8 @@ test('F3: an office expense waiting for approval never reaches the HR cashbox su
 test('F4: an exclusive unit\'s deposit / down payment is collected once across both paths; retries; no money on a marketing unit', async () => {
   const pr = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'FI-برج', ownerName: 'مالك العقار', ownerPhone: '0100' });
   assert.equal(pr.status, 201, JSON.stringify(pr.body));
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pr.body.project.id, unitNo: 'X-1', clientName: 'عميل', unitPrice: 1_000_000,
-    depositAmount: 50_000, paymentMethod: 'cash' });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pr.body.project.id, unitNo: 'X-1', clientName: 'عميل', unitPrice: 1_000_000,
+    depositAmount: 50_000, paymentMethod: 'cash' }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
   // the deposit recorded directly first, with a retry of the same form
@@ -144,14 +144,14 @@ test('F4: an exclusive unit\'s deposit / down payment is collected once across b
   assert.equal(sum, 50_000, 'the deposit is in once');
   // a marketing (broker) project's unit holds no money of ours
   const mk = await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'FI-تسويق', ownerName: 'مطور', ownerPhone: '0101', developerName: 'مطور', kind: 'marketing' });
-  const mu = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: mk.body.project.id, unitNo: 'M-1', clientName: 'عميل٢', unitPrice: 900_000 });
+  const mu = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: mk.body.project.id, unitNo: 'M-1', clientName: 'عميل٢', unitPrice: 900_000 }));
   const x = await h.call(c.t.hr, 'POST', `/exclusive/units/${mu.body.unit.id}/receipts`, { kind: 'reservation', amount: 10_000 });
   assert.equal(x.body.error?.details?.reason, 'not_exclusive');
 });
 
 test('F4: a request is never received over what was already recorded directly', async () => {
   const pid = (await h.db.query(`SELECT id FROM commission_projects WHERE name = 'FI-برج'`)).rows[0].id;
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'X-2', clientName: 'عميل٣', unitPrice: 1_000_000, depositAmount: 40_000, paymentMethod: 'cash' });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'X-2', clientName: 'عميل٣', unitPrice: 1_000_000, depositAmount: 40_000, paymentMethod: 'cash' }));
   const uid = u.body.unit.id;
   // part of the deposit recorded directly, then the full request confirmed → refused (it would collect 40k + 10k)
   assert.equal((await h.call(c.t.hr, 'POST', `/exclusive/units/${uid}/receipts`, { kind: 'reservation', amount: 10_000 })).status, 201);

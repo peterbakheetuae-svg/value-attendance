@@ -108,6 +108,9 @@ String _monthsAr(num m) => m == 1 ? 'شهر' : m == 2 ? 'شهرين' : m <= 10 ?
 String _yearsAr(num y) => y == 1 ? 'سنة' : y == 2 ? 'سنتين' : y <= 10 ? '${_num(y)} سنوات' : '${_num(y)} سنة';
 
 class UnitQuotePdf {
+  // NOTE (PDF only): the `pdf` package's Arabic shaper matches its «الله» ligature greedily, so any word starting with
+  // «ال» + an alef (الإ / الأ / الآ / الا) loses its lam-alef ligature and the letters print on top of each other.
+  // Labels printed here avoid that spelling (إيجار شهري, شروط التأجير, خطة التقسيط, عدد الدفعات); the screens are unaffected.
   /// [loadLogos] false: no network (tests) — the header falls back to the company's name
   static Future<Uint8List> build(UnitQuote q, {bool loadLogos = true}) async {
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Cairo-Bold.ttf'));
@@ -200,7 +203,7 @@ class UnitQuotePdf {
             if (q.area > 0) cell('إجمالي المساحة', txt('${_num(q.area)} متر', t(14), align: pw.TextAlign.center)),
             if (q.finishing.isNotEmpty) cell('التشطيب', txt(q.finishing, t(12.5), align: pw.TextAlign.center)),
             if (!q.rental && q.meterPrice > 0) cell('سعر المتر', amount(q.meterPrice, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
-            cell(q.rental ? 'الإيجار الشهري' : q.kind == 'unit' ? 'إجمالي سعر الوحدة' : 'السعر',
+            cell(q.rental ? 'إيجار شهري' : q.kind == 'unit' ? 'إجمالي سعر الوحدة' : 'السعر',
                 amount(q.total, color: const PdfColor.fromInt(0xFFB45309), size: 14)),
           ]),
         ),
@@ -210,13 +213,13 @@ class UnitQuotePdf {
         ],
         if (q.rental) ...[
           // ---- a rental: the rent, how often it's paid, the insurance, the first payment
-          section('شروط الإيجار'),
+          section('شروط التأجير'),
           pw.Table(
             border: pw.TableBorder.all(color: line),
             columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(1)},
             children: [
               row('البيان', txt('القيمة', t(10, color: muted)), head: true),
-              row('الإيجار الشهري', amount(q.total, size: 12.5)),
+              row('إيجار شهري', amount(q.total, size: 12.5)),
               row('الدفع ${_everyAr(q.rentEveryMonths)}', amount(q.rentPayment, size: 12.5)),
               if (q.insuranceMonths > 0) row('التأمين (${_monthsAr(q.insuranceMonths)})', amount(q.insurance, size: 12.5)),
               row('أول دفعة عند التعاقد', amount(q.firstRentPayment, color: red, size: 12.5)),
@@ -254,12 +257,12 @@ class UnitQuotePdf {
           decoration: pw.BoxDecoration(color: purpleSoft, borderRadius: pw.BorderRadius.circular(8),
               border: pw.Border.all(color: const PdfColor.fromInt(0xFFE9D5FF))),
           child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
-            txt('خطة الأقساط (على ${_yearsAr(q.years)} - عدد ${q.count} قسط)', t(12, color: purple)),
+            txt('خطة التقسيط (على ${_yearsAr(q.years)} - عدد ${q.count} قسط)', t(12, color: purple)),
             pw.SizedBox(height: 8),
             pw.Row(children: [
               pw.Expanded(child: _box(txt, t, 'مدة التقسيط', txt(_yearsAr(q.years), t(13, color: purple)))),
               pw.SizedBox(width: 8),
-              pw.Expanded(child: _box(txt, t, 'عدد الأقساط', txt('${q.count} قسط', t(13, color: purple)))),
+              pw.Expanded(child: _box(txt, t, 'عدد الدفعات', txt('${q.count} قسط', t(13, color: purple)))),
             ]),
             pw.SizedBox(height: 8),
             _box(txt, t, 'القسط ${_everyAr(q.everyMonths)}${q.everyMonths == 3 ? ' (قسط ربع سنوي)' : ''}', amount(q.installment, color: purple, size: 17)),

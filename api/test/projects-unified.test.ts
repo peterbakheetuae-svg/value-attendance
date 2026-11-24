@@ -1,11 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, insertEmployee, PW, type Harness } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, type Harness, asLead } from './helpers.ts';
 
 /**
  * One sales flow for both project kinds (حجز → تعاقد), marketing companies, the owner's injection and the cashbox
  * read the office's way (المتاح = بنك + نقدي مكتب + نقدي محاسب; الدخل = عمولات / مبيعات / ضخ / أمانات).
  */
+let fixedCompanyId = ''; let marketingProjectId = '';
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 before(async () => { h = await harness('2026-11-10T10:00:00Z'); c = await cast(h); });
 after(async () => { await h.close(); });
@@ -27,14 +28,14 @@ test('a marketing project: reservation → contract, a marketing company takes i
   const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة العمولة', kind: 'commission' });
   assert.equal(mk.status, 201, JSON.stringify(mk.body));
   assert.equal((await h.call(c.t.e1, 'GET', '/marketing-companies')).body.companies.length, 2);
-  assert.equal((await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'F-1', clientName: 'عميل', unitPrice: 1_000_000,
-    marketingCompanyId: fixed.body.company.id })).status, 400, 'the client source is the office or a company paid by commission');
-  assert.equal((await h.call(c.t.owner, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'M-9', clientName: 'عميل', unitPrice: 1_000_000,
-    marketingCompanyId: mk.body.company.id, marketingPct: 3 })).status, 400, 'more than the office share');
+  // «مصدر العميل» is automatic (the lead's campaign); a fixed-fee company's client is the office's — see the last test
+  fixedCompanyId = fixed.body.company.id; marketingProjectId = pid;
+  assert.equal((await h.call(c.t.owner, 'POST', '/exclusive/units', await asLead(h, c.ids.owner, { projectId: pid, unitNo: 'M-9', clientName: 'عميل', unitPrice: 1_000_000,
+    marketingCompanyId: mk.body.company.id, marketingPct: 3 }))).status, 400, 'more than the office share');
 
   // حجز تسويق: no money of ours, only the potential commission; مصدر العميل = the commission company (the project's 0.5%)
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: 'M-1', clientName: 'عميل تسويق', clientPhone: '01011112222',
-    unitPrice: 2_000_000, marketingCompanyId: mk.body.company.id });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: 'M-1', clientName: 'عميل تسويق', clientPhone: '01011112222',
+    unitPrice: 2_000_000, marketingCompanyId: mk.body.company.id }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const uid = u.body.unit.id;
   assert.equal(u.body.unit.status, 'reserved');
@@ -136,8 +137,8 @@ test('المطورين: every project belongs to a developer, with his accounts 
   assert.equal(dev.marketing.projects, 1, 'one developer, both kinds');
   assert.equal((await h.call(c.t.e1, 'GET', '/exclusive/developers')).status, 403);
   // a marketing sale of his: the commission he owes
-  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: mk.body.project.id, unitNo: 'D-1', clientName: 'عميل المطور', unitPrice: 1_000_000,
-    contract: { paymentType: 'cash' } });
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: mk.body.project.id, unitNo: 'D-1', clientName: 'عميل المطور', unitPrice: 1_000_000,
+    contract: { paymentType: 'cash' } }));
   assert.equal(u.status, 201, JSON.stringify(u.body));
   const one = await h.call(c.t.owner, 'GET', `/exclusive/developers/${dev.id}`);
   assert.equal(one.body.developer.marketing.commissionRemaining, 30_000);
@@ -257,4 +258,20 @@ test('مصروفات ثابتة (once a month, the signed receipt photo after) a
   assert.equal(dep.office.cash, after.office.cash - 4_000);
   // المدير العام can ask for money to go to the accountant too
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/transfers', { direction: 'office_to_hr', amount: 500, reason: 'مصاريف' })).status, 201);
+});
+
+test('«مصدر العميل» is automatic: never picked by hand, never a client outside the leads; a fixed-fee company\'s client is the office\'s', async () => {
+  const body = { projectId: marketingProjectId, unitNo: 'F-1', unitPrice: 1_000_000 };
+  const no = await h.call(c.t.e1, 'POST', '/exclusive/units', { ...body, clientName: 'عميل مكتوب', clientPhone: '01033334444' });
+  assert.equal(no.body?.error?.details?.reason, 'lead_required', 'a client typed by hand is refused');
+  assert.equal((await h.call(c.t.owner, 'POST', '/exclusive/units', { ...body, clientName: 'عميل مكتوب' })).body?.error?.details?.reason, 'lead_required', 'the owner too');
+  const u = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { ...body, clientName: 'عميل الحملة الثابتة', marketingCompanyId: fixedCompanyId }));
+  assert.equal(u.status, 201, JSON.stringify(u.body));
+  assert.equal(u.body.unit.marketingCompanyId, null, 'a fixed-fee company earns no commission: the office');
+  assert.equal(u.body.unit.clientName, 'عميل الحملة الثابتة', 'the client is the lead');
+  // a company sent by hand is ignored (the source stays automatic) — on the reservation and on its edit
+  const edit = await h.call(c.t.e1, 'PATCH', `/exclusive/units/${u.body.unit.id}`, { marketingCompanyId: fixedCompanyId, clientName: 'اسم تاني' });
+  assert.equal(edit.status, 200, JSON.stringify(edit.body));
+  assert.equal(edit.body.unit.marketingCompanyId, null);
+  assert.equal(edit.body.unit.clientName, 'عميل الحملة الثابتة', 'the lead\'s client is never renamed by hand');
 });

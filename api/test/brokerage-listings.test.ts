@@ -23,6 +23,18 @@ before(async () => {
 });
 after(async () => { await h.close(); });
 
+// the client of a sale / rental is ALWAYS an existing lead (never typed): a fresh one per sale, assigned to the seller
+let leadNo = 0;
+const leadOf = async (salesId: string) => {
+  leadNo++;
+  const phone = `0108${String(7000000 + leadNo)}`;
+  const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع ' + phone, ownerName: 'مالك', ownerPhone: '0100' })).body.project.id;
+  const channel = (await h.call(c.t.owner, 'GET', '/leads/meta')).body.channels[0].id;
+  const r = await h.call(c.t.owner, 'POST', '/leads', { fullName: `عميل ${leadNo}`, phone, projectId: pid, channelId: channel, assignees: [salesId] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  return r.body.lead.id as string;
+};
+
 const listing = (o: Record<string, unknown> = {}) => ({ kind: 'resale', title: 'شقة', address: 'التجمع الخامس — الحي الأول', area: 120,
   price: 2_500_000, finishing: 'super_lux', description: 'دور تالت، واجهة', ownerName: 'صاحب الشقة', ownerPhone: '01000000000', ...o });
 
@@ -33,6 +45,7 @@ test('before 088: listings answer installed:false and adding one is refused', as
   assert.equal(reason(await h.call(c.t.e1, 'POST', '/brokerage/listings', listing())), 'listings_not_installed');
   await h.db.tx(async (q) => { await q.query(sql('088_brokerage_listings.sql')); });
   await h.db.tx(async (q) => { await q.query(sql('088_brokerage_listings.sql')); }); // a second run changes nothing
+  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); }); // the client is picked from the leads
   await regrantAppRole(h);
   const st = (await h.call(c.t.e1, 'GET', '/brokerage/status')).body;
   assert.equal(st.listings, true); assert.equal(st.can.propose, true); assert.equal(st.can.receive, false);
@@ -40,7 +53,7 @@ test('before 088: listings answer installed:false and adding one is refused', as
 });
 
 test('the 087 rules stay for a resale without a listing (rate 1 % – 2.5 %)', async () => {
-  const base = { kind: 'resale', property: 'شقة', ownerName: 'مالك', clientName: 'مشتري', price: 1_000_000, paidBy: 'client' };
+  const base = { kind: 'resale', property: 'شقة', ownerName: 'مالك', leadId: await leadOf(c.ids.e1), price: 1_000_000, paidBy: 'client' };
   assert.equal((await h.call(c.t.e1, 'POST', '/brokerage/deals', { ...base, ratePct: 3 })).status, 400);
   assert.equal((await h.call(c.t.e1, 'POST', '/brokerage/deals', { ...base, ratePct: 2 })).status, 201);
   await assert.rejects(h.db.query(`INSERT INTO brokerage_deals (kind, property, owner_name, client_name, price_egp, arrangement, client_commission_egp, contributor_id, closer_id, proposed_by)
@@ -73,7 +86,10 @@ test('a listing: all its fields, finishing from the five, photos one by one (8 m
 test('anyone sells it: the deal waits, the listing is pending, the administrative officer is told; nobody sells it twice', async () => {
   const l = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'محل' }))).body.listing;
   const ref = randomUUID();
-  const s = await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'المشتري', clientPhone: '0111', finalPrice: 2_300_000, commission: 46_000, clientRef: ref });
+  // a typed client is refused — whoever sells (the owner included)
+  assert.equal(reason(await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'المشتري', clientPhone: '0111', finalPrice: 2_300_000, commission: 46_000 })), 'lead_required');
+  assert.equal(reason(await h.call(c.t.owner, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'المشتري', finalPrice: 2_300_000, commission: 46_000 })), 'lead_required');
+  const s = await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { leadId: await leadOf(c.ids.e2), finalPrice: 2_300_000, commission: 46_000, clientRef: ref });
   assert.equal(s.status, 201, JSON.stringify(s.body));
   const d = s.body.deal;
   assert.deepEqual([d.status, d.contributor.id, d.closer.id, d.commission.total, d.price, d.listingId, d.arrangement, d.ratePct],
@@ -93,7 +109,7 @@ test('anyone sells it: the deal waits, the listing is pending, the administrativ
 
 test('the administrative officer receives it and splits it: seller / lister / sales manager by amount or %, the office the rest', async () => {
   const l = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'فيلا' }))).body.listing;
-  const d = (await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'عميل', finalPrice: 5_000_000, commission: 100_000 })).body.deal;
+  const d = (await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { leadId: await leadOf(c.ids.e2), finalPrice: 5_000_000, commission: 100_000 })).body.deal;
   const shares = [
     { role: 'closer', employeeId: c.ids.e2, mode: 'pct', value: 30 },
     { role: 'contributor', employeeId: c.ids.e1, mode: 'fixed', value: 10_000 },
@@ -118,14 +134,14 @@ test('the administrative officer receives it and splits it: seller / lister / sa
 
 test('a corrected commission amount; the seller is also the lister (one share); a cancelled sale makes it available again', async () => {
   const l = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ kind: 'rental', title: 'شقة مفروشة', price: 20_000 }))).body.listing;
-  const d = (await h.call(c.t.e1, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'مستأجر', finalPrice: 18_000, commission: 18_000 })).body.deal;
+  const d = (await h.call(c.t.e1, 'POST', `/brokerage/listings/${l.id}/sell`, { leadId: await leadOf(c.ids.e1), finalPrice: 18_000, commission: 18_000 })).body.deal;
   assert.equal(d.kind, 'rental');
   const r = await h.call(aoT, 'POST', `/brokerage/deals/${d.id}/receive`, { amount: 15_000, shares: [{ role: 'closer', employeeId: c.ids.e1, mode: 'pct', value: 40 }], recipient: 'hr' });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.deepEqual([r.body.deal.commission.total, r.body.deal.snapshot.office], [15_000, 9_000]);
   // a sale withdrawn before anything is paid: the listing is offered again
   const l2 = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'مكتب' }))).body.listing;
-  const d2 = (await h.call(c.t.e3, 'POST', `/brokerage/listings/${l2.id}/sell`, { clientName: 'عميل', finalPrice: 1_000_000, commission: 10_000 })).body.deal;
+  const d2 = (await h.call(c.t.e3, 'POST', `/brokerage/listings/${l2.id}/sell`, { leadId: await leadOf(c.ids.e3), finalPrice: 1_000_000, commission: 10_000 })).body.deal;
   assert.equal((await h.call(c.t.e3, 'POST', `/brokerage/deals/${d2.id}/cancel`, {})).status, 200);
   assert.equal((await h.call(c.t.e1, 'GET', '/brokerage/listings')).body.listings.find((x: any) => x.id === l2.id).status, 'available');
   // the lister withdraws it from the offer; another salesperson no longer sees it
@@ -135,7 +151,7 @@ test('a corrected commission amount; the seller is also the lister (one share); 
 
 test('nobody receives a sale he is part of', async () => {
   const l = (await h.call(aoT, 'POST', '/brokerage/listings', listing({ title: 'أرض' }))).body.listing;
-  const d = (await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { clientName: 'عميل', finalPrice: 900_000, commission: 9_000 })).body.deal;
+  const d = (await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, { leadId: await leadOf(c.ids.e2), finalPrice: 900_000, commission: 9_000 })).body.deal;
   assert.equal((await h.call(aoT, 'POST', `/brokerage/deals/${d.id}/receive`, { amount: 9_000, shares: [{ role: 'closer', employeeId: c.ids.e2, mode: 'pct', value: 10 }], recipient: 'hr' })).status, 403);
   const r = await h.call(c.t.owner, 'POST', `/brokerage/deals/${d.id}/receive`, { amount: 9_000, shares: [{ role: 'closer', employeeId: c.ids.e2, mode: 'pct', value: 10 }], recipient: 'manager' });
   assert.equal(r.status, 201, 'the general manager instead');
@@ -152,9 +168,7 @@ test('from the sales board (089): the salesman sells / rents a listing to his le
   const l = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'شقة الليد' }))).body.listing;
   const ld = await lead('عميل الليد', '01099900001');
   const sell = { clientName: 'عميل الليد', clientPhone: '01099900001', finalPrice: 2_000_000, commission: 20_000, leadId: ld.id };
-  assert.equal(reason(await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, sell)), 'deal_lead_not_installed', 'before 089');
-  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); });
-  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); });
+  await h.db.tx(async (q) => { await q.query(sql('089_brokerage_deal_lead.sql')); }); // a second run changes nothing
   assert.equal((await h.call(c.t.e3, 'POST', `/brokerage/listings/${l.id}/sell`, sell)).status, 400, 'not his lead');
   const s = await h.call(c.t.e2, 'POST', `/brokerage/listings/${l.id}/sell`, sell);
   assert.equal(s.status, 201, JSON.stringify(s.body));
@@ -176,4 +190,27 @@ test('from the sales board (089): the salesman sells / rents a listing to his le
   assert.equal((await stage(ld2.id)).stage, 'following');
   // a done deal can't be sold again from the lead
   assert.equal((await h.call(c.t.e2, 'POST', `/brokerage/listings/${l2.id}/sell`, { ...sell, leadId: ld.id })).status, 409);
+});
+
+test('«ملاك العقارات»: one owner per phone with all his properties (rental / resale, sold / rented too); a salesperson sees only his own', async () => {
+  const mine = (await h.call(c.t.e3, 'POST', '/brokerage/listings', listing({ kind: 'rental', title: 'شقة المالك للإيجار', price: 12_000,
+    ownerName: 'الحاج سيد', ownerPhone: '+20 122 333 4444' }))).body.listing;
+  const sale = (await h.call(c.t.e3, 'POST', '/brokerage/listings', listing({ title: 'شقة المالك للبيع', ownerName: 'الحاج سيد', ownerPhone: '01223334444' }))).body.listing;
+  const other = (await h.call(c.t.e1, 'POST', '/brokerage/listings', listing({ title: 'محل', ownerName: 'الحاج سيد', ownerPhone: '01223334444' }))).body.listing;
+  assert.ok(mine?.id && sale?.id && other?.id);
+  // the rental is rented (a deal on it): it still shows on its owner
+  const rent = await h.call(c.t.e3, 'POST', `/brokerage/listings/${mine.id}/sell`,
+    { leadId: await leadOf(c.ids.e3), finalPrice: 12_000, commission: 12_000 });
+  assert.equal(rent.status, 201, JSON.stringify(rent.body));
+  const adm = (await h.call(aoT, 'GET', '/brokerage/owners?q=3334444')).body;
+  assert.equal(adm.installed, true);
+  const o = adm.owners.find((x: any) => x.listings.some((l: any) => l.id === mine.id));
+  assert.ok(o, JSON.stringify(adm.owners));
+  assert.deepEqual(o.listings.map((l: any) => l.id).sort(), [mine.id, sale.id, other.id].sort(), 'the same number written two ways is one owner');
+  assert.deepEqual([o.counts.total, o.counts.rental, o.counts.resale], [3, 1, 2]);
+  assert.equal((await h.call(aoT, 'GET', '/brokerage/owners?q=الحاج')).body.owners.length >= 1, true, 'by name');
+  // a salesperson: the owners of his own listings only
+  const e3 = (await h.call(c.t.e3, 'GET', '/brokerage/owners')).body.owners;
+  const seen = e3.flatMap((x: any) => x.listings.map((l: any) => l.id));
+  assert.ok(seen.includes(mine.id) && seen.includes(sale.id) && !seen.includes(other.id), 'never another salesperson\'s listing owner');
 });

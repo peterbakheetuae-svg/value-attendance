@@ -261,7 +261,7 @@ class _ProjectsListState extends State<ProjectsList> {
           ? GlassSegments(
               isDark: isDark,
               expand: !wide,
-              items: const [('المشاريع', null), ('إعادة بيع', null), ('إيجار', null)],
+              items: const [('المشاريع', null), ('إعادة بيع', null), ('إيجار', null), ('الملاك', null)],
               selected: _section,
               onTap: (i) => setState(() => _section = i),
             )
@@ -297,6 +297,21 @@ class _ProjectsListState extends State<ProjectsList> {
         onTap: (i) => setState(() => _grid = i == 0),
       );
 
+      // «الملاك»: the owners of the listed properties (name + phone) — opening one shows all his rentals / resales
+      if (showSections && _section == 3) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad, 6, pad, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              title,
+              const SizedBox(height: 14),
+              if (tabBar != null) ...[Align(alignment: AlignmentDirectional.centerStart, child: tabBar), const SizedBox(height: 12)],
+              Align(alignment: AlignmentDirectional.centerStart, child: sectionBar!),
+            ]),
+          ),
+          Expanded(child: PropertyOwnersView(isDark: isDark)),
+        ]);
+      }
       // إعادة بيع / إيجار: the same header (title, bars, search, sort, view) and the deals under it
       if (showSections && _section != 0) {
         final dealSort = GlassSegments(
@@ -836,6 +851,8 @@ class OwnersPage extends StatefulWidget {
 
 class _OwnersPageState extends State<OwnersPage> {
   Map<String, dynamic>? _d;
+  /// ملاك المشاريع الحصري / ملاك العقارات (إيجار وإعادة بيع — من عروض العقارات)
+  int _tab = 0;
 
   @override
   void initState() {
@@ -852,9 +869,26 @@ class _OwnersPageState extends State<OwnersPage> {
   Widget build(BuildContext context) {
     final isDark = context.watch<AppController>().isDark;
     final owners = _l(_d?['owners']);
+    final bar = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      child: JphUi.tabs(isDark, const [('المشاريع الحصري', Icons.apartment_rounded), ('ملاك العقارات', Icons.home_work_rounded)], _tab,
+          (i) => setState(() => _tab = i)),
+    );
     return _Shell(
       title: 'الملاك',
-      child: _d == null
+      child: Column(children: [
+        bar,
+        Expanded(
+          child: _tab == 1
+              ? PropertyOwnersView(isDark: isDark)
+              : _exclusiveOwners(isDark, owners),
+        ),
+      ]),
+    );
+  }
+
+  Widget _exclusiveOwners(bool isDark, List<Map<String, dynamic>> owners) {
+    return _d == null
           ? const Center(child: CircularProgressIndicator())
           : _d!['success'] != true
               ? Center(child: Text('${_d!['message'] ?? 'مش متاح'}'))
@@ -888,8 +922,7 @@ class _OwnersPageState extends State<OwnersPage> {
                           ),
                       ]),
                   ]),
-                ),
-    );
+                );
   }
 }
 
@@ -903,6 +936,11 @@ class ClientsPage extends StatefulWidget {
 
 class _ClientsPageState extends State<ClientsPage> {
   Map<String, dynamic>? _d;
+  /// the rental / resale clients: the sales and rentals of «إعادة بيع / إيجار» (a client is never added by hand here —
+  /// only whoever reserved, contracted, bought or rented, from the sales board)
+  List<Map<String, dynamic>> _deals = [];
+  int _part = 0; // المشاريع / إيجار / إعادة بيع
+  int _stage = 0; // (المشاريع) تعاقد / حجز
   final _q = TextEditingController();
   // المدير العام / المحاسب: فلتر بالسيلز والمشروع والشهر
   String? _sales, _project;
@@ -921,9 +959,30 @@ class _ClientsPageState extends State<ClientsPage> {
   }
 
   Future<void> _load() async {
-    final r = await _get('/exclusive/clients');
-    if (mounted) setState(() => _d = r);
+    final res = await Future.wait([_get('/exclusive/clients'), _get('/brokerage/deals')]);
+    if (!mounted) return;
+    setState(() {
+      _d = res[0];
+      _deals = res[1]['success'] == true
+          ? _l(res[1]['deals']).where((d) => !const ['rejected', 'cancelled'].contains('${d['status']}')).toList()
+          : [];
+    });
   }
+
+  /// «إيجار» / «إعادة بيع»: one card per deal (the client of the sales board it was made for)
+  List<Map<String, dynamic>> _dealRows(String kind) => [
+        for (final d in _deals.where((d) => d['kind'] == kind))
+          {
+            'id': d['id'], 'clientName': '${_m(d['client'])['name'] ?? ''}', 'clientPhone': _m(d['client'])['phone'],
+            'property': d['property'], 'status': d['status'], 'at': d['createdAt'] ?? d['created_at'],
+          },
+      ]..sort((a, b) => '${b['at'] ?? ''}'.compareTo('${a['at'] ?? ''}'));
+
+  static String _dealState(String st, bool rental) => switch (st) {
+        'collected' => rental ? 'اتأجر' : 'اتباع',
+        'approved' => 'معتمدة',
+        _ => 'مستنية الاستلام',
+      };
 
   /// every client on his own card: one card per client per unit (never merged)
   List<Map<String, dynamic>> get _rows => [
@@ -978,7 +1037,12 @@ class _ClientsPageState extends State<ClientsPage> {
     final isDark = context.watch<AppController>().isDark;
     final q = _q.text.trim();
     final seesAll = _d?['seesAll'] == true;
-    final rows = _rows
+    final deal = _part != 0;
+    final contracted = const ['contracted', 'completed'];
+    final rows = (deal ? _dealRows(_part == 1 ? 'rental' : 'resale') : _rows
+            .where((u) => '${u['status']}' != 'cancelled')
+            .where((u) => _stage == 0 ? contracted.contains('${u['status']}') : !contracted.contains('${u['status']}'))
+            .toList())
         .where((u) => q.isEmpty || '${u['clientName']}'.contains(q) || '${u['clientPhone'] ?? ''}'.contains(q))
         .where((u) => _sales == null || '${u['salesId']}' == _sales)
         .where((u) => _project == null || '${u['projectId']}' == _project)
@@ -995,6 +1059,15 @@ class _ClientsPageState extends State<ClientsPage> {
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+                    // المشاريع (تعاقد / حجز) · إيجار · إعادة بيع
+                    JphUi.tabs(isDark, const [('المشاريع', Icons.apartment_rounded), ('إيجار', Icons.key_rounded), ('إعادة بيع', Icons.sell_rounded)],
+                        _part, (i) => setState(() => _part = i)),
+                    if (_part == 0) ...[
+                      const SizedBox(height: 8),
+                      JphUi.tabs(isDark, const [('تعاقد', Icons.handshake_rounded), ('حجز', Icons.bookmark_added_rounded)], _stage,
+                          (i) => setState(() => _stage = i)),
+                    ],
+                    const SizedBox(height: 10),
                     JphUi.input(isDark: isDark, label: 'دوّر باسم العميل أو تليفونه', controller: _q, icon: Icons.search_rounded, onChanged: (_) => setState(() {})),
                     if (filtered)
                       Padding(
@@ -1021,7 +1094,7 @@ class _ClientsPageState extends State<ClientsPage> {
                           isDark: isDark,
                           radius: 18,
                           padding: const EdgeInsets.all(14),
-                          onTap: u['source'] == 'unit'
+                          onTap: !deal && u['source'] == 'unit'
                               ? () => pushSide(context, ExclusiveUnitPage(unitId: '${u['id']}')).then((_) => _load())
                               : null,
                           child: Row(children: [
@@ -1033,9 +1106,13 @@ class _ClientsPageState extends State<ClientsPage> {
                                 const SizedBox(height: 2),
                                 Text('${u['clientPhone'] ?? ''}'.isEmpty ? 'بدون تليفون' : '${u['clientPhone']}',
                                     textDirection: ui.TextDirection.ltr, style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+                                if (deal && '${u['property'] ?? ''}'.isNotEmpty)
+                                  Text('${u['property']}', style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
                               ]),
                             ),
-                            _pill(_clientState('${u['status']}'), _clientColor('${u['status']}')),
+                            deal
+                                ? _pill(_dealState('${u['status']}', _part == 1), u['status'] == 'collected' ? Ar.green : Ar.amber)
+                                : _pill(_clientState('${u['status']}'), _clientColor('${u['status']}')),
                           ]),
                         ),
                       ),

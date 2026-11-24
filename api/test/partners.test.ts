@@ -222,7 +222,10 @@ test('a company adds a lead that exists: «الليد ده موجود»; «إض�
   const id = mk.body.company.id;
   await h.call(c.t.owner, 'PATCH', `/leads/partners/${id}/login`, { email: 'dup@co.com', password: 'Start#2026x' });
   await h.db.query(`UPDATE marketing_companies SET must_change_password = false, device_lock = false WHERE id = $1`, [id]);
-  await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [other] });
+  // «حملة تانية» runs with «شركة الملف» (an earlier test): it is freed there first — a campaign runs with one company only
+  await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${other}/partner`, { companyId: null });
+  const p = await h.call(c.t.owner, 'PATCH', `/marketing-companies/${id}/profile`, { campaignIds: [other] });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
   const tok = (await h.call(null, 'POST', '/auth/login', { identifier: 'dup@co.com', password: 'Start#2026x' })).body.token;
   const first = await h.call(tok, 'POST', '/partner/leads', { campaignId: other, fullName: 'عميل مكرر', phone: '01099990000' });
   assert.equal(first.status, 201, JSON.stringify(first.body));
@@ -394,4 +397,29 @@ test('VA-11: company B never sees the Meta campaigns already feeding company A (
   // B cannot take A's Meta campaign nor touch A's campaign by id
   assert.equal((await h.call(tokB, 'PATCH', `/leads/campaigns/${camp2}/partner`, { metaCampaignIds: ['5559999'] })).status, 404);
   assert.equal((await h.call(tokB, 'GET', `/leads?campaignId=${camp2}`)).body.leads?.length ?? 0, 0, 'no A lead through a filter');
+});
+
+test('a campaign runs with one company only: another company cannot take it (file or leads settings) until it is freed', async () => {
+  const a1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة أ', kind: 'commission', defaultPct: 1 })).body.company.id;
+  const b1 = (await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة ب', kind: 'commission', defaultPct: 1 })).body.company.id;
+  const ch = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
+  const pid = (await h.db.query(`SELECT project_id FROM lead_campaigns WHERE id = $1`, [camp2])).rows[0].project_id;
+  const mine = await h.call(c.t.acc, 'POST', '/leads/campaigns', { name: 'حملة حصرية', channelId: ch, projectId: pid });
+  assert.equal(mine.status, 201, JSON.stringify(mine.body));
+  const camp = mine.body.campaign?.id ?? (await h.db.query(`SELECT id FROM lead_campaigns WHERE name = 'حملة حصرية'`)).rows[0].id;
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${a1}/profile`, { campaignIds: [camp] })).status, 200);
+  // the other company's file: refused, and the campaign stays with the first company
+  const taken = await h.call(c.t.owner, 'PATCH', `/marketing-companies/${b1}/profile`, { campaignIds: [camp] });
+  assert.equal(taken.status, 409, JSON.stringify(taken.body));
+  assert.equal(taken.body.error.details.reason, 'campaign_taken');
+  // the leads settings: moving it straight to another company is refused too
+  assert.equal((await h.call(c.t.acc, 'PATCH', `/leads/campaigns/${camp}/partner`, { companyId: b1 })).status, 409);
+  assert.equal((await h.db.query(`SELECT marketing_company_id FROM lead_campaigns WHERE id = $1`, [camp])).rows[0].marketing_company_id, a1);
+  // the second company's file does not offer it
+  const opts = (await h.call(c.t.owner, 'GET', `/marketing-companies/${b1}`)).body.options.campaigns;
+  assert.ok(opts.some((x: any) => x.id === camp && x.companyId === a1), 'listed with its company (the app hides it from another company)');
+  // freed from the first company → the second one can take it
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${a1}/profile`, { campaignIds: [] })).status, 200);
+  assert.equal((await h.call(c.t.owner, 'PATCH', `/marketing-companies/${b1}/profile`, { campaignIds: [camp] })).status, 200);
+  assert.equal((await h.db.query(`SELECT marketing_company_id FROM lead_campaigns WHERE id = $1`, [camp])).rows[0].marketing_company_id, b1);
 });

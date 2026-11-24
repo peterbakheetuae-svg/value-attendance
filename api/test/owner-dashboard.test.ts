@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, type Harness, asLead } from './helpers.ts';
 
 /** The home of المالك / المدير العام: two views (المالية / الموظفين), the same card shapes; never for HR / employees. */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
@@ -13,8 +13,8 @@ test('finance view: cashboxes (cash / bank), owners\' money, my commission, cove
   assert.equal((await h.call(c.t.hr, 'GET', '/dashboard/owner')).status, 403);
   assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/owner?view=employees')).status, 403);
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع لوحة', ownerName: 'مالك' })).body.project.id;
-  const u = (await h.call(c.t.e1, 'POST', '/exclusive/units', { projectId: pid, unitNo: '1', clientName: 'عميل', unitPrice: 1_000_000, depositAmount: 40_000,
-    paymentMethod: 'bank_transfer' })).body.unit;
+  const u = (await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: pid, unitNo: '1', clientName: 'عميل', unitPrice: 1_000_000, depositAmount: 40_000,
+    paymentMethod: 'bank_transfer' }))).body.unit;
   const pay = (await h.call(c.t.hr, 'GET', '/exclusive/payments')).body.payments[0];
   await h.call(c.t.hr, 'POST', `/exclusive/payments/${pay.id}/receive`, {});
   const r = await h.call(c.t.owner, 'GET', '/dashboard/owner?view=finance&range=30');

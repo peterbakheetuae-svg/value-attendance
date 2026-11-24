@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, PW, type Harness } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
 
 /**
  * Duplicate financial effects under CONCURRENT repeats (double-tap, flaky network resend, replay): the same operation
@@ -103,7 +103,8 @@ test('sale registration and installment collection fired in parallel → one sal
   const project = (await h.call(tGm, 'POST', '/commissions/projects', { name: 'Concurrency', totalPct: 1.5, salesPct: 0.3, managerPct: 0.4, companyPct: 0.8 })).body.project.id;
   const body = { projectId: project, unitNo: 'C-1', buyerName: 'مشتري تجريبي', buyerPhone: '0100', totalPrice: 1_000_000, downPayment: 100_000,
     saleDate: '2026-03-10', downPaymentDueDate: '2026-03-20', frequency: 'monthly', installmentsCount: 9, firstDueDate: '2026-04-10' };
-  const ss = await par(() => h.call(c.t.hr, 'POST', '/sales', body));
+  const withLead = await asLead(h, c.ids.hr, body); // one buyer (lead) for all the parallel tries
+  const ss = await par(() => h.call(c.t.hr, 'POST', '/sales', withLead));
   assert.equal(ss.filter((r) => r.status === 201).length, 1, statuses(ss));
   const sale = ss.find((r) => r.status === 201)!.body;
   const line0 = sale.schedule[0];

@@ -135,6 +135,10 @@ export const partnersModule: Module = (r, { db, clock }) => {
     const row = await db.tx(async (q) => {
       const before = await one(q, `SELECT id, name, marketing_company_id, meta_campaign_ids FROM lead_campaigns WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!before || (a.partner && before.marketing_company_id !== a.partner)) throw notFound();
+      // a campaign runs with ONE company: moving it from one company to another is refused — free it first (companyId: null)
+      if (set.marketing_company_id && before.marketing_company_id && set.marketing_company_id !== before.marketing_company_id) {
+        throw new AppError('conflict', 'الحملة دي شغالة مع شركة تانية — شيلها من الشركة دي الأول', { reason: 'campaign_taken', field: 'companyId' });
+      }
       // a Meta campaign feeds one of our campaigns only (a company cannot take one another campaign already has)
       if (set.meta_campaign_ids && a.partner && await one(q, `SELECT 1 FROM lead_campaigns WHERE id <> $1 AND meta_campaign_ids && $2::text[]`, [before.id, set.meta_campaign_ids])) {
         throw conflict('حملة Meta دي مربوطة بحملة تانية');
@@ -263,9 +267,17 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
         await q.query(`UPDATE partner_sessions SET revoked_at = now() WHERE company_id = $1 AND revoked_at IS NULL`, [before.id]);
       }
       if (campaigns) {
-        // its campaigns = exactly these (a campaign belongs to one company: one taken from another company moves here)
+        // its campaigns = exactly these. A campaign runs with ONE company only: one that another company runs is refused
+        // (it is never moved silently) — free it from that company's file first. Locked so two saves cannot both take it.
+        const taken = campaigns.length ? (await q.query(
+          `SELECT cp.name, mc.name AS company FROM lead_campaigns cp JOIN marketing_companies mc ON mc.id = cp.marketing_company_id
+            WHERE cp.id = ANY($1::uuid[]) AND cp.marketing_company_id <> $2 ORDER BY cp.name FOR UPDATE OF cp`, [campaigns, before.id])).rows : [];
+        if (taken.length) {
+          throw new AppError('conflict', `الحملة دي شغالة مع شركة تانية: ${taken.map((t) => `${t.name} (${t.company})`).join('، ')}`,
+            { reason: 'campaign_taken', field: 'campaignIds' });
+        }
         await q.query(`UPDATE lead_campaigns SET marketing_company_id = NULL WHERE marketing_company_id = $1 AND NOT id = ANY($2::uuid[])`, [before.id, campaigns]);
-        await q.query(`UPDATE lead_campaigns SET marketing_company_id = $1 WHERE id = ANY($2::uuid[])`, [before.id, campaigns]);
+        await q.query(`UPDATE lead_campaigns SET marketing_company_id = $1 WHERE id = ANY($2::uuid[]) AND marketing_company_id IS NULL`, [before.id, campaigns]);
       }
       await audit(q, a.id, 'marketing_company.profile', 'marketing_company', before.id,
         { gm: before.general_manager_id, manager: before.manager_id, contract: before.contract_date }, { ...set, campaigns });
