@@ -8,37 +8,31 @@ import { computeMonth, metrics } from './attendance-calc.ts';
 import { notify } from './notify.ts';
 import { effectiveSql } from '../auth/permission-admin.ts';
 import type { Req } from '../http/router.ts';
-import { browserPunchPolicy, isBrowserRequest } from '../lib/client-platform.ts';
+import { devicePolicy, isBrowserRequest, punchRefusal, PUNCH_REFUSAL_AR, type PunchRefusal } from '../lib/client-platform.ts';
 
 /**
- * G1 (2026-11-24): may THIS request record attendance / location? Decided on the server from what the client cannot fake
- * from a browser (the Origin header) and from the server's own records (the session's device, its approval) — never from
- * a platform field or header the client sends. Not a browser → true (the phone app). See lib/client-platform.ts.
+ * G1: may THIS session record attendance / location? Decided from the server's own records — the employee's
+ * «ربط الحساب بالجهاز», the device id the session was created with, and whether that device is approved for him —
+ * read fresh on every step. A request header can only add a refusal (lib/client-platform.ts). null = allowed.
  */
-export async function punchClientAllowed(q: Q, a: Actor, req: Req): Promise<boolean> {
-  if (!isBrowserRequest(req.headers)) return true;
-  const policy = browserPunchPolicy();
-  if (policy === 'allow' || policy === 'audit') return true;
-  if (policy === 'deny') return false;
-  // approved_device: this browser is a device the administration approved for him, with «ربط الحساب بالجهاز» on
-  // (with it off, any browser signs in without approval, so an old approval row proves nothing about this one)
-  return !!(await one(q, `
-    SELECT 1 FROM sessions s
-      JOIN employees e ON e.id = s.employee_id AND e.device_lock
-      JOIN employee_devices d ON d.employee_id = s.employee_id AND d.device_id = s.device_id AND d.status = 'approved'
-     WHERE s.id = $1`, [a.sessionId]));
+export async function punchRefusalOf(q: Q, a: Actor, req: Req): Promise<PunchRefusal | null> {
+  if (!a.sessionId) return 'device_not_approved'; // no session row behind the actor: nothing to check → refused
+  const s = await one(q, `
+    SELECT e.device_lock, s.device_id,
+           EXISTS (SELECT 1 FROM employee_devices d
+                    WHERE d.employee_id = s.employee_id AND d.device_id = s.device_id AND d.status = 'approved') AS approved
+      FROM sessions s JOIN employees e ON e.id = s.employee_id
+     WHERE s.id = $1 AND s.employee_id = $2`, [a.sessionId, a.id]);
+  return punchRefusal(s ? { deviceLock: s.device_lock === true, deviceId: s.device_id ?? null, approved: s.approved === true } : null,
+    isBrowserRequest(req.headers), devicePolicy());
 }
 
-/** refuses (403, audited) an attendance step sent from a browser that may not record attendance; in «audit» mode (the
- *  default) it is accepted and only written to the audit log */
+/** refuses (403, audited) an attendance step from a session whose device may not record attendance */
 export async function assertPunchClient(q: Q, a: Actor, req: Req, step: string) {
-  if (isBrowserRequest(req.headers) && browserPunchPolicy() === 'audit') {
-    await audit(q, a.id, 'attendance.browser_punch', 'employee', a.id, undefined, { step });
-    return;
-  }
-  if (await punchClientAllowed(q, a, req)) return;
-  await audit(q, a.id, 'attendance.browser_refused', 'employee', a.id, undefined, { step, policy: browserPunchPolicy() });
-  throw new AppError('forbidden', 'تسجيل الحضور والانصراف من تطبيق الموبايل بس — مش من المتصفح', { reason: 'browser_punch_refused' });
+  const why = await punchRefusalOf(q, a, req);
+  if (!why) return;
+  await audit(q, a.id, 'attendance.device_refused', 'employee', a.id, undefined, { step, why, policy: devicePolicy() });
+  throw new AppError('forbidden', PUNCH_REFUSAL_AR[why], { reason: 'device_not_authorized', why });
 }
 
 /**

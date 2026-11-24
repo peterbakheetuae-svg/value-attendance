@@ -8,13 +8,18 @@
 // `npm run migrate` itself is unchanged for deliberate manual use.
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { retiredDeployment } from './deployment-guard.mjs';
+import { deploymentStatus } from './deployment-guard.mjs';
 
 /** @returns {{ allow: boolean, why: string }} */
 export function decide(env) {
-  // C1: the retired Vercel project never migrates the shared database (scripts/deployment-guard.mjs)
-  if (retiredDeployment(env)) return { allow: false, why: 'retired Vercel project (value-attendance-api) — never migrates' };
+  // C1: only the real API's project ever migrates; the retired project, or a production build whose project cannot be
+  // identified, never does (scripts/deployment-guard.mjs — fail closed)
+  const who = deploymentStatus(env);
+  if (who === 'retired') return { allow: false, why: 'retired Vercel project (value-attendance-api) — never migrates' };
   if (env.VERCEL === '1' || env.VERCEL_ENV) {
+    if (who === 'unverified') {
+      return { allow: false, why: `Vercel production build of an unidentified project (VERCEL_PROJECT_PRODUCTION_URL=${env.VERCEL_PROJECT_PRODUCTION_URL || 'missing'}) — never migrates` };
+    }
     const ok = env.VERCEL_ENV === 'production' && env.VERCEL_GIT_COMMIT_REF === 'main';
     return { allow: ok, why: `Vercel ${env.VERCEL_ENV || '?'} build of ${env.VERCEL_GIT_COMMIT_REF || '?'}` };
   }

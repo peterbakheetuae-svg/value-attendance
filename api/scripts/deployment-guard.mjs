@@ -1,22 +1,42 @@
-// C1 (security re-verification 2026-11-24): the retired Vercel project «value-attendance-api»
-// (value-attendance-api-eight.vercel.app) still builds every push to main with the PRODUCTION database, push and e-mail
-// credentials, but without the production secrets (no BACKUP_TOKEN, no META_APP_SECRETS). Until the owner removes it in
-// the Vercel dashboard, a deployment of that project neither serves the API nor migrates the database.
+// C1 — which Vercel deployment may run the API (revised 2026-11-24, second review: fixed identities, fail closed).
 //
-// A deployment is treated as retired only when ALL of these hold — so the real API can never be caught by it:
-//  - a Vercel production deployment (VERCEL_ENV=production)
-//  - its project is the retired one: the project's production domain or the deployment's own URL starts with
-//    «value-attendance-api-» / is «value-attendance-api.vercel.app» (Vercel names deployments <project>-<hash>-<scope>)
-//  - and it lacks the production scheduler secret (BACKUP_TOKEN, ≥ 24 characters) that the real API has
-//    (live /readyz on 2026-11-24: real API backup=true, retired one backup=false)
-// Plain JavaScript: used by the build script (node, no TypeScript) and bundled into the function by esbuild.
+// Background: the retired Vercel project «value-attendance-api» (production domain value-attendance-api-eight.vercel.app,
+// verified live 2026-11-24) builds every push to main with the production database, push and e-mail credentials.
+// Removing it is a dashboard action for the owner; until then, a deployment of it must never serve the API or migrate.
+//
+// Identity = the project's production domain, which Vercel itself writes into every deployment of a project
+// (VERCEL_PROJECT_PRODUCTION_URL; also VERCEL_URL / VERCEL_BRANCH_URL = <project>-<hash>-<scope>.vercel.app).
+// Both projects' domains were verified live on 2026-11-24:
+//   real API      valunivo.vercel.app, value-attendance.vercel.app (and the workers.dev mirror's upstream)  /readyz backup=true
+//   retired       value-attendance-api-eight.vercel.app                                                   /readyz backup=false
+// (A Vercel project id would be stronger, but it is not readable from outside the dashboard — see the report.)
+//
+// Decision (secrets play no part — a token being present or absent never changes it):
+//   retired   any Vercel domain of the deployment is the retired project's            → 410, no database, no migration
+//   serve     a Vercel production deployment whose project domain is the real API's  → normal API
+//   unverified a Vercel production deployment without a known project domain           → 503, no database, no migration
+//   serve     not a Vercel production deployment (previews have no production secrets; Netlify / laptop / CI use
+//             their own entry points and the migrate guard's own rules)
+// Plain JavaScript: used by the build script (node, no TypeScript) and bundled into the Vercel function by esbuild.
 
-/** @param {Record<string, string | undefined>} env @returns {boolean} */
-export function retiredDeployment(env) {
-  if (env.VERCEL_ENV !== 'production') return false;
-  const names = [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_URL]
-    .map((x) => String(x ?? '').trim().toLowerCase()).filter(Boolean);
-  const retiredName = names.some((h) => h.startsWith('value-attendance-api-') || h.startsWith('value-attendance-api.'));
-  const hasProductionSecret = String(env.BACKUP_TOKEN ?? '').length >= 24;
-  return retiredName && !hasProductionSecret;
+export const REAL_API_DOMAINS = Object.freeze(['valunivo.vercel.app', 'value-attendance.vercel.app']);
+export const RETIRED_DOMAIN = 'value-attendance-api-eight.vercel.app';
+const RETIRED_PROJECT_PREFIX = 'value-attendance-api-'; // every deployment URL of that project starts with its name
+
+const clean = (x) => String(x ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+
+/** @param {Record<string, string | undefined>} env @returns {'retired' | 'serve' | 'unverified'} */
+export function deploymentStatus(env) {
+  const prod = clean(env.VERCEL_PROJECT_PRODUCTION_URL);
+  const urls = [prod, clean(env.VERCEL_URL), clean(env.VERCEL_BRANCH_URL)].filter(Boolean);
+  if (urls.some((h) => h === RETIRED_DOMAIN || h === 'value-attendance-api.vercel.app' || h.startsWith(RETIRED_PROJECT_PREFIX))) {
+    return 'retired';
+  }
+  const onVercel = env.VERCEL === '1' || !!env.VERCEL_ENV;
+  if (!onVercel) return 'serve';
+  // on Vercel: anything not proven to be a preview / development deployment is treated as production
+  const production = env.VERCEL_ENV !== 'preview' && env.VERCEL_ENV !== 'development';
+  if (!production) return 'serve';
+  return REAL_API_DOMAINS.includes(prod) ? 'serve' : 'unverified';
 }
+
