@@ -236,3 +236,9 @@ Default `v25.0` (was v21.0). Reviewed against the public changelogs v22.0–v26.
 ### P2 — Automatic KPI execution
 There was no recurring trigger (only the manual `POST /kpi/auto/run`). Added `POST /kpi/auto/scheduled` (scheduler token or `kpi.config`) → `runScheduledKpis`: the current Cairo month, plus the previous month during its first 3 days. Only owner-approved calculators run; manual and completed results are never touched; idempotent. `meta-sync.yml` knocks it hourly (the :07 run), nightly and on dispatch — on `main` only. Limitation (unchanged behaviour): result rows of a month exist once that employee's KPI page for the month is opened (snapshot of weights / targets); the run fills existing rows only.
 
+
+### Real CI execution (review corrections, 2026-11-26)
+- API tests, run 45720109854 @ 8869c83: PostgreSQL 16 — 622 pass / 0 fail / 2 skipped, least-privilege runtime role 623 / 623; PostgreSQL 18 — same. Migration 092 (amended) applied on fresh databases.
+- No `app/` change in this pass, so the Flutter check was not re-run (last: run 45715657993 @ 132be3e, success).
+- `meta-sync.yml` script exercised locally with a stubbed `curl` (no network): errors → exit 1; rejected leads → warning, exit 0; incomplete → notice; KPI knock only at :07, nightly and on dispatch.
+- Vercel: 0 deployment statuses on 8869c83.
