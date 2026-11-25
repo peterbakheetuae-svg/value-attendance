@@ -1,0 +1,2615 @@
+From e89fd191b005df23b76a1b92ee6fdfd3b65920e6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 22:39:54 +0200
+Subject: [PATCH 1/4] Meta: official Facebook Login (OAuth) connection and a
+ scheduled lead sync
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- lib/meta-oauth.ts: server-side code flow — signed, person-bound, 10-minute state (CSRF); one fixed https redirect URI;
+  minimum documented scopes; code → long-lived token; permission check; error redaction; Arabic landing page
+- POST /integrations/meta/oauth/start, GET /public/meta/oauth/callback, GET /integrations/meta/oauth/status
+  (leads.config only, never a marketing company; the token is sealed at rest, never returned)
+- POST /integrations/meta/sync/run + .github/workflows/meta-sync.yml: the linked campaigns' leads are pulled without
+  anyone opening the app; one run at a time; idempotent with the webhook (leads.meta_lead_id)
+- one Graph API version for all Meta calls (META_GRAPH_VERSION, default unchanged v21.0)
+- Flutter: «اربط بحساب فيسبوك» and the connection status; pasting a token stays as «ربط بتوكن (متقدم)»
+- docs/MARKETING_INTELLIGENCE_PROGRESS.md: the requirement checklist and the external setup still needed
+
+No migration. Nothing applied to production.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1i64CApfJjQ1sXzvKcgFM
+---
+ .github/workflows/meta-sync.yml               |  28 +++
+ api/src/lib/meta-oauth.ts                     | 169 ++++++++++++++++++
+ api/src/modules/integrations.ts               | 134 ++++++++++++--
+ api/src/modules/meta_sync.ts                  |  27 ++-
+ api/test/meta-oauth-routes.test.ts            | 116 ++++++++++++
+ api/test/meta-oauth.test.ts                   |  86 +++++++++
+ api/test/meta-sync-run.test.ts                |  67 +++++++
+ .../jph/pages/leads/leads_integrations.dart   |  52 +++++-
+ docs/MARKETING_INTELLIGENCE_PROGRESS.md       |  85 +++++++++
+ 9 files changed, 751 insertions(+), 13 deletions(-)
+ create mode 100644 .github/workflows/meta-sync.yml
+ create mode 100644 api/src/lib/meta-oauth.ts
+ create mode 100644 api/test/meta-oauth-routes.test.ts
+ create mode 100644 api/test/meta-oauth.test.ts
+ create mode 100644 api/test/meta-sync-run.test.ts
+ create mode 100644 docs/MARKETING_INTELLIGENCE_PROGRESS.md
+
+diff --git a/.github/workflows/meta-sync.yml b/.github/workflows/meta-sync.yml
+new file mode 100644
+index 0000000..0a91f80
+--- /dev/null
++++ b/.github/workflows/meta-sync.yml
+@@ -0,0 +1,28 @@
++name: Meta leads sync (scheduled)
++# Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
++# real-time path; this is the safety net for missed deliveries). The server decides: it runs at most every 5 minutes, one
++# run at a time, and every Meta lead comes in once (leads.meta_lead_id is unique) — a knock that overlaps a webhook adds nothing twice.
++# The schedule follows keep-warm.yml's working hours (the database compute is awake then anyway, so it costs no extra
++# Neon CU-hours on the Free plan), plus one nightly catch-up run.
++on:
++  schedule:
++    - cron: '7,22,37,52 6-17 * * 0-4,6'   # every 15 minutes, 08:00–19:59 Cairo (UTC+2), Saturday–Thursday
++    - cron: '40 23 * * *'                 # a nightly catch-up, 01:40 Cairo
++  workflow_dispatch:
++permissions: {}
++concurrency: { group: meta-sync, cancel-in-progress: false }
++jobs:
++  knock:
++    runs-on: ubuntu-latest
++    timeout-minutes: 3
++    steps:
++      # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel)
++      - env:
++          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
++        run: |
++          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — the scheduled Meta sync is off (the webhook and the app still pull)"; exit 0; fi
++          code=$(curl -s -m 90 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/integrations/meta/sync/run) || code=000
++          cat out.json 2>/dev/null; echo
++          [ "$code" = "200" ] && exit 0
++          if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
++          echo "::warning::the API answered $code"
+diff --git a/api/src/lib/meta-oauth.ts b/api/src/lib/meta-oauth.ts
+new file mode 100644
+index 0000000..ce5799a
+--- /dev/null
++++ b/api/src/lib/meta-oauth.ts
+@@ -0,0 +1,169 @@
++import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
++import { isProductionRuntime } from './meta-signature.ts';
++
++/**
++ * Official Meta (Facebook Login) OAuth for the office's Meta connection — the manual-flow "code" grant, done on the server
++ * (https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow):
++ *   1. an authorized person asks the API for the login dialog URL; the API signs a short-lived `state` bound to that person;
++ *   2. Meta redirects the browser to the ONE configured redirect URI with `code` + `state`;
++ *   3. the API checks the state, exchanges the code (server side, with the app secret) and keeps the long-lived token sealed.
++ * Nothing here talks to the network or the database, so every rule is unit-tested on its own (test/meta-oauth.test.ts).
++ *
++ * Configuration (host environment, never in the repository — see docs/MARKETING_INTELLIGENCE_PROGRESS.md):
++ *   META_APP_ID              the Meta app id (digits)
++ *   META_APP_SECRET          that app's secret (else the single entry of META_APP_SECRETS, the webhook signing secrets)
++ *   META_OAUTH_REDIRECT_URI  exactly the "Valid OAuth Redirect URI" registered on the Meta app: https://<api host>/public/meta/oauth/callback
++ *   META_GRAPH_VERSION       optional, e.g. v25.0 (default: the version the rest of the Meta code already uses)
++ *   SECRETS_KEY              required: signs the state and seals the token at rest (lib/secretbox.ts)
++ */
++
++/** the version the existing Meta code was built and tested on (meta_sync.ts, integrations.ts) */
++export const DEFAULT_GRAPH_VERSION = 'v21.0';
++const VERSION = /^v[0-9]{2}\.0$/;
++
++export function graphVersion(env: Record<string, string | undefined> = process.env): string {
++  const v = (env.META_GRAPH_VERSION ?? '').trim();
++  return VERSION.test(v) ? v : DEFAULT_GRAPH_VERSION;
++}
++export const graphBase = (env: Record<string, string | undefined> = process.env) => `https://graph.facebook.com/${graphVersion(env)}`;
++
++/**
++ * The permissions asked for — the minimum the features in use need, per Meta's Lead Ads retrieval and webhooks guides
++ * (https://developers.facebook.com/docs/marketing-api/guides/lead-ads/retrieving):
++ *  - pages_show_list, pages_read_engagement: list the pages and read their lead forms
++ *  - pages_manage_metadata: subscribe the app to a page's «leadgen» webhook
++ *  - leads_retrieval: read the leads
++ *  - ads_management: Meta requires it to read a lead's ad-level fields (campaign_id, ad_id) used for attribution
++ *  - ads_read: list the ad accounts / campaigns and read their insights
++ *  - business_management: reach pages and ad accounts owned through a business portfolio
++ * Several need Meta App Review (Advanced Access) before people outside the app's roles can grant them.
++ */
++export const META_SCOPES = [
++  'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'leads_retrieval', 'ads_management', 'ads_read', 'business_management',
++] as const;
++
++export interface OAuthConfig { appId: string; appSecret: string; redirectUri: string; version: string }
++
++/** the configuration, or the names (never the values) of what is missing or invalid */
++export function oauthConfig(env: Record<string, string | undefined> = process.env): { ok: true; cfg: OAuthConfig } | { ok: false; missing: string[] } {
++  const missing: string[] = [];
++  const appId = (env.META_APP_ID ?? '').trim();
++  if (!/^[0-9]{5,30}$/.test(appId)) missing.push('META_APP_ID');
++  const listed = (env.META_APP_SECRETS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
++  const appSecret = (env.META_APP_SECRET ?? '').trim() || (listed.length === 1 ? listed[0] : '');
++  if (appSecret.length < 16) missing.push('META_APP_SECRET');
++  const redirectUri = (env.META_OAUTH_REDIRECT_URI ?? '').trim();
++  if (!redirectUriOk(redirectUri, env)) missing.push('META_OAUTH_REDIRECT_URI');
++  if (!stateKey(env)) missing.push('SECRETS_KEY');
++  return missing.length ? { ok: false, missing } : { ok: true, cfg: { appId, appSecret, redirectUri, version: graphVersion(env) } };
++}
++
++/** https, no credentials / fragment, ends at our callback path; plain http only for a local, non-production API */
++export function redirectUriOk(uri: string, env: Record<string, string | undefined> = process.env): boolean {
++  let u: URL;
++  try { u = new URL(uri); } catch { return false; }
++  if (u.username || u.password || u.hash || u.search) return false;
++  if (u.pathname !== '/public/meta/oauth/callback') return false;
++  if (u.protocol === 'https:') return true;
++  return u.protocol === 'http:' && !isProductionRuntime(env) && ['localhost', '127.0.0.1'].includes(u.hostname);
++}
++
++// ------------------------------------------------------------------ state (CSRF protection, bound to the person)
++const STATE_TTL_MS = 10 * 60_000;
++const b64u = (b: Buffer) => b.toString('base64url');
++
++/** a key used only for the OAuth state, derived from SECRETS_KEY (no key → OAuth is off: tokens could not be sealed) */
++function stateKey(env: Record<string, string | undefined> = process.env): Buffer | null {
++  const raw = Buffer.from(env.SECRETS_KEY ?? '', 'base64');
++  if (raw.length !== 32) return null;
++  return createHmac('sha256', raw).update('valunivo/meta-oauth-state/v1').digest();
++}
++
++export function signState(actorId: string, now: Date, env: Record<string, string | undefined> = process.env): string {
++  const k = stateKey(env);
++  if (!k) throw new Error('SECRETS_KEY is not configured');
++  const payload = b64u(Buffer.from(JSON.stringify({ a: actorId, n: b64u(randomBytes(16)), e: now.getTime() + STATE_TTL_MS }), 'utf8'));
++  return `${payload}.${b64u(createHmac('sha256', k).update(payload).digest())}`;
++}
++
++export type StateCheck = { ok: true; actorId: string } | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' | 'no_key' };
++
++/**
++ * A state is accepted only if it is ours (HMAC), unexpired and not dated in the future beyond its lifetime. Replaying a
++ * state does not help an attacker: Meta's authorization code is single-use and bound to the same redirect URI.
++ */
++export function verifyState(state: unknown, now: Date, env: Record<string, string | undefined> = process.env): StateCheck {
++  const k = stateKey(env);
++  if (!k) return { ok: false, reason: 'no_key' };
++  if (typeof state !== 'string' || state.length > 600) return { ok: false, reason: 'malformed' };
++  const [payload, sig, extra] = state.split('.');
++  if (!payload || !sig || extra !== undefined) return { ok: false, reason: 'malformed' };
++  const want = createHmac('sha256', k).update(payload).digest();
++  let got: Buffer;
++  try { got = Buffer.from(sig, 'base64url'); } catch { return { ok: false, reason: 'malformed' }; }
++  if (got.length !== want.length || !timingSafeEqual(got, want)) return { ok: false, reason: 'bad_signature' };
++  let p: any;
++  try { p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return { ok: false, reason: 'malformed' }; }
++  if (typeof p?.a !== 'string' || typeof p?.e !== 'number' || typeof p?.n !== 'string') return { ok: false, reason: 'malformed' };
++  if (p.e <= now.getTime() || p.e > now.getTime() + STATE_TTL_MS + 60_000) return { ok: false, reason: 'expired' };
++  return { ok: true, actorId: p.a };
++}
++
++// ------------------------------------------------------------------ the URLs and the answers
++export function dialogUrl(cfg: OAuthConfig, state: string): string {
++  const u = new URL(`https://www.facebook.com/${cfg.version}/dialog/oauth`);
++  u.searchParams.set('client_id', cfg.appId);
++  u.searchParams.set('redirect_uri', cfg.redirectUri);
++  u.searchParams.set('state', state);
++  u.searchParams.set('response_type', 'code');
++  u.searchParams.set('scope', META_SCOPES.join(','));
++  // a permission declined earlier is asked again on a reconnection
++  u.searchParams.set('auth_type', 'rerequest');
++  return u.toString();
++}
++
++/** the code → token exchange (server side; the secret goes to Meta only, never to a client) */
++export function codeExchangeUrl(cfg: OAuthConfig, code: string): string {
++  const u = new URL(`https://graph.facebook.com/${cfg.version}/oauth/access_token`);
++  u.searchParams.set('client_id', cfg.appId);
++  u.searchParams.set('redirect_uri', cfg.redirectUri);
++  u.searchParams.set('client_secret', cfg.appSecret);
++  u.searchParams.set('code', code);
++  return u.toString();
++}
++
++/** a short-lived user token → a long-lived one (about 60 days) */
++export function longLivedUrl(cfg: OAuthConfig, shortToken: string): string {
++  const u = new URL(`https://graph.facebook.com/${cfg.version}/oauth/access_token`);
++  u.searchParams.set('grant_type', 'fb_exchange_token');
++  u.searchParams.set('client_id', cfg.appId);
++  u.searchParams.set('client_secret', cfg.appSecret);
++  u.searchParams.set('fb_exchange_token', shortToken);
++  return u.toString();
++}
++
++/** the asked permissions the person did not grant (from GET /me/permissions → data[{permission, status}]) */
++export function missingScopes(perms: unknown): string[] {
++  const granted = new Set((Array.isArray((perms as any)?.data) ? (perms as any).data : [])
++    .filter((p: any) => p?.status === 'granted').map((p: any) => String(p.permission)));
++  return META_SCOPES.filter((s) => !granted.has(s));
++}
++
++/** Meta's error text without anything token-like (a message is shown to admins and kept in integrations.last_error) */
++export function safeMetaError(e: unknown): string {
++  return String((e as any)?.message ?? e ?? 'Meta error')
++    .replace(/EAA[A-Za-z0-9]{10,}/g, '[token]')
++    .replace(/(access_token|client_secret|code)=[^&\s]+/gi, '$1=[redacted]')
++    .slice(0, 300);
++}
++
++const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
++
++/** the page the browser lands on after Meta (Arabic, RTL, no script, no token) */
++export function callbackPage(ok: boolean, title: string, detail: string): string {
++  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
++<meta name="robots" content="noindex"><title>${esc(title)}</title>
++<style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center;color:#1f2937}
++h1{font-size:1.25rem;color:${ok ? '#047857' : '#b91c1c'}}p{line-height:1.7}</style></head>
++<body><h1>${esc(title)}</h1><p>${esc(detail)}</p><p>ارجع للتطبيق — حالة الربط بتظهر في إعدادات الربط (Meta).</p></body></html>`;
++}
+diff --git a/api/src/modules/integrations.ts b/api/src/modules/integrations.ts
+index 3827b39..304b6be 100644
+--- a/api/src/modules/integrations.ts
++++ b/api/src/modules/integrations.ts
+@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
+ import { one, type Q } from '../db.ts';
+ import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
+ import { isUuid, obj, oneOf, str } from '../http/validate.ts';
+-import { audit, authenticate, has } from '../auth/context.ts';
++import { actorById, audit, authenticate, has } from '../auth/context.ts';
+ import type { Req } from '../http/router.ts';
+ import { notify } from './notify.ts';
+ import { assignable, phoneNorm, readLead } from './leads.ts';
+@@ -11,8 +11,12 @@ import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode }
+ import { canSetup, resolveDeveloper } from './exclusive.ts';
+ import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
+ import { seal, unseal } from '../lib/secretbox.ts';
+-import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
++import { graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
++import { hasBackupToken } from '../lib/backup-token.ts';
+ import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
++import {
++  META_SCOPES, callbackPage, graphBase, codeExchangeUrl, dialogUrl, longLivedUrl, missingScopes, oauthConfig, safeMetaError, signState, verifyState,
++} from '../lib/meta-oauth.ts';
+ 
+ // the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
+ export { metaSignatureOk };
+@@ -28,6 +32,14 @@ export { metaSignatureOk };
+ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+ const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
+ 
++/** a server-side call to Meta's OAuth endpoints (the URL carries the app secret: never logged, never returned) */
++async function metaFetch(url: string): Promise<any> {
++  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
++  const g: any = await res.json().catch(() => ({}));
++  if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
++  return g ?? {};
++}
++
+ /** the first non-empty text among the given keys (any case, nested one level under «data» / «fields») */
+ function pick(rec: Record<string, any>, keys: string[]): string {
+   const flat: Record<string, unknown> = {};
+@@ -143,7 +155,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+     // a marketing company sees only Meta campaigns no other company's campaign is linked to (VA-11)
+     const taken = a.partner ? await partnerHidden(a.partner) : new Set<string>();
+     try {
+-      const res = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(token)}`);
++      const res = await fetch(`${graphBase()}/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(token)}`);
+       const g: any = await res.json();
+       if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+       const out: any[] = [];
+@@ -163,10 +175,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+    * a Facebook page (or all the pages of a user token): kept with its own page token and subscribed to «leadgen», so its
+    * lead forms' leads reach the webhook. The token is never shown back.
+    */
+-  r.post('/integrations/meta/pages', async (req) => {
+-    const a = await admin(req);
+-    const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
+-    if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
++  const connectPages = async (t: string, actorId: string) => {
+     let found: { id: string; name: string; token: string }[] = [];
+     const add = (list: any) => {
+       for (const p of Array.isArray(list?.data) ? list.data : []) {
+@@ -207,13 +216,108 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+       } catch (e: any) { err = String(e?.message ?? e).slice(0, 300); }
+       await db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed, last_error, added_by) VALUES ($1,$2,$3,$4,$5,$6)
+                       ON CONFLICT (page_id) DO UPDATE SET name = EXCLUDED.name, access_token = EXCLUDED.access_token,
+-                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, seal(p.token), subscribed, err, a.id]);
++                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, seal(p.token), subscribed, err, actorId]);
+       out.push({ id: p.id, name: p.name, subscribed, lastError: err });
+     }
+-    await audit(db, a.id, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
++    await audit(db, actorId, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
+     // what the linked campaigns already have comes in now
+     const pulled = await syncMeta(db, clock(), { deadlineMs: 8000 }).catch(() => ({ added: 0, errors: [] as string[] }));
+-    return ok({ pages: out, added: pulled.added });
++    return { pages: out, added: pulled.added };
++  };
++  /** manual token (kept for backward compatibility — the official way is «Connect with Facebook», OAuth below) */
++  r.post('/integrations/meta/pages', async (req) => {
++    const a = await admin(req);
++    const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
++    if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
++    return ok(await connectPages(t, a.id));
++  });
++
++  // ------------------------------------------------------------------ official Meta OAuth (lib/meta-oauth.ts)
++  /** only a person (not a marketing company) with the leads configuration permission manages the office's Meta connection */
++  const metaManager = async (req: Req) => {
++    const a = await authenticate(db, req);
++    if (a.partner || !has(a, 'leads.config')) throw forbidden('ربط Meta لمن عنده إعدادات الليدز');
++    return a;
++  };
++  const oauthStarts = new Map<string, number[]>();   // per person, per API instance: at most 5 starts / 10 minutes
++
++  /** «اربط بحساب فيسبوك»: the official login dialog URL (the app opens it in the browser) */
++  r.post('/integrations/meta/oauth/start', async (req) => {
++    const a = await metaManager(req);
++    const c = oauthConfig();
++    if (!c.ok) return ok({ configured: false, missing: c.missing });
++    const t = clock().getTime();
++    const recent = (oauthStarts.get(a.id) ?? []).filter((x) => x > t - 600_000);
++    if (recent.length >= 5) throw new AppError('rate_limited', 'استنى شوية وجرب تاني');
++    oauthStarts.set(a.id, [...recent, t]);
++    return ok({ configured: true, url: dialogUrl(c.cfg, signState(a.id, clock())), scopes: [...META_SCOPES] });
++  });
++
++  /**
++   * Meta redirects the browser here. The state proves who started it (and when); that person must still be allowed. The
++   * code is exchanged on the server for a long-lived token, kept sealed; the pages it manages are connected as before.
++   * The answer is a small page: never a token, a secret, or Meta's raw error.
++   */
++  r.get('/public/meta/oauth/callback', async (req) => {
++    const page = (status: number, good: boolean, title: string, detail: string) =>
++      ({ status, binary: Buffer.from(callbackPage(good, title, detail), 'utf8'), contentType: 'text/html; charset=utf-8' });
++    const c = oauthConfig();
++    if (!c.ok) return page(503, false, 'ربط Meta مش متجهز', 'الإعدادات على السيرفر ناقصة — كلم المسؤول.');
++    const st = verifyState(req.query.get('state'), clock());
++    if (!st.ok) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق (الرابط بينتهي بعد 10 دقايق).');
++    const actor = await actorById(db, st.actorId);
++    if (!actor || actor.partner || !has(actor, 'leads.config')) return page(403, false, 'مش مسموح', 'الحساب اللي بدأ الربط مبقاش عنده صلاحية إعدادات الليدز.');
++    if (req.query.get('error')) {
++      await audit(db, actor.id, 'integration.meta_oauth_declined', 'integration', null, undefined, { reason: String(req.query.get('error_reason') ?? '').slice(0, 60) });
++      return page(400, false, 'الربط اتلغى', 'ما تمش إعطاء الصلاحيات على فيسبوك. تقدر تبدأ تاني من التطبيق.');
++    }
++    const code = String(req.query.get('code') ?? '');
++    if (!/^[A-Za-z0-9_\-#.]{10,2000}$/.test(code)) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق.');
++    let token: string;
++    try {
++      const short = await metaFetch(codeExchangeUrl(c.cfg, code));
++      const long = await metaFetch(longLivedUrl(c.cfg, String(short.access_token ?? '')));
++      token = String(long.access_token ?? short.access_token ?? '');
++      if (token.length < 20) throw new Error('no token');
++    } catch (e) {
++      await noteError('meta', `OAuth: ${safeMetaError(e)}`);
++      return page(502, false, 'فيسبوك رفض الربط', 'جرب تاني بعد شوية. التفاصيل عند المسؤول في إعدادات الربط.');
++    }
++    await ensure('meta');
++    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = NULL, updated_by = $3, updated_at = $4 WHERE source = $1`,
++      ['meta', seal(token), actor.id, clock()]);
++    const missing = missingScopes(await graph('me/permissions', token).catch(() => null));
++    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingScopes: missing });
++    let pages = 0;
++    try { pages = (await connectPages(token, actor.id)).pages.length; } catch (e) { await noteError('meta', `OAuth pages: ${safeMetaError(e)}`); }
++    return page(200, true, 'تم ربط Meta', missing.length
++      ? `اتربط ${pages} صفحة، بس فيه صلاحيات ناقصة: ${missing.join('، ')}. اعمل «إعادة الربط» واسمح بيها.`
++      : `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.`);
++  });
++
++  /** the connection's state: configured? connected? token expiry, granted / missing permissions, last sync, last error */
++  r.get('/integrations/meta/oauth/status', async (req) => {
++    await metaManager(req);
++    const c = oauthConfig();
++    const it = await ensure('meta');
++    const token = unseal(it.access_token);
++    const pages = (await db.query(`SELECT count(*)::int n, count(*) FILTER (WHERE subscribed)::int subscribed,
++        count(*) FILTER (WHERE last_error IS NOT NULL)::int failing FROM meta_pages`)).rows[0];
++    const out: any = {
++      configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
++      lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
++      pages, expiresAt: null, tokenValid: null, missingScopes: null,
++    };
++    if (token && c.ok) {
++      try {
++        // debug_token with the app token (app id|secret, server side) — expiry and validity without exposing the token
++        const d = (await graph(`debug_token?input_token=${encodeURIComponent(token)}`, `${c.cfg.appId}|${c.cfg.appSecret}`)).data ?? {};
++        out.tokenValid = d.is_valid === true;
++        out.expiresAt = d.expires_at ? new Date(Number(d.expires_at) * 1000).toISOString() : null;   // 0 = never expires
++        out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
++      } catch (e) { out.statusError = safeMetaError(e); }
++    }
++    return ok(out);
+   });
+ 
+   r.post('/integrations/meta/pages/:id/remove', async (req) => {
+@@ -232,6 +336,16 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+     return ok({ added: r2.added, errors: [...new Set(r2.errors)].slice(0, 5) });
+   });
+ 
++  /**
++   * the scheduler's knock (.github/workflows/meta-sync.yml) with the host's X-Backup-Token, or a person with leads.config:
++   * pulls the linked campaigns' leads from Meta without anyone opening the app. Never returns a token or a lead.
++   */
++  r.post('/integrations/meta/sync/run', async (req) => {
++    if (!hasBackupToken(req.headers)) await metaManager(req);
++    const out = await runScheduledMetaSync(db, clock());
++    return ok({ ...out, errors: (out.errors ?? []).map((e) => safeMetaError(e)) });
++  });
++
+   /** «Verify token جديد»: the 4-digit code goes to the person's own e-mail first */
+   r.post('/integrations/meta/verify-token/code', async (req) => {
+     const a = await admin(req);
+diff --git a/api/src/modules/meta_sync.ts b/api/src/modules/meta_sync.ts
+index 54b1948..6c8f0b1 100644
+--- a/api/src/modules/meta_sync.ts
++++ b/api/src/modules/meta_sync.ts
+@@ -4,6 +4,7 @@ import { phoneNorm, readLead } from './leads.ts';
+ import { deliverLead, type RouteMode } from './lead_routing.ts';
+ import { seeMetaCampaign } from './partners.ts';
+ import { unseal } from '../lib/secretbox.ts';
++import { graphBase } from '../lib/meta-oauth.ts';
+ 
+ /**
+  * Meta lead ads (db/migrations/081_meta_pages_sync.sql):
+@@ -12,13 +13,13 @@ import { unseal } from '../lib/secretbox.ts';
+  *    linked (what it already has) and then every few minutes — besides the ones the webhook pushes. Each Meta lead comes
+  *    in once (leads.meta_lead_id).
+  */
+-const GRAPH = 'https://graph.facebook.com/v21.0';
++// one Graph API version for all Meta calls (META_GRAPH_VERSION, default v21.0 — see lib/meta-oauth.ts)
+ const LEAD_FIELDS = 'id,field_data,form_id,ad_name,campaign_id,campaign_name,created_time';
+ const META_ID = /^[0-9]{3,30}$/;
+ 
+ export async function graph(path: string, token: string, init?: RequestInit): Promise<any> {
+   const sep = path.includes('?') ? '&' : '?';
+-  const res = await fetch(`${GRAPH}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
++  const res = await fetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
+   const g: any = await res.json().catch(() => ({}));
+   if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+   return g ?? {};
+@@ -130,6 +131,28 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
+   return { added, errors };
+ }
+ 
++/**
++ * The scheduler's run (POST /integrations/meta/sync/run — a GitHub Actions cron, see .github/workflows/meta-sync.yml):
++ * independent of anyone opening the app. It claims the same «meta_sync_at» slot as maybeSyncMeta (one run at a time across
++ * API instances, at most every 5 minutes), with a longer time budget. Idempotent: every Meta lead comes in once
++ * (leads.meta_lead_id is unique), so a webhook and a scheduled run that see the same lead add it once.
++ */
++export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
++  const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
++      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - interval '5 minutes')
++        AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
++      RETURNING 1`, [now]);
++  if (!claimed) {
++    const it = await one(db, `SELECT active, access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages) AS connected FROM integrations WHERE source = 'meta'`);
++    return { ran: false, reason: !it?.active ? 'off' : !it.connected ? 'not_connected' : 'recent' };
++  }
++  if (!(await one(db, `SELECT 1 FROM lead_campaigns WHERE active AND cardinality(meta_campaign_ids) > 0 LIMIT 1`))) {
++    return { ran: false, reason: 'no_linked_campaigns' };
++  }
++  const r = await syncMeta(db, now, { deadlineMs: 45_000 });
++  return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
++}
++
+ /** every 10 minutes at most (the first request after that pays it, with a short time budget) */
+ export async function maybeSyncMeta(db: Db, now: Date): Promise<void> {
+   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
+diff --git a/api/test/meta-oauth-routes.test.ts b/api/test/meta-oauth-routes.test.ts
+new file mode 100644
+index 0000000..e2ecebc
+--- /dev/null
++++ b/api/test/meta-oauth-routes.test.ts
+@@ -0,0 +1,116 @@
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { harness, cast, type Harness } from './helpers.ts';
++import { signState } from '../src/lib/meta-oauth.ts';
++
++/**
++ * Official Meta OAuth (lib/meta-oauth.ts, routes in modules/integrations.ts): start → Meta → callback → sealed token +
++ * connected pages; status; who may do it. Meta's endpoints are faked; nothing reaches the network.
++ */
++let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
++const realFetch = globalThis.fetch;
++const KEYS = ['SECRETS_KEY', 'META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI'] as const;
++const saved: Record<string, string | undefined> = {};
++const codes = new Set(['GOOD-CODE-123456']);   // Meta's codes are single-use
++before(async () => {
++  for (const k of KEYS) saved[k] = process.env[k];
++  Object.assign(process.env, {
++    SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'), META_APP_ID: '1234567890', META_APP_SECRET: 'app-secret-0123456789abcdef',
++    META_OAUTH_REDIRECT_URI: 'https://api.example.com/public/meta/oauth/callback',
++  });
++  h = await harness('2026-11-25T10:00:00Z'); c = await cast(h);
++  globalThis.fetch = (async (url: any, init: any) => {
++    const u = new URL(String(url));
++    if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
++    const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
++    const path = u.pathname.replace(/^\/v[0-9]+\.0\//, '');
++    const tok = u.searchParams.get('access_token');
++    if (path === 'oauth/access_token' && u.searchParams.get('code')) {
++      assert.equal(u.searchParams.get('redirect_uri'), 'https://api.example.com/public/meta/oauth/callback', 'the registered redirect, always');
++      if (!codes.delete(u.searchParams.get('code')!)) return j({ error: { message: 'This authorization code has been used. access_token=EAAleakleakleakleak' } }, 400);
++      return j({ access_token: 'SHORT-USER-TOKEN-xxxxxxxx' });
++    }
++    if (path === 'oauth/access_token' && u.searchParams.get('grant_type') === 'fb_exchange_token') return j({ access_token: 'LONG-USER-TOKEN-xxxxxxxxx', expires_in: 5_184_000 });
++    if (path === 'me/permissions' && tok === 'LONG-USER-TOKEN-xxxxxxxxx') {
++      return j({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'leads_retrieval', status: 'declined' }] });
++    }
++    if (path === 'me/accounts' && tok === 'LONG-USER-TOKEN-xxxxxxxxx') return j({ data: [{ id: '2001', name: 'Value Group', access_token: 'PAGE-OAUTH-A' }] });
++    if (path.endsWith('/subscribed_apps')) return j({ success: true });
++    if (path === 'debug_token') {
++      assert.equal(tok, '1234567890|app-secret-0123456789abcdef', 'debug_token uses the app token, server side');
++      return j({ data: { is_valid: true, expires_at: 1_800_000_000, scopes: ['pages_show_list', 'pages_manage_metadata'] } });
++    }
++    return j({ error: { message: `unexpected ${path}` } }, 400);
++  }) as typeof fetch;
++});
++after(async () => {
++  globalThis.fetch = realFetch;
++  for (const k of KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
++  await h.close();
++});
++
++test('start: only a person with leads.config (never an employee without it); the dialog URL carries a signed state, not the secret', async () => {
++  assert.equal((await h.call(null, 'POST', '/integrations/meta/oauth/start', {})).status, 401);
++  assert.equal((await h.call(c.t.e1, 'POST', '/integrations/meta/oauth/start', {})).status, 403);
++  const r = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
++  assert.equal(r.status, 200, JSON.stringify(r.body));
++  assert.equal(r.body.configured, true);
++  const u = new URL(r.body.url);
++  assert.equal(u.hostname, 'www.facebook.com');
++  assert.ok(u.searchParams.get('state')!.includes('.'));
++  assert.ok(!r.body.url.includes('app-secret'), 'the app secret never leaves the server');
++});
++
++test('callback: a bad / foreign state, a declined dialog or a reused code connects nothing; errors never echo Meta tokens', async () => {
++  const cb = (q: string) => h.call(null, 'GET', `/public/meta/oauth/callback?${q}`);
++  assert.equal((await cb('code=GOOD-CODE-123456&state=forged.sig')).status, 400);
++  // a valid state of a person who may not manage Meta
++  const e1 = (await h.db.query(`SELECT id FROM employees WHERE id = $1`, [c.ids.e1])).rows[0].id;
++  assert.equal((await cb(`code=GOOD-CODE-123456&state=${encodeURIComponent(signState(e1, h.now.value))}`)).status, 403);
++  assert.equal((await cb(`error=access_denied&error_reason=user_denied&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`)).status, 400);
++  const reused = await cb(`code=USED-CODE-0000000&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`);
++  assert.equal(reused.status, 502);
++  assert.ok(!reused.raw.toString().includes('EAAleak'));
++  const err = (await h.db.query(`SELECT last_error, access_token FROM integrations WHERE source = 'meta'`)).rows[0];
++  assert.ok(!String(err?.last_error ?? '').includes('EAAleak'), 'the kept error is redacted');
++  assert.equal(err?.access_token ?? null, null, 'nothing stored on a failure');
++});
++
++test('callback: the code becomes a long-lived token, sealed at rest; the pages are connected; missing permissions are reported', async () => {
++  const r = await h.call(null, 'GET', `/public/meta/oauth/callback?code=GOOD-CODE-123456&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`);
++  const html = r.raw.toString();
++  assert.equal(r.status, 200, html);
++  assert.match(r.headers.get('content-type') ?? '', /text\/html/);
++  assert.ok(!html.includes('LONG-USER-TOKEN') && !html.includes('PAGE-OAUTH-A'), 'no token on the page');
++  assert.ok(html.includes('leads_retrieval'), 'the declined permission is named');
++  const it = (await h.db.query(`SELECT access_token, active FROM integrations WHERE source = 'meta'`)).rows[0];
++  assert.ok(it.active && it.access_token.startsWith('enc:v1:') && !it.access_token.includes('LONG-USER'), 'sealed (VA-05)');
++  const pages = (await h.db.query(`SELECT page_id, access_token, subscribed FROM meta_pages`)).rows;
++  assert.deepEqual(pages.map((p) => p.page_id), ['2001']);
++  assert.ok(pages[0].subscribed && pages[0].access_token.startsWith('enc:v1:'));
++  const audit = (await h.db.query(`SELECT action FROM audit_log WHERE action LIKE 'integration.meta_oauth%'`)).rows.map((x) => x.action);
++  assert.ok(audit.includes('integration.meta_oauth_connected'));
++});
++
++test('status: connection, expiry and missing scopes, without any token; employees without the permission are refused', async () => {
++  assert.equal((await h.call(c.t.e1, 'GET', '/integrations/meta/oauth/status')).status, 403);
++  const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
++  assert.equal(s.status, 200, JSON.stringify(s.body));
++  assert.equal(s.body.configured, true);
++  assert.equal(s.body.connected, true);
++  assert.equal(s.body.tokenValid, true);
++  assert.equal(s.body.expiresAt, new Date(1_800_000_000 * 1000).toISOString());
++  assert.ok(s.body.missingScopes.includes('leads_retrieval'));
++  assert.equal(s.body.pages.n, 1);
++  assert.ok(!JSON.stringify(s.body).match(/TOKEN|PAGE-OAUTH|app-secret/));
++});
++
++test('not configured: start answers which settings are missing (names only); the callback refuses', async () => {
++  const id = process.env.META_APP_ID; delete process.env.META_APP_ID;
++  try {
++    const r = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
++    assert.equal(r.status, 200);
++    assert.deepEqual(r.body, { configured: false, missing: ['META_APP_ID'] });
++    assert.equal((await h.call(null, 'GET', '/public/meta/oauth/callback?code=x&state=y')).status, 503);
++  } finally { process.env.META_APP_ID = id; }
++});
+diff --git a/api/test/meta-oauth.test.ts b/api/test/meta-oauth.test.ts
+new file mode 100644
+index 0000000..2579a5c
+--- /dev/null
++++ b/api/test/meta-oauth.test.ts
+@@ -0,0 +1,86 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import {
++  META_SCOPES, callbackPage, codeExchangeUrl, dialogUrl, graphVersion, longLivedUrl, missingScopes, oauthConfig,
++  redirectUriOk, safeMetaError, signState, verifyState,
++} from '../src/lib/meta-oauth.ts';
++
++/** Meta OAuth (official Facebook Login, server-side code flow) — the rules that need no network or database */
++const KEY = Buffer.alloc(32, 9).toString('base64');
++const env = (over: Record<string, string | undefined> = {}) => ({
++  SECRETS_KEY: KEY, META_APP_ID: '1234567890', META_APP_SECRET: 'abcdef0123456789abcdef',
++  META_OAUTH_REDIRECT_URI: 'https://api.example.com/public/meta/oauth/callback', ...over,
++});
++const now = new Date('2026-11-25T20:00:00Z');
++
++test('configuration: names (never values) of what is missing; no SECRETS_KEY → OAuth off', () => {
++  const c = oauthConfig(env());
++  assert.equal(c.ok, true);
++  const none = oauthConfig({});
++  assert.equal(none.ok, false);
++  assert.deepEqual((none as any).missing, ['META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI', 'SECRETS_KEY']);
++  assert.ok(!JSON.stringify(oauthConfig(env({ SECRETS_KEY: undefined }))).includes('abcdef0123'), 'the secret is never echoed');
++  // a single webhook signing secret doubles as the app secret; several are ambiguous
++  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef' })).ok, true);
++  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef,fedcba9876543210fedcba' })).ok, false);
++});
++
++test('redirect URI: exactly our callback over https; http only on a local non-production API', () => {
++  assert.ok(redirectUriOk('https://api.example.com/public/meta/oauth/callback', {}));
++  for (const bad of ['', 'not a url', 'https://api.example.com/other', 'https://api.example.com/public/meta/oauth/callback?x=1',
++    'https://api.example.com/public/meta/oauth/callback#f', 'https://u:p@api.example.com/public/meta/oauth/callback',
++    'http://api.example.com/public/meta/oauth/callback', 'javascript:alert(1)']) assert.equal(redirectUriOk(bad, {}), false, bad);
++  assert.ok(redirectUriOk('http://localhost:3000/public/meta/oauth/callback', {}));
++  assert.equal(redirectUriOk('http://localhost:3000/public/meta/oauth/callback', { VERCEL_ENV: 'production' }), false);
++});
++
++test('state: signed, bound to the person, expires in 10 minutes, tamper-proof', () => {
++  const e = env();
++  const s = signState('emp-1', now, e);
++  assert.deepEqual(verifyState(s, now, e), { ok: true, actorId: 'emp-1' });
++  assert.deepEqual(verifyState(s, new Date(now.getTime() + 9 * 60_000), e), { ok: true, actorId: 'emp-1' });
++  assert.equal((verifyState(s, new Date(now.getTime() + 10 * 60_000 + 1), e) as any).reason, 'expired');
++  assert.notEqual(signState('emp-1', now, e), s, 'a fresh nonce each time');
++  // another person's id spliced into the payload
++  const [p, sig] = s.split('.');
++  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(p, 'base64url').toString()), a: 'emp-2' })).toString('base64url');
++  assert.equal((verifyState(`${forged}.${sig}`, now, e) as any).reason, 'bad_signature');
++  assert.equal((verifyState(s, now, env({ SECRETS_KEY: Buffer.alloc(32, 1).toString('base64') })) as any).reason, 'bad_signature', 'another key');
++  for (const bad of [undefined, 42, '', 'x', 'a.b.c', '.'.repeat(700)]) assert.equal(verifyState(bad, now, e).ok, false, String(bad));
++  assert.equal((verifyState(s, now, {}) as any).reason, 'no_key');
++  assert.throws(() => signState('emp-1', now, {}), /SECRETS_KEY/);
++  // a state dated far in the future (a forged clock) is refused even if it were signed
++  assert.equal(verifyState(signState('emp-1', new Date(now.getTime() + 3_600_000), e), now, e).ok, false);
++});
++
++test('URLs: the login dialog asks the minimum scopes with the fixed redirect; the exchange URLs stay server-side', () => {
++  const cfg = (oauthConfig(env()) as any).cfg;
++  const u = new URL(dialogUrl(cfg, 'st.ate'));
++  assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v21.0/dialog/oauth');
++  assert.equal(u.searchParams.get('client_id'), '1234567890');
++  assert.equal(u.searchParams.get('redirect_uri'), 'https://api.example.com/public/meta/oauth/callback');
++  assert.equal(u.searchParams.get('response_type'), 'code');
++  assert.equal(u.searchParams.get('state'), 'st.ate');
++  assert.deepEqual(u.searchParams.get('scope')!.split(','), [...META_SCOPES]);
++  assert.ok(!u.toString().includes('abcdef0123'), 'the app secret is never in the browser URL');
++  const x = new URL(codeExchangeUrl(cfg, 'the-code'));
++  assert.equal(x.searchParams.get('redirect_uri'), cfg.redirectUri);
++  assert.equal(x.searchParams.get('code'), 'the-code');
++  assert.equal(new URL(longLivedUrl(cfg, 't')).searchParams.get('grant_type'), 'fb_exchange_token');
++  assert.equal(graphVersion({ META_GRAPH_VERSION: 'v25.0' }), 'v25.0');
++  assert.equal(graphVersion({ META_GRAPH_VERSION: '25; DROP' }), 'v21.0', 'an invalid version falls back');
++});
++
++test('permissions: what was not granted is reported (declined ≠ granted)', () => {
++  assert.deepEqual(missingScopes({ data: META_SCOPES.map((p) => ({ permission: p, status: 'granted' })) }), []);
++  assert.deepEqual(missingScopes({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'leads_retrieval', status: 'declined' }] }),
++    META_SCOPES.filter((s) => s !== 'pages_show_list'));
++  assert.deepEqual(missingScopes(null), [...META_SCOPES]);
++});
++
++test('errors and the landing page never carry a token, a secret or markup from Meta', () => {
++  const m = safeMetaError(new Error('bad https://graph.facebook.com/x?access_token=EAAsecretsecretsecret&client_secret=zz code=abc'));
++  assert.ok(!m.includes('EAAsecret') && !m.includes('zz') && !m.includes('abc'), m);
++  const html = callbackPage(false, 'فشل <b>', '<script>alert(1)</script>');
++  assert.ok(!html.includes('<script>') && html.includes('&lt;script&gt;') && html.includes('dir="rtl"'));
++});
+diff --git a/api/test/meta-sync-run.test.ts b/api/test/meta-sync-run.test.ts
+new file mode 100644
+index 0000000..d1692b7
+--- /dev/null
++++ b/api/test/meta-sync-run.test.ts
+@@ -0,0 +1,67 @@
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { harness, cast, type Harness } from './helpers.ts';
++import { seal } from '../src/lib/secretbox.ts';
++
++/** the scheduled Meta sync (POST /integrations/meta/sync/run, .github/workflows/meta-sync.yml): no app needs to be open */
++let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let campaign: string;
++const realFetch = globalThis.fetch;
++const TOKEN = 'scheduler-token-0123456789abcdef';
++const saved = { SECRETS_KEY: process.env.SECRETS_KEY, BACKUP_TOKEN: process.env.BACKUP_TOKEN };
++const lead = (id: string, phone: string) => ({ id, campaign_id: '777', campaign_name: 'Meta 777', form_id: '9001', created_time: '2026-11-25T09:00:00+0000',
++  field_data: [{ name: 'full_name', values: [`عميل ${id}`] }, { name: 'phone_number', values: [phone] }] });
++before(async () => {
++  process.env.SECRETS_KEY = Buffer.alloc(32, 4).toString('base64');
++  process.env.BACKUP_TOKEN = TOKEN;
++  h = await harness('2026-11-25T10:00:00Z'); c = await cast(h);
++  const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع الجدولة', ownerName: 'أ. سامي', ownerPhone: '0100' })).body.project.id;
++  const ch = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
++  await h.call(c.t.acc, 'POST', '/leads/campaigns', { name: 'حملة مجدولة', channelId: ch, projectId: pid });
++  campaign = (await h.db.query(`SELECT id FROM lead_campaigns WHERE name = 'حملة مجدولة'`)).rows[0].id;
++  await h.db.query(`UPDATE lead_campaigns SET form_assignees = $2, meta_campaign_ids = '{777}' WHERE id = $1`, [campaign, [c.ids.e1]]);
++  await h.db.query(`INSERT INTO integrations (source, active) VALUES ('meta', true) ON CONFLICT (source) DO UPDATE SET active = true`);
++  await h.db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed) VALUES ('1001', 'Value Group', $1, true)`, [seal('PAGE-A')]);
++  globalThis.fetch = (async (url: any, init: any) => {
++    const u = new URL(String(url));
++    if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
++    const j = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
++    const path = u.pathname.replace(/^\/v[0-9]+\.0\//, '');
++    if (path === '1001/leadgen_forms') return j({ data: [{ id: '9001' }] });
++    if (path === '9001/leads') return j({ data: [lead('6001', '01066660001'), lead('6002', '01066660002')] });
++    return j({ data: [] });
++  }) as typeof fetch;
++});
++after(async () => {
++  globalThis.fetch = realFetch;
++  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
++  await h.close();
++});
++
++test('the scheduler needs its token (or a person with leads.config); a wrong token or an employee is refused', async () => {
++  assert.equal((await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': 'wrong-token-xxxxxxxxxxxxxxxx' })).status, 401);
++  assert.equal((await h.call(c.t.e1, 'POST', '/integrations/meta/sync/run', {})).status, 403);
++});
++
++test('a scheduled run pulls the linked campaign\'s leads once; a second knock right after does not run; the same leads never come twice', async () => {
++  const r = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
++  assert.equal(r.status, 200, JSON.stringify(r.body));
++  assert.equal(r.body.ran, true);
++  assert.equal(r.body.added, 2);
++  const again = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
++  assert.deepEqual(again.body, { ran: false, reason: 'recent', errors: [] });
++  h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
++  const later = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
++  assert.equal(later.body.ran, true);
++  assert.equal(later.body.added, 0, 'idempotent: meta_lead_id is unique');
++  const n = (await h.db.query(`SELECT count(*)::int n FROM leads WHERE meta_lead_id IN ('6001','6002')`)).rows[0].n;
++  assert.equal(n, 2);
++  assert.ok(!JSON.stringify(later.body).includes('PAGE-A'));
++});
++
++test('switched off: the scheduler is told why and nothing is pulled', async () => {
++  await h.db.query(`UPDATE integrations SET active = false WHERE source = 'meta'`);
++  h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
++  const r = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
++  assert.deepEqual(r.body, { ran: false, reason: 'off', errors: [] });
++  await h.db.query(`UPDATE integrations SET active = true WHERE source = 'meta'`);
++});
+diff --git a/app/lib/jph/pages/leads/leads_integrations.dart b/app/lib/jph/pages/leads/leads_integrations.dart
+index 24fe405..6977181 100644
+--- a/app/lib/jph/pages/leads/leads_integrations.dart
++++ b/app/lib/jph/pages/leads/leads_integrations.dart
+@@ -23,6 +23,7 @@ class LeadsIntegrationsView extends StatefulWidget {
+ 
+ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+   Map<String, dynamic> _d = {};
++  Map<String, dynamic> _oauth = {};
+   bool _loading = true;
+   String _filter = 'new';
+ 
+@@ -41,6 +42,13 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+       _loading = false;
+       _d = r;
+     });
++    if (r['partner'] != true && r['success'] != false) _loadOauth();
++  }
++
++  /// the official Meta connection's state (GET /integrations/meta/oauth/status) — never a token
++  Future<void> _loadOauth() async {
++    final r = await lget('/integrations/meta/oauth/status');
++    if (mounted) setState(() => _oauth = r['success'] == false ? {} : r);
+   }
+ 
+   Future<void> _copy(String text, [String? msg]) async {
+@@ -228,6 +236,46 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+   }
+ 
+   // ------------------------------------------------------------------ Meta
++  /// «اربط بحساب فيسبوك»: the official Facebook Login dialog opens in the browser; the server finishes the connection
++  Future<void> _connectFacebook() async {
++    final r = await lpost('/integrations/meta/oauth/start', {});
++    if (!mounted) return;
++    if (r['success'] == false) return JphUi.toast(context, r);
++    if (r['configured'] != true) {
++      final missing = ((r['missing'] as List?) ?? const []).join('، ');
++      return JphUi.toast(context, {'success': false, 'message': '${tr('ربط فيسبوك مش متجهز على السيرفر — ناقص')}: $missing'});
++    }
++    await openUrl('${r['url']}');
++    if (mounted) JphUi.toast(context, {'success': true, 'message': tr('كمّل في المتصفح، وبعدها ارجع هنا ودوس «حدّث الحالة»')});
++  }
++
++  List<Widget> _oauthStatus() {
++    if (_oauth.isEmpty) return const [];
++    final connected = _oauth['connected'] == true;
++    final missing = ((_oauth['missingScopes'] as List?) ?? const []).cast<Object?>();
++    final expires = DateTime.tryParse('${_oauth['expiresAt'] ?? ''}')?.toLocal();
++    final lines = <String>[
++      if (_oauth['configured'] != true) '${tr('الربط الرسمي مش متجهز على السيرفر — ناقص')}: ${((_oauth['missing'] as List?) ?? const []).join('، ')}',
++      connected ? tr('متربط بحساب فيسبوك ✅') : tr('لسه مش متربط بحساب فيسبوك'),
++      if (_oauth['tokenValid'] == false) tr('الربط انتهى أو اتلغى من فيسبوك — اعمل إعادة ربط'),
++      if (expires != null) '${tr('صلاحية الربط لحد')}: ${expires.year}-${expires.month.toString().padLeft(2, '0')}-${expires.day.toString().padLeft(2, '0')}',
++      if (missing.isNotEmpty) '${tr('صلاحيات ناقصة')}: ${missing.join('، ')}',
++      '${tr('آخر سحب')}: ${_when(_oauth['lastSyncAt'])}',
++      if ('${_oauth['lastError'] ?? ''}'.isNotEmpty) '${tr('آخر مشكلة')}: ${_oauth['lastError']}',
++    ];
++    return [
++      const Divider(height: 26),
++      Text(tr('الربط الرسمي مع فيسبوك'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
++      for (final l in lines) Text(l, style: TextStyle(color: JphUi.sub(isDark))),
++      const SizedBox(height: 8),
++      Wrap(spacing: 8, runSpacing: 8, children: [
++        dirBtn(isDark, connected ? tr('إعادة الربط بفيسبوك') : tr('اربط بحساب فيسبوك'), Icons.facebook_rounded,
++            _oauth['configured'] == true ? _connectFacebook : null, primary: !connected),
++        dirBtn(isDark, tr('حدّث الحالة'), Icons.refresh_rounded, _load),
++      ]),
++    ];
++  }
++
+   /// one Facebook page (a page token) or all the pages of a user token: each kept with its own token, subscribed to leads
+   Future<void> _addPage() async {
+     final t = TextEditingController();
+@@ -259,6 +307,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+   List<Widget> _pages() {
+     final pages = ll(_d['metaPages']);
+     return [
++      ..._oauthStatus(),
+       const Divider(height: 26),
+       Text(tr('صفحات فيسبوك المربوطة'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+       Text(tr('كل صفحة بتوكن بتاعها، والليدز بتنزل لوحدها من فورمات الصفحة على الحملة المربوطة (كل 10 دقايق وكمان لحظة ما الليد يتعمل).'),
+@@ -277,7 +326,8 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+           trailing: IconButton(tooltip: tr('شيل الصفحة'), icon: const Icon(Icons.link_off_rounded), onPressed: () => _removePage(p)),
+         ),
+       Wrap(spacing: 8, runSpacing: 8, children: [
+-        dirBtn(isDark, tr('ربط صفحة فيسبوك'), Icons.add_link_rounded, _addPage, primary: pages.isEmpty),
++        // pasting a token stays for backward compatibility; the official way is the button above
++        dirBtn(isDark, tr('ربط بتوكن (متقدم)'), Icons.add_link_rounded, _addPage, primary: pages.isEmpty && _oauth['configured'] != true),
+         dirBtn(isDark, tr('اسحب الليدز دلوقتي'), Icons.sync_rounded, _syncNow),
+       ]),
+     ];
+diff --git a/docs/MARKETING_INTELLIGENCE_PROGRESS.md b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+new file mode 100644
+index 0000000..12276a4
+--- /dev/null
++++ b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+@@ -0,0 +1,85 @@
++# Marketing Intelligence & Employee Performance — implementation progress
++
++Specification: «VALUNIVO — Complete Remaining Marketing Intelligence & Employee Performance Implementation» (owner, 2026-11-25).
++This file is the persistent checklist: each session continues from the first item that is not ✅.
++
++## Baseline (verified 2026-11-25)
++
++| Item | Verified state |
++|---|---|
++| `main` | `98f9f69` — PR #17 (revert of the Flutter dependency bumps). No later commits. |
++| Working branch | `feat/marketing-intelligence`, from `98f9f69`. |
++| Production database | Neon `valunivo-attendance-eu`, branch `main` (read-only inspection). `schema_migrations`: 091 applied 2026-11-25 09:04 UTC, **090 applied after it** (14:39 UTC) — both present; the order is out of sequence (owner to confirm the runner tolerates it). A branch `restore-before-091-2026-11-25` exists. |
++| Production data relevant here | 0 `lead_campaigns`, 0 `leads`, 0 `meta_pages`, 1 `integrations` row for Meta, 2 `marketing_companies`, 12 `kpi_definitions`, 0 active `kpi_sets`, 0 `kpi_results`. No plain Meta token (`EAA…`) stored. |
++| Graph API | Code pinned to **v21.0**; Meta removes v21.0 on **2027-01-21**; latest is v26.0 (2026-07-29). Now configurable (`META_GRAPH_VERSION`); upgrade only after a real-credential check. |
++
++Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒 owner decision · ⬜ not started.
++"Tested here" = unit tests run in the session; "CI" = Postgres-backed tests written for `api-ci.yml` (the session could not install `pg`).
++
++## Phase 1 — Audit
++
++| Requirement | Existing | Missing | Status |
++|---|---|---|---|
++| Meta settings, tokens, pages, webhook, sync | `meta_sync.ts` (pull from page forms + campaign ads, `meta_lead_id` unique), `integrations.ts` (manual token, pages, verify token, signed webhook `metaSignatureOk`), `secretbox.ts` (AES-256-GCM at rest), 081 | OAuth, independent scheduler, checkpoints, dead-letter, sync metrics | ✅ audited |
++| Campaign ↔ marketing company | `lead_campaigns.marketing_company_id`, `meta_campaign_ids`, partner isolation (`partnerHidden`, VA-11) | ownership history, ad account / ad set / ad entities, office-direct flag, drill-down | ✅ audited |
++| KPI engine | `kpi.ts` (definitions, versioned sets per employee / position / job title, snapshots of weight + target, manual `actual`, null ≠ 0) | automatic actuals, source/evidence, calculation timestamp | ✅ audited |
++| Lead quality | `leads.rating`, `stars`, `duplicate_of`, `cancel_reason_id`, `lead_logs` | a separate quality classification with reasons and authority | ✅ audited |
++
++## Phase 2 — Official Meta OAuth
++
++| Requirement (spec §2) | Implementation | Status |
++|---|---|---|
++| Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
++| Minimum permissions | `META_SCOPES` (documented per Meta's Lead Ads guides) | ✅ |
++| State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ tested here |
++| Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
++| Token stored only on the server, sealed | long-lived token sealed in `integrations.access_token`; OAuth refuses to run without `SECRETS_KEY` | ✅ CI |
++| No secrets in responses / errors | `safeMetaError` redacts tokens / secrets / codes; landing page has none | ✅ tested here + CI |
++| Token lifecycle, reconnection, revoked permissions | long-lived exchange; `auth_type=rerequest`; status via `debug_token` (validity, expiry, scopes); «إعادة الربط» | ✅ code · ⛔ real check |
++| Connection status, missing permissions, last sync, errors | `GET /integrations/meta/oauth/status`; Flutter section in `leads_integrations.dart` | ✅ API (CI) · 🟡 Flutter not compiled here |
++| Pages / ad accounts / campaigns / forms discovery | pages reuse the existing discovery (`connectPages`); campaigns via existing `/integrations/meta/campaigns` | 🟡 ad sets, ads, business-level asset selection → Phase 4 |
++| Manual token kept for compatibility | unchanged, relabelled «ربط بتوكن (متقدم)» | ✅ |
++
++## Phase 3 — Reliable synchronization
++
++| Requirement (spec §3) | Implementation | Status |
++|---|---|---|
++| Webhook ingestion | existing, signed (fail-closed in production) | ✅ existing |
++| Independent scheduler (no app open) | `POST /integrations/meta/sync/run` (X-Backup-Token or `leads.config`) + `.github/workflows/meta-sync.yml` | ✅ CI · ⛔ needs `BACKUP_TOKEN` repo secret |
++| One run at a time, idempotent with the webhook | claims `integrations.meta_sync_at`; `leads.meta_lead_id` unique | ✅ CI |
++| Historical sync | existing: 90 days on first link, then from `meta_synced_at` − 1 h | ✅ existing |
++| Per-source checkpoints, retry/backoff, dead-letter, counters (processed / added / duplicates / rejected) | — needs storage → migration proposal | ⬜ 🔒 schema approval |
++| Admin retry / resync | existing «اسحب الليدز دلوقتي»; per-campaign resync on link | 🟡 |
++
++## Phases 4–10
++
++| Phase | Status | Next step |
++|---|---|---|
++| 4 Attribution: ad account / ad set / ad, ownership history, office-direct campaigns, drill-down | ⬜ 🔒 | additive migration proposal (ERD, rollback) for owner approval |
++| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; `ads_read` needs App Review |
++| 6 Lead quality classification (authority pending) | ⬜ 🔒 | proposal with a configurable permission and a pending state; **no authority assigned** |
++| 7 Automatic KPIs (attendance, sales, manager) | ⬜ 🔒 | source mapping per KPI key; `kpi_results` needs source / calculated_at columns; **no new weights** |
++| 8 Unified dashboard | ⬜ | after 4–7 |
++| 9 Security / authorization validation | 🟡 | tests per phase; full review at the end |
++| 10 Documentation / acceptance | 🟡 | this file |
++
++## External configuration still required (nothing set by this work)
++
++1. **Meta app** (developers.facebook.com): product «Facebook Login» with the Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; Webhooks product, object Page, field `leadgen`, callback `https://<API host>/public/hooks/meta` with the existing verify token.
++2. **App Review / Advanced Access** for `leads_retrieval`, `pages_manage_metadata`, `pages_read_engagement`, `pages_show_list`, `ads_read`, `ads_management`, `business_management` (only app roles can grant them before review); Business Verification as Meta requires.
++3. **API host environment** (Vercel): `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, existing `META_APP_SECRETS` and `SECRETS_KEY`; optional `META_GRAPH_VERSION`.
++4. **GitHub repository secret** `BACKUP_TOKEN` (same value as on the host) for `meta-sync.yml`.
++
++## Changes on `feat/marketing-intelligence`
++
++| File | Change |
++|---|---|
++| `api/src/lib/meta-oauth.ts` | new: OAuth configuration, scopes, signed state, URLs, permission check, error redaction, landing page |
++| `api/src/modules/integrations.ts` | OAuth start / callback / status routes; scheduler route; page discovery shared (`connectPages`); one Graph version |
++| `api/src/modules/meta_sync.ts` | `runScheduledMetaSync`; one Graph version |
++| `app/lib/jph/pages/leads/leads_integrations.dart` | «اربط بحساب فيسبوك» + connection status section |
++| `.github/workflows/meta-sync.yml` | new scheduled knock |
++| `api/test/meta-oauth.test.ts` | new unit tests (ran here) |
++| `api/test/meta-oauth-routes.test.ts`, `api/test/meta-sync-run.test.ts` | new Postgres tests (CI) |
++
++No migration was added. No production data, schema, environment or deployment was changed.
+-- 
+2.43.0
+
+
+From aae802a5ceb9460c7a745f6d10c894e6f0600520 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 22:54:34 +0200
+Subject: [PATCH 2/4] Meta OAuth / scheduled sync: security corrections
+
+- OAuth state is single-use: its nonce is recorded hashed (action_otps, action meta_oauth_state) at start and consumed by
+  one atomic UPDATE at the callback; replayed, concurrent, expired, forged, wrong-person and revoked-permission attempts fail
+- META_APP_SECRET is required on its own (no fallback to the webhook signing secrets META_APP_SECRETS)
+- least privilege: required vs optional (business_management) scopes; ads_read moved to the later Insights phase;
+  ads_management kept with Meta's documented reason (a lead's campaign_id / ad_id)
+- token answers validated; debug_token must show a valid user token of our app; missing required permissions leave a
+  working connection untouched; all Meta calls go through metaFetch (no URL / cause in errors, never logged)
+- start rate limit kept in the database; e-mailed code rate limit ignores OAuth nonces
+- scheduled run budget 18 s inside the 30 s function limit (5-minute claim cannot lapse mid-run); each Meta lead taken
+  under a transaction-scoped advisory lock (no duplicate, no unique-index error under overlap)
+- meta-sync.yml fails on missing secret, 401/403, 5xx / timeouts after bounded retries, unexpected statuses, invalid
+  answers and syncs with errors
+
+No migration. Nothing applied to production.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1i64CApfJjQ1sXzvKcgFM
+---
+ .github/workflows/meta-sync.yml         |  54 +++++--
+ api/src/auth/action_otp.ts              |   3 +-
+ api/src/lib/meta-oauth.ts               | 104 +++++++++----
+ api/src/lib/meta-sync-limits.ts         |  10 ++
+ api/src/modules/integrations.ts         |  83 ++++++----
+ api/src/modules/meta_sync.ts            |  28 ++--
+ api/test/meta-oauth-routes.test.ts      | 197 +++++++++++++++++-------
+ api/test/meta-oauth.test.ts             |  57 ++++++-
+ api/test/meta-sync-limits.test.ts       |  13 ++
+ api/test/meta-sync-run.test.ts          |  18 ++-
+ docs/MARKETING_INTELLIGENCE_PROGRESS.md |  26 +++-
+ 11 files changed, 442 insertions(+), 151 deletions(-)
+ create mode 100644 api/src/lib/meta-sync-limits.ts
+ create mode 100644 api/test/meta-sync-limits.test.ts
+
+diff --git a/.github/workflows/meta-sync.yml b/.github/workflows/meta-sync.yml
+index 0a91f80..3416e60 100644
+--- a/.github/workflows/meta-sync.yml
++++ b/.github/workflows/meta-sync.yml
+@@ -1,9 +1,14 @@
+ name: Meta leads sync (scheduled)
+ # Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
+-# real-time path; this is the safety net for missed deliveries). The server decides: it runs at most every 5 minutes, one
+-# run at a time, and every Meta lead comes in once (leads.meta_lead_id is unique) — a knock that overlaps a webhook adds nothing twice.
++# real-time path; this is the safety net for missed deliveries). The server decides: one run at a time (a 5-minute claim;
++# a run lives at most 30 s), and every Meta lead comes in once (leads.meta_lead_id + a per-lead lock).
+ # The schedule follows keep-warm.yml's working hours (the database compute is awake then anyway, so it costs no extra
+ # Neon CU-hours on the Free plan), plus one nightly catch-up run.
++#
++# The run FAILS (red, e-mailed by GitHub) when: the BACKUP_TOKEN secret is missing; the API refuses the token (401/403);
++# the API keeps failing (5xx), times out or cannot be reached after the retries; any other status; an answer that is not
++# the expected JSON; or a sync that ran with errors. A run the server declines on purpose (off / not connected /
++# no linked campaign / ran recently) is green with a notice.
+ on:
+   schedule:
+     - cron: '7,22,37,52 6-17 * * 0-4,6'   # every 15 minutes, 08:00–19:59 Cairo (UTC+2), Saturday–Thursday
+@@ -14,15 +19,42 @@ concurrency: { group: meta-sync, cancel-in-progress: false }
+ jobs:
+   knock:
+     runs-on: ubuntu-latest
+-    timeout-minutes: 3
++    timeout-minutes: 5
+     steps:
+-      # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel)
+-      - env:
++      - name: Knock on /integrations/meta/sync/run
++        env:
+           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
++          API: https://valunivo.vercel.app
++        shell: bash
+         run: |
+-          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — the scheduled Meta sync is off (the webhook and the app still pull)"; exit 0; fi
+-          code=$(curl -s -m 90 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/integrations/meta/sync/run) || code=000
+-          cat out.json 2>/dev/null; echo
+-          [ "$code" = "200" ] && exit 0
+-          if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
+-          echo "::warning::the API answered $code"
++          set -euo pipefail
++          if [ -z "${BACKUP_TOKEN:-}" ]; then
++            echo "::error title=Meta sync not configured::repository secret BACKUP_TOKEN is not set (same value as the API host's BACKUP_TOKEN). Set it, or disable this workflow."
++            exit 1
++          fi
++          # 3 attempts, backoff 15 s then 45 s; only 5xx, timeouts and network errors are retried
++          for attempt in 1 2 3; do
++            code=$(curl -sS -m 45 --connect-timeout 10 -o out.json -w '%{http_code}' -X POST \
++                     -H "X-Backup-Token: ${BACKUP_TOKEN}" -H 'Accept: application/json' \
++                     "${API}/integrations/meta/sync/run" 2>curl.err) || code=000
++            case "$code" in
++              200) break ;;
++              401|403) echo "::error title=Token refused::the API refused the scheduler token ($code) — check the BACKUP_TOKEN secret"; exit 1 ;;
++              000|5??) echo "::warning::attempt $attempt: no usable answer ($code: $(head -c 200 curl.err 2>/dev/null | tr -d '\r\n'))" ;;
++              *) echo "::error title=Unexpected status::the API answered $code"; head -c 500 out.json 2>/dev/null || true; exit 1 ;;
++            esac
++            if [ "$attempt" = 3 ]; then echo "::error title=API unavailable::no successful answer after 3 attempts (last: $code)"; exit 1; fi
++            sleep $(( attempt == 1 ? 15 : 45 ))
++          done
++          # the answer must be the sync's JSON: { ran: boolean, reason?, added?, errors: [] }
++          if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
++            echo "::error title=Unexpected answer::the API's answer is not the sync result"; head -c 500 out.json || true; exit 1
++          fi
++          jq -c '{ran, reason, added, errors}' out.json
++          if [ "$(jq -r '.ran' out.json)" = "true" ]; then
++            n=$(jq '(.errors // []) | length' out.json)
++            if [ "$n" -gt 0 ]; then echo "::error title=Sync ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; exit 1; fi
++            echo "::notice::synced — $(jq -r '.added // 0' out.json) new lead(s)"
++          else
++            echo "::notice::not run: $(jq -r '.reason // "unknown"' out.json)"
++          fi
+diff --git a/api/src/auth/action_otp.ts b/api/src/auth/action_otp.ts
+index c82c31f..acd6c9a 100644
+--- a/api/src/auth/action_otp.ts
++++ b/api/src/auth/action_otp.ts
+@@ -15,7 +15,8 @@ export async function sendActionCode(q: Q, a: Actor, action: string, what: strin
+   const e = await one(q, `SELECT email, full_name FROM employees WHERE id = $1`, [a.id]);
+   if (!e?.email) throw new AppError('unprocessable', 'مفيش إيميل على حسابك — لازم إيميل عشان يوصلك الكود', { reason: 'no_email' });
+   if (!mailEnabled()) throw new AppError('unprocessable', 'الإيميل مش متظبط لسه', { reason: 'mail_off' });
+-  const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [a.id]);
++  // the e-mailed codes only: Meta OAuth state nonces (action «meta_oauth_state», no e-mail) are not counted
++  const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND action <> 'meta_oauth_state' AND created_at > now() - interval '15 minutes'`, [a.id]);
+   if (recent.n >= 3) throw new AppError('conflict', 'طلبت أكواد كتير — استنى ربع ساعة', { reason: 'otp_rate_limited' });
+   const code = String(randomInt(0, 10_000)).padStart(4, '0');
+   await q.query(`UPDATE action_otps SET expires_at = now() WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()`, [a.id, action]);
+diff --git a/api/src/lib/meta-oauth.ts b/api/src/lib/meta-oauth.ts
+index ce5799a..eb6d019 100644
+--- a/api/src/lib/meta-oauth.ts
++++ b/api/src/lib/meta-oauth.ts
+@@ -1,5 +1,6 @@
+-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
++import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+ import { isProductionRuntime } from './meta-signature.ts';
++import { META_REQUEST_TIMEOUT_MS } from './meta-sync-limits.ts';
+ 
+ /**
+  * Official Meta (Facebook Login) OAuth for the office's Meta connection — the manual-flow "code" grant, done on the server
+@@ -7,11 +8,13 @@ import { isProductionRuntime } from './meta-signature.ts';
+  *   1. an authorized person asks the API for the login dialog URL; the API signs a short-lived `state` bound to that person;
+  *   2. Meta redirects the browser to the ONE configured redirect URI with `code` + `state`;
+  *   3. the API checks the state, exchanges the code (server side, with the app secret) and keeps the long-lived token sealed.
+- * Nothing here talks to the network or the database, so every rule is unit-tested on its own (test/meta-oauth.test.ts).
++ * The state is single-use: its nonce is recorded (hashed) in action_otps (082) at the start and consumed atomically at the
++ * callback (modules/integrations.ts). Apart from metaFetch, nothing here talks to the network or the database, so every rule
++ * is unit-tested on its own (test/meta-oauth.test.ts).
+  *
+  * Configuration (host environment, never in the repository — see docs/MARKETING_INTELLIGENCE_PROGRESS.md):
+  *   META_APP_ID              the Meta app id (digits)
+- *   META_APP_SECRET          that app's secret (else the single entry of META_APP_SECRETS, the webhook signing secrets)
++ *   META_APP_SECRET          that app's secret (its own setting — not META_APP_SECRETS, the webhook signing secrets)
+  *   META_OAUTH_REDIRECT_URI  exactly the "Valid OAuth Redirect URI" registered on the Meta app: https://<api host>/public/meta/oauth/callback
+  *   META_GRAPH_VERSION       optional, e.g. v25.0 (default: the version the rest of the Meta code already uses)
+  *   SECRETS_KEY              required: signs the state and seals the token at rest (lib/secretbox.ts)
+@@ -28,19 +31,27 @@ export function graphVersion(env: Record<string, string | undefined> = process.e
+ export const graphBase = (env: Record<string, string | undefined> = process.env) => `https://graph.facebook.com/${graphVersion(env)}`;
+ 
+ /**
+- * The permissions asked for — the minimum the features in use need, per Meta's Lead Ads retrieval and webhooks guides
+- * (https://developers.facebook.com/docs/marketing-api/guides/lead-ads/retrieving):
+- *  - pages_show_list, pages_read_engagement: list the pages and read their lead forms
+- *  - pages_manage_metadata: subscribe the app to a page's «leadgen» webhook
+- *  - leads_retrieval: read the leads
+- *  - ads_management: Meta requires it to read a lead's ad-level fields (campaign_id, ad_id) used for attribution
+- *  - ads_read: list the ad accounts / campaigns and read their insights
+- *  - business_management: reach pages and ad accounts owned through a business portfolio
++ * Least privilege — every permission maps to an operation the code performs today, per Meta's Lead Ads guides
++ * (https://developers.facebook.com/docs/marketing-api/guides/lead-ads/retrieving, …/quickstart/webhooks-integration):
++ *  - pages_show_list, pages_read_engagement  list the pages (me/accounts) and read their lead forms (leadgen_forms)
++ *  - pages_manage_metadata                   subscribe the app to a page's «leadgen» webhook (subscribed_apps)
++ *  - leads_retrieval                         read the leads (bulk read + webhook lead fetch)
++ *  - pages_manage_ads                        Meta lists it for retrieving all lead data and ad-level data
++ *  - ads_management                          Meta requires it to read a lead's ad fields (campaign_id, ad_id) — the
++ *                                            attribution to our campaigns depends on campaign_id; the guide offers no
++ *                                            read-only alternative. Also covers listing the ad accounts' campaigns.
++ *  - business_management (optional)          only to reach pages owned through a business portfolio (me/businesses)
++ * Not requested now: ads_read — for the Ads Insights phase (5), to be decided and verified when that phase is approved.
+  * Several need Meta App Review (Advanced Access) before people outside the app's roles can grant them.
+  */
+-export const META_SCOPES = [
+-  'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'leads_retrieval', 'ads_management', 'ads_read', 'business_management',
++export const META_SCOPES_REQUIRED = [
++  'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management',
+ ] as const;
++export const META_SCOPES_OPTIONAL = ['business_management'] as const;
++/** what the login dialog asks for (required + optional) */
++export const META_SCOPES = [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL] as const;
++/** later phases (not requested by this code): Ads Insights */
++export const META_SCOPES_LATER_INSIGHTS = ['ads_read'] as const;
+ 
+ export interface OAuthConfig { appId: string; appSecret: string; redirectUri: string; version: string }
+ 
+@@ -49,8 +60,8 @@ export function oauthConfig(env: Record<string, string | undefined> = process.en
+   const missing: string[] = [];
+   const appId = (env.META_APP_ID ?? '').trim();
+   if (!/^[0-9]{5,30}$/.test(appId)) missing.push('META_APP_ID');
+-  const listed = (env.META_APP_SECRETS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+-  const appSecret = (env.META_APP_SECRET ?? '').trim() || (listed.length === 1 ? listed[0] : '');
++  // the app secret for the OAuth exchange is its own setting: never borrowed from META_APP_SECRETS (the webhook signing secrets)
++  const appSecret = (env.META_APP_SECRET ?? '').trim();
+   if (appSecret.length < 16) missing.push('META_APP_SECRET');
+   const redirectUri = (env.META_OAUTH_REDIRECT_URI ?? '').trim();
+   if (!redirectUriOk(redirectUri, env)) missing.push('META_OAUTH_REDIRECT_URI');
+@@ -79,18 +90,31 @@ function stateKey(env: Record<string, string | undefined> = process.env): Buffer
+   return createHmac('sha256', raw).update('valunivo/meta-oauth-state/v1').digest();
+ }
+ 
+-export function signState(actorId: string, now: Date, env: Record<string, string | undefined> = process.env): string {
++export const STATE_ACTION = 'meta_oauth_state';
++
++/** a signed state for a known nonce and expiry (exported for tests; routes use newState) */
++export function signStateWith(actorId: string, nonce: string, expiresMs: number, env: Record<string, string | undefined> = process.env): string {
+   const k = stateKey(env);
+   if (!k) throw new Error('SECRETS_KEY is not configured');
+-  const payload = b64u(Buffer.from(JSON.stringify({ a: actorId, n: b64u(randomBytes(16)), e: now.getTime() + STATE_TTL_MS }), 'utf8'));
++  const payload = b64u(Buffer.from(JSON.stringify({ a: actorId, n: nonce, e: expiresMs }), 'utf8'));
+   return `${payload}.${b64u(createHmac('sha256', k).update(payload).digest())}`;
+ }
+ 
+-export type StateCheck = { ok: true; actorId: string } | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' | 'no_key' };
++/** a fresh state: the caller records nonceHash(actorId, nonce) with expiresAt before handing the URL out */
++export function newState(actorId: string, now: Date, env: Record<string, string | undefined> = process.env) {
++  const nonce = b64u(randomBytes(16));
++  const expiresAt = new Date(now.getTime() + STATE_TTL_MS);
++  return { state: signStateWith(actorId, nonce, expiresAt.getTime(), env), nonce, expiresAt };
++}
++
++/** what is stored for a nonce: a hash bound to the person (the nonce itself is never stored) */
++export const nonceHash = (actorId: string, nonce: string) => createHash('sha256').update(`${STATE_ACTION}:${actorId}:${nonce}`).digest('hex');
++
++export type StateCheck = { ok: true; actorId: string; nonce: string } | { ok: false; reason: 'malformed' | 'bad_signature' | 'expired' | 'no_key' };
+ 
+ /**
+- * A state is accepted only if it is ours (HMAC), unexpired and not dated in the future beyond its lifetime. Replaying a
+- * state does not help an attacker: Meta's authorization code is single-use and bound to the same redirect URI.
++ * Signature, shape and lifetime only. A state that passes must still be CONSUMED (its nonce marked used, atomically, once)
++ * before anything else happens — that is what makes it single-use.
+  */
+ export function verifyState(state: unknown, now: Date, env: Record<string, string | undefined> = process.env): StateCheck {
+   const k = stateKey(env);
+@@ -99,14 +123,13 @@ export function verifyState(state: unknown, now: Date, env: Record<string, strin
+   const [payload, sig, extra] = state.split('.');
+   if (!payload || !sig || extra !== undefined) return { ok: false, reason: 'malformed' };
+   const want = createHmac('sha256', k).update(payload).digest();
+-  let got: Buffer;
+-  try { got = Buffer.from(sig, 'base64url'); } catch { return { ok: false, reason: 'malformed' }; }
++  const got = Buffer.from(sig, 'base64url');
+   if (got.length !== want.length || !timingSafeEqual(got, want)) return { ok: false, reason: 'bad_signature' };
+   let p: any;
+   try { p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return { ok: false, reason: 'malformed' }; }
+-  if (typeof p?.a !== 'string' || typeof p?.e !== 'number' || typeof p?.n !== 'string') return { ok: false, reason: 'malformed' };
++  if (typeof p?.a !== 'string' || typeof p?.e !== 'number' || typeof p?.n !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(p.n)) return { ok: false, reason: 'malformed' };
+   if (p.e <= now.getTime() || p.e > now.getTime() + STATE_TTL_MS + 60_000) return { ok: false, reason: 'expired' };
+-  return { ok: true, actorId: p.a };
++  return { ok: true, actorId: p.a, nonce: p.n };
+ }
+ 
+ // ------------------------------------------------------------------ the URLs and the answers
+@@ -143,10 +166,39 @@ export function longLivedUrl(cfg: OAuthConfig, shortToken: string): string {
+ }
+ 
+ /** the asked permissions the person did not grant (from GET /me/permissions → data[{permission, status}]) */
+-export function missingScopes(perms: unknown): string[] {
++export function missingScopes(perms: unknown, wanted: readonly string[] = META_SCOPES): string[] {
+   const granted = new Set((Array.isArray((perms as any)?.data) ? (perms as any).data : [])
+     .filter((p: any) => p?.status === 'granted').map((p: any) => String(p.permission)));
+-  return META_SCOPES.filter((s) => !granted.has(s));
++  return wanted.filter((s) => !granted.has(s));
++}
++
++/** the access token of a token-endpoint answer, validated (a string of token characters) — else an error, never a guess */
++export function tokenFrom(answer: unknown): { token: string; expiresIn: number | null } {
++  const t = (answer as any)?.access_token;
++  if (typeof t !== 'string' || !/^[A-Za-z0-9|_.-]{20,4096}$/.test(t)) throw new Error('Meta returned no valid access token');
++  const e = (answer as any)?.expires_in;
++  return { token: t, expiresIn: typeof e === 'number' && Number.isFinite(e) && e > 0 ? e : null };
++}
++
++/** debug_token's answer: a valid USER token issued to OUR app (a token of another app is never accepted) */
++export function tokenIsOurs(debug: unknown, appId: string): boolean {
++  const d = (debug as any)?.data ?? {};
++  return d.is_valid === true && String(d.app_id ?? '') === appId && (d.type === undefined || d.type === 'USER');
++}
++
++/**
++ * A server-side call to Meta whose URL may carry a token, a code or the app secret. It never logs, and a failure is a
++ * plain message: Meta's error text (redacted by the caller) or the HTTP status — never the URL, never a network error's
++ * cause (which can include the request).
++ */
++export async function metaFetch(url: string, init?: RequestInit): Promise<any> {
++  let res: Response;
++  try { res = await fetch(url, { ...init, signal: AbortSignal.timeout(META_REQUEST_TIMEOUT_MS) }); } catch (e: any) {
++    throw new Error(e?.name === 'TimeoutError' ? 'Meta did not answer in time' : 'Meta could not be reached');
++  }
++  const g: any = await res.json().catch(() => ({}));
++  if (!res.ok || g?.error) throw new Error(typeof g?.error?.message === 'string' ? g.error.message : `Meta ${res.status}`);
++  return g ?? {};
+ }
+ 
+ /** Meta's error text without anything token-like (a message is shown to admins and kept in integrations.last_error) */
+diff --git a/api/src/lib/meta-sync-limits.ts b/api/src/lib/meta-sync-limits.ts
+new file mode 100644
+index 0000000..d0da2d6
+--- /dev/null
++++ b/api/src/lib/meta-sync-limits.ts
+@@ -0,0 +1,10 @@
++/**
++ * The scheduled Meta sync's time limits (modules/meta_sync.ts → runScheduledMetaSync). The overlap guarantee rests on:
++ *   budget + one Meta request in flight  <  the function's hard limit (Vercel maxDuration)  <  the claim on meta_sync_at
++ * so a run is always killed by the platform long before another run could take the claim. test/meta-sync-limits.test.ts
++ * checks these against scripts/vercel-build.mjs.
++ */
++export const SCHEDULED_BUDGET_MS = 18_000;
++export const META_REQUEST_TIMEOUT_MS = 8_000;   // lib/meta-oauth.ts metaFetch
++export const FUNCTION_MAX_SECONDS = 30;         // scripts/vercel-build.mjs maxDuration
++export const CLAIM_MINUTES = 5;
+diff --git a/api/src/modules/integrations.ts b/api/src/modules/integrations.ts
+index 304b6be..450ab7c 100644
+--- a/api/src/modules/integrations.ts
++++ b/api/src/modules/integrations.ts
+@@ -15,7 +15,8 @@ import { graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from '
+ import { hasBackupToken } from '../lib/backup-token.ts';
+ import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
+ import {
+-  META_SCOPES, callbackPage, graphBase, codeExchangeUrl, dialogUrl, longLivedUrl, missingScopes, oauthConfig, safeMetaError, signState, verifyState,
++  META_SCOPES, META_SCOPES_REQUIRED, STATE_ACTION, callbackPage, codeExchangeUrl, dialogUrl, graphBase, longLivedUrl, metaFetch, missingScopes,
++  newState, nonceHash, oauthConfig, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
+ } from '../lib/meta-oauth.ts';
+ 
+ // the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
+@@ -32,14 +33,6 @@ export { metaSignatureOk };
+ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+ const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
+ 
+-/** a server-side call to Meta's OAuth endpoints (the URL carries the app secret: never logged, never returned) */
+-async function metaFetch(url: string): Promise<any> {
+-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+-  const g: any = await res.json().catch(() => ({}));
+-  if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+-  return g ?? {};
+-}
+-
+ /** the first non-empty text among the given keys (any case, nested one level under «data» / «fields») */
+ function pick(rec: Record<string, any>, keys: string[]): string {
+   const flat: Record<string, unknown> = {};
+@@ -239,60 +232,81 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+     if (a.partner || !has(a, 'leads.config')) throw forbidden('ربط Meta لمن عنده إعدادات الليدز');
+     return a;
+   };
+-  const oauthStarts = new Map<string, number[]>();   // per person, per API instance: at most 5 starts / 10 minutes
+ 
+-  /** «اربط بحساب فيسبوك»: the official login dialog URL (the app opens it in the browser) */
++  /**
++   * «اربط بحساب فيسبوك»: the official login dialog URL (the app opens it in the browser). The state's nonce is recorded,
++   * hashed and bound to the person, in action_otps (082) — the callback consumes it once. At most 5 starts per person per
++   * 10 minutes (counted in the database, so it holds across API instances).
++   */
+   r.post('/integrations/meta/oauth/start', async (req) => {
+     const a = await metaManager(req);
+     const c = oauthConfig();
+     if (!c.ok) return ok({ configured: false, missing: c.missing });
+-    const t = clock().getTime();
+-    const recent = (oauthStarts.get(a.id) ?? []).filter((x) => x > t - 600_000);
+-    if (recent.length >= 5) throw new AppError('rate_limited', 'استنى شوية وجرب تاني');
+-    oauthStarts.set(a.id, [...recent, t]);
+-    return ok({ configured: true, url: dialogUrl(c.cfg, signState(a.id, clock())), scopes: [...META_SCOPES] });
++    const now = clock();
++    const recent = await one(db, `SELECT count(*)::int n FROM action_otps WHERE employee_id = $1 AND action = $2 AND created_at > $3::timestamptz - interval '10 minutes'`,
++      [a.id, STATE_ACTION, now]);
++    if (recent.n >= 5) throw new AppError('rate_limited', 'استنى شوية وجرب تاني');
++    const st = newState(a.id, now);
++    await db.query(`INSERT INTO action_otps (employee_id, action, code_hash, created_at, expires_at) VALUES ($1, $2, $3, $4, $5)`,
++      [a.id, STATE_ACTION, nonceHash(a.id, st.nonce), now, st.expiresAt]);
++    return ok({ configured: true, url: dialogUrl(c.cfg, st.state), scopes: [...META_SCOPES] });
+   });
+ 
+   /**
+-   * Meta redirects the browser here. The state proves who started it (and when); that person must still be allowed. The
+-   * code is exchanged on the server for a long-lived token, kept sealed; the pages it manages are connected as before.
+-   * The answer is a small page: never a token, a secret, or Meta's raw error.
++   * Meta redirects the browser here. Order: signature + lifetime → consume the nonce (one atomic UPDATE: of two concurrent
++   * callbacks with the same state only one gets the row) → the person must still be allowed → the code is exchanged on the
++   * server → the token must be a valid user token of OUR app → the required permissions must be granted. Only then is the
++   * token kept (sealed) and the pages connected; a reconnection with missing permissions leaves the working connection as
++   * it was. The answer is a small page: never a token, a secret, or Meta's raw error.
+    */
+   r.get('/public/meta/oauth/callback', async (req) => {
+     const page = (status: number, good: boolean, title: string, detail: string) =>
+       ({ status, binary: Buffer.from(callbackPage(good, title, detail), 'utf8'), contentType: 'text/html; charset=utf-8' });
+     const c = oauthConfig();
+     if (!c.ok) return page(503, false, 'ربط Meta مش متجهز', 'الإعدادات على السيرفر ناقصة — كلم المسؤول.');
+-    const st = verifyState(req.query.get('state'), clock());
+-    if (!st.ok) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق (الرابط بينتهي بعد 10 دقايق).');
++    const now = clock();
++    const st = verifyState(req.query.get('state'), now);
++    const invalidLink = () => page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق (الرابط بيتستخدم مرة واحدة وبينتهي بعد 10 دقايق).');
++    if (!st.ok || !isUuid(st.actorId)) return invalidLink();
++    const used = await one(db, `UPDATE action_otps SET used_at = $4
++        WHERE employee_id = $1::uuid AND action = $2 AND code_hash = $3 AND used_at IS NULL AND expires_at > $4 RETURNING id`,
++      [st.actorId, STATE_ACTION, nonceHash(st.actorId, st.nonce), now]);
++    if (!used) return invalidLink();
+     const actor = await actorById(db, st.actorId);
+     if (!actor || actor.partner || !has(actor, 'leads.config')) return page(403, false, 'مش مسموح', 'الحساب اللي بدأ الربط مبقاش عنده صلاحية إعدادات الليدز.');
+     if (req.query.get('error')) {
+-      await audit(db, actor.id, 'integration.meta_oauth_declined', 'integration', null, undefined, { reason: String(req.query.get('error_reason') ?? '').slice(0, 60) });
++      await audit(db, actor.id, 'integration.meta_oauth_declined', 'integration', null, undefined, { reason: String(req.query.get('error_reason') ?? '').replace(/[^a-z_]/gi, '').slice(0, 60) });
+       return page(400, false, 'الربط اتلغى', 'ما تمش إعطاء الصلاحيات على فيسبوك. تقدر تبدأ تاني من التطبيق.');
+     }
+     const code = String(req.query.get('code') ?? '');
+     if (!/^[A-Za-z0-9_\-#.]{10,2000}$/.test(code)) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق.');
+-    let token: string;
++    let token: string; let missing: string[];
+     try {
+-      const short = await metaFetch(codeExchangeUrl(c.cfg, code));
+-      const long = await metaFetch(longLivedUrl(c.cfg, String(short.access_token ?? '')));
+-      token = String(long.access_token ?? short.access_token ?? '');
+-      if (token.length < 20) throw new Error('no token');
++      const short = tokenFrom(await metaFetch(codeExchangeUrl(c.cfg, code)));
++      token = tokenFrom(await metaFetch(longLivedUrl(c.cfg, short.token))).token;
++      if (!tokenIsOurs(await metaFetch(`${graphBase()}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${c.cfg.appId}|${c.cfg.appSecret}`)}`), c.cfg.appId)) {
++        throw new Error('the token is not a valid user token of this app');
++      }
++      missing = missingScopes(await metaFetch(`${graphBase()}/me/permissions?access_token=${encodeURIComponent(token)}`));
+     } catch (e) {
++      await ensure('meta');
+       await noteError('meta', `OAuth: ${safeMetaError(e)}`);
++      await audit(db, actor.id, 'integration.meta_oauth_failed', 'integration', null, undefined, { stage: 'exchange' });
+       return page(502, false, 'فيسبوك رفض الربط', 'جرب تاني بعد شوية. التفاصيل عند المسؤول في إعدادات الربط.');
+     }
++    const missingRequired = missing.filter((s) => (META_SCOPES_REQUIRED as readonly string[]).includes(s));
++    if (missingRequired.length) {
++      // not kept: an incomplete grant must not replace (or switch on) a connection that works
++      await audit(db, actor.id, 'integration.meta_oauth_incomplete', 'integration', null, undefined, { missingScopes: missingRequired });
++      return page(400, false, 'الصلاحيات ناقصة — الربط ما اتحفظش', `اسمح بالصلاحيات دي وابدأ الربط تاني: ${missingRequired.join('، ')}. الربط القديم (لو موجود) فضل زي ما هو.`);
++    }
+     await ensure('meta');
+     await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = NULL, updated_by = $3, updated_at = $4 WHERE source = $1`,
+-      ['meta', seal(token), actor.id, clock()]);
+-    const missing = missingScopes(await graph('me/permissions', token).catch(() => null));
+-    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingScopes: missing });
++      ['meta', seal(token), actor.id, now]);
++    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingOptional: missing });
+     let pages = 0;
+     try { pages = (await connectPages(token, actor.id)).pages.length; } catch (e) { await noteError('meta', `OAuth pages: ${safeMetaError(e)}`); }
+-    return page(200, true, 'تم ربط Meta', missing.length
+-      ? `اتربط ${pages} صفحة، بس فيه صلاحيات ناقصة: ${missing.join('، ')}. اعمل «إعادة الربط» واسمح بيها.`
+-      : `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.`);
++    return page(200, true, 'تم ربط Meta', `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.${missing.length ? ` (صلاحية اختيارية ناقصة: ${missing.join('، ')} — الصفحات اللي تبع Business portfolio مش هتظهر.)` : ''}`);
+   });
+ 
+   /** the connection's state: configured? connected? token expiry, granted / missing permissions, last sync, last error */
+@@ -306,7 +320,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+     const out: any = {
+       configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
+       lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
+-      pages, expiresAt: null, tokenValid: null, missingScopes: null,
++      pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null,
+     };
+     if (token && c.ok) {
+       try {
+@@ -315,6 +329,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+         out.tokenValid = d.is_valid === true;
+         out.expiresAt = d.expires_at ? new Date(Number(d.expires_at) * 1000).toISOString() : null;   // 0 = never expires
+         out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
++        out.missingRequired = out.missingScopes.filter((s: string) => (META_SCOPES_REQUIRED as readonly string[]).includes(s));
+       } catch (e) { out.statusError = safeMetaError(e); }
+     }
+     return ok(out);
+diff --git a/api/src/modules/meta_sync.ts b/api/src/modules/meta_sync.ts
+index 6c8f0b1..a215140 100644
+--- a/api/src/modules/meta_sync.ts
++++ b/api/src/modules/meta_sync.ts
+@@ -4,7 +4,9 @@ import { phoneNorm, readLead } from './leads.ts';
+ import { deliverLead, type RouteMode } from './lead_routing.ts';
+ import { seeMetaCampaign } from './partners.ts';
+ import { unseal } from '../lib/secretbox.ts';
+-import { graphBase } from '../lib/meta-oauth.ts';
++import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
++import { CLAIM_MINUTES, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
++export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
+ 
+ /**
+  * Meta lead ads (db/migrations/081_meta_pages_sync.sql):
+@@ -19,10 +21,8 @@ const META_ID = /^[0-9]{3,30}$/;
+ 
+ export async function graph(path: string, token: string, init?: RequestInit): Promise<any> {
+   const sep = path.includes('?') ? '&' : '?';
+-  const res = await fetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
+-  const g: any = await res.json().catch(() => ({}));
+-  if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+-  return g ?? {};
++  // the URL carries the token: metaFetch never logs it and never puts it in an error
++  return metaFetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, init);
+ }
+ 
+ /** a Meta lead to the campaign of ours that its Meta campaign (or its form) is linked to — null = not ours / already in */
+@@ -45,6 +45,12 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
+   const notes = [g.campaign_name ? `حملة: ${g.campaign_name}` : '', g.ad_name ? `إعلان: ${g.ad_name}` : '', ...extra].filter(Boolean).join(' — ').slice(0, 1900);
+   const x = readLead({ fullName, phone, email: f.email ?? '', notes, kind: 'fresh' });
+   const lead = await db.tx(async (q: Q) => {
++    // one Meta lead at a time across webhook deliveries and sync runs (a transaction-scoped advisory lock, released at
++    // commit), then checked again inside the lock: two concurrent takers never both add it, nor hit the unique index
++    if (metaId) {
++      await q.query(`SELECT pg_advisory_xact_lock(hashtext('meta_lead:' || $1))`, [metaId]);
++      if (await one(q, `SELECT 1 FROM leads WHERE meta_lead_id = $1`, [metaId])) return 'exists' as const;
++    }
+     x.projectId ??= c.project_id ?? null; x.channelId ??= c.channel_id ?? null; x.campaignId = c.id;
+     // the same number twice on the same campaign the same day: once
+     if (await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`,
+@@ -53,7 +59,7 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
+     if (metaId) await q.query(`UPDATE leads SET meta_lead_id = $2 WHERE id = $1`, [l.id, metaId]);
+     return l;
+   });
+-  return lead ? 'added' : 'skipped';
++  return lead === 'exists' ? 'exists' : lead ? 'added' : 'skipped';
+ }
+ 
+ /** the token a page's leads are read with: its own, else the office's saved one */
+@@ -139,9 +145,9 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
+  */
+ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
+   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
+-      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - interval '5 minutes')
++      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - make_interval(mins => $2))
+         AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
+-      RETURNING 1`, [now]);
++      RETURNING 1`, [now, CLAIM_MINUTES]);
+   if (!claimed) {
+     const it = await one(db, `SELECT active, access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages) AS connected FROM integrations WHERE source = 'meta'`);
+     return { ran: false, reason: !it?.active ? 'off' : !it.connected ? 'not_connected' : 'recent' };
+@@ -149,7 +155,11 @@ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: bo
+   if (!(await one(db, `SELECT 1 FROM lead_campaigns WHERE active AND cardinality(meta_campaign_ids) > 0 LIMIT 1`))) {
+     return { ran: false, reason: 'no_linked_campaigns' };
+   }
+-  const r = await syncMeta(db, now, { deadlineMs: 45_000 });
++  // the time budget stays inside the function's hard limit (maxDuration 30 s, scripts/vercel-build.mjs): 18 s of work + at
++  // most one Meta request in flight (8 s timeout) + the checkpoint write. A killed run loses nothing: each lead is its own
++  // transaction and the checkpoint (meta_synced_at) only moves after a complete pass, so the next run re-reads the window.
++  // Two scheduled runs cannot overlap: the claim lasts 5 minutes, ten times the longest a run can live.
++  const r = await syncMeta(db, now, { deadlineMs: SCHEDULED_BUDGET_MS });
+   return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
+ }
+ 
+diff --git a/api/test/meta-oauth-routes.test.ts b/api/test/meta-oauth-routes.test.ts
+index e2ecebc..d79110e 100644
+--- a/api/test/meta-oauth-routes.test.ts
++++ b/api/test/meta-oauth-routes.test.ts
+@@ -1,21 +1,30 @@
+ import { test, before, after } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { harness, cast, type Harness } from './helpers.ts';
+-import { signState } from '../src/lib/meta-oauth.ts';
++import { STATE_ACTION, nonceHash, signStateWith, verifyState } from '../src/lib/meta-oauth.ts';
+ 
+ /**
+- * Official Meta OAuth (lib/meta-oauth.ts, routes in modules/integrations.ts): start → Meta → callback → sealed token +
+- * connected pages; status; who may do it. Meta's endpoints are faked; nothing reaches the network.
++ * Official Meta OAuth (lib/meta-oauth.ts, routes in modules/integrations.ts): start → Meta → callback. The state is
++ * single-use (its nonce recorded in action_otps and consumed atomically); the token must be a valid user token of our app
++ * with the required permissions; a failure never replaces a working connection. Meta is faked; nothing reaches the network.
+  */
+ let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
+ const realFetch = globalThis.fetch;
+-const KEYS = ['SECRETS_KEY', 'META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI'] as const;
++const KEYS = ['SECRETS_KEY', 'META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI', 'META_APP_SECRETS'] as const;
+ const saved: Record<string, string | undefined> = {};
+-const codes = new Set(['GOOD-CODE-123456']);   // Meta's codes are single-use
++const APP = '1234567890';
++// each code is single-use at Meta and maps to the long-lived token it yields
++const codes = new Map<string, string>();
++const tokens: Record<string, { app: string; valid: boolean; granted: string[] }> = {};
++const ALL = ['pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management', 'business_management'];
++const code = (id: string, long: string, t: { app?: string; valid?: boolean; granted?: string[] } = {}) => {
++  codes.set(id, long); tokens[long] = { app: t.app ?? APP, valid: t.valid ?? true, granted: t.granted ?? ALL };
++};
+ before(async () => {
+   for (const k of KEYS) saved[k] = process.env[k];
++  delete process.env.META_APP_SECRETS;
+   Object.assign(process.env, {
+-    SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'), META_APP_ID: '1234567890', META_APP_SECRET: 'app-secret-0123456789abcdef',
++    SECRETS_KEY: Buffer.alloc(32, 5).toString('base64'), META_APP_ID: APP, META_APP_SECRET: 'app-secret-0123456789abcdef',
+     META_OAUTH_REDIRECT_URI: 'https://api.example.com/public/meta/oauth/callback',
+   });
+   h = await harness('2026-11-25T10:00:00Z'); c = await cast(h);
+@@ -24,22 +33,25 @@ before(async () => {
+     if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
+     const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
+     const path = u.pathname.replace(/^\/v[0-9]+\.0\//, '');
+-    const tok = u.searchParams.get('access_token');
++    const tok = u.searchParams.get('access_token') ?? '';
+     if (path === 'oauth/access_token' && u.searchParams.get('code')) {
+       assert.equal(u.searchParams.get('redirect_uri'), 'https://api.example.com/public/meta/oauth/callback', 'the registered redirect, always');
+-      if (!codes.delete(u.searchParams.get('code')!)) return j({ error: { message: 'This authorization code has been used. access_token=EAAleakleakleakleak' } }, 400);
+-      return j({ access_token: 'SHORT-USER-TOKEN-xxxxxxxx' });
++      const long = codes.get(u.searchParams.get('code')!);
++      if (!long) return j({ error: { message: 'This authorization code has been used. access_token=EAAleakleakleakleak' } }, 400);
++      codes.delete(u.searchParams.get('code')!);
++      return j({ access_token: `SHORT-${long}` });
+     }
+-    if (path === 'oauth/access_token' && u.searchParams.get('grant_type') === 'fb_exchange_token') return j({ access_token: 'LONG-USER-TOKEN-xxxxxxxxx', expires_in: 5_184_000 });
+-    if (path === 'me/permissions' && tok === 'LONG-USER-TOKEN-xxxxxxxxx') {
+-      return j({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'leads_retrieval', status: 'declined' }] });
++    if (path === 'oauth/access_token' && u.searchParams.get('grant_type') === 'fb_exchange_token') {
++      return j({ access_token: String(u.searchParams.get('fb_exchange_token')).replace(/^SHORT-/, ''), expires_in: 5_184_000 });
+     }
+-    if (path === 'me/accounts' && tok === 'LONG-USER-TOKEN-xxxxxxxxx') return j({ data: [{ id: '2001', name: 'Value Group', access_token: 'PAGE-OAUTH-A' }] });
+-    if (path.endsWith('/subscribed_apps')) return j({ success: true });
+     if (path === 'debug_token') {
+-      assert.equal(tok, '1234567890|app-secret-0123456789abcdef', 'debug_token uses the app token, server side');
+-      return j({ data: { is_valid: true, expires_at: 1_800_000_000, scopes: ['pages_show_list', 'pages_manage_metadata'] } });
++      assert.equal(tok, `${APP}|app-secret-0123456789abcdef`, 'debug_token uses the app token, server side');
++      const t = tokens[u.searchParams.get('input_token') ?? ''];
++      return j({ data: t ? { is_valid: t.valid, app_id: t.app, type: 'USER', expires_at: 1_800_000_000, scopes: t.granted } : { is_valid: false } });
+     }
++    if (path === 'me/permissions' && tokens[tok]) return j({ data: ALL.map((p) => ({ permission: p, status: tokens[tok].granted.includes(p) ? 'granted' : 'declined' })) });
++    if (path === 'me/accounts' && tokens[tok]) return j({ data: [{ id: '2001', name: 'Value Group', access_token: `PAGE-OF-${tok}` }] });
++    if (path.endsWith('/subscribed_apps')) return j({ success: true });
+     return j({ error: { message: `unexpected ${path}` } }, 400);
+   }) as typeof fetch;
+ });
+@@ -49,68 +61,139 @@ after(async () => {
+   await h.close();
+ });
+ 
+-test('start: only a person with leads.config (never an employee without it); the dialog URL carries a signed state, not the secret', async () => {
++/** a state through the real start route (its nonce recorded) */
++const start = async (token = c.t.acc) => {
++  const r = await h.call(token, 'POST', '/integrations/meta/oauth/start', {});
++  assert.equal(r.status, 200, JSON.stringify(r.body));
++  return new URL(r.body.url).searchParams.get('state')!;
++};
++const cb = (q: string) => h.call(null, 'GET', `/public/meta/oauth/callback?${q}`);
++const withState = (codeId: string, state: string) => cb(`code=${codeId}&state=${encodeURIComponent(state)}`);
++const meta = async () => (await h.db.query(`SELECT access_token, active, last_error FROM integrations WHERE source = 'meta'`)).rows[0];
++
++test('start: only a person with leads.config; the URL carries a signed state, never the secret; its nonce is recorded hashed', async () => {
+   assert.equal((await h.call(null, 'POST', '/integrations/meta/oauth/start', {})).status, 401);
+   assert.equal((await h.call(c.t.e1, 'POST', '/integrations/meta/oauth/start', {})).status, 403);
+   const r = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
+-  assert.equal(r.status, 200, JSON.stringify(r.body));
+   assert.equal(r.body.configured, true);
+-  const u = new URL(r.body.url);
+-  assert.equal(u.hostname, 'www.facebook.com');
+-  assert.ok(u.searchParams.get('state')!.includes('.'));
+-  assert.ok(!r.body.url.includes('app-secret'), 'the app secret never leaves the server');
++  assert.ok(!r.body.url.includes('app-secret'));
++  const st = verifyState(new URL(r.body.url).searchParams.get('state'), h.now.value) as any;
++  const row = (await h.db.query(`SELECT code_hash, used_at, expires_at FROM action_otps WHERE employee_id = $1 AND action = $2 ORDER BY created_at DESC LIMIT 1`,
++    [c.ids.acc, STATE_ACTION])).rows[0];
++  assert.equal(row.code_hash, nonceHash(c.ids.acc, st.nonce), 'stored as a hash, bound to the person');
++  assert.ok(!JSON.stringify(row).includes(st.nonce), 'the nonce itself is never stored');
++  assert.equal(row.used_at, null);
++});
++
++test('a valid state succeeds once; the same state is refused the second time', async () => {
++  code('CODE-ONCE-0000001', 'LONG-TOKEN-AAAAAAAAAAAAAAAAAAAA');
++  const st = await start();
++  const first = await withState('CODE-ONCE-0000001', st);
++  assert.equal(first.status, 200, first.raw.toString());
++  code('CODE-ONCE-0000002', 'LONG-TOKEN-BBBBBBBBBBBBBBBBBBBB');
++  const again = await withState('CODE-ONCE-0000002', st);
++  assert.equal(again.status, 400, 'replayed state');
++  assert.ok(codes.has('CODE-ONCE-0000002'), 'refused before any exchange with Meta');
++  const it = await meta();
++  assert.ok(it.active && it.access_token.startsWith('enc:v1:'), 'sealed at rest');
++});
++
++test('two concurrent callbacks with the same state: exactly one consumes it', async () => {
++  code('CODE-RACE-0000001', 'LONG-TOKEN-RACE1RACE1RACE1RACE1'); code('CODE-RACE-0000002', 'LONG-TOKEN-RACE2RACE2RACE2RACE2');
++  const st = await start();
++  const [a, b] = await Promise.all([withState('CODE-RACE-0000001', st), withState('CODE-RACE-0000002', st)]);
++  assert.deepEqual([a.status, b.status].sort(), [200, 400]);
++  const used = (await h.db.query(`SELECT count(*)::int n FROM action_otps WHERE action = $1 AND code_hash = $2 AND used_at IS NOT NULL`,
++    [STATE_ACTION, nonceHash(c.ids.acc, (verifyState(st, h.now.value) as any).nonce)])).rows[0].n;
++  assert.equal(used, 1);
+ });
+ 
+-test('callback: a bad / foreign state, a declined dialog or a reused code connects nothing; errors never echo Meta tokens', async () => {
+-  const cb = (q: string) => h.call(null, 'GET', `/public/meta/oauth/callback?${q}`);
+-  assert.equal((await cb('code=GOOD-CODE-123456&state=forged.sig')).status, 400);
+-  // a valid state of a person who may not manage Meta
+-  const e1 = (await h.db.query(`SELECT id FROM employees WHERE id = $1`, [c.ids.e1])).rows[0].id;
+-  assert.equal((await cb(`code=GOOD-CODE-123456&state=${encodeURIComponent(signState(e1, h.now.value))}`)).status, 403);
+-  assert.equal((await cb(`error=access_denied&error_reason=user_denied&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`)).status, 400);
+-  const reused = await cb(`code=USED-CODE-0000000&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`);
++test('expired, forged, wrong-person and unrecorded states fail; nothing is exchanged', async () => {
++  code('CODE-NEVER-000001', 'LONG-TOKEN-NEVERNEVERNEVERNEVER');
++  const st = await start();
++  // forged: not our signature
++  assert.equal((await withState('CODE-NEVER-000001', 'eyJhIjoieCJ9.c2ln')).status, 400);
++  // wrong person: a correctly signed state naming the owner, carrying the accountant's recorded nonce
++  const nonce = (verifyState(st, h.now.value) as any).nonce;
++  const wrong = signStateWith(c.ids.owner, nonce, h.now.value.getTime() + 5 * 60_000);
++  assert.equal((await withState('CODE-NEVER-000001', wrong)).status, 400);
++  // signed but never issued by the start route (no recorded nonce)
++  assert.equal((await withState('CODE-NEVER-000001', signStateWith(c.ids.acc, 'A'.repeat(22), h.now.value.getTime() + 60_000))).status, 400);
++  // expired: 10 minutes later
++  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);
++  assert.equal((await withState('CODE-NEVER-000001', st)).status, 400);
++  assert.ok(codes.has('CODE-NEVER-000001'), 'Meta was never asked');
++});
++
++test('a person whose permission was revoked after starting cannot complete the callback', async () => {
++  code('CODE-REVOKED-0001', 'LONG-TOKEN-REVOKEDREVOKEDREVOKED');
++  const before = await meta();
++  // the sales manager is granted leads.config personally, starts, then the grant is turned into a denial
++  await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow) VALUES ($1, 'leads.config', true)
++                    ON CONFLICT (employee_id, perm_key) DO UPDATE SET allow = true`, [c.ids.sm1]);
++  const st = await start(c.t.sm1);
++  await h.db.query(`UPDATE employee_permissions SET allow = false WHERE employee_id = $1 AND perm_key = 'leads.config'`, [c.ids.sm1]);
++  const r = await withState('CODE-REVOKED-0001', st);
++  assert.equal(r.status, 403, r.raw.toString());
++  assert.deepEqual(await meta(), before, 'nothing changed');
++});
++
++test('missing required permissions: the token is not kept and a working connection stays as it was', async () => {
++  const before = await meta();
++  code('CODE-PARTIAL-0001', 'LONG-TOKEN-PARTIALPARTIALPARTIAL', { granted: ['pages_show_list', 'business_management'] });
++  const r = await withState('CODE-PARTIAL-0001', await start());
++  assert.equal(r.status, 400);
++  assert.ok(r.raw.toString().includes('leads_retrieval'), 'the missing permission is named');
++  assert.deepEqual(await meta(), before, 'not replaced, not switched off');
++  const a = (await h.db.query(`SELECT after FROM audit_log WHERE action = 'integration.meta_oauth_incomplete' ORDER BY created_at DESC LIMIT 1`)).rows[0];
++  assert.ok(JSON.stringify(a.after).includes('leads_retrieval') && !JSON.stringify(a.after).includes('LONG-TOKEN'));
++});
++
++test('a token of another Meta app, or an invalid one, is refused; errors are redacted', async () => {
++  const before = await meta();
++  code('CODE-OTHERAPP-001', 'LONG-TOKEN-OTHERAPPOTHERAPPOTHER', { app: '999999' });
++  assert.equal((await withState('CODE-OTHERAPP-001', await start())).status, 502);
++  code('CODE-INVALID-0001', 'LONG-TOKEN-INVALIDINVALIDINVALID', { valid: false });
++  assert.equal((await withState('CODE-INVALID-0001', await start())).status, 502);
++  const reused = await withState('CODE-USED-0000001', await start());   // Meta: code already used (its error carries a token)
+   assert.equal(reused.status, 502);
+   assert.ok(!reused.raw.toString().includes('EAAleak'));
+-  const err = (await h.db.query(`SELECT last_error, access_token FROM integrations WHERE source = 'meta'`)).rows[0];
+-  assert.ok(!String(err?.last_error ?? '').includes('EAAleak'), 'the kept error is redacted');
+-  assert.equal(err?.access_token ?? null, null, 'nothing stored on a failure');
++  const it = await meta();
++  assert.equal(it.access_token, before.access_token, 'the working token stays');
++  assert.ok(!String(it.last_error ?? '').includes('EAAleak'), 'the kept error is redacted');
+ });
+ 
+-test('callback: the code becomes a long-lived token, sealed at rest; the pages are connected; missing permissions are reported', async () => {
+-  const r = await h.call(null, 'GET', `/public/meta/oauth/callback?code=GOOD-CODE-123456&state=${encodeURIComponent(signState(c.ids.acc, h.now.value))}`);
+-  const html = r.raw.toString();
+-  assert.equal(r.status, 200, html);
+-  assert.match(r.headers.get('content-type') ?? '', /text\/html/);
+-  assert.ok(!html.includes('LONG-USER-TOKEN') && !html.includes('PAGE-OAUTH-A'), 'no token on the page');
+-  assert.ok(html.includes('leads_retrieval'), 'the declined permission is named');
+-  const it = (await h.db.query(`SELECT access_token, active FROM integrations WHERE source = 'meta'`)).rows[0];
+-  assert.ok(it.active && it.access_token.startsWith('enc:v1:') && !it.access_token.includes('LONG-USER'), 'sealed (VA-05)');
+-  const pages = (await h.db.query(`SELECT page_id, access_token, subscribed FROM meta_pages`)).rows;
++test('reconnection updates the same page (no duplicate) and its token', async () => {
++  code('CODE-RECONNECT-01', 'LONG-TOKEN-RECONNECTRECONNECTREC');
++  assert.equal((await withState('CODE-RECONNECT-01', await start())).status, 200);
++  const pages = (await h.db.query(`SELECT page_id, access_token FROM meta_pages`)).rows;
+   assert.deepEqual(pages.map((p) => p.page_id), ['2001']);
+-  assert.ok(pages[0].subscribed && pages[0].access_token.startsWith('enc:v1:'));
+-  const audit = (await h.db.query(`SELECT action FROM audit_log WHERE action LIKE 'integration.meta_oauth%'`)).rows.map((x) => x.action);
+-  assert.ok(audit.includes('integration.meta_oauth_connected'));
++  assert.ok(pages[0].access_token.startsWith('enc:v1:'));
+ });
+ 
+-test('status: connection, expiry and missing scopes, without any token; employees without the permission are refused', async () => {
++test('status: validity, expiry and missing permissions, without any token or secret; employees are refused', async () => {
+   assert.equal((await h.call(c.t.e1, 'GET', '/integrations/meta/oauth/status')).status, 403);
+   const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
+   assert.equal(s.status, 200, JSON.stringify(s.body));
+-  assert.equal(s.body.configured, true);
+   assert.equal(s.body.connected, true);
+   assert.equal(s.body.tokenValid, true);
+   assert.equal(s.body.expiresAt, new Date(1_800_000_000 * 1000).toISOString());
+-  assert.ok(s.body.missingScopes.includes('leads_retrieval'));
+-  assert.equal(s.body.pages.n, 1);
+-  assert.ok(!JSON.stringify(s.body).match(/TOKEN|PAGE-OAUTH|app-secret/));
++  assert.deepEqual(s.body.missingRequired, []);
++  assert.ok(!JSON.stringify(s.body).match(/LONG-TOKEN|PAGE-OF|app-secret/));
++});
++
++test('the start rate limit is kept in the database (5 per 10 minutes per person)', async () => {
++  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);
++  for (let i = 0; i < 5; i++) assert.equal((await h.call(c.t.owner, 'POST', '/integrations/meta/oauth/start', {})).status, 200);
++  assert.equal((await h.call(c.t.owner, 'POST', '/integrations/meta/oauth/start', {})).status, 429);
+ });
+ 
+-test('not configured: start answers which settings are missing (names only); the callback refuses', async () => {
+-  const id = process.env.META_APP_ID; delete process.env.META_APP_ID;
++test('not configured — including META_APP_SECRETS alone: start names what is missing; the callback refuses', async () => {
++  const secret = process.env.META_APP_SECRET; delete process.env.META_APP_SECRET;
++  process.env.META_APP_SECRETS = 'webhook-signing-secret-0123456789';
+   try {
+     const r = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
+-    assert.equal(r.status, 200);
+-    assert.deepEqual(r.body, { configured: false, missing: ['META_APP_ID'] });
+-    assert.equal((await h.call(null, 'GET', '/public/meta/oauth/callback?code=x&state=y')).status, 503);
+-  } finally { process.env.META_APP_ID = id; }
++    assert.deepEqual(r.body, { configured: false, missing: ['META_APP_SECRET'] });
++    assert.equal((await cb('code=x&state=y')).status, 503);
++  } finally { process.env.META_APP_SECRET = secret; delete process.env.META_APP_SECRETS; }
+ });
+diff --git a/api/test/meta-oauth.test.ts b/api/test/meta-oauth.test.ts
+index 2579a5c..ece36fb 100644
+--- a/api/test/meta-oauth.test.ts
++++ b/api/test/meta-oauth.test.ts
+@@ -1,9 +1,11 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+ import {
+-  META_SCOPES, callbackPage, codeExchangeUrl, dialogUrl, graphVersion, longLivedUrl, missingScopes, oauthConfig,
+-  redirectUriOk, safeMetaError, signState, verifyState,
++  META_SCOPES, META_SCOPES_LATER_INSIGHTS, META_SCOPES_OPTIONAL, META_SCOPES_REQUIRED, callbackPage, codeExchangeUrl, dialogUrl,
++  graphVersion, longLivedUrl, metaFetch, missingScopes, newState, nonceHash, oauthConfig, redirectUriOk, safeMetaError, signStateWith,
++  tokenFrom, tokenIsOurs, verifyState,
+ } from '../src/lib/meta-oauth.ts';
++const signState = (actor: string, at: Date, e: Record<string, string | undefined>) => newState(actor, at, e).state;
+ 
+ /** Meta OAuth (official Facebook Login, server-side code flow) — the rules that need no network or database */
+ const KEY = Buffer.alloc(32, 9).toString('base64');
+@@ -20,9 +22,10 @@ test('configuration: names (never values) of what is missing; no SECRETS_KEY →
+   assert.equal(none.ok, false);
+   assert.deepEqual((none as any).missing, ['META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI', 'SECRETS_KEY']);
+   assert.ok(!JSON.stringify(oauthConfig(env({ SECRETS_KEY: undefined }))).includes('abcdef0123'), 'the secret is never echoed');
+-  // a single webhook signing secret doubles as the app secret; several are ambiguous
+-  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef' })).ok, true);
+-  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef,fedcba9876543210fedcba' })).ok, false);
++  // the webhook signing secrets are never used as the OAuth app secret (separate credentials)
++  const borrowed = oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef' }));
++  assert.equal(borrowed.ok, false);
++  assert.deepEqual((borrowed as any).missing, ['META_APP_SECRET']);
+ });
+ 
+ test('redirect URI: exactly our callback over https; http only on a local non-production API', () => {
+@@ -37,8 +40,14 @@ test('redirect URI: exactly our callback over https; http only on a local non-pr
+ test('state: signed, bound to the person, expires in 10 minutes, tamper-proof', () => {
+   const e = env();
+   const s = signState('emp-1', now, e);
+-  assert.deepEqual(verifyState(s, now, e), { ok: true, actorId: 'emp-1' });
+-  assert.deepEqual(verifyState(s, new Date(now.getTime() + 9 * 60_000), e), { ok: true, actorId: 'emp-1' });
++  const v = verifyState(s, now, e) as any;
++  assert.equal(v.ok, true); assert.equal(v.actorId, 'emp-1'); assert.match(v.nonce, /^[A-Za-z0-9_-]{16,64}$/);
++  assert.equal((verifyState(s, new Date(now.getTime() + 9 * 60_000), e) as any).actorId, 'emp-1');
++  // the stored hash is bound to the person: the same nonce under another person's id is a different hash
++  assert.notEqual(nonceHash('emp-1', v.nonce), nonceHash('emp-2', v.nonce));
++  assert.equal(nonceHash('emp-1', v.nonce), nonceHash('emp-1', v.nonce));
++  // a signed state with a malformed nonce is refused
++  assert.equal((verifyState(signStateWith('emp-1', 'x', now.getTime() + 60_000, e), now, e) as any).reason, 'malformed');
+   assert.equal((verifyState(s, new Date(now.getTime() + 10 * 60_000 + 1), e) as any).reason, 'expired');
+   assert.notEqual(signState('emp-1', now, e), s, 'a fresh nonce each time');
+   // another person's id spliced into the payload
+@@ -71,6 +80,40 @@ test('URLs: the login dialog asks the minimum scopes with the fixed redirect; th
+   assert.equal(graphVersion({ META_GRAPH_VERSION: '25; DROP' }), 'v21.0', 'an invalid version falls back');
+ });
+ 
++test('least privilege: required vs optional vs later (Insights) scopes; ads_read is not asked yet', () => {
++  assert.deepEqual([...META_SCOPES], [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL]);
++  assert.ok(META_SCOPES_REQUIRED.includes('leads_retrieval') && META_SCOPES_REQUIRED.includes('pages_manage_metadata'));
++  assert.ok(META_SCOPES_LATER_INSIGHTS.every((s) => !(META_SCOPES as readonly string[]).includes(s)), 'later scopes are not requested');
++  assert.equal(new Set(META_SCOPES).size, META_SCOPES.length, 'no duplicates');
++});
++
++test('token answers are validated; only a valid user token of our app is accepted', () => {
++  assert.deepEqual(tokenFrom({ access_token: 'EAAB' + 'x'.repeat(40), expires_in: 5_184_000 }), { token: 'EAAB' + 'x'.repeat(40), expiresIn: 5_184_000 });
++  for (const bad of [null, {}, { access_token: '' }, { access_token: 'short' }, { access_token: 123 }, { access_token: 'has space '.repeat(5) }]) {
++    assert.throws(() => tokenFrom(bad), /no valid access token/);
++  }
++  assert.equal(tokenFrom({ access_token: 'T'.repeat(30) }).expiresIn, null, 'no expires_in → unknown, not 0');
++  assert.ok(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'USER' } }, '1234567890'));
++  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '999', type: 'USER' } }, '1234567890'), false, 'another app');
++  assert.equal(tokenIsOurs({ data: { is_valid: false, app_id: '1234567890' } }, '1234567890'), false, 'revoked / expired');
++  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'PAGE' } }, '1234567890'), false, 'not a user token');
++  assert.equal(tokenIsOurs(null, '1234567890'), false);
++});
++
++test('metaFetch: a network failure or timeout never surfaces the URL (token / secret / code)', async () => {
++  const real = globalThis.fetch;
++  try {
++    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED https://graph.facebook.com/x?client_secret=SECRET&code=CODE') }); }) as any;
++    await assert.rejects(metaFetch('https://graph.facebook.com/x?client_secret=SECRET&code=CODE'), (e: any) => {
++      assert.equal(e.message, 'Meta could not be reached'); assert.equal(e.cause, undefined); return true;
++    });
++    globalThis.fetch = (async () => { const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; }) as any;
++    await assert.rejects(metaFetch('https://graph.facebook.com/x?access_token=EAAsecret'), /did not answer in time/);
++    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: 'Invalid OAuth access token.' } }), { status: 400 })) as any;
++    await assert.rejects(metaFetch('https://graph.facebook.com/x?access_token=EAAsecret'), /Invalid OAuth access token/);
++  } finally { globalThis.fetch = real; }
++});
++
+ test('permissions: what was not granted is reported (declined ≠ granted)', () => {
+   assert.deepEqual(missingScopes({ data: META_SCOPES.map((p) => ({ permission: p, status: 'granted' })) }), []);
+   assert.deepEqual(missingScopes({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'leads_retrieval', status: 'declined' }] }),
+diff --git a/api/test/meta-sync-limits.test.ts b/api/test/meta-sync-limits.test.ts
+new file mode 100644
+index 0000000..e43a6b4
+--- /dev/null
++++ b/api/test/meta-sync-limits.test.ts
+@@ -0,0 +1,13 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { CLAIM_MINUTES, FUNCTION_MAX_SECONDS, META_REQUEST_TIMEOUT_MS, SCHEDULED_BUDGET_MS } from '../src/lib/meta-sync-limits.ts';
++
++/** two scheduled Meta syncs cannot overlap: a run dies (platform limit) long before its 5-minute claim lapses */
++test('budget + one request < the function limit (read from vercel-build.mjs) < the claim', () => {
++  const m = readFileSync(new URL('../scripts/vercel-build.mjs', import.meta.url), 'utf8').match(/maxDuration:\s*(\d+)/);
++  assert.ok(m, 'maxDuration is set in vercel-build.mjs');
++  assert.equal(Number(m![1]), FUNCTION_MAX_SECONDS, 'the constant matches the deployed limit');
++  assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS < FUNCTION_MAX_SECONDS * 1000);
++  assert.ok(FUNCTION_MAX_SECONDS * 1000 < CLAIM_MINUTES * 60_000);
++});
+diff --git a/api/test/meta-sync-run.test.ts b/api/test/meta-sync-run.test.ts
+index d1692b7..0b13a02 100644
+--- a/api/test/meta-sync-run.test.ts
++++ b/api/test/meta-sync-run.test.ts
+@@ -2,11 +2,13 @@ import { test, before, after } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { harness, cast, type Harness } from './helpers.ts';
+ import { seal } from '../src/lib/secretbox.ts';
++import { syncMeta, takeMetaLead } from '../src/modules/meta_sync.ts';
+ 
+ /** the scheduled Meta sync (POST /integrations/meta/sync/run, .github/workflows/meta-sync.yml): no app needs to be open */
+ let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let campaign: string;
+ const realFetch = globalThis.fetch;
+ const TOKEN = 'scheduler-token-0123456789abcdef';
++let metaLeads: any[] = [];
+ const saved = { SECRETS_KEY: process.env.SECRETS_KEY, BACKUP_TOKEN: process.env.BACKUP_TOKEN };
+ const lead = (id: string, phone: string) => ({ id, campaign_id: '777', campaign_name: 'Meta 777', form_id: '9001', created_time: '2026-11-25T09:00:00+0000',
+   field_data: [{ name: 'full_name', values: [`عميل ${id}`] }, { name: 'phone_number', values: [phone] }] });
+@@ -21,13 +23,14 @@ before(async () => {
+   await h.db.query(`UPDATE lead_campaigns SET form_assignees = $2, meta_campaign_ids = '{777}' WHERE id = $1`, [campaign, [c.ids.e1]]);
+   await h.db.query(`INSERT INTO integrations (source, active) VALUES ('meta', true) ON CONFLICT (source) DO UPDATE SET active = true`);
+   await h.db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed) VALUES ('1001', 'Value Group', $1, true)`, [seal('PAGE-A')]);
++  metaLeads = [lead('6001', '01066660001'), lead('6002', '01066660002')];
+   globalThis.fetch = (async (url: any, init: any) => {
+     const u = new URL(String(url));
+     if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
+     const j = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } });
+     const path = u.pathname.replace(/^\/v[0-9]+\.0\//, '');
+     if (path === '1001/leadgen_forms') return j({ data: [{ id: '9001' }] });
+-    if (path === '9001/leads') return j({ data: [lead('6001', '01066660001'), lead('6002', '01066660002')] });
++    if (path === '9001/leads') return j({ data: metaLeads });
+     return j({ data: [] });
+   }) as typeof fetch;
+ });
+@@ -65,3 +68,16 @@ test('switched off: the scheduler is told why and nothing is pulled', async () =
+   assert.deepEqual(r.body, { ran: false, reason: 'off', errors: [] });
+   await h.db.query(`UPDATE integrations SET active = true WHERE source = 'meta'`);
+ });
++
++test('two overlapping passes over the same Meta lead add it once — no duplicate, no unique-index error (per-lead lock)', async () => {
++  metaLeads = [lead('6101', '01066661001')];
++  const [a, b] = await Promise.all([syncMeta(h.db, h.now.value), syncMeta(h.db, h.now.value)]);
++  assert.equal(a.added + b.added, 1);
++  assert.deepEqual([...a.errors, ...b.errors], []);
++  // a webhook delivery of the same lead at the same time: «exists», not an error
++  const both = await Promise.all([takeMetaLead(h.db, lead('6102', '01066661002'), h.now.value), takeMetaLead(h.db, lead('6102', '01066661002'), h.now.value)]);
++  assert.deepEqual(both.sort(), ['added', 'exists']);
++  const n = (await h.db.query(`SELECT meta_lead_id, count(*)::int n FROM leads WHERE meta_lead_id IN ('6101','6102') GROUP BY 1 ORDER BY 1`)).rows;
++  assert.deepEqual(n, [{ meta_lead_id: '6101', n: 1 }, { meta_lead_id: '6102', n: 1 }]);
++});
++
+diff --git a/docs/MARKETING_INTELLIGENCE_PROGRESS.md b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+index 12276a4..04f2307 100644
+--- a/docs/MARKETING_INTELLIGENCE_PROGRESS.md
++++ b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+@@ -30,12 +30,14 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ | Requirement (spec §2) | Implementation | Status |
+ |---|---|---|
+ | Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
+-| Minimum permissions | `META_SCOPES` (documented per Meta's Lead Ads guides) | ✅ |
+-| State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ tested here |
++| Least-privilege permissions | required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management` (Meta's retrieving guide requires it for a lead's `campaign_id`/`ad_id`; no read-only alternative is documented); optional: `business_management` (portfolio pages only); later (Phase 5, not requested): `ads_read` | ✅ |
++| Separate app credentials | `META_APP_SECRET` is its own setting; never borrowed from `META_APP_SECRETS` (webhook signing) | ✅ |
++| State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; **single-use**: nonce recorded hashed in `action_otps` (082, action `meta_oauth_state`) at start, consumed by one atomic `UPDATE … WHERE used_at IS NULL … RETURNING` at callback (no migration needed); one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ unit here · ✅ CI written (replay, concurrent, expired, forged, wrong person, revoked) |
+ | Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
+ | Token stored only on the server, sealed | long-lived token sealed in `integrations.access_token`; OAuth refuses to run without `SECRETS_KEY` | ✅ CI |
+ | No secrets in responses / errors | `safeMetaError` redacts tokens / secrets / codes; landing page has none | ✅ tested here + CI |
+-| Token lifecycle, reconnection, revoked permissions | long-lived exchange; `auth_type=rerequest`; status via `debug_token` (validity, expiry, scopes); «إعادة الربط» | ✅ code · ⛔ real check |
++| Token lifecycle, reconnection, revoked permissions | token answers validated (`tokenFrom`); long-lived exchange; `debug_token` must show a valid USER token **of our app**; missing required permissions → token not kept, a working connection left as it was; reconnection upserts pages (no duplicates); `auth_type=rerequest`; status shows validity, expiry, `missingRequired` | ✅ CI written · ⛔ real check |
++| No secrets in diagnostics | `metaFetch` (all Meta calls, incl. `graph()`) never logs and never surfaces the URL or a network error's cause | ✅ unit here |
+ | Connection status, missing permissions, last sync, errors | `GET /integrations/meta/oauth/status`; Flutter section in `leads_integrations.dart` | ✅ API (CI) · 🟡 Flutter not compiled here |
+ | Pages / ad accounts / campaigns / forms discovery | pages reuse the existing discovery (`connectPages`); campaigns via existing `/integrations/meta/campaigns` | 🟡 ad sets, ads, business-level asset selection → Phase 4 |
+ | Manual token kept for compatibility | unchanged, relabelled «ربط بتوكن (متقدم)» | ✅ |
+@@ -46,7 +48,8 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ |---|---|---|
+ | Webhook ingestion | existing, signed (fail-closed in production) | ✅ existing |
+ | Independent scheduler (no app open) | `POST /integrations/meta/sync/run` (X-Backup-Token or `leads.config`) + `.github/workflows/meta-sync.yml` | ✅ CI · ⛔ needs `BACKUP_TOKEN` repo secret |
+-| One run at a time, idempotent with the webhook | claims `integrations.meta_sync_at`; `leads.meta_lead_id` unique | ✅ CI |
++| One run at a time, idempotent with the webhook | 5-minute claim on `integrations.meta_sync_at`; a run's budget is 18 s (+ one 8 s request) inside the function's 30 s `maxDuration`, so two scheduled runs cannot overlap (`lib/meta-sync-limits.ts`, checked against `vercel-build.mjs`). Manual / per-campaign syncs may overlap a run: each lead is taken under a transaction-scoped advisory lock and re-checked, so it is added once without a unique-index error | ✅ unit here · ✅ CI written |
++| Workflow reliability | fails on: missing secret, 401/403, 5xx / timeout / network after 3 attempts (15 s, 45 s backoff), other statuses, non-JSON answers, a sync that ran with errors; a declined run (off / recent / not connected) is green with a notice; no secret printed | ✅ 10 scenarios run here against a fake API |
+ | Historical sync | existing: 90 days on first link, then from `meta_synced_at` − 1 h | ✅ existing |
+ | Per-source checkpoints, retry/backoff, dead-letter, counters (processed / added / duplicates / rejected) | — needs storage → migration proposal | ⬜ 🔒 schema approval |
+ | Admin retry / resync | existing «اسحب الليدز دلوقتي»; per-campaign resync on link | 🟡 |
+@@ -80,6 +83,19 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ | `app/lib/jph/pages/leads/leads_integrations.dart` | «اربط بحساب فيسبوك» + connection status section |
+ | `.github/workflows/meta-sync.yml` | new scheduled knock |
+ | `api/test/meta-oauth.test.ts` | new unit tests (ran here) |
+-| `api/test/meta-oauth-routes.test.ts`, `api/test/meta-sync-run.test.ts` | new Postgres tests (CI) |
++| `api/src/lib/meta-sync-limits.ts` | new: the scheduled run's time limits |
++| `api/src/auth/action_otp.ts` | the e-mailed code rate limit does not count OAuth state nonces |
++| `api/test/meta-sync-limits.test.ts` | new unit test (ran here) |
++| `api/test/meta-oauth-routes.test.ts`, `api/test/meta-sync-run.test.ts` | Postgres tests (CI): 11 + 4 |
++
++### Test record (2026-11-25, security corrections)
++
++| Kind | Result |
++|---|---|
++| Executed here: every DB-free test file (8 files, incl. 3 new) | **49 passed, 0 failed** |
++| Workflow script against a fake API (10 scenarios) | all exit codes as specified; secret never printed |
++| Typecheck (strict, whole API, Node types) | 0 errors in project code; 2 = `nodemailer` package absent here |
++| Written, not executed (need `pg`; package installs blocked here) | `meta-oauth-routes.test.ts` (11), `meta-sync-run.test.ts` (4) — run in `api-ci.yml` |
++| Flutter | not compiled / analysed (no Flutter SDK here) |
+ 
+ No migration was added. No production data, schema, environment or deployment was changed.
+-- 
+2.43.0
+
+
+From 40d4a646d2467f09482f5f7d0ac8fc52932c2687 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 23:03:55 +0200
+Subject: [PATCH 3/4] Meta OAuth / sync: final correction pass
+
+- tokenIsOurs: debug_token type must be exactly USER (missing / PAGE / APP refused)
+- syncMeta: a wall-clock Budget checked before every Meta request and every lead (eachWithin); no new database work after
+  it; returns complete; the campaigns' checkpoint moves only after a complete pass (budget, 20-page cap, unreadable forms)
+- status: missingRequired vs missingOptional; Flutter shows optional business_management as non-blocking
+- meta-sync.yml: the knock runs only on main; a dispatch from another branch only prints a notice
+- docs: required / optional / future Meta permissions separated; pages_manage_ads in the App Review list; ads_read future only
+
+No migration. Nothing applied to production.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1i64CApfJjQ1sXzvKcgFM
+---
+ .github/workflows/meta-sync.yml               |  9 +++++
+ api/src/lib/meta-oauth.ts                     |  3 +-
+ api/src/lib/meta-sync-limits.ts               | 19 +++++++++
+ api/src/modules/integrations.ts               |  3 +-
+ api/src/modules/meta_sync.ts                  | 40 +++++++++++--------
+ api/test/meta-oauth-routes.test.ts            | 15 +++++++
+ api/test/meta-oauth.test.ts                   | 18 +++++++--
+ api/test/meta-sync-limits.test.ts             | 32 +++++++++++++++
+ api/test/meta-sync-run.test.ts                | 22 ++++++++++
+ .../jph/pages/leads/leads_integrations.dart   |  7 +++-
+ docs/MARKETING_INTELLIGENCE_PROGRESS.md       | 37 +++++++++++++++--
+ 11 files changed, 178 insertions(+), 27 deletions(-)
+
+diff --git a/.github/workflows/meta-sync.yml b/.github/workflows/meta-sync.yml
+index 3416e60..be78782 100644
+--- a/.github/workflows/meta-sync.yml
++++ b/.github/workflows/meta-sync.yml
+@@ -17,7 +17,16 @@ on:
+ permissions: {}
+ concurrency: { group: meta-sync, cancel-in-progress: false }
+ jobs:
++  # Branch guard: only the workflow on main may call the production API. A manual dispatch from any other branch (a review
++  # or feature branch carrying a modified copy of this file) does not run the knock at all — it ends here, green, with a notice.
++  guard:
++    if: github.ref != 'refs/heads/main'
++    runs-on: ubuntu-latest
++    timeout-minutes: 1
++    steps:
++      - run: echo "::notice title=Not run::the Meta sync calls the production API only from main (this run is on ${GITHUB_REF})"
+   knock:
++    if: github.ref == 'refs/heads/main'
+     runs-on: ubuntu-latest
+     timeout-minutes: 5
+     steps:
+diff --git a/api/src/lib/meta-oauth.ts b/api/src/lib/meta-oauth.ts
+index eb6d019..f0763ee 100644
+--- a/api/src/lib/meta-oauth.ts
++++ b/api/src/lib/meta-oauth.ts
+@@ -183,7 +183,8 @@ export function tokenFrom(answer: unknown): { token: string; expiresIn: number |
+ /** debug_token's answer: a valid USER token issued to OUR app (a token of another app is never accepted) */
+ export function tokenIsOurs(debug: unknown, appId: string): boolean {
+   const d = (debug as any)?.data ?? {};
+-  return d.is_valid === true && String(d.app_id ?? '') === appId && (d.type === undefined || d.type === 'USER');
++  // the type must be stated and be USER: a missing type, a PAGE / APP / SYSTEM_USER token is refused
++  return d.is_valid === true && String(d.app_id ?? '') === appId && d.type === 'USER';
+ }
+ 
+ /**
+diff --git a/api/src/lib/meta-sync-limits.ts b/api/src/lib/meta-sync-limits.ts
+index d0da2d6..32c2210 100644
+--- a/api/src/lib/meta-sync-limits.ts
++++ b/api/src/lib/meta-sync-limits.ts
+@@ -8,3 +8,22 @@ export const SCHEDULED_BUDGET_MS = 18_000;
+ export const META_REQUEST_TIMEOUT_MS = 8_000;   // lib/meta-oauth.ts metaFetch
+ export const FUNCTION_MAX_SECONDS = 30;         // scripts/vercel-build.mjs maxDuration
+ export const CLAIM_MINUTES = 5;
++
++/** a wall-clock budget: once spent it stays spent (no new database work or Meta request starts after it) */
++export class Budget {
++  private readonly stopAt: number;
++  constructor(ms: number, private readonly clock: () => number = Date.now) { this.stopAt = clock() + ms; }
++  left(): boolean { return this.clock() < this.stopAt; }
++}
++
++/**
++ * Runs fn on each item in order while the budget lasts — the budget is checked before EVERY item, so a large page of leads
++ * cannot carry the work past it. Returns true only if every item was processed (a complete pass).
++ */
++export async function eachWithin<T>(items: readonly T[], budget: Budget, fn: (item: T) => Promise<void>): Promise<boolean> {
++  for (const item of items) {
++    if (!budget.left()) return false;
++    await fn(item);
++  }
++  return true;
++}
+diff --git a/api/src/modules/integrations.ts b/api/src/modules/integrations.ts
+index 450ab7c..5b61cb2 100644
+--- a/api/src/modules/integrations.ts
++++ b/api/src/modules/integrations.ts
+@@ -320,7 +320,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+     const out: any = {
+       configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
+       lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
+-      pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null,
++      pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null, missingOptional: null,
+     };
+     if (token && c.ok) {
+       try {
+@@ -330,6 +330,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
+         out.expiresAt = d.expires_at ? new Date(Number(d.expires_at) * 1000).toISOString() : null;   // 0 = never expires
+         out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
+         out.missingRequired = out.missingScopes.filter((s: string) => (META_SCOPES_REQUIRED as readonly string[]).includes(s));
++        out.missingOptional = out.missingScopes.filter((s: string) => !(META_SCOPES_REQUIRED as readonly string[]).includes(s));
+       } catch (e) { out.statusError = safeMetaError(e); }
+     }
+     return ok(out);
+diff --git a/api/src/modules/meta_sync.ts b/api/src/modules/meta_sync.ts
+index a215140..581655d 100644
+--- a/api/src/modules/meta_sync.ts
++++ b/api/src/modules/meta_sync.ts
+@@ -5,7 +5,7 @@ import { deliverLead, type RouteMode } from './lead_routing.ts';
+ import { seeMetaCampaign } from './partners.ts';
+ import { unseal } from '../lib/secretbox.ts';
+ import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
+-import { CLAIM_MINUTES, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
++import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin } from '../lib/meta-sync-limits.ts';
+ export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
+ 
+ /**
+@@ -76,44 +76,52 @@ export async function pageToken(db: Db, pageId: string | null): Promise<string |
+  * with the office's token, from the campaigns' ads). Returns how many came in. Never throws: errors are kept on the page /
+  * the integration.
+  */
+-export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[] }> {
+-  const stop = Date.now() + (opts.deadlineMs ?? 20_000);
++export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
++  // the budget is checked before every Meta request and before every lead (each lead is its own transaction, under its
++  // advisory lock): once it is spent no new work starts, so a run ends within budget + one request / one lead
++  const budget = new Budget(opts.deadlineMs ?? 20_000);
+   const errors: string[] = [];
+   let added = 0;
++  // a pass is complete only if nothing was cut short (budget, the 20-page cap, a page whose forms could not be read);
++  // only a complete pass moves the campaigns' checkpoint — otherwise the next run reads the same window again (idempotent)
++  let complete = true;
+   const camps = (await db.query(`SELECT id, meta_campaign_ids, meta_synced_at FROM lead_campaigns
+       WHERE active AND cardinality(meta_campaign_ids) > 0 ${opts.campaignId ? 'AND id = $1' : ''}`, opts.campaignId ? [opts.campaignId] : [])).rows;
+-  if (!camps.length) return { added, errors };
++  if (!camps.length) return { added, errors, complete };
+   const wanted = new Set<string>(camps.flatMap((c) => (c.meta_campaign_ids ?? []).map(String)));
+   // from the oldest sync of these campaigns (a campaign never synced: its last 90 days)
+   const since = new Date(Math.min(...camps.map((c) => (c.meta_synced_at ? new Date(c.meta_synced_at).getTime() - 3_600_000 : now.getTime() - 90 * 86_400_000))));
+   const filtering = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(since.getTime() / 1000) }]));
+   const take = async (g: any) => {
+     if (!wanted.has(String(g?.campaign_id ?? ''))) return;
++    // a lead that cannot be taken (no phone, no project) is reported, not retried forever: it does not make the pass incomplete
+     try { if (await takeMetaLead(db, g, now) === 'added') added++; } catch (e: any) { errors.push(String(e?.message ?? e)); }
+   };
+   const leadsOf = async (edge: string, token: string) => {
+     let next: string | null = `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}`;
+-    for (let page = 0; next && page < 20 && Date.now() < stop; page++) {
++    for (let page = 0; next && page < 20 && budget.left(); page++) {
+       const r: any = await graph(next, token);
+-      for (const g of Array.isArray(r.data) ? r.data : []) await take(g);
++      if (!(await eachWithin(Array.isArray(r.data) ? r.data : [], budget, take))) { complete = false; return; }
+       const after = r?.paging?.cursors?.after;
+       next = r?.paging?.next && after ? `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}&after=${encodeURIComponent(after)}` : null;
+     }
++    if (next) complete = false;   // the budget or the page cap stopped it with pages left
+   };
+   const pages = (await db.query(`SELECT page_id, access_token FROM meta_pages ORDER BY added_at`)).rows;
+   const office = unseal((await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token);
+   // 1) every page's lead forms (a page token reads its own forms' leads)
+   const sources = [...pages.map((p) => ({ id: String(p.page_id), token: unseal(p.access_token) ?? '' })).filter((p) => p.token), ...(office && !pages.length ? [{ id: 'me', token: office }] : [])];
+   for (const p of sources) {
+-    if (Date.now() >= stop) break;
++    if (!budget.left()) { complete = false; break; }
+     try {
+       const forms = await graph(`${p.id}/leadgen_forms?fields=id&limit=100`, p.token);
+       for (const fm of Array.isArray(forms.data) ? forms.data : []) {
+-        if (Date.now() >= stop) break;
++        if (!budget.left()) { complete = false; break; }
+         if (META_ID.test(String(fm.id))) await leadsOf(String(fm.id), p.token);
+       }
+-      if (p.id !== 'me') await db.query(`UPDATE meta_pages SET last_error = NULL WHERE page_id = $1`, [p.id]);
++      if (p.id !== 'me' && budget.left()) await db.query(`UPDATE meta_pages SET last_error = NULL WHERE page_id = $1`, [p.id]);
+     } catch (e: any) {
++      complete = false;
+       const m = String(e?.message ?? e).slice(0, 300);
+       errors.push(m);
+       if (p.id !== 'me') await db.query(`UPDATE meta_pages SET last_error = $2 WHERE page_id = $1`, [p.id, m]);
+@@ -122,19 +130,19 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
+   // 2) the office's (ads) token: the campaigns' ads' leads
+   if (office) {
+     for (const mc of wanted) {
+-      if (Date.now() >= stop) break;
++      if (!budget.left()) { complete = false; break; }
+       try {
+         const ads = await graph(`${mc}/ads?fields=id&limit=200`, office);
+         for (const ad of Array.isArray(ads.data) ? ads.data : []) {
+-          if (Date.now() >= stop) break;
++          if (!budget.left()) { complete = false; break; }
+           if (META_ID.test(String(ad.id))) await leadsOf(String(ad.id), office);
+         }
+-      } catch { /* a page token cannot read ads: the forms above are enough */ }
++      } catch { /* a page token cannot read ads: the forms above are enough (not an incomplete pass) */ }
+     }
+   }
+-  if (Date.now() < stop) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
++  if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
+   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
+-  return { added, errors };
++  return { added, errors, complete };
+ }
+ 
+ /**
+@@ -143,7 +151,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
+  * API instances, at most every 5 minutes), with a longer time budget. Idempotent: every Meta lead comes in once
+  * (leads.meta_lead_id is unique), so a webhook and a scheduled run that see the same lead add it once.
+  */
+-export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
++export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; complete?: boolean; errors?: string[] }> {
+   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
+       WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - make_interval(mins => $2))
+         AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
+@@ -160,7 +168,7 @@ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: bo
+   // transaction and the checkpoint (meta_synced_at) only moves after a complete pass, so the next run re-reads the window.
+   // Two scheduled runs cannot overlap: the claim lasts 5 minutes, ten times the longest a run can live.
+   const r = await syncMeta(db, now, { deadlineMs: SCHEDULED_BUDGET_MS });
+-  return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
++  return { ran: true, added: r.added, complete: r.complete, errors: [...new Set(r.errors)].slice(0, 5) };
+ }
+ 
+ /** every 10 minutes at most (the first request after that pays it, with a short time budget) */
+diff --git a/api/test/meta-oauth-routes.test.ts b/api/test/meta-oauth-routes.test.ts
+index d79110e..8d8103b 100644
+--- a/api/test/meta-oauth-routes.test.ts
++++ b/api/test/meta-oauth-routes.test.ts
+@@ -171,6 +171,20 @@ test('reconnection updates the same page (no duplicate) and its token', async ()
+   assert.ok(pages[0].access_token.startsWith('enc:v1:'));
+ });
+ 
++test('only the optional business_management missing: the connection is kept (not blocking) and status lists it as optional', async () => {
++  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);   // a fresh start-rate window (5 per 10 minutes)
++  code('CODE-NOBIZ-000001', 'LONG-TOKEN-NOBIZNOBIZNOBIZNOBIZ', { granted: ALL.filter((p) => p !== 'business_management') });
++  const r = await withState('CODE-NOBIZ-000001', await start());
++  assert.equal(r.status, 200, r.raw.toString());
++  assert.ok(r.raw.toString().includes('business_management'), 'named as an optional permission');
++  const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
++  assert.deepEqual(s.body.missingRequired, []);
++  assert.deepEqual(s.body.missingOptional, ['business_management']);
++  // back to a full grant for the next test
++  code('CODE-FULL-00000001', 'LONG-TOKEN-FULLFULLFULLFULLFULLF');
++  assert.equal((await withState('CODE-FULL-00000001', await start())).status, 200);
++});
++
+ test('status: validity, expiry and missing permissions, without any token or secret; employees are refused', async () => {
+   assert.equal((await h.call(c.t.e1, 'GET', '/integrations/meta/oauth/status')).status, 403);
+   const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
+@@ -179,6 +193,7 @@ test('status: validity, expiry and missing permissions, without any token or sec
+   assert.equal(s.body.tokenValid, true);
+   assert.equal(s.body.expiresAt, new Date(1_800_000_000 * 1000).toISOString());
+   assert.deepEqual(s.body.missingRequired, []);
++  assert.deepEqual(s.body.missingOptional, []);
+   assert.ok(!JSON.stringify(s.body).match(/LONG-TOKEN|PAGE-OF|app-secret/));
+ });
+ 
+diff --git a/api/test/meta-oauth.test.ts b/api/test/meta-oauth.test.ts
+index ece36fb..03a958a 100644
+--- a/api/test/meta-oauth.test.ts
++++ b/api/test/meta-oauth.test.ts
+@@ -93,11 +93,21 @@ test('token answers are validated; only a valid user token of our app is accepte
+     assert.throws(() => tokenFrom(bad), /no valid access token/);
+   }
+   assert.equal(tokenFrom({ access_token: 'T'.repeat(30) }).expiresIn, null, 'no expires_in → unknown, not 0');
+-  assert.ok(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'USER' } }, '1234567890'));
+-  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '999', type: 'USER' } }, '1234567890'), false, 'another app');
+-  assert.equal(tokenIsOurs({ data: { is_valid: false, app_id: '1234567890' } }, '1234567890'), false, 'revoked / expired');
+-  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'PAGE' } }, '1234567890'), false, 'not a user token');
++  const ours = (data: unknown) => tokenIsOurs({ data }, '1234567890');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'USER' }), true, 'a valid user token of our app');
++  assert.equal(ours({ is_valid: true, app_id: 1234567890, type: 'USER' }), true, 'a numeric app_id is the same app');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890' }), false, 'type missing');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: null }), false, 'type null');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'PAGE' }), false, 'PAGE token');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'APP' }), false, 'APP token');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'SYSTEM_USER' }), false, 'SYSTEM_USER token');
++  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'user' }), false, 'case matters');
++  assert.equal(ours({ is_valid: true, app_id: '999', type: 'USER' }), false, 'wrong app_id');
++  assert.equal(ours({ is_valid: true, type: 'USER' }), false, 'no app_id');
++  assert.equal(ours({ is_valid: false, app_id: '1234567890', type: 'USER' }), false, 'invalid (revoked / expired)');
++  assert.equal(ours({ is_valid: 'true', app_id: '1234567890', type: 'USER' }), false, 'is_valid must be the boolean true');
+   assert.equal(tokenIsOurs(null, '1234567890'), false);
++  assert.equal(tokenIsOurs({}, '1234567890'), false);
+ });
+ 
+ test('metaFetch: a network failure or timeout never surfaces the URL (token / secret / code)', async () => {
+diff --git a/api/test/meta-sync-limits.test.ts b/api/test/meta-sync-limits.test.ts
+index e43a6b4..231d180 100644
+--- a/api/test/meta-sync-limits.test.ts
++++ b/api/test/meta-sync-limits.test.ts
+@@ -11,3 +11,35 @@ test('budget + one request < the function limit (read from vercel-build.mjs) < t
+   assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS < FUNCTION_MAX_SECONDS * 1000);
+   assert.ok(FUNCTION_MAX_SECONDS * 1000 < CLAIM_MINUTES * 60_000);
+ });
++
++import { Budget, eachWithin } from '../src/lib/meta-sync-limits.ts';
++
++test('a large page of leads cannot carry the work past the budget: it is checked before every lead', async () => {
++  let t = 0;
++  const clock = () => t;
++  const budget = new Budget(100, clock);               // 100 ms
++  const seen: number[] = [];
++  const leads = Array.from({ length: 1000 }, (_, i) => i);
++  const done = await eachWithin(leads, budget, async (i) => { seen.push(i); t += 10; });   // each lead takes 10 ms
++  assert.equal(done, false, 'an incomplete pass');
++  assert.equal(seen.length, 10, 'leads started only while budget was left (t = 0..90)');
++  assert.ok(t <= 100, `work ended at the budget (t=${t})`);
++  // once spent, nothing more starts
++  const after: number[] = [];
++  assert.equal(await eachWithin([1, 2, 3], budget, async (i) => { after.push(i); }), false);
++  assert.deepEqual(after, []);
++});
++
++test('enough budget: every lead is processed and the pass is complete; an empty page is complete', async () => {
++  let t = 0;
++  const budget = new Budget(1_000, () => t);
++  const seen: number[] = [];
++  assert.equal(await eachWithin([1, 2, 3], budget, async (i) => { seen.push(i); t += 5; }), true);
++  assert.deepEqual(seen, [1, 2, 3]);
++  assert.equal(await eachWithin([], budget, async () => { throw new Error('never'); }), true);
++});
++
++test('the worst case of a scheduled run stays inside the function limit', () => {
++  // budget + one Meta request in flight when it runs out (a lead's transaction is milliseconds; the checkpoint is one UPDATE)
++  assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS <= (FUNCTION_MAX_SECONDS - 4) * 1000, 'at least 4 s headroom');
++});
+diff --git a/api/test/meta-sync-run.test.ts b/api/test/meta-sync-run.test.ts
+index 0b13a02..60f982e 100644
+--- a/api/test/meta-sync-run.test.ts
++++ b/api/test/meta-sync-run.test.ts
+@@ -81,3 +81,25 @@ test('two overlapping passes over the same Meta lead add it once — no duplicat
+   assert.deepEqual(n, [{ meta_lead_id: '6101', n: 1 }, { meta_lead_id: '6102', n: 1 }]);
+ });
+ 
++
++test('a large page of leads: processing stops at the budget, the pass is incomplete and the checkpoint does not move', async () => {
++  const before = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
++  metaLeads = Array.from({ length: 300 }, (_, i) => lead(String(7000 + i), `0107777${String(i).padStart(4, '0')}`));
++  const t0 = Date.now();
++  const r = await syncMeta(h.db, h.now.value, { deadlineMs: 50 });
++  const elapsed = Date.now() - t0;
++  assert.equal(r.complete, false);
++  assert.ok(r.added < 300, `stopped early (added ${r.added})`);
++  assert.ok(elapsed < 50 + 1_500, `ended near the budget (${elapsed} ms: budget + at most one lead in progress)`);
++  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
++  assert.deepEqual(after, before, 'an incomplete pass never advances the checkpoint');
++  // the next pass with enough time finishes the rest; nothing is added twice
++  h.now.value = new Date(h.now.value.getTime() + 60_000);
++  const rest = await syncMeta(h.db, h.now.value, { deadlineMs: 60_000 });
++  assert.equal(rest.complete, true);
++  assert.equal(r.added + rest.added, 300);
++  const n = (await h.db.query(`SELECT count(*)::int n FROM leads WHERE meta_lead_id::bigint BETWEEN 7000 AND 7299`)).rows[0].n;
++  assert.equal(n, 300);
++  assert.notDeepEqual((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at, before,
++    'a complete pass moves it');
++});
+diff --git a/app/lib/jph/pages/leads/leads_integrations.dart b/app/lib/jph/pages/leads/leads_integrations.dart
+index 6977181..a4ccb8d 100644
+--- a/app/lib/jph/pages/leads/leads_integrations.dart
++++ b/app/lib/jph/pages/leads/leads_integrations.dart
+@@ -252,14 +252,17 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
+   List<Widget> _oauthStatus() {
+     if (_oauth.isEmpty) return const [];
+     final connected = _oauth['connected'] == true;
+-    final missing = ((_oauth['missingScopes'] as List?) ?? const []).cast<Object?>();
++    // required permissions block the connection; optional ones (business_management) only limit what it reaches
++    final missingRequired = ((_oauth['missingRequired'] as List?) ?? const []).cast<Object?>();
++    final missingOptional = ((_oauth['missingOptional'] as List?) ?? const []).cast<Object?>();
+     final expires = DateTime.tryParse('${_oauth['expiresAt'] ?? ''}')?.toLocal();
+     final lines = <String>[
+       if (_oauth['configured'] != true) '${tr('الربط الرسمي مش متجهز على السيرفر — ناقص')}: ${((_oauth['missing'] as List?) ?? const []).join('، ')}',
+       connected ? tr('متربط بحساب فيسبوك ✅') : tr('لسه مش متربط بحساب فيسبوك'),
+       if (_oauth['tokenValid'] == false) tr('الربط انتهى أو اتلغى من فيسبوك — اعمل إعادة ربط'),
+       if (expires != null) '${tr('صلاحية الربط لحد')}: ${expires.year}-${expires.month.toString().padLeft(2, '0')}-${expires.day.toString().padLeft(2, '0')}',
+-      if (missing.isNotEmpty) '${tr('صلاحيات ناقصة')}: ${missing.join('، ')}',
++      if (missingRequired.isNotEmpty) '${tr('صلاحيات مطلوبة ناقصة — اعمل إعادة ربط واسمح بيها')}: ${missingRequired.join('، ')}',
++      if (missingOptional.isNotEmpty) '${tr('صلاحية اختيارية مش متاحة (الربط شغال؛ صفحات الـ Business portfolio بس مش هتظهر)')}: ${missingOptional.join('، ')}',
+       '${tr('آخر سحب')}: ${_when(_oauth['lastSyncAt'])}',
+       if ('${_oauth['lastError'] ?? ''}'.isNotEmpty) '${tr('آخر مشكلة')}: ${_oauth['lastError']}',
+     ];
+diff --git a/docs/MARKETING_INTELLIGENCE_PROGRESS.md b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+index 04f2307..8f24814 100644
+--- a/docs/MARKETING_INTELLIGENCE_PROGRESS.md
++++ b/docs/MARKETING_INTELLIGENCE_PROGRESS.md
+@@ -30,7 +30,7 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ | Requirement (spec §2) | Implementation | Status |
+ |---|---|---|
+ | Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
+-| Least-privilege permissions | required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management` (Meta's retrieving guide requires it for a lead's `campaign_id`/`ad_id`; no read-only alternative is documented); optional: `business_management` (portfolio pages only); later (Phase 5, not requested): `ads_read` | ✅ |
++| Least-privilege permissions | see «Meta permissions» below — required, optional and future are separate lists; the login dialog asks for required + optional only | ✅ |
+ | Separate app credentials | `META_APP_SECRET` is its own setting; never borrowed from `META_APP_SECRETS` (webhook signing) | ✅ |
+ | State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; **single-use**: nonce recorded hashed in `action_otps` (082, action `meta_oauth_state`) at start, consumed by one atomic `UPDATE … WHERE used_at IS NULL … RETURNING` at callback (no migration needed); one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ unit here · ✅ CI written (replay, concurrent, expired, forged, wrong person, revoked) |
+ | Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
+@@ -59,17 +59,29 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ | Phase | Status | Next step |
+ |---|---|---|
+ | 4 Attribution: ad account / ad set / ad, ownership history, office-direct campaigns, drill-down | ⬜ 🔒 | additive migration proposal (ERD, rollback) for owner approval |
+-| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; `ads_read` needs App Review |
++| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; decide and verify the read permission (`ads_read`, future list) and its App Review then |
+ | 6 Lead quality classification (authority pending) | ⬜ 🔒 | proposal with a configurable permission and a pending state; **no authority assigned** |
+ | 7 Automatic KPIs (attendance, sales, manager) | ⬜ 🔒 | source mapping per KPI key; `kpi_results` needs source / calculated_at columns; **no new weights** |
+ | 8 Unified dashboard | ⬜ | after 4–7 |
+ | 9 Security / authorization validation | 🟡 | tests per phase; full review at the end |
+ | 10 Documentation / acceptance | 🟡 | this file |
+ 
++## Meta permissions (`api/src/lib/meta-oauth.ts`)
++
++| List | Permissions | Used for | Asked by the current OAuth |
++|---|---|---|---|
++| **Required** (`META_SCOPES_REQUIRED`) — a grant without any of them is not kept | `pages_show_list`, `pages_read_engagement` | list pages, read their lead forms | yes |
++| | `pages_manage_metadata` | subscribe a page to the `leadgen` webhook | yes |
++| | `pages_manage_ads` | Meta lists it for retrieving all lead and ad-level data | yes |
++| | `leads_retrieval` | read leads (bulk + webhook) | yes |
++| | `ads_management` | a lead's `campaign_id` / `ad_id` (attribution); Meta documents no read-only alternative | yes |
++| **Optional** (`META_SCOPES_OPTIONAL`) — not blocking | `business_management` | pages owned through a business portfolio only | yes |
++| **Future** (`META_SCOPES_LATER_INSIGHTS`) — not requested | `ads_read` | Ads Insights (Phase 5), when approved | **no** |
++
+ ## External configuration still required (nothing set by this work)
+ 
+ 1. **Meta app** (developers.facebook.com): product «Facebook Login» with the Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; Webhooks product, object Page, field `leadgen`, callback `https://<API host>/public/hooks/meta` with the existing verify token.
+-2. **App Review / Advanced Access** for `leads_retrieval`, `pages_manage_metadata`, `pages_read_engagement`, `pages_show_list`, `ads_read`, `ads_management`, `business_management` (only app roles can grant them before review); Business Verification as Meta requires.
++2. **App Review / Advanced Access** for the permissions the current OAuth asks for — required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`; optional: `business_management` (only app roles can grant them before review); Business Verification as Meta requires. `ads_read` is **not** part of this review — it belongs to the later Ads Insights phase.
+ 3. **API host environment** (Vercel): `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, existing `META_APP_SECRETS` and `SECRETS_KEY`; optional `META_GRAPH_VERSION`.
+ 4. **GitHub repository secret** `BACKUP_TOKEN` (same value as on the host) for `meta-sync.yml`.
+ 
+@@ -99,3 +111,22 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
+ | Flutter | not compiled / analysed (no Flutter SDK here) |
+ 
+ No migration was added. No production data, schema, environment or deployment was changed.
++
++### Final correction pass (2026-11-25)
++
++| Finding | Correction |
++|---|---|
++| `tokenIsOurs` accepted a missing type | `debug_token.data.type` must be exactly `USER` (missing / PAGE / APP / SYSTEM_USER refused) |
++| Deadline checked only between page requests | `Budget` + `eachWithin` (`lib/meta-sync-limits.ts`): checked before every Meta request and every lead; no new database work after it; per-lead transaction + advisory lock unchanged |
++| Checkpoint could advance after a cut-short pass | `syncMeta` returns `complete`; the checkpoint moves only after a complete pass (budget, the 20-page cap, or an unreadable page's forms make it incomplete) |
++| Permissions list | required / optional / future separated (table above); `pages_manage_ads` in the App Review list; `ads_read` only in the future list |
++| Flutter status | required missing (blocking, «إعادة ربط») vs optional missing (`business_management`, not blocking) — API status returns `missingRequired` and `missingOptional` |
++| Workflow branch guard | the knock job runs only when `github.ref == refs/heads/main`; a dispatch from another branch only prints a notice. Endpoint and secrets unchanged |
++
++| Kind | Result |
++|---|---|
++| Executed here: every DB-free test file (8 files) | **52 passed, 0 failed** |
++| Workflow knock script against a fake API (9 scenarios) | exit codes as specified; secret never printed |
++| Typecheck (strict, whole API) | 0 errors in project code; 2 = `nodemailer` absent here |
++| Written, not executed (need `pg`) | `meta-oauth-routes.test.ts` (12), `meta-sync-run.test.ts` (5) — CI |
++| Unavailable | Flutter analyse/compile (no SDK); the workflow `if:` branch guard (needs a GitHub Actions run) |
+-- 
+2.43.0
+
+
+From 70c70f5e67293627465470e8f558ed4e91b5153c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 25 Nov 2026 23:08:52 +0200
+Subject: [PATCH 4/4] Meta sync: a final lead that crosses the deadline makes
+ the pass incomplete
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- eachWithin: the budget is also checked after each item returns and once more at the end — a pass whose last lead ran
+  past the deadline no longer reports success
+- syncMeta: passComplete(complete, budget) right before the checkpoint; an overrun pass keeps its checkpoint; optional
+  clock (default Date.now) for deterministic tests
+- regression tests: the final lead starts inside the budget and ends past it (fake clock) → incomplete, checkpoint unchanged;
+  normal completion still advances the checkpoint
+
+No migration. Nothing applied to production.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q1i64CApfJjQ1sXzvKcgFM
+---
+ api/src/lib/meta-sync-limits.ts   | 11 ++++++++---
+ api/src/modules/meta_sync.ts      | 10 +++++++---
+ api/test/meta-sync-limits.test.ts | 28 ++++++++++++++++++++++++++++
+ api/test/meta-sync-run.test.ts    | 29 +++++++++++++++++++++++++++++
+ 4 files changed, 72 insertions(+), 6 deletions(-)
+
+diff --git a/api/src/lib/meta-sync-limits.ts b/api/src/lib/meta-sync-limits.ts
+index 32c2210..da42502 100644
+--- a/api/src/lib/meta-sync-limits.ts
++++ b/api/src/lib/meta-sync-limits.ts
+@@ -17,13 +17,18 @@ export class Budget {
+ }
+ 
+ /**
+- * Runs fn on each item in order while the budget lasts — the budget is checked before EVERY item, so a large page of leads
+- * cannot carry the work past it. Returns true only if every item was processed (a complete pass).
++ * Runs fn on each item in order while the budget lasts. The budget is checked before EVERY item (no new work starts once
++ * it is spent) and again after every item returns — so a pass whose last item ran past the deadline is NOT complete.
++ * Returns true only if every item was processed and the budget was still left at the end.
+  */
+ export async function eachWithin<T>(items: readonly T[], budget: Budget, fn: (item: T) => Promise<void>): Promise<boolean> {
+   for (const item of items) {
+     if (!budget.left()) return false;
+     await fn(item);
++    if (!budget.left()) return false;
+   }
+-  return true;
++  return budget.left();
+ }
++
++/** a pass counts as complete (its checkpoint may move) only if nothing cut it short AND the budget is still left now */
++export const passComplete = (complete: boolean, budget: Budget): boolean => complete && budget.left();
+diff --git a/api/src/modules/meta_sync.ts b/api/src/modules/meta_sync.ts
+index 581655d..14b8911 100644
+--- a/api/src/modules/meta_sync.ts
++++ b/api/src/modules/meta_sync.ts
+@@ -5,7 +5,7 @@ import { deliverLead, type RouteMode } from './lead_routing.ts';
+ import { seeMetaCampaign } from './partners.ts';
+ import { unseal } from '../lib/secretbox.ts';
+ import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
+-import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin } from '../lib/meta-sync-limits.ts';
++import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin, passComplete } from '../lib/meta-sync-limits.ts';
+ export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
+ 
+ /**
+@@ -76,10 +76,10 @@ export async function pageToken(db: Db, pageId: string | null): Promise<string |
+  * with the office's token, from the campaigns' ads). Returns how many came in. Never throws: errors are kept on the page /
+  * the integration.
+  */
+-export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
++export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number; clock?: () => number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
+   // the budget is checked before every Meta request and before every lead (each lead is its own transaction, under its
+   // advisory lock): once it is spent no new work starts, so a run ends within budget + one request / one lead
+-  const budget = new Budget(opts.deadlineMs ?? 20_000);
++  const budget = new Budget(opts.deadlineMs ?? 20_000, opts.clock ?? Date.now);
+   const errors: string[] = [];
+   let added = 0;
+   // a pass is complete only if nothing was cut short (budget, the 20-page cap, a page whose forms could not be read);
+@@ -140,7 +140,11 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
+       } catch { /* a page token cannot read ads: the forms above are enough (not an incomplete pass) */ }
+     }
+   }
++  // the budget is checked once more right before the checkpoint: a pass whose last lead ran past the deadline is
++  // incomplete, and its checkpoint stays where it was (the next run resumes from it — idempotent)
++  complete = passComplete(complete, budget);
+   if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
++  // finalization after this point never touches the checkpoint
+   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
+   return { added, errors, complete };
+ }
+diff --git a/api/test/meta-sync-limits.test.ts b/api/test/meta-sync-limits.test.ts
+index 231d180..beff0ee 100644
+--- a/api/test/meta-sync-limits.test.ts
++++ b/api/test/meta-sync-limits.test.ts
+@@ -43,3 +43,31 @@ test('the worst case of a scheduled run stays inside the function limit', () =>
+   // budget + one Meta request in flight when it runs out (a lead's transaction is milliseconds; the checkpoint is one UPDATE)
+   assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS <= (FUNCTION_MAX_SECONDS - 4) * 1000, 'at least 4 s headroom');
+ });
++
++import { passComplete } from '../src/lib/meta-sync-limits.ts';
++
++test('regression: the final lead starts inside the budget but finishes past it → the pass is NOT complete', async () => {
++  let t = 0;
++  const budget = new Budget(100, () => t);
++  const done: string[] = [];
++  const cost: Record<string, number> = { a: 10, b: 10, final: 200 };   // the final lead starts at t=20 and ends at t=220
++  const startedAt: Record<string, number> = {};
++  const ok = await eachWithin(['a', 'b', 'final'], budget, async (x) => { startedAt[x] = t; t += cost[x]; done.push(x); });
++  assert.equal(startedAt.final, 20, 'the final lead started while the budget was valid');
++  assert.deepEqual(done, ['a', 'b', 'final'], 'its callback completed');
++  assert.equal(t, 220, 'the clock is past the deadline');
++  assert.equal(ok, false, 'eachWithin reports an incomplete pass');
++  assert.equal(passComplete(true, budget), false, 'the checkpoint guard refuses to advance');
++});
++
++test('normal completion inside the budget: complete, and the checkpoint guard allows advancing', async () => {
++  let t = 0;
++  const budget = new Budget(100, () => t);
++  assert.equal(await eachWithin(['a', 'b', 'c'], budget, async () => { t += 10; }), true);
++  assert.equal(passComplete(true, budget), true);
++  assert.equal(passComplete(false, budget), false, 'a pass cut short earlier stays incomplete');
++  // a spent budget with nothing left to process is still not a complete pass
++  t = 500;
++  assert.equal(await eachWithin([], budget, async () => undefined), false);
++  assert.equal(passComplete(true, budget), false);
++});
+diff --git a/api/test/meta-sync-run.test.ts b/api/test/meta-sync-run.test.ts
+index 60f982e..d9dcf4a 100644
+--- a/api/test/meta-sync-run.test.ts
++++ b/api/test/meta-sync-run.test.ts
+@@ -103,3 +103,32 @@ test('a large page of leads: processing stops at the budget, the pass is incompl
+   assert.notDeepEqual((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at, before,
+     'a complete pass moves it');
+ });
++
++test('regression (deterministic clock): the final lead crosses the deadline while it is processed → incomplete, checkpoint unchanged', async () => {
++  h.now.value = new Date(h.now.value.getTime() + 60_000);
++  const before = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
++  metaLeads = [lead('8001', '01088880001'), lead('8002', '01088880002')];
++  // a fake clock that only moves when the FINAL lead's transaction completes (no real waiting)
++  let t = 1_000_000; let txs = 0;
++  const db: any = {
++    query: (...a: any[]) => (h.db.query as any)(...a),
++    tx: async (fn: any) => { const r = await h.db.tx(fn); txs++; if (txs === 2) t += 60_000; return r; },
++  };
++  const r = await syncMeta(db, h.now.value, { deadlineMs: 10_000, clock: () => t });
++  assert.equal(txs, 2, 'both leads were processed (the final one started inside the budget)');
++  assert.equal(r.added, 2, 'the final lead\'s own transaction completed and is kept');
++  assert.equal(r.complete, false, 'the pass is marked incomplete');
++  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
++  assert.deepEqual(after, before, 'the checkpoint did not move');
++});
++
++test('normal completion with the same deterministic clock: complete, and the checkpoint advances to this run', async () => {
++  h.now.value = new Date(h.now.value.getTime() + 60_000);
++  metaLeads = [lead('8101', '01088881001'), lead('8102', '01088881002')];
++  const t = 2_000_000;
++  const r = await syncMeta(h.db, h.now.value, { deadlineMs: 10_000, clock: () => t });
++  assert.equal(r.complete, true);
++  assert.equal(r.added, 2);
++  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
++  assert.equal(new Date(after).toISOString(), h.now.value.toISOString(), 'the checkpoint moved to this run');
++});
+-- 
+2.43.0
+
