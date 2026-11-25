@@ -29,7 +29,7 @@ for (const { rollback, forward } of PAIRS) {
       + `|ADD\\s+(COLUMN|CONSTRAINT)(\\s+IF\\s+NOT\\s+EXISTS)?\\s+${name}\\b)`, 'i').test(fw);
     const dropped: string[] = [];
     for (const m of rb.matchAll(/\bDROP\s+(TABLE|INDEX|TRIGGER|FUNCTION)\s+(IF\s+EXISTS\s+)?([^;]+);/gi)) {
-      const list = m[1].toUpperCase() === 'TRIGGER' ? [m[3].split(/\s+ON\s+/i)[0]] : m[3].split(',');
+      const list = m[1].toUpperCase() === 'TRIGGER' ? [m[3].split(/\s+ON\s+/i)[0]] : m[3].split(/,(?![^(]*\))/);   // commas outside a signature
       for (const x of list) dropped.push(x.trim().replace(/\(.*$/, '').replace(/^public\./, ''));
     }
     for (const m of rb.matchAll(/\bDROP\s+(COLUMN|CONSTRAINT)\s+(IF\s+EXISTS\s+)?(\w+)/gi)) dropped.push(m[3]);
