@@ -113,9 +113,18 @@ jobs:
           done
           grep -q '<base href="/valunivo/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }
           # VA-08 regression guard: the security headers stay in the deployed .htaccess
-          for h in Strict-Transport-Security Referrer-Policy X-Frame-Options Permissions-Policy "Content-Security-Policy \"frame-ancestors 'none'"; do
+          for h in Strict-Transport-Security Referrer-Policy X-Frame-Options Permissions-Policy "Content-Security-Policy \"default-src 'self'"; do
             grep -q "Header always set $h" build/hostinger/.htaccess || { echo "::error::security header missing: $h"; exit 1; }
           done
+          # the enforced CSP: no framing, no inline script (the page has none — the loader is va-loader.js)
+          csp=$(grep -o 'Header always set Content-Security-Policy "[^"]*"' build/hostinger/.htaccess)
+          for d in "frame-ancestors 'none'" "object-src 'none'" "base-uri 'self'" "script-src 'self' 'wasm-unsafe-eval'"; do
+            case "$csp" in *"$d"*) ;; *) echo "::error::CSP lost: $d"; exit 1;; esac
+          done
+          case "$csp" in *"script-src"*"'unsafe-inline'"*"; style-src"*) echo "::error::CSP script-src allows inline"; exit 1;; esac
+          if python3 -c "import re,sys; s=open('build/hostinger/index.html').read(); sys.exit(0 if re.search(r'<script(?![^>]*\\bsrc=)[^>]*>', s) else 1)"; then
+            echo "::error::inline <script> in index.html — the enforced CSP would block it"; exit 1
+          fi
           # nothing secret may ship in the public folder
           if find build/hostinger -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in build"; exit 1; fi
           # no debug leftovers: source maps / Dart sources never ship
