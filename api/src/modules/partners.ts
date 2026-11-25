@@ -12,6 +12,7 @@ import { duplicateWatchers, insertLead, phoneNorm, readLead, refuseExisting, sta
 import { notify } from './notify.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { canOffice } from './cash.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 /**
  * شركات التسويق (db/migrations/075_marketing_partners.sql).
@@ -290,11 +291,13 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
     const kind = req.params.kind as (typeof FILE_KINDS)[number];
     if (!isUuid(req.params.id) || !FILE_KINDS.includes(kind)) throw notFound();
     const { name, mime, data } = readCompanyFile(req.body, kind);
+    if (!(await one(db, `SELECT 1 FROM marketing_companies WHERE id = $1`, [req.params.id]))) throw notFound();
+    const fileId = await storeFile(db, { category: 'marketing_company_file', bytes: data, mime, name, createdBy: a.id });
     await db.tx(async (q) => {
       if (!(await one(q, `SELECT 1 FROM marketing_companies WHERE id = $1`, [req.params.id]))) throw notFound();
-      await q.query(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6)
+      await q.query(...withFile(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6)
                      ON CONFLICT (company_id, kind) DO UPDATE SET file_name = EXCLUDED.file_name, mime = EXCLUDED.mime, data = EXCLUDED.data,
-                       uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`, [req.params.id, kind, name, mime, data, a.id]);
+                       uploaded_by = EXCLUDED.uploaded_by, uploaded_at = now()`, [req.params.id, kind, name, mime, data, a.id], 'data', fileId));
       await audit(q, a.id, 'marketing_company.file', 'marketing_company', req.params.id, undefined, { kind, name, bytes: data.length });
     });
     return ok({ ok: true });
@@ -303,9 +306,9 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
   r.get('/marketing-companies/:id/files/:kind', async (req) => {
     await admin(req);
     if (!isUuid(req.params.id) || !FILE_KINDS.includes(req.params.kind as any)) throw notFound();
-    const f = await one(db, `SELECT file_name, mime, data FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
+    const f = await one(db, `SELECT * FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
     if (!f) throw notFound('مفيش ملف');
-    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+    return ok({ fileName: f.file_name, mime: f.mime, data: (await readFileBytes(db, f.data, f.data_file_id)).toString('base64') });
   });
 
   r.delete('/marketing-companies/:id/files/:kind', async (req) => {
@@ -349,19 +352,20 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
   r.get('/partner/files/:kind', async (req) => {
     const p = await partner(req);
     if (!['contract', 'financial_plan', 'execution_vision', 'logo'].includes(req.params.kind)) throw notFound();
-    const f = await one(db, `SELECT file_name, mime, data FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [p.companyId, req.params.kind]);
+    const f = await one(db, `SELECT * FROM marketing_company_files WHERE company_id = $1 AND kind = $2`, [p.companyId, req.params.kind]);
     if (!f) throw notFound('مفيش ملف');
-    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+    return ok({ fileName: f.file_name, mime: f.mime, data: (await readFileBytes(db, f.data, f.data_file_id)).toString('base64') });
   });
 
   /** «تعديل الحساب» → its photo: the company changes its own logo (the documents stay the office's to upload) */
   r.put('/partner/files/logo', async (req) => {
     const p = await partner(req);
     const { name, mime, data } = readCompanyFile(req.body, 'logo');
+    const fileId = await storeFile(db, { category: 'marketing_company_file', bytes: data, mime, name, createdBy: null });
     await db.tx(async (q) => {
-      await q.query(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,'logo',$2,$3,$4,NULL)
+      await q.query(...withFile(`INSERT INTO marketing_company_files (company_id, kind, file_name, mime, data, uploaded_by) VALUES ($1,'logo',$2,$3,$4,NULL)
                      ON CONFLICT (company_id, kind) DO UPDATE SET file_name = EXCLUDED.file_name, mime = EXCLUDED.mime, data = EXCLUDED.data,
-                       uploaded_by = NULL, uploaded_at = now()`, [p.companyId, name, mime, data]);
+                       uploaded_by = NULL, uploaded_at = now()`, [p.companyId, name, mime, data], 'data', fileId));
       await audit(q, null, 'partner.logo', 'marketing_company', p.companyId, undefined, { name, bytes: data.length });
     });
     return ok({ ok: true });

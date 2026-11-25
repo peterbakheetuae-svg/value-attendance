@@ -116,3 +116,21 @@ test('D3: data-reset refused entirely while posted money records exist; nothing 
   assert.equal(Number((await h.db.query(`SELECT count(*) FROM leads`)).rows[0].count), leadsBefore, 'nothing wiped');
   assert.equal(Number((await h.db.query(`SELECT count(*) FROM advance_requests`)).rows[0].count) >= 1, true);
 });
+
+test('HR document on R2: content NULL, protected class, download intact; a declared type that lies is refused before storage', async () => {
+  const before = objects.size;
+  const doc = pdf(300);
+  const up = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e1}/documents`, { kind: 'other', mime: 'application/pdf', fileName: 'شهادة.pdf', data: doc.toString('base64') });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const row = (await h.db.query(`SELECT content, content_file_id FROM employee_documents WHERE id = $1`, [up.body.id])).rows[0];
+  assert.equal(row.content, null);
+  const f = (await h.db.query(`SELECT status, ref_count, retention_class FROM file_objects WHERE id = $1`, [row.content_file_id])).rows[0];
+  assert.deepEqual([f.status, f.ref_count, f.retention_class], ['verified', 1, 'protected']);
+  assert.equal(objects.size, before + 1);
+  const dl = await h.call(c.t.hr, 'GET', `/documents/${up.body.id}`);
+  assert.equal(dl.status, 200);
+  assert.deepEqual(dl.raw, doc);
+  const liar = await h.call(c.t.hr, 'POST', `/employees/${c.ids.e1}/documents`, { kind: 'other', mime: 'application/pdf', fileName: 'x.pdf', data: Buffer.from('MZ' + 'x'.repeat(200)).toString('base64') });
+  assert.equal(liar.status, 400);
+  assert.equal(objects.size, before + 1, 'nothing stored for a refused file');
+});

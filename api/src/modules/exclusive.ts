@@ -7,6 +7,7 @@ import { audit, authenticate, has, type Actor, can } from '../auth/context.ts';
 import { canHrOperate, canOffice, hrDesk, hrOperators } from './cash.ts';
 import { holdersOf, notify } from './notify.ts';
 import { leadForReservation, leadFromUnit } from './leads.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 /**
  * المشاريع الحصري — see db/migrations/040_exclusive_projects.sql for the rules.
@@ -543,11 +544,12 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       : sig.subarray(1, 4).toString('latin1') === 'PNG' ? 'image/png'
       : sig.subarray(0, 4).toString('latin1') === 'RIFF' && sig.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
     if (!mime) throw invalid('ارفع صورة (JPG / PNG) أو ملف PDF', { field: 'data' });
+    const fileId = await storeFile(db, { category: 'unit_file', bytes: buf, mime, name: fileName, createdBy: a.id });
     const x = await db.tx(async (q) => {
       const n = await one(q, `SELECT count(*)::int AS n FROM ex_unit_files WHERE unit_id = $1 AND kind = $2`, [u.id, kind]);
       if (n.n >= MAX_PER_KIND) throw invalid(`أقصى ${MAX_PER_KIND} ملفات`, { field: 'data' });
-      const f = await one(q, `INSERT INTO ex_unit_files (unit_id, kind, file_name, mime, size_bytes, data, by_id, created_at)
-                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [u.id, kind, fileName, mime, buf.length, buf, a.id, clock()]);
+      const f = await one(q, ...withFile(`INSERT INTO ex_unit_files (unit_id, kind, file_name, mime, size_bytes, data, by_id, created_at)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [u.id, kind, fileName, mime, buf.length, buf, a.id, clock()], 'data', fileId));
       await audit(q, a.id, 'exclusive.unit.file', 'ex_unit', u.id, undefined, { kind, fileName, size: buf.length });
       return f;
     });
@@ -562,7 +564,7 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     if (!canClient(a)) throw forbidden('مستندات العميل محتاجة صلاحية «بيانات العملاء»');
     const f = await one(db, `SELECT * FROM ex_unit_files WHERE id = $1 AND unit_id = $2`, [req.params.fid, u.id]);
     if (!f) throw notFound();
-    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+    return ok({ fileName: f.file_name, mime: f.mime, data: (await readFileBytes(db, f.data, f.data_file_id)).toString('base64') });
   });
 
   r.post('/exclusive/units/:id/files/:fid/delete', async (req) => {
@@ -1335,8 +1337,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     if (!isUuid(req.params.id) || !['photo', 'logo'].includes(req.params.kind)) throw notFound();
-    const x = await one(db, `SELECT mime, data, updated_at FROM developer_images WHERE developer_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
-    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, at: x?.updated_at ?? null });
+    const x = await one(db, `SELECT * FROM developer_images WHERE developer_id = $1 AND kind = $2`, [req.params.id, req.params.kind]);
+    return ok({ image: x ? `data:${x.mime};base64,${(x.data_file_id ? (await readFileBytes(db, null, x.data_file_id)).toString('base64') : x.data)}` : null, at: x?.updated_at ?? null });
   });
 
   r.put('/exclusive/developers/:id/image/:kind', async (req) => {
@@ -1347,11 +1349,13 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
     const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
     if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
+    if (!(await one(db, `SELECT id FROM developers WHERE id = $1`, [req.params.id]))) throw notFound();
+    const fileId = await storeFile(db, { category: 'developer_image', bytes: Buffer.from(data, 'base64'), mime, name: req.params.kind, createdBy: a.id });
     await db.tx(async (q) => {
       if (!(await one(q, `SELECT id FROM developers WHERE id = $1`, [req.params.id]))) throw notFound();
-      await q.query(`INSERT INTO developer_images (developer_id, kind, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,$4,now(),$5)
+      await q.query(...withFile(`INSERT INTO developer_images (developer_id, kind, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,$4,now(),$5)
                      ON CONFLICT (developer_id, kind) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
-        [req.params.id, req.params.kind, mime, data, a.id]);
+        [req.params.id, req.params.kind, mime, data, a.id], 'data', fileId));
       await audit(q, a.id, `developer.${req.params.kind}`, 'developer', req.params.id, undefined, { mime, bytes: data.length });
     });
     return ok({ saved: true });
@@ -1550,8 +1554,8 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!canReserve(a) && !canSeeAll(a)) throw forbidden();
     if (!isUuid(req.params.id)) throw notFound();
-    const x = await one(db, `SELECT mime, data, updated_at FROM project_images WHERE project_id = $1`, [req.params.id]);
-    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, imageAt: x?.updated_at ?? null });
+    const x = await one(db, `SELECT * FROM project_images WHERE project_id = $1`, [req.params.id]);
+    return ok({ image: x ? `data:${x.mime};base64,${(x.data_file_id ? (await readFileBytes(db, null, x.data_file_id)).toString('base64') : x.data)}` : null, imageAt: x?.updated_at ?? null });
   });
 
   r.put('/exclusive/projects/:id/image', async (req) => {
@@ -1562,12 +1566,14 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
     const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
     const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
     if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
+    if (!(await one(db, `SELECT id FROM commission_projects WHERE id = $1`, [req.params.id]))) throw notFound();
+    const fileId = await storeFile(db, { category: 'project_image', bytes: Buffer.from(data, 'base64'), mime, name: 'project', createdBy: a.id });
     await db.tx(async (q) => {
       const p = await one(q, `SELECT id FROM commission_projects WHERE id = $1`, [req.params.id]);
       if (!p) throw notFound();
-      await q.query(`INSERT INTO project_images (project_id, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4)
+      await q.query(...withFile(`INSERT INTO project_images (project_id, mime, data, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4)
                      ON CONFLICT (project_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
-        [p.id, mime, data, a.id]);
+        [p.id, mime, data, a.id], 'data', fileId));
       await audit(q, a.id, 'exclusive.project.image', 'commission_project', p.id, undefined, { mime, bytes: data.length });
     });
     return ok({ saved: true });

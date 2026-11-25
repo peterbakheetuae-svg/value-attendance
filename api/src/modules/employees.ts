@@ -6,6 +6,7 @@ import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, can, has, isOwner, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
 const PRIVILEGED = new Set(['owner', 'manager', 'hr_manager', 'accountant']);
@@ -569,8 +570,9 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (!canManageDocs(a)) throw forbidden();
     const b = obj(req.body);
     const f = readDocument(b, oneOf(b, 'kind', REQUIRED_DOCS)!);
-    const d = await one(db, `INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by, staged_by)
-                             VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`, [f.kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id]);
+    const fileId = await storeFile(db, { category: 'employee_document', bytes: f.buf, mime: f.mime, name: f.fileName, createdBy: a.id });
+    const d = await one(db, ...withFile(`INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by, staged_by)
+                             VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$7) RETURNING id`, [f.kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id], 'content', fileId));
     return ok({ id: d.id }, 201);
   });
 
@@ -584,12 +586,13 @@ export const employeesModule: Module = (r, { db, clock }) => {
     if (kind !== 'other' || req.params.id !== a.id) { if (!canManageDocs(a)) throw forbidden(); }
     if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1`, [req.params.id]))) throw notFound();
     const f = readDocument(b, kind);
+    const fileId = await storeFile(db, { category: 'employee_document', bytes: f.buf, mime: f.mime, name: f.fileName, createdBy: a.id });
     const id = await db.tx(async (q) => {
       const prev = kind === 'other' ? null : await one(q, `SELECT id FROM employee_documents WHERE employee_id = $1 AND kind = $2
                                                             AND replaced_at IS NULL FOR UPDATE`, [req.params.id, kind]);
       if (prev) await q.query(`UPDATE employee_documents SET replaced_at = now() WHERE id = $1`, [prev.id]);
-      const d = await one(q, `INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by)
-                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [req.params.id, kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id]);
+      const d = await one(q, ...withFile(`INSERT INTO employee_documents (employee_id, kind, title, file_name, mime, size_bytes, content, uploaded_by)
+                              VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [req.params.id, kind, f.title, f.fileName, f.mime, f.buf.length, f.buf, a.id], 'content', fileId));
       if (prev) await q.query(`UPDATE employee_documents SET replaced_by = $2 WHERE id = $1`, [prev.id, d.id]);
       await audit(q, a.id, prev ? 'employee.document_replace' : 'employee.document_upload', 'employee', req.params.id, prev ? { documentId: prev.id } : undefined,
         { documentId: d.id, kind, title: f.title, size: f.buf.length });
@@ -601,7 +604,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
   r.get('/documents/:id', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const d = await one(db, `SELECT employee_id, staged_by, file_name, mime, content FROM employee_documents WHERE id = $1`, [req.params.id]);
+    const d = await one(db, `SELECT * FROM employee_documents WHERE id = $1`, [req.params.id]);
     if (!d) throw notFound();
     if (d.employee_id === null) { if (d.staged_by !== a.id) throw notFound(); }
     else if (!canReadDocs(a, d.employee_id)) {
@@ -611,7 +614,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       await assertCanRead(db, a, viaReq.employee_id, 'request');
     }
     if (d.employee_id && d.employee_id !== a.id) await audit(db, a.id, 'employee.document_view', 'employee', d.employee_id, undefined, { documentId: req.params.id });
-    return { binary: d.content, contentType: d.mime, fileName: d.file_name };
+    return { binary: await readFileBytes(db, d.content, d.content_file_id), contentType: d.mime, fileName: d.file_name };
   });
 };
 
