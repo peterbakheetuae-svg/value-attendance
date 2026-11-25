@@ -137,6 +137,7 @@ void main() {
 
   group('the lock screen', () {
     testWidgets('covers the app while locked, prompts by itself, opens on success', (t) async {
+      debugDefaultTargetPlatformOverride = null; // widget tests must end with the override unset
       SharedPreferences.setMockInitialValues({AppLock.prefKey: true});
       final d = FakeDevice(answer: false);
       final lock = AppLock(authenticator: d);
@@ -154,6 +155,7 @@ void main() {
     });
 
     testWidgets('«تسجيل الدخول من جديد» signs out', (t) async {
+      debugDefaultTargetPlatformOverride = null;
       SharedPreferences.setMockInitialValues({AppLock.prefKey: true});
       final lock = AppLock(authenticator: FakeDevice(answer: false));
       var signedIn = true;
