@@ -195,3 +195,8 @@ Migrations: **none needed or applied** (single-use state uses `action_otps`, 082
 Deployment control: the branch is listed in `deploymentEnabled: false` in BOTH `vercel.json` and `api/vercel.json`
 (the API project builds from `api/`). Before `api/vercel.json` was updated, commit `06b5080` produced one Vercel PREVIEW
 deployment on project `value-attendance` (no migration: previews never migrate).
+
+### Real CI execution (2026-11-26, phases A–K)
+- API tests, run 45716091763 @ 3350d3d: PostgreSQL 16 — 611 pass / 0 fail / 2 skipped, least-privilege runtime role 612 / 612; PostgreSQL 18 — same. Migration 092 applied on fresh databases in order.
+- App check, run 45715657993 @ 132be3e (last commit touching `app/`): `flutter analyze` 0 errors (Flutter 3.38.10), Android release build check with a throwaway key, web build check — success; nothing published.
+- Vercel: 0 deployment statuses on 132be3e and 3350d3d.
