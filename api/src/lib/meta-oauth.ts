@@ -198,8 +198,19 @@ export async function metaFetch(url: string, init?: RequestInit): Promise<any> {
     throw new Error(e?.name === 'TimeoutError' ? 'Meta did not answer in time' : 'Meta could not be reached');
   }
   const g: any = await res.json().catch(() => ({}));
-  if (!res.ok || g?.error) throw new Error(typeof g?.error?.message === 'string' ? g.error.message : `Meta ${res.status}`);
+  if (!res.ok || g?.error) {
+    const err: any = new Error(typeof g?.error?.message === 'string' ? g.error.message : `Meta ${res.status}`);
+    err.metaCode = Number(g?.error?.code) || null;   // Meta's error code (rate limits: 4, 17, 32, 613, 80000–80014)
+    err.httpStatus = res.status;
+    throw err;
+  }
   return g ?? {};
+}
+
+/** Meta's documented throttling answers (application / user / page / ads-account limits) */
+export function isRateLimited(e: unknown): boolean {
+  const c = Number((e as any)?.metaCode);
+  return [4, 17, 32, 613].includes(c) || (c >= 80000 && c <= 80014) || (e as any)?.httpStatus === 429;
 }
 
 /** Meta's error text without anything token-like (a message is shown to admins and kept in integrations.last_error) */
@@ -220,3 +231,25 @@ export function callbackPage(ok: boolean, title: string, detail: string): string
 h1{font-size:1.25rem;color:${ok ? '#047857' : '#b91c1c'}}p{line-height:1.7}</style></head>
 <body><h1>${esc(title)}</h1><p>${esc(detail)}</p><p>ارجع للتطبيق — حالة الربط بتظهر في إعدادات الربط (Meta).</p></body></html>`;
 }
+
+// ------------------------------------------------------------------ deauthorization / data deletion (Phase A)
+/**
+ * Meta's signed_request (Deauthorize and Data Deletion callbacks): "<base64url HMAC-SHA256 of the payload segment>.<base64url
+ * JSON payload>", signed with the app secret. Returns the payload only if the signature is ours and the algorithm is
+ * HMAC-SHA256; anything else is null.
+ */
+export function parseSignedRequest(sr: unknown, appSecret: string): { user_id: string; issued_at?: number } | null {
+  if (typeof sr !== 'string' || sr.length > 4096 || !appSecret) return null;
+  const [sig, payload, extra] = sr.split('.');
+  if (!sig || !payload || extra !== undefined) return null;
+  const want = createHmac('sha256', appSecret).update(payload).digest();
+  const got = Buffer.from(sig, 'base64url');
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
+  let p: any;
+  try { p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return null; }
+  if (String(p?.algorithm ?? '').toUpperCase() !== 'HMAC-SHA256' || !/^[0-9]{3,30}$/.test(String(p?.user_id ?? ''))) return null;
+  return { user_id: String(p.user_id), issued_at: typeof p.issued_at === 'number' ? p.issued_at : undefined };
+}
+
+/** the Meta user who connected, kept only as a hash (to match a later deauthorization / deletion request) */
+export const metaUserHash = (userId: string) => createHash('sha256').update(`valunivo/meta-user/v1:${userId}`).digest('hex');

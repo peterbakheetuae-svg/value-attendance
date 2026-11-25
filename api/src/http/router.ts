@@ -57,10 +57,12 @@ export class Router {
 
 const MAX_BODY = 8 * 1024 * 1024;
 
-function parseBody(method: string, ct: string, buf: Buffer): any {
+function parseBody(method: string, ct: string, buf: Buffer, formOk = false): any {
   if (method === 'GET' || method === 'HEAD') return undefined;
   if (buf.length > MAX_BODY) throw new AppError('payload_too_large', 'Request body too large');
   if (!buf.length) return {};
+  // Meta's deauthorize / data-deletion callbacks post a form (signed_request): accepted on /public/meta/* only
+  if (formOk && ct.includes('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(buf.toString('utf8')));
   if (!ct.includes('application/json')) throw new AppError('bad_request', 'Expected application/json');
   try { return JSON.parse(buf.toString('utf8')); }
   catch { throw new AppError('bad_request', 'Malformed JSON'); }
@@ -111,7 +113,7 @@ async function handle(router: Router, opts: Opts, method: string, rawUrl: string
     const m = router.match(method, url.pathname);
     if (!m) throw new AppError('not_found', 'Route not found');
     const raw = await getBody();
-    const body = parseBody(method, String(headers['content-type'] ?? ''), raw);
+    const body = parseBody(method, String(headers['content-type'] ?? ''), raw, url.pathname.startsWith('/public/meta/'));
     return out(await m.handler({ method, path: url.pathname, params: m.params, query: url.searchParams, headers, body, raw }));
   } catch (e: any) {
     const err = e instanceof AppError ? e : fromDbError(e);

@@ -11,12 +11,12 @@ import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode }
 import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { seal, unseal } from '../lib/secretbox.ts';
-import { graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
+import { LEAD_FIELDS, graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
 import { hasBackupToken } from '../lib/backup-token.ts';
 import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
 import {
   META_SCOPES, META_SCOPES_REQUIRED, STATE_ACTION, callbackPage, codeExchangeUrl, dialogUrl, graphBase, longLivedUrl, metaFetch, missingScopes,
-  newState, nonceHash, oauthConfig, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
+  metaUserHash, newState, nonceHash, oauthConfig, parseSignedRequest, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
 } from '../lib/meta-oauth.ts';
 
 // the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
@@ -281,13 +281,13 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     }
     const code = String(req.query.get('code') ?? '');
     if (!/^[A-Za-z0-9_\-#.]{10,2000}$/.test(code)) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق.');
-    let token: string; let missing: string[];
+    let token: string; let missing: string[]; let userHash: string | null = null;
     try {
       const short = tokenFrom(await metaFetch(codeExchangeUrl(c.cfg, code)));
       token = tokenFrom(await metaFetch(longLivedUrl(c.cfg, short.token))).token;
-      if (!tokenIsOurs(await metaFetch(`${graphBase()}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${c.cfg.appId}|${c.cfg.appSecret}`)}`), c.cfg.appId)) {
-        throw new Error('the token is not a valid user token of this app');
-      }
+      const debug = await metaFetch(`${graphBase()}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${c.cfg.appId}|${c.cfg.appSecret}`)}`);
+      if (!tokenIsOurs(debug, c.cfg.appId)) throw new Error('the token is not a valid user token of this app');
+      if (/^[0-9]{3,30}$/.test(String(debug?.data?.user_id ?? ''))) userHash = metaUserHash(String(debug.data.user_id));
       missing = missingScopes(await metaFetch(`${graphBase()}/me/permissions?access_token=${encodeURIComponent(token)}`));
     } catch (e) {
       await ensure('meta');
@@ -302,12 +302,64 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       return page(400, false, 'الصلاحيات ناقصة — الربط ما اتحفظش', `اسمح بالصلاحيات دي وابدأ الربط تاني: ${missingRequired.join('، ')}. الربط القديم (لو موجود) فضل زي ما هو.`);
     }
     await ensure('meta');
-    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = '', updated_by = $3, updated_at = $4 WHERE source = $1`,
-      ['meta', seal(token), actor.id, now]);
+    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = '', updated_by = $3, updated_at = $4, meta_user_hash = $5 WHERE source = $1`,
+      ['meta', seal(token), actor.id, now, userHash]);
     await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingOptional: missing });
     let pages = 0;
     try { pages = (await connectPages(token, actor.id)).pages.length; } catch (e) { await noteError('meta', `OAuth pages: ${safeMetaError(e)}`); }
     return page(200, true, 'تم ربط Meta', `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.${missing.length ? ` (صلاحية اختيارية ناقصة: ${missing.join('، ')} — الصفحات اللي تبع Business portfolio مش هتظهر.)` : ''}`);
+  });
+
+  /**
+   * Phase A — Meta's Deauthorize callback (App Dashboard → Facebook Login → Settings → Deauthorize callback URL): a person
+   * removed the app from their Facebook account. If that person is the one who connected the office (matched by the hashed
+   * Meta user id kept at connection), the office token and the page tokens obtained through them stop being used: the
+   * token is cleared, the pages are removed (their tokens are void), the connection shows «reconnect». Leads, campaigns
+   * and attribution are untouched. Anything else (bad signature, another person) changes nothing.
+   */
+  const forgetMetaUser = async (userId: string, why: string) => {
+    const it = await one(db, `SELECT meta_user_hash FROM integrations WHERE source = 'meta'`);
+    if (!it?.meta_user_hash || it.meta_user_hash !== metaUserHash(userId)) return false;
+    await db.tx(async (q) => {
+      await q.query(`UPDATE integrations SET access_token = NULL, meta_user_hash = NULL, last_error = $2, updated_at = $3 WHERE source = $1`,
+        ['meta', why, clock()]);
+      await q.query(`DELETE FROM meta_pages WHERE page_id IS NOT NULL`);
+      await audit(q, null, 'integration.meta_deauthorized', 'integration', null, undefined, { reason: why.slice(0, 80) });
+    });
+    return true;
+  };
+  const signedFrom = (req: Req) => {
+    const c = oauthConfig();
+    if (!c.ok) return { configured: false as const };
+    return { configured: true as const, sr: parseSignedRequest((req.body as any)?.signed_request, c.cfg.appSecret), base: new URL(c.cfg.redirectUri).origin };
+  };
+  r.post('/public/meta/deauthorize', async (req) => {
+    const x = signedFrom(req);
+    if (!x.configured) throw notFound();
+    if (!x.sr) throw new AppError('unauthenticated', 'Bad signed_request');
+    const forgot = await forgetMetaUser(x.sr.user_id, 'فيسبوك: التطبيق اتشال من الحساب اللي ربط المكتب — اعمل «إعادة الربط»');
+    return ok({ ok: true, matched: forgot });
+  });
+  /**
+   * Meta's Data Deletion Request callback: the same clean-up, then the answer Meta expects — a status URL and a
+   * confirmation code (kept in the audit log, so the status page can confirm it). We hold no Facebook profile data; the
+   * only data of that person is the token, removed here.
+   */
+  r.post('/public/meta/data-deletion', async (req) => {
+    const x = signedFrom(req);
+    if (!x.configured) throw notFound();
+    if (!x.sr) throw new AppError('unauthenticated', 'Bad signed_request');
+    const matched = await forgetMetaUser(x.sr.user_id, 'فيسبوك: طلب حذف بيانات من الحساب اللي ربط المكتب — اعمل «إعادة الربط»');
+    const codeId = randomBytes(12).toString('hex');
+    await audit(db, null, 'integration.meta_data_deletion', 'meta_data_deletion', codeId, undefined, { matched });
+    return ok({ url: `${x.base}/public/meta/data-deletion/${codeId}`, confirmation_code: codeId });
+  });
+  r.get('/public/meta/data-deletion/:code', async (req) => {
+    const code = /^[0-9a-f]{24}$/.test(req.params.code) ? req.params.code : '';
+    const done = code ? await one(db, `SELECT 1 FROM audit_log WHERE action = 'integration.meta_data_deletion' AND entity_id = $1`, [code]) : null;
+    return { status: done ? 200 : 404, binary: Buffer.from(callbackPage(!!done, done ? 'تم تنفيذ طلب الحذف' : 'الطلب غير موجود',
+      done ? 'اتشال التوكن اللي كان محفوظ لحسابك (لو كان موجود). مفيش بيانات تانية من حساب فيسبوك متخزنة عندنا.' : 'راجع رمز التأكيد.'), 'utf8'),
+      contentType: 'text/html; charset=utf-8' };
   });
 
   /** the connection's state: configured? connected? token expiry, granted / missing permissions, last sync, last error */
@@ -674,8 +726,9 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         try {
           if (!token) throw new Error('no token for this page');
           // the lead itself is read back from Meta (a forged id just fails here); only the chosen Meta campaigns come in
-          const g = await graph(`${leadgen}?fields=id,field_data,form_id,ad_name,campaign_id,campaign_name,created_time`, token);
-          if (await takeMetaLead(db, g, now) === 'added') added++;
+          const g = await graph(`${leadgen}?fields=${LEAD_FIELDS}`, token);
+          const pageId = /^[0-9]{3,30}$/.test(String(entry?.id ?? '')) ? String(entry.id) : null;
+          if (await takeMetaLead(db, g, now, { source: 'meta_webhook', pageId }) === 'added') added++;
         } catch (e: any) {
           await noteError('meta', e?.message ?? String(e));
         }

@@ -16,7 +16,9 @@ const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', '
   // the integrations' webhooks: Value Aqar sends its secret key, Meta is read back with the office's token (integrations.test.ts)
   'POST /public/hooks/valueaqar', 'GET /public/hooks/meta', 'POST /public/hooks/meta',
   // Meta redirects the browser here (no session): protected by the signed, single-use OAuth state (lib/meta-oauth.ts)
-  'GET /public/meta/oauth/callback']);
+  'GET /public/meta/oauth/callback',
+  // Meta's deauthorize / data-deletion callbacks (signed_request, HMAC with the app secret) and the deletion status page
+  'POST /public/meta/deauthorize', 'POST /public/meta/data-deletion', 'GET /public/meta/data-deletion/:code']);
 // (2026-11-24) POST /leads/daily-report/run is no longer public: the scheduler sends X-Backup-Token — checked below as 401
 const FAKE_ID = '00000000-0000-4000-8000-000000000000';
 

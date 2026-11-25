@@ -156,6 +156,8 @@ export const PERMISSIONS: PermDef[] = [
   P('leads', 'leads.tasks', 'إسناد مهام', 'إعطاء مهام للآخرين'),
   P('leads', 'leads.config', 'إعدادات الليدز', 'القنوات والحملات وأسباب الإلغاء'),
   P('leads', 'leads.stages', 'مراحل الليد', 'إدارة مراحل الليد'),
+  // 092: who may classify a lead's quality is an owner decision — held by the owner role only until the owner grants it
+  P('leads', 'leads.quality', 'تصنيف جودة الليد', 'تصنيف الليد (مؤهل / غير مؤهل / بيانات غلط …) مع السبب', { sensitive: true, since: 92 }),
   P('leads', 'leads.waiting_alert', 'تنبيه الليد المنتظر', 'يوصله تنبيه لما ليد جديد ميلاقيش سيلز متصل'),
   P('leads', 'deals.view', 'لوحة الصفقات', 'فتح لوحة الصفقات'),
   P('leads', 'deals.create', 'إضافة صفقة', 'تحويل ليد لصفقة'),

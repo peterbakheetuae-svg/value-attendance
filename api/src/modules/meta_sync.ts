@@ -16,7 +16,7 @@ export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
  *    in once (leads.meta_lead_id).
  */
 // one Graph API version for all Meta calls (META_GRAPH_VERSION, default v21.0 — see lib/meta-oauth.ts)
-const LEAD_FIELDS = 'id,field_data,form_id,ad_name,campaign_id,campaign_name,created_time';
+export const LEAD_FIELDS = 'id,field_data,form_id,ad_id,ad_name,adset_id,campaign_id,campaign_name,created_time';
 const META_ID = /^[0-9]{3,30}$/;
 
 export async function graph(path: string, token: string, init?: RequestInit): Promise<any> {
@@ -26,7 +26,11 @@ export async function graph(path: string, token: string, init?: RequestInit): Pr
 }
 
 /** a Meta lead to the campaign of ours that its Meta campaign (or its form) is linked to — null = not ours / already in */
-export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' | 'skipped' | 'exists' | 'unlinked'> {
+/** how a lead reached us (attribution, 092): the webhook or a sync pass, and the page it came on when known */
+export interface MetaLeadOrigin { source: 'meta_webhook' | 'meta_sync'; pageId?: string | null }
+const metaIdOrNull = (v: unknown) => { const x = String(v ?? ''); return META_ID.test(x) ? x : null; };
+
+export async function takeMetaLead(db: Db, g: any, now: Date, origin: MetaLeadOrigin = { source: 'meta_sync' }): Promise<'added' | 'skipped' | 'exists' | 'unlinked'> {
   const metaId = String(g?.id ?? '').replace(/\D/g, '');
   if (metaId && await one(db, `SELECT 1 FROM leads WHERE meta_lead_id = $1`, [metaId])) return 'exists';
   const f: Record<string, string> = {};
@@ -57,6 +61,12 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
       [c.id, phoneNorm(x.phone), now])) return null;
     const l = await deliverLead(q, x, (c.assign_mode ?? 'turn') as RouteMode, c.form_assignees ?? [], now, 'فيسبوك', c.name ?? '');
     if (metaId) await q.query(`UPDATE leads SET meta_lead_id = $2 WHERE id = $1`, [l.id, metaId]);
+    // attribution (092), once, as Meta gave it: an id Meta did not send stays NULL; the marketing company is the campaign's
+    // owner at this moment (a later ownership change never rewrites it — leads_attribution_once)
+    await q.query(`UPDATE leads SET meta_page_id = $2, meta_form_id = $3, meta_campaign_id = $4, meta_adset_id = $5, meta_ad_id = $6,
+        attributed_company_id = $7, attributed_at = $8, attribution_source = $9 WHERE id = $1 AND attribution_source IS NULL`,
+      [l.id, metaIdOrNull(origin.pageId), metaIdOrNull(g?.form_id), metaIdOrNull(g?.campaign_id), metaIdOrNull(g?.adset_id),
+        metaIdOrNull(g?.ad_id), c.marketing_company_id ?? null, now, origin.source]);
     return l;
   });
   return lead === 'exists' ? 'exists' : lead ? 'added' : 'skipped';
@@ -92,16 +102,16 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
   // from the oldest sync of these campaigns (a campaign never synced: its last 90 days)
   const since = new Date(Math.min(...camps.map((c) => (c.meta_synced_at ? new Date(c.meta_synced_at).getTime() - 3_600_000 : now.getTime() - 90 * 86_400_000))));
   const filtering = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(since.getTime() / 1000) }]));
-  const take = async (g: any) => {
+  const takeFrom = (pageId: string | null) => async (g: any) => {
     if (!wanted.has(String(g?.campaign_id ?? ''))) return;
     // a lead that cannot be taken (no phone, no project) is reported, not retried forever: it does not make the pass incomplete
-    try { if (await takeMetaLead(db, g, now) === 'added') added++; } catch (e: any) { errors.push(String(e?.message ?? e)); }
+    try { if (await takeMetaLead(db, g, now, { source: 'meta_sync', pageId }) === 'added') added++; } catch (e: any) { errors.push(String(e?.message ?? e)); }
   };
-  const leadsOf = async (edge: string, token: string) => {
+  const leadsOf = async (edge: string, token: string, pageId: string | null) => {
     let next: string | null = `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}`;
     for (let page = 0; next && page < 20 && budget.left(); page++) {
       const r: any = await graph(next, token);
-      if (!(await eachWithin(Array.isArray(r.data) ? r.data : [], budget, take))) { complete = false; return; }
+      if (!(await eachWithin(Array.isArray(r.data) ? r.data : [], budget, takeFrom(pageId)))) { complete = false; return; }
       const after = r?.paging?.cursors?.after;
       next = r?.paging?.next && after ? `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}&after=${encodeURIComponent(after)}` : null;
     }
@@ -117,7 +127,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
       const forms = await graph(`${p.id}/leadgen_forms?fields=id&limit=100`, p.token);
       for (const fm of Array.isArray(forms.data) ? forms.data : []) {
         if (!budget.left()) { complete = false; break; }
-        if (META_ID.test(String(fm.id))) await leadsOf(String(fm.id), p.token);
+        if (META_ID.test(String(fm.id))) await leadsOf(String(fm.id), p.token, p.id === 'me' ? null : p.id);
       }
       if (p.id !== 'me' && budget.left()) await db.query(`UPDATE meta_pages SET last_error = NULL WHERE page_id = $1`, [p.id]);
     } catch (e: any) {
@@ -135,7 +145,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
         const ads = await graph(`${mc}/ads?fields=id&limit=200`, office);
         for (const ad of Array.isArray(ads.data) ? ads.data : []) {
           if (!budget.left()) { complete = false; break; }
-          if (META_ID.test(String(ad.id))) await leadsOf(String(ad.id), office);
+          if (META_ID.test(String(ad.id))) await leadsOf(String(ad.id), office, null);
         }
       } catch { /* a page token cannot read ads: the forms above are enough (not an incomplete pass) */ }
     }

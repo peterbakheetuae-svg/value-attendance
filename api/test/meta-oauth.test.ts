@@ -137,3 +137,32 @@ test('errors and the landing page never carry a token, a secret or markup from M
   const html = callbackPage(false, 'فشل <b>', '<script>alert(1)</script>');
   assert.ok(!html.includes('<script>') && html.includes('&lt;script&gt;') && html.includes('dir="rtl"'));
 });
+
+import { createHmac } from 'node:crypto';
+import { isRateLimited, metaUserHash, parseSignedRequest } from '../src/lib/meta-oauth.ts';
+
+test('signed_request (deauthorize / data deletion): only our app secret\'s HMAC-SHA256 is accepted', () => {
+  const secret = 'app-secret-0123456789abcdef';
+  const sign = (p: unknown, key = secret) => {
+    const payload = Buffer.from(JSON.stringify(p)).toString('base64url');
+    return `${createHmac('sha256', key).update(payload).digest('base64url')}.${payload}`;
+  };
+  assert.deepEqual(parseSignedRequest(sign({ algorithm: 'HMAC-SHA256', user_id: '1234567', issued_at: 1 }), secret), { user_id: '1234567', issued_at: 1 });
+  assert.equal(parseSignedRequest(sign({ algorithm: 'HMAC-SHA256', user_id: '1234567' }, 'another-secret-xxxxxxxx'), secret), null, 'another key');
+  assert.equal(parseSignedRequest(sign({ algorithm: 'none', user_id: '1234567' }), secret), null, 'another algorithm');
+  assert.equal(parseSignedRequest(sign({ algorithm: 'HMAC-SHA256', user_id: 'x' }), secret), null, 'a malformed user id');
+  const good = sign({ algorithm: 'HMAC-SHA256', user_id: '1234567' });
+  const [s, p] = good.split('.');
+  const tampered = Buffer.from(JSON.stringify({ algorithm: 'HMAC-SHA256', user_id: '7654321' })).toString('base64url');
+  assert.equal(parseSignedRequest(`${s}.${tampered}`, secret), null, 'payload changed');
+  for (const bad of [undefined, 42, '', 'a.b.c', 'x'.repeat(5000), `${s}.${p}.x`]) assert.equal(parseSignedRequest(bad, secret), null);
+  assert.equal(parseSignedRequest(good, ''), null, 'no secret configured');
+  assert.match(metaUserHash('1234567'), /^[0-9a-f]{64}$/);
+  assert.notEqual(metaUserHash('1234567'), metaUserHash('1234568'));
+});
+
+test('rate limits are recognised from Meta\'s error codes or HTTP 429', () => {
+  for (const c of [4, 17, 32, 613, 80000, 80004, 80014]) assert.ok(isRateLimited({ metaCode: c }), String(c));
+  assert.ok(isRateLimited({ httpStatus: 429 }));
+  for (const c of [1, 100, 190, 80015, null]) assert.equal(isRateLimited({ metaCode: c }), false, String(c));
+});

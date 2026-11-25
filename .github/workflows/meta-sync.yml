@@ -41,29 +41,36 @@ jobs:
             echo "::error title=Meta sync not configured::repository secret BACKUP_TOKEN is not set (same value as the API host's BACKUP_TOKEN). Set it, or disable this workflow."
             exit 1
           fi
-          # 3 attempts, backoff 15 s then 45 s; only 5xx, timeouts and network errors are retried
-          for attempt in 1 2 3; do
-            code=$(curl -sS -m 45 --connect-timeout 10 -o out.json -w '%{http_code}' -X POST \
-                     -H "X-Backup-Token: ${BACKUP_TOKEN}" -H 'Accept: application/json' \
-                     "${API}/integrations/meta/sync/run" 2>curl.err) || code=000
-            case "$code" in
-              200) break ;;
-              401|403) echo "::error title=Token refused::the API refused the scheduler token ($code) — check the BACKUP_TOKEN secret"; exit 1 ;;
-              000|5??) echo "::warning::attempt $attempt: no usable answer ($code: $(head -c 200 curl.err 2>/dev/null | tr -d '\r\n'))" ;;
-              *) echo "::error title=Unexpected status::the API answered $code"; head -c 500 out.json 2>/dev/null || true; exit 1 ;;
-            esac
-            if [ "$attempt" = 3 ]; then echo "::error title=API unavailable::no successful answer after 3 attempts (last: $code)"; exit 1; fi
-            sleep $(( attempt == 1 ? 15 : 45 ))
-          done
-          # the answer must be the sync's JSON: { ran: boolean, reason?, added?, errors: [] }
-          if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
-            echo "::error title=Unexpected answer::the API's answer is not the sync result"; head -c 500 out.json || true; exit 1
-          fi
-          jq -c '{ran, reason, added, errors}' out.json
-          if [ "$(jq -r '.ran' out.json)" = "true" ]; then
-            n=$(jq '(.errors // []) | length' out.json)
-            if [ "$n" -gt 0 ]; then echo "::error title=Sync ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; exit 1; fi
-            echo "::notice::synced — $(jq -r '.added // 0' out.json) new lead(s)"
-          else
-            echo "::notice::not run: $(jq -r '.reason // "unknown"' out.json)"
-          fi
+          # knock PATH: 3 attempts, backoff 15 s then 45 s; only 5xx, timeouts and network errors are retried
+          knock() {
+            local path="$1" code="" attempt
+            for attempt in 1 2 3; do
+              code=$(curl -sS -m 45 --connect-timeout 10 -o out.json -w '%{http_code}' -X POST \
+                       -H "X-Backup-Token: ${BACKUP_TOKEN}" -H 'Accept: application/json' "${API}${path}" 2>curl.err) || code=000
+              case "$code" in
+                200) break ;;
+                401|403) echo "::error title=Token refused::the API refused the scheduler token ($code) on $path — check the BACKUP_TOKEN secret"; return 1 ;;
+                000|5??) echo "::warning::$path attempt $attempt: no usable answer ($code: $(head -c 200 curl.err 2>/dev/null | tr -d '\r\n'))" ;;
+                *) echo "::error title=Unexpected status::$path answered $code"; head -c 500 out.json 2>/dev/null || true; return 1 ;;
+              esac
+              if [ "$attempt" = 3 ]; then echo "::error title=API unavailable::$path: no successful answer after 3 attempts (last: $code)"; return 1; fi
+              sleep $(( attempt == 1 ? 15 : 45 ))
+            done
+            # the answer must be the pass's JSON: { ran: boolean, reason?, errors: [] }
+            if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
+              echo "::error title=Unexpected answer::$path did not answer with its result"; head -c 500 out.json || true; return 1
+            fi
+            jq -c '{ran, reason, added, stored, complete, errors}' out.json
+            if [ "$(jq -r '.ran' out.json)" = "true" ]; then
+              n=$(jq '(.errors // []) | length' out.json)
+              if [ "$n" -gt 0 ]; then echo "::error title=$path ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; return 1; fi
+              echo "::notice::$path done"
+            else
+              echo "::notice::$path not run: $(jq -r '.reason // "unknown"' out.json)"
+            fi
+          }
+          status=0
+          knock /integrations/meta/sync/run || status=1
+          # Ads Insights: the server runs it at most hourly (a knock inside the hour answers "recent")
+          knock /integrations/meta/insights/run || status=1
+          exit $status
