@@ -107,3 +107,18 @@ test('«الموظفين دلوقتي»: no attendance → online / offline; HR 
   assert.equal((await h.call(c.t.e1, 'GET', '/dashboard/presence')).status, 403);
   await h.db.query(`UPDATE employees SET attendance_exempt = false WHERE id = $1`, [c.ids.e2]);
 });
+
+// owner's rule (2026-11-25): a salary counts in «صافي المكتب» only once it is PAID — earned-but-unpaid salaries are
+// operating cost only (the dial «تغطية المصاريف»). Regression: the KPI used to subtract the month's earned salaries,
+// so an attendance-exempt salary showed the office at −(salary × elapsed days) with nothing spent.
+test('صافي المكتب: unpaid salaries are not a cost (cash basis, the one definition); the operating dial still counts them', async () => {
+  await h.db.query(`UPDATE employees SET attendance_exempt = true WHERE id = $1`, [c.ids.owner]);
+  await h.db.query(`INSERT INTO employee_salaries (employee_id, base_salary, updated_by) VALUES ($1, 15000, $1)
+                    ON CONFLICT (employee_id) DO UPDATE SET base_salary = 15000`, [c.ids.owner]);
+  const r = (await h.call(c.t.owner, 'GET', '/dashboard/owner?view=finance&range=30')).body;
+  const k = r.kpis.find((x: any) => x.icon === 'profit');
+  assert.ok(k, 'the office net card');
+  assert.equal(k.value, 0, 'nothing paid, nothing spent → net 0, not −earned salary');
+  assert.match(k.foot, /مصاريف 0/);
+  assert.ok(r.ring.sub.includes('الرواتب') && !/الرواتب 0\b/.test(r.ring.sub), 'the operating dial still shows the earned salaries');
+});
