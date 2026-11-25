@@ -43,3 +43,31 @@ test('the worst case of a scheduled run stays inside the function limit', () => 
   // budget + one Meta request in flight when it runs out (a lead's transaction is milliseconds; the checkpoint is one UPDATE)
   assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS <= (FUNCTION_MAX_SECONDS - 4) * 1000, 'at least 4 s headroom');
 });
+
+import { passComplete } from '../src/lib/meta-sync-limits.ts';
+
+test('regression: the final lead starts inside the budget but finishes past it → the pass is NOT complete', async () => {
+  let t = 0;
+  const budget = new Budget(100, () => t);
+  const done: string[] = [];
+  const cost: Record<string, number> = { a: 10, b: 10, final: 200 };   // the final lead starts at t=20 and ends at t=220
+  const startedAt: Record<string, number> = {};
+  const ok = await eachWithin(['a', 'b', 'final'], budget, async (x) => { startedAt[x] = t; t += cost[x]; done.push(x); });
+  assert.equal(startedAt.final, 20, 'the final lead started while the budget was valid');
+  assert.deepEqual(done, ['a', 'b', 'final'], 'its callback completed');
+  assert.equal(t, 220, 'the clock is past the deadline');
+  assert.equal(ok, false, 'eachWithin reports an incomplete pass');
+  assert.equal(passComplete(true, budget), false, 'the checkpoint guard refuses to advance');
+});
+
+test('normal completion inside the budget: complete, and the checkpoint guard allows advancing', async () => {
+  let t = 0;
+  const budget = new Budget(100, () => t);
+  assert.equal(await eachWithin(['a', 'b', 'c'], budget, async () => { t += 10; }), true);
+  assert.equal(passComplete(true, budget), true);
+  assert.equal(passComplete(false, budget), false, 'a pass cut short earlier stays incomplete');
+  // a spent budget with nothing left to process is still not a complete pass
+  t = 500;
+  assert.equal(await eachWithin([], budget, async () => undefined), false);
+  assert.equal(passComplete(true, budget), false);
+});

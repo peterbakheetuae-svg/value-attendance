@@ -5,7 +5,7 @@ import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
 import { unseal } from '../lib/secretbox.ts';
 import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
-import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin } from '../lib/meta-sync-limits.ts';
+import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin, passComplete } from '../lib/meta-sync-limits.ts';
 export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
 
 /**
@@ -76,10 +76,10 @@ export async function pageToken(db: Db, pageId: string | null): Promise<string |
  * with the office's token, from the campaigns' ads). Returns how many came in. Never throws: errors are kept on the page /
  * the integration.
  */
-export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
+export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number; clock?: () => number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
   // the budget is checked before every Meta request and before every lead (each lead is its own transaction, under its
   // advisory lock): once it is spent no new work starts, so a run ends within budget + one request / one lead
-  const budget = new Budget(opts.deadlineMs ?? 20_000);
+  const budget = new Budget(opts.deadlineMs ?? 20_000, opts.clock ?? Date.now);
   const errors: string[] = [];
   let added = 0;
   // a pass is complete only if nothing was cut short (budget, the 20-page cap, a page whose forms could not be read);
@@ -140,7 +140,11 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
       } catch { /* a page token cannot read ads: the forms above are enough (not an incomplete pass) */ }
     }
   }
+  // the budget is checked once more right before the checkpoint: a pass whose last lead ran past the deadline is
+  // incomplete, and its checkpoint stays where it was (the next run resumes from it — idempotent)
+  complete = passComplete(complete, budget);
   if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
+  // finalization after this point never touches the checkpoint
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
   return { added, errors, complete };
 }

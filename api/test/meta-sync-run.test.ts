@@ -103,3 +103,32 @@ test('a large page of leads: processing stops at the budget, the pass is incompl
   assert.notDeepEqual((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at, before,
     'a complete pass moves it');
 });
+
+test('regression (deterministic clock): the final lead crosses the deadline while it is processed → incomplete, checkpoint unchanged', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 60_000);
+  const before = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  metaLeads = [lead('8001', '01088880001'), lead('8002', '01088880002')];
+  // a fake clock that only moves when the FINAL lead's transaction completes (no real waiting)
+  let t = 1_000_000; let txs = 0;
+  const db: any = {
+    query: (...a: any[]) => (h.db.query as any)(...a),
+    tx: async (fn: any) => { const r = await h.db.tx(fn); txs++; if (txs === 2) t += 60_000; return r; },
+  };
+  const r = await syncMeta(db, h.now.value, { deadlineMs: 10_000, clock: () => t });
+  assert.equal(txs, 2, 'both leads were processed (the final one started inside the budget)');
+  assert.equal(r.added, 2, 'the final lead\'s own transaction completed and is kept');
+  assert.equal(r.complete, false, 'the pass is marked incomplete');
+  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  assert.deepEqual(after, before, 'the checkpoint did not move');
+});
+
+test('normal completion with the same deterministic clock: complete, and the checkpoint advances to this run', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 60_000);
+  metaLeads = [lead('8101', '01088881001'), lead('8102', '01088881002')];
+  const t = 2_000_000;
+  const r = await syncMeta(h.db, h.now.value, { deadlineMs: 10_000, clock: () => t });
+  assert.equal(r.complete, true);
+  assert.equal(r.added, 2);
+  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  assert.equal(new Date(after).toISOString(), h.now.value.toISOString(), 'the checkpoint moved to this run');
+});

@@ -17,13 +17,18 @@ export class Budget {
 }
 
 /**
- * Runs fn on each item in order while the budget lasts — the budget is checked before EVERY item, so a large page of leads
- * cannot carry the work past it. Returns true only if every item was processed (a complete pass).
+ * Runs fn on each item in order while the budget lasts. The budget is checked before EVERY item (no new work starts once
+ * it is spent) and again after every item returns — so a pass whose last item ran past the deadline is NOT complete.
+ * Returns true only if every item was processed and the budget was still left at the end.
  */
 export async function eachWithin<T>(items: readonly T[], budget: Budget, fn: (item: T) => Promise<void>): Promise<boolean> {
   for (const item of items) {
     if (!budget.left()) return false;
     await fn(item);
+    if (!budget.left()) return false;
   }
-  return true;
+  return budget.left();
 }
+
+/** a pass counts as complete (its checkpoint may move) only if nothing cut it short AND the budget is still left now */
+export const passComplete = (complete: boolean, budget: Budget): boolean => complete && budget.left();
