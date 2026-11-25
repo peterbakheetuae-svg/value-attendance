@@ -3,7 +3,7 @@ import { one, type Db } from '../db.ts';
 import { forbidden } from '../http/errors.ts';
 import { local } from '../lib/time.ts';
 import { adminOfficerSql, authenticate, can, notSettled, type Actor } from '../auth/context.ts';
-import { cashSummary, canOffice } from './cash.ts';
+import { cashSummary, canOffice, profitParts } from './cash.ts';
 import { computePayrollMany, loadRules } from './payroll-calc.ts';
 import { exclusiveTotals } from './exclusive.ts';
 import { LATE as LEAD_LATE, OPEN_SQL } from './leads.ts';
@@ -164,9 +164,14 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
     upcoming: sumEx((p) => p.commission.upcoming), potential: sumEx((p) => p.commission.potential),
   };
   const ownersDue = sumEx((p) => p.owner.due), ownersPaid = sumEx((p) => p.owner.paid);
+  // the dial «تغطية المصاريف» is the OPERATING cost of the month: the salaries earned so far (paid or not) + expenses
   const income = r2(n(money.marketing) + n(money.ex_moved_month));
   const costs = r2(pay.due + n(money.expenses));
   const net = r2(income - costs);
+  // «صافي المكتب» is the office's result by the one definition (profitParts — cash basis, the same as the cash overview,
+  // the owners' accounts and the year closing): a salary is a cost only once it is PAID; earned-but-unpaid salaries are
+  // operating cost only (owner's rule, 2026-11-25)
+  const result = (await profitParts(db, month, t, t)).total;
   const daysLeft = Math.max(1, (Date.parse(monthEnd) - Date.parse(t)) / 86400000 + 1);
   // the cashbox balance day by day (for the wallet's line)
   let running = n(bal0.b);
@@ -198,8 +203,8 @@ async function financeView(db: Db, a: any, t: string, range: number, from: strin
       { label: 'عمولتي', value: mine.transferred, format: 'money', foot: `في الأمانة ${short(mine.pending)} · جاية ${short(mine.upcoming)}`,
         delta: null, route: 'office_commissions', icon: 'percent' },
       { label: 'المستحق للملاك', value: ownersDue, format: 'money', foot: `اتصرف لهم ${short(ownersPaid)}`, route: 'owners', icon: 'owner' },
-      { label: 'صافي المكتب', value: net, format: 'money', tone: net >= 0 ? 'good' : 'bad',
-        foot: `دخل ${short(income)} − مصاريف ${short(costs)}`, route: 'finance', icon: 'profit' },
+      { label: 'صافي المكتب', value: result.net, format: 'money', tone: result.net >= 0 ? 'good' : 'bad',
+        foot: `دخل ${short(result.commissions)} − مصاريف ${short(result.costs)}`, route: 'finance', icon: 'profit' },
     ],
     chart: {
       title: 'التحصيل', sub: 'كل اللي دخل الخزن — العمود الملوّن يوم فوق المتوسط', unit: 'money',
