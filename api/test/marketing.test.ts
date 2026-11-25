@@ -198,7 +198,7 @@ test('F. KPI sources: mapped → pending; only the owner approves; a run fills e
   const manual = (await h.db.query(`INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot, actual, state, entered_by)
       VALUES ($1,$2,$3,$4,50,10,7,'in_progress',$5) RETURNING id`, [c.ids.e1, period, set, manualDef, c.ids.sm1])).rows[0].id;
   const lid = (await h.db.query(`SELECT id FROM leads WHERE meta_lead_id = '9101'`)).rows[0].id;
-  await h.db.query(`INSERT INTO lead_actions (lead_id, stage, by_id, created_at) VALUES ($1, 'meeting', $2, '2026-11-20T10:00:00Z'), ($1, 'meeting', $2, '2026-11-21T10:00:00Z')`, [lid, c.ids.e1]);
+  await h.db.query(`INSERT INTO lead_actions (lead_id, stage, by_id, comment, created_at) VALUES ($1, 'meeting', $2, 'ميتنج', '2026-11-20T10:00:00Z'), ($1, 'meeting', $2, 'ميتنج تاني', '2026-11-21T10:00:00Z')`, [lid, c.ids.e1]);
   assert.equal((await h.call(c.t.e1, 'PATCH', `/kpi/definitions/${def}/calc`, { calcSource: 'meetings_set' })).status, 403);
   assert.equal((await h.call(c.t.owner, 'PATCH', `/kpi/definitions/${def}/calc`, { calcSource: 'invented' })).status, 400);
   assert.equal((await h.call(c.t.owner, 'PATCH', `/kpi/definitions/${def}/calc`, { calcSource: 'meetings_set' })).body.status, 'pending_approval');
