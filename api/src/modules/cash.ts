@@ -496,6 +496,8 @@ const fmt = (n: number) => `${r2(n)} جنيه`;
 export interface ReceiptInput {
   box: Box; recipientId: string; kind: string; amount: number; payerName: string; payerPhone: string; purpose: string;
   method: string; externalNo: string | null; notes: string; ref: string | null; att: Buffer | null; occurred: Date;
+  /** the attachment already stored in R2 (091) by the route — then att goes to no column */
+  attFileId?: string | null;
   saleId?: string | null; installmentId?: string | null; projectId?: string | null;
   /** a resale / rental commission (087): the deal and the side that paid it — only ever set by the brokerage module */
   brokerageDealId?: string | null; brokerageSide?: 'owner' | 'client' | null;
@@ -578,13 +580,13 @@ export async function recordReceipt(q: Q, a: Actor, x: ReceiptInput): Promise<{ 
   }
   // the two brokerage columns exist only after 087 and are written only for a brokerage commission
   const deal = x.brokerageDealId ? `, brokerage_deal_id, brokerage_side` : '';
-  const row = await one(q, `
+  const row = await one(q, ...withFile(`
     INSERT INTO cash_receipts (kind, amount_egp, cashbox, actual_recipient_id, payer_name, payer_phone, purpose, payment_method,
            external_no, client_ref, notes, attachment, occurred_at, recorded_by, sale_id, installment_id, project_id${deal})
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17${deal ? ',$18,$19' : ''}) RETURNING id, ref_no`,
     [x.kind, x.amount, x.box, x.recipientId, x.payerName, x.payerPhone, x.purpose, x.method, x.externalNo, x.ref, x.notes, x.att,
       x.occurred, a.id, x.saleId ?? null, x.installmentId ?? null, x.projectId ?? null,
-      ...(deal ? [x.brokerageDealId, x.brokerageSide] : [])]);
+      ...(deal ? [x.brokerageDealId, x.brokerageSide] : [])], 'attachment', x.attFileId ?? null));
   await audit(q, a.id, 'cash.receipt', 'cash_receipt', row.id, undefined,
     { kind: x.kind, amount: x.amount, cashbox: x.box, recipientId: x.recipientId, payerName: x.payerName, purpose: x.purpose,
       externalNo: x.externalNo, saleId: x.saleId ?? null, installmentId: x.installmentId ?? null });
@@ -604,7 +606,7 @@ export function shapeReceipt(x: any) {
     id: x.id, refNo: Number(x.ref_no), receiptNo: `R-${String(x.ref_no).padStart(6, '0')}`, kind: x.kind, kindAr: RECEIPT_KIND_AR[x.kind],
     amount: Number(x.amount_egp), cashbox: x.cashbox, actualRecipientId: x.actual_recipient_id, actualRecipientName: x.recipient_name,
     payerName: x.payer_name, payerPhone: x.payer_phone, purpose: x.purpose, paymentMethod: x.payment_method, externalNo: x.external_no,
-    saleId: x.sale_id, installmentId: x.installment_id, notes: x.notes, hasAttachment: x.has_attachment === true,
+    saleId: x.sale_id, installmentId: x.installment_id, notes: x.notes, hasAttachment: x.has_attachment === true || !!x.attachment_file_id,
     occurredAt: x.occurred_at, recordedBy: x.recorded_by, recordedByName: x.recorded_by_name, status: x.status,
     reversedAt: x.reversed_at, reverseReason: x.reverse_reason, createdAt: x.created_at,
   };
@@ -960,6 +962,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const input = parseReceipt(obj(req.body), a, clock());
     if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
+    input.attFileId = await storeAttachment(db, 'receipt_attachment', input.att, 'receipt', a.id);
     const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
     return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);

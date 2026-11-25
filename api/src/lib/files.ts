@@ -51,6 +51,9 @@ async function schemaReady(q: Q): Promise<boolean> {
   return installed;
 }
 
+/** true when migration 091 (file references) is installed — for list flags that must also count R2-stored files */
+export async function fileSchemaInstalled(q: Q): Promise<boolean> { return schemaReady(q); }
+
 /** true when new files go to R2 (both the credentials and migration 091 are present) */
 export async function r2Enabled(q: Q): Promise<boolean> {
   return !!r2() && (await schemaReady(q));

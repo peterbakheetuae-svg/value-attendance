@@ -382,7 +382,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const cfg = await one(db, `SELECT tracking_enabled, tracking_stale_minutes FROM company_settings`);
     // one line per employee: the phone that is outside wins (any phone out = he is out); "last seen" = his latest phone
     const rows = await db.query(`
-      SELECT e.id, e.full_name, e.code, (e.photo IS NOT NULL) AS has_photo, t.name AS team_name, a.check_in_at, a.check_out_at,
+      SELECT e.id, e.full_name, e.code, (e.photo_mime IS NOT NULL) AS has_photo, t.name AS team_name, a.check_in_at, a.check_out_at,
              ts.lat, ts.lng, ts.accuracy_m, ts.inside, ts.distance_m, ts.away_since, ts.away_minutes, ts.device_label,
              (SELECT max(z.last_ping_at) FROM tracking_state z WHERE z.employee_id = e.id AND z.work_date = $1) AS last_ping_at,
              (SELECT COALESCE(json_agg(json_build_object('label', z.device_label, 'inside', z.inside, 'distanceM', z.distance_m,
