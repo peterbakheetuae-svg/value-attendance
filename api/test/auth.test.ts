@@ -120,3 +120,22 @@ test('push token is tied to the session and removed on logout', async () => {
   await h.call(tok, 'POST', '/auth/logout', {});
   assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM push_tokens`)).rows[0].n, 0);
 });
+
+// persistent sign-in (2026-11-25): the session is renewed by use (sliding 180 days), survives any gap shorter than that,
+// and is refused once the server expires or revokes it — the app then asks for the password again
+test('session renewal: used → renewed to 180 days; expired by the server → 401, a new sign-in works', async () => {
+  const tok = await h.login('E2', PW);
+  const sid = async () => (await h.db.query(`SELECT id FROM sessions WHERE employee_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`, [c.ids.e2])).rows[0].id;
+  const id = await sid();
+  // last used 3 months ago, 1 hour of validity left
+  await h.db.query(`UPDATE sessions SET last_seen_at = now() - interval '90 days', expires_at = now() + interval '1 hour' WHERE id = $1`, [id]);
+  assert.equal((await h.call(tok, 'GET', '/me')).status, 200, 'still valid: the app was simply not opened');
+  const left = (await h.db.query(`SELECT extract(epoch FROM expires_at - now()) / 86400 AS d FROM sessions WHERE id = $1`, [id])).rows[0].d;
+  assert.ok(Number(left) > 179, `renewed to 180 days (${left})`);
+  // the server's own expiry
+  await h.db.query(`UPDATE sessions SET expires_at = now() - interval '1 second' WHERE id = $1`, [id]);
+  const r = await h.call(tok, 'GET', '/me');
+  assert.equal(r.status, 401);
+  const again = await h.login('E2', PW);
+  assert.equal((await h.call(again, 'GET', '/me')).status, 200);
+});

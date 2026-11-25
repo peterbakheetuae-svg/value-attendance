@@ -24,6 +24,7 @@ import '../../widgets/glass_bottom_nav.dart';
 import '../../widgets/settings/settings_tile.dart';
 import '../../widgets/settings/settings_expandable_tile.dart';
 import '../../widgets/settings/change_password_form.dart';
+import '../../widgets/settings/app_lock_tile.dart';
 import '../../widgets/settings/language_picker.dart';
 
 import '../dashboard_employers/dashboard_page.dart';
@@ -417,6 +418,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
 
                     const SizedBox(height: 14),
+
+                    // قفل التطبيق بالبصمة / قفل الموبايل (only where the device supports it)
+                    const AppLockTile(),
 
                     // تغيير اللغة - بدون إعادة التوجيه
                     SettingsExpandableTile(

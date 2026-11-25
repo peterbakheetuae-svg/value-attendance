@@ -28,6 +28,8 @@ void main() {
     // first start: «الظهور فوق التطبيقات» and «بطارية غير مقيدة»
     'android.permission.SYSTEM_ALERT_WINDOW',
     'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+    // optional app lock: fingerprint / face, or the device PIN / pattern / password (local_auth)
+    'android.permission.USE_BIOMETRIC',
   ];
   for (final p in perms) {
     if (!xml.contains('"$p"')) {
@@ -125,6 +127,28 @@ void main() {
     exit(1);
   }
   stdout.writeln('AndroidManifest.xml patched: ${perms.length} permissions, label, https only, no backup.');
+
+  // local_auth (the optional app lock) needs the activity to be a FlutterFragmentActivity
+  final acts = Directory('android/app/src/main').existsSync()
+      ? Directory('android/app/src/main').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('MainActivity.kt') || f.path.endsWith('MainActivity.java'))
+      : const <File>[];
+  for (final a in acts) {
+    var src = a.readAsStringSync();
+    if (!src.contains('FlutterFragmentActivity')) {
+      src = src.replaceAll('io.flutter.embedding.android.FlutterActivity', 'io.flutter.embedding.android.FlutterFragmentActivity')
+          .replaceAll(RegExp(r'\bFlutterActivity\b'), 'FlutterFragmentActivity');
+      a.writeAsStringSync(src);
+    }
+    if (!a.readAsStringSync().contains('FlutterFragmentActivity')) {
+      stderr.writeln('${a.path}: could not switch to FlutterFragmentActivity');
+      exit(1);
+    }
+    stdout.writeln('${a.path}: FlutterFragmentActivity (app lock)');
+  }
+  if (acts.isEmpty) {
+    stderr.writeln('MainActivity not found — the app lock needs FlutterFragmentActivity');
+    exit(1);
+  }
 
   // flutter_local_notifications needs core library desugaring
   for (final path in ['android/app/build.gradle.kts', 'android/app/build.gradle']) {
