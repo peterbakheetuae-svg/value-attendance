@@ -1,5 +1,5 @@
 import nodemailer, { type SendMailOptions } from 'nodemailer';
-import { ICON, WORDMARK, HEADER_BG } from './email-assets.ts';
+import { ICON, WORDMARK } from './email-assets.ts';
 
 /**
  * Transactional email. Two transports, chosen only by environment variables on the API host (Vercel):
@@ -146,9 +146,12 @@ export function withoutInlineImages(html: string) {
   return html.replace(/<img\b[^>]*\bsrc="cid:[^"]*"[^>]*>/g, '').replace(/\sbackground="cid:[^"]*"/g, '');
 }
 
-/** the images every VALUNIVO code email shows (logo, wordmark, header texture) */
+/**
+ * the images every VALUNIVO code email shows (logo, wordmark). No header texture: Gmail does not draw a cid: image used as a
+ * background (the `background` attribute / CSS url), so it showed it as a loose picture under the message instead.
+ */
 export const CODE_MAIL_IMAGES: InlineImage[] = [
-  { cid: 'valunivo-icon', ...ICON }, { cid: 'valunivo-wordmark', ...WORDMARK }, { cid: 'valunivo-header-bg', ...HEADER_BG },
+  { cid: 'valunivo-icon', ...ICON }, { cid: 'valunivo-wordmark', ...WORDMARK },
 ];
 const APP_URL = 'https://jaurea.com/valunivo/';
 
@@ -196,8 +199,8 @@ export function codeMailHtml(p: { title: string; name: string; intro: string; co
             <td height="5" style="background-color: #ff5500; background: linear-gradient(90deg, #ff5500 0%, #ff8800 50%, #ff4500 100%); font-size: 0; line-height: 0;">&nbsp;</td>
           </tr>
           <tr>
-            <td align="center" background="cid:valunivo-header-bg" bgcolor="#000000"
-                style="padding: 35px 30px 25px 30px; background-color: #000000; background-image: url('cid:valunivo-header-bg'); background-size: cover; background-position: center; border-bottom: 1px solid #1f1f23;">
+            <td align="center" bgcolor="#000000"
+                style="padding: 35px 30px 25px 30px; background-color: #000000; border-bottom: 1px solid #1f1f23;">
               <img src="cid:valunivo-icon" alt="VALUNIVO Icon" width="100" height="54"
                    style="display: block; margin: 0 auto 14px auto; border: 0; outline: none; text-decoration: none;">
               <img src="cid:valunivo-wordmark" alt="VALUNIVO" width="180" height="21"
