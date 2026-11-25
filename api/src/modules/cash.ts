@@ -10,7 +10,7 @@ import { companyForPayment, companyOtpInstalled, tellCompany } from './company-p
 import { checkClassification, classificationInstalled } from './expense-classes.ts';
 import { onBrokerageReceiptReversed } from './brokerage.ts';
 import { computePayrollMany, loadRules } from './payroll-calc.ts';
-import { readFileBytes, storeAttachment, withFile } from '../lib/files.ts';
+import { fileSchemaInstalled, readFileBytes, storeAttachment, withFile } from '../lib/files.ts';
 
 /**
  * Financial system, phase 1 — the office cashbox and the HR cashbox.
@@ -962,7 +962,9 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const input = parseReceipt(obj(req.body), a, clock());
     if (input.saleId || input.installmentId) throw invalid('Collect sale payments from the sale page', { field: 'saleId' });
-    input.attFileId = await storeAttachment(db, 'receipt_attachment', input.att, 'receipt', a.id);
+    // a retried form (same clientRef) gets the first row back and stores nothing: its photo is already there
+    const retry = input.ref ? await one(db, `SELECT 1 FROM cash_receipts WHERE client_ref = $1`, [input.ref]) : null;
+    input.attFileId = retry ? null : await storeAttachment(db, 'receipt_attachment', input.att, 'receipt', a.id);
     const row = await db.tx((q) => recordReceipt(q, a, input));
     const full = await one(db, `${RECEIPT_SELECT} WHERE r.id = $1`, [row.id]);
     return ok({ receipt: shapeReceipt(full), duplicate: row.duplicate }, row.duplicate ? 200 : 201);
@@ -1016,8 +1018,11 @@ export const cashModule: Module = (r, { db, clock }) => {
     const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
     const ref = clientRef(b);
     const att = attachment(b);
-    const attFile = await storeAttachment(db, 'expense_attachment', att, 'receipt', a.id);
+    // permission first: nothing is stored for someone who may not upload it
     if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
+    // a retried form (same clientRef) gets the first row back and stores nothing
+    const retry = ref ? await one(db, `SELECT 1 FROM cash_expenses WHERE client_ref = $1`, [ref]) : null;
+    const attFile = retry ? null : await storeAttachment(db, 'expense_attachment', att, 'receipt', a.id);
     const occurred = when(b, 'occurredAt', clock());
     const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
     const mkId = typeof b.marketingCompanyId === 'string' && isUuid(b.marketingCompanyId) ? b.marketingCompanyId : null;
@@ -1216,7 +1221,7 @@ export const cashModule: Module = (r, { db, clock }) => {
       if (!x) throw notFound();
       if (!canBox(a, x.cashbox) || !canAttachmentUpload(a)) throw forbidden();
       if (fileId) await q.query(`UPDATE cash_expenses SET attachment = NULL, attachment_file_id = $2 WHERE id = $1`, [x.id, fileId]);
-      else await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
+      else await q.query(`UPDATE cash_expenses SET attachment = $2${(await fileSchemaInstalled(q)) ? ', attachment_file_id = NULL' : ''} WHERE id = $1`, [x.id, att]);
       await audit(q, a.id, 'cash.expense.attachment', 'cash_expense', x.id, undefined, { replaced: x.has });
     });
     return ok({ ok: true });

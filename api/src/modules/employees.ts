@@ -6,7 +6,7 @@ import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, can, has, isOwner, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
-import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
+import { fileSchemaInstalled, readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
 const PRIVILEGED = new Set(['owner', 'manager', 'hr_manager', 'accountant']);
@@ -534,7 +534,8 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const fileId = await storeFile(db, { category: 'employee_photo', bytes: buf, mime, name: 'photo', createdBy: a.id });
     const r2 = fileId
       ? await db.query(`UPDATE employees SET photo = NULL, photo_file_id = $2, photo_mime = $3, updated_at = now() WHERE id = $1`, [req.params.id, fileId, mime])
-      : await db.query(`UPDATE employees SET photo = $2, photo_mime = $3, updated_at = now() WHERE id = $1`, [req.params.id, buf, mime]);
+      // 091 installed but R2 off: the new photo is in Postgres, so an earlier R2 photo is no longer this employee's photo
+      : await db.query(`UPDATE employees SET photo = $2, photo_mime = $3${(await fileSchemaInstalled(db)) ? ', photo_file_id = NULL' : ''}, updated_at = now() WHERE id = $1`, [req.params.id, buf, mime]);
     if (!r2.rowCount) throw notFound();
     await audit(db, a.id, 'employee.photo', 'employee', req.params.id);
     return ok({ ok: true });

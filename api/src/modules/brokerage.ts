@@ -748,7 +748,11 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
     const p = photoInput(b);
-    await editable(db, a, req.params.id);   // permission first: nothing is stored for someone who may not add it
+    const l0 = await editable(db, a, req.params.id);   // permission first: nothing is stored for someone who may not add it
+    // the limit is checked again in the transaction; checked here too so nothing is stored for a refused photo
+    if (Number((await one(db, `SELECT count(*)::int n FROM brokerage_listing_photos WHERE listing_id = $1 AND NOT removed`, [l0.id])).n) >= MAX_PHOTOS) {
+      throw new AppError('unprocessable', `أقصى عدد ${MAX_PHOTOS} صور`, { reason: 'too_many_photos' });
+    }
     const fileId = await storeFile(db, { category: 'listing_photo', bytes: Buffer.from(p.data, 'base64'), mime: p.mime, name: 'photo', createdBy: a.id });
     const out = await db.tx(async (q) => {
       const l = await editable(q, a, req.params.id);
