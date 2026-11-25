@@ -9,6 +9,7 @@ import { notify } from './notify.ts';
 import { effectiveSql } from '../auth/permission-admin.ts';
 import type { Req } from '../http/router.ts';
 import { devicePolicy, isBrowserRequest, punchRefusal, PUNCH_REFUSAL_AR, type PunchRefusal } from '../lib/client-platform.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 /**
  * G1: may THIS session record attendance / location? Decided from the server's own records — the employee's
@@ -222,8 +223,10 @@ export const attendanceModule: Module = (r, { db, clock }) => {
         [a.id, l.date, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes, s.overtime_enabled,
          s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status, offline]);
       if (selfie) {
-        await q.query(`INSERT INTO attendance_selfies (attendance_id, employee_id, image, mime, taken_at) VALUES ($1,$2,$3,$4,$5)`,
-          [inserted.id, a.id, selfie.buf, selfie.mime, now]);
+        // R2 (091) when configured: written and verified on its own connection before this row may point at it
+        const fileId = await storeFile(db, { category: 'attendance_selfie', bytes: selfie.buf, mime: selfie.mime, name: 'selfie', createdBy: a.id });
+        await q.query(...withFile(`INSERT INTO attendance_selfies (attendance_id, employee_id, image, mime, taken_at) VALUES ($1,$2,$3,$4,$5)`,
+          [inserted.id, a.id, selfie.buf, selfie.mime, now], 'image', fileId));
       }
       // retention: old selfies are removed as part of normal use (no scheduler needed on the free plan)
       await q.query(`DELETE FROM attendance_selfies WHERE taken_at < $1::timestamptz - make_interval(days => $2)`, [clock(), cfg.selfie_retention_days]);
@@ -321,10 +324,10 @@ export const attendanceModule: Module = (r, { db, clock }) => {
   r.get('/attendance/:id/selfie', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const row = await one(db, `SELECT employee_id, image, mime FROM attendance_selfies WHERE attendance_id = $1`, [req.params.id]);
+    const row = await one(db, `SELECT * FROM attendance_selfies WHERE attendance_id = $1`, [req.params.id]);
     if (!row) throw notFound('No selfie (or it was deleted after the retention period)');
     if (row.employee_id !== a.id) await assertCanRead(db, a, row.employee_id, 'attendance');
-    return { binary: row.image, contentType: row.mime };
+    return { binary: await readFileBytes(db, row.image, row.image_file_id), contentType: row.mime };
   });
 
   /** Day-by-day detail for a date range (original JPH daily report): times, GPS points, break, selfie flag. */

@@ -40,7 +40,7 @@ const PROFILE_COLS = `
   COALESCE(e.position_key, e.role_key) AS position_key, pos.name_ar AS position_name_ar, pos.name_en AS position_name_en,
   e.joining_date, e.status, e.schedule_id, ws.name AS schedule_name,
   e.emergency_contact_name, e.emergency_contact_phone, e.notes,
-  (e.photo IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
+  (e.photo_mime IS NOT NULL) AS has_photo, e.created_at, e.updated_at,
   EXISTS (SELECT 1 FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS device_bound, e.device_lock, e.selfie_required,
   (SELECT xd.label FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved' ORDER BY xd.decided_at NULLS LAST LIMIT 1) AS device_label,
   (SELECT min(xd.decided_at) FROM employee_devices xd WHERE xd.employee_id = e.id AND xd.status = 'approved') AS device_bound_at,
@@ -530,7 +530,11 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
     const buf = decodeBase64(b.data, 'data');
     if (buf.length > 2 * 1024 * 1024) throw invalid('Photo must be smaller than 2 MB', { field: 'data' });
-    const r2 = await db.query(`UPDATE employees SET photo = $2, photo_mime = $3, updated_at = now() WHERE id = $1`, [req.params.id, buf, mime]);
+    if (!(await one(db, `SELECT 1 FROM employees WHERE id = $1`, [req.params.id]))) throw notFound();
+    const fileId = await storeFile(db, { category: 'employee_photo', bytes: buf, mime, name: 'photo', createdBy: a.id });
+    const r2 = fileId
+      ? await db.query(`UPDATE employees SET photo = NULL, photo_file_id = $2, photo_mime = $3, updated_at = now() WHERE id = $1`, [req.params.id, fileId, mime])
+      : await db.query(`UPDATE employees SET photo = $2, photo_mime = $3, updated_at = now() WHERE id = $1`, [req.params.id, buf, mime]);
     if (!r2.rowCount) throw notFound();
     await audit(db, a.id, 'employee.photo', 'employee', req.params.id);
     return ok({ ok: true });
@@ -540,9 +544,9 @@ export const employeesModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
     await assertCanRead(db, a, req.params.id, 'employee');
-    const p = await one(db, `SELECT photo, photo_mime FROM employees WHERE id = $1`, [req.params.id]);
-    if (!p?.photo) throw notFound('No photo');
-    return { binary: p.photo, contentType: p.photo_mime };
+    const p = await one(db, `SELECT * FROM employees WHERE id = $1`, [req.params.id]);
+    if (!p?.photo && !p?.photo_file_id) throw notFound('No photo');
+    return { binary: await readFileBytes(db, p.photo, p.photo_file_id), contentType: p.photo_mime };
   });
 
   // ---------------------------------------------------------------- documents

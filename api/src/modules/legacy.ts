@@ -9,6 +9,7 @@ import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
 import { pushTo } from '../lib/fcm.ts';
 import { randomUUID } from 'node:crypto';
 import { signedMediaPath, verifyMedia } from '../lib/media.ts';
+import { readFileBytes, storeAttachment, withFile } from '../lib/files.ts';
 
 /**
  * Endpoints behind the original JPH pages (advances / work expenses, holiday periods,
@@ -40,7 +41,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
   const shapeAdv = (a: any, x: any) => {
     const stage = stageOf(a, x);
     const live = x.payout_status === 'pending' || x.payout_status === 'disputed';
-    return { ...x, attachment: undefined, has_attachment: x.attachment !== null, stage: x.status !== 'pending' ? 'done' : 'gm',
+    return { ...x, attachment: undefined, has_attachment: x.attachment != null || !!x.attachment_file_id, stage: x.status !== 'pending' ? 'done' : 'gm',
       canDecide: stage !== null, myStage: stage,
       // صرف: an approved request that was not paid yet, by HR (never their own)
       // paid_outside: handed over before / outside the system — received, never through a cashbox
@@ -78,6 +79,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
     if (typeof b.attachment === 'string' && b.attachment.length) {
       attachment = imageAttachment(b.attachment, 'attachment', 600_000);
     }
+    const attFile = await storeAttachment(db, 'advance_attachment', attachment, 'attachment', a.id);
     const row = await db.tx(async (q) => {
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [employeeId]);
       if (await one(q, `SELECT 1 FROM advance_requests WHERE employee_id = $1 AND kind = $2 AND status = 'pending'`, [employeeId, kind])) {
@@ -88,11 +90,11 @@ export const legacyModule: Module = (r, { db, clock }) => {
       // recorded on someone's behalf by their own general manager (or an owner): the first stage is already given
       const gmDone = onBehalf && gmStageBy(a, { gm_id: gmId });
       // … and that approval is the final one
-      const x = await one(q, `INSERT INTO advance_requests (employee_id, kind, period, amount_egp, note, attachment, status, created_by, gm_id,
+      const x = await one(q, ...withFile(`INSERT INTO advance_requests (employee_id, kind, period, amount_egp, note, attachment, status, created_by, gm_id,
                                                             gm_approved_by, gm_approved_at, decided_by, decided_at)
                               VALUES ($1,$2,$3,$4,$5,$6,$11,$7,$8,$9,$10,$9,$10) RETURNING id, status`,
         [employeeId, kind, period, amount, note, attachment, a.id, gmId, gmDone ? a.id : null, gmDone ? clock() : null,
-         gmDone ? 'confirmed' : 'pending']);
+         gmDone ? 'confirmed' : 'pending'], 'attachment', attFile));
       await audit(q, a.id, 'advance.create', 'advance', x.id, undefined, { employeeId, kind, period, amount, gmId, gmDone });
       const title = kind === 'advance' ? 'طلب سلفة جديد' : 'طلب مصاريف عمل جديد';
       const emp = await one(q, `SELECT full_name FROM employees WHERE id = $1`, [employeeId]);
@@ -171,10 +173,10 @@ export const legacyModule: Module = (r, { db, clock }) => {
   r.get('/advances/:id/attachment', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const x = await one(db, `SELECT employee_id, attachment FROM advance_requests WHERE id = $1`, [req.params.id]);
-    if (!x || !x.attachment) throw notFound();
+    const x = await one(db, `SELECT * FROM advance_requests WHERE id = $1`, [req.params.id]);
+    if (!x || (!x.attachment && !x.attachment_file_id)) throw notFound();
     if (x.employee_id !== a.id && !has(a, 'finance.read') && !has(a, 'request.approve_hr')) throw notFound();
-    return { binary: x.attachment, contentType: 'image/jpeg' };
+    return { binary: await readFileBytes(db, x.attachment, x.attachment_file_id), contentType: 'image/jpeg' };
   });
 
   // ------------------------------------------------------------------ holiday periods
@@ -317,15 +319,15 @@ export const legacyModule: Module = (r, { db, clock }) => {
     if (kind === 'photo') {
       const scope = await photoScope(db, a);
       if (scope && !scope.has(id)) throw notFound();
-      const row = await one(db, `SELECT photo AS data, photo_mime AS mime FROM employees WHERE id = $1`, [id]);
-      if (!row?.data) throw notFound();
-      return { binary: row.data, contentType: row.mime ?? 'image/jpeg' };
+      const row = await one(db, `SELECT * FROM employees WHERE id = $1`, [id]);
+      if (!row?.photo && !row?.photo_file_id) throw notFound();
+      return { binary: await readFileBytes(db, row.photo, row.photo_file_id), contentType: row.photo_mime ?? 'image/jpeg' };
     }
-    const row = await one(db, `SELECT employee_id, image AS data, mime FROM attendance_selfies WHERE attendance_id = $1`, [id]);
-    if (!row?.data) throw notFound();
+    const row = await one(db, `SELECT * FROM attendance_selfies WHERE attendance_id = $1`, [id]);
+    if (!row?.image && !row?.image_file_id) throw notFound();
     const scope = await selfieScope(db, a);
     if (scope && !scope.has(row.employee_id)) throw notFound();
-    return { binary: row.data, contentType: row.mime ?? 'image/jpeg' };
+    return { binary: await readFileBytes(db, row.image, row.image_file_id), contentType: row.mime ?? 'image/jpeg' };
   });
 
   /** Signed links for photos of employees the caller may see (and selfies of attendance days they may read). */
@@ -340,7 +342,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
       const scope = await photoScope(db, a);
       const allowed = scope ? photoIds.filter((x) => scope.has(x)) : photoIds;
       if (allowed.length) {
-        const rows = await db.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND photo IS NOT NULL`, [allowed]);
+        const rows = await db.query(`SELECT id FROM employees WHERE id = ANY($1::uuid[]) AND photo_mime IS NOT NULL`, [allowed]);
         for (const x of rows.rows) out[`photo:${x.id}`] = await signedMediaPath(db, 'photo', x.id, a.id, now);
       }
     }
@@ -379,7 +381,7 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const e = await one(db, `
       SELECT e.id, e.code, e.full_name, e.email, e.phone, e.job_title, e.role_key, r.name_ar AS role_name_ar, r.name_en AS role_name_en,
              e.status, e.joining_date, e.created_at, e.updated_at, e.bank_name, e.account_holder, e.iban, e.account_number, e.notes,
-             (e.photo IS NOT NULL) AS has_photo, t.name AS team_name, m.full_name AS manager_name, d.name_ar AS department_name,
+             (e.photo_mime IS NOT NULL) AS has_photo, t.name AS team_name, m.full_name AS manager_name, d.name_ar AS department_name,
              ws.name AS schedule_name, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time, ws.weekend_days
         FROM employees e JOIN roles r ON r.key = e.role_key
         LEFT JOIN teams t ON t.id = e.team_id LEFT JOIN employees m ON m.id = COALESCE(e.sales_manager_id, t.manager_id)

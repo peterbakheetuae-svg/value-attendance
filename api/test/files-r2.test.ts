@@ -134,3 +134,25 @@ test('HR document on R2: content NULL, protected class, download intact; a decla
   assert.equal(liar.status, 400);
   assert.equal(objects.size, before + 1, 'nothing stored for a refused file');
 });
+
+test('employee photo on R2: stored, flagged as present, served intact; replacing keeps the old file record (protected, unlinked)', async () => {
+  const png = Buffer.concat([Buffer.from('\x89PNG\r\n\x1a\n', 'latin1'), Buffer.alloc(200, 3)]);
+  const up = await h.call(c.t.e1, 'PUT', `/employees/${c.ids.e1}/photo`, { mime: 'image/png', data: png.toString('base64') });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  const e = (await h.db.query(`SELECT photo, photo_file_id, photo_mime FROM employees WHERE id = $1`, [c.ids.e1])).rows[0];
+  assert.equal(e.photo, null);
+  assert.ok(e.photo_file_id);
+  const me = await h.call(c.t.e1, 'GET', '/me');
+  assert.equal(JSON.stringify(me.body).includes('"hasPhoto":false') || JSON.stringify(me.body).includes('"has_photo":false'), false, 'the photo is reported as present');
+  const got = await h.call(c.t.e1, 'GET', `/employees/${c.ids.e1}/photo`);
+  assert.equal(got.status, 200);
+  assert.deepEqual(got.raw, png);
+  const png2 = Buffer.concat([png, Buffer.from([9])]);
+  assert.equal((await h.call(c.t.e1, 'PUT', `/employees/${c.ids.e1}/photo`, { mime: 'image/png', data: png2.toString('base64') })).status, 200);
+  const old = (await h.db.query(`SELECT status, ref_count, retention_class, release_reason FROM file_objects WHERE id = $1`, [e.photo_file_id])).rows[0];
+  assert.deepEqual([old.status, old.ref_count, old.retention_class, old.release_reason], ['verified', 0, 'protected', 'unlinked'], 'kept, never purgeable');
+  // a declared type that is not the content: refused, nothing stored
+  const n = objects.size;
+  assert.equal((await h.call(c.t.e1, 'PUT', `/employees/${c.ids.e1}/photo`, { mime: 'image/jpeg', data: png.toString('base64') })).status, 400);
+  assert.equal(objects.size, n);
+});

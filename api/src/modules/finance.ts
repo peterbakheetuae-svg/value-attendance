@@ -4,6 +4,7 @@ import { conflict, forbidden, invalid, notFound } from '../http/errors.ts';
 import { imageAttachment, monthParam, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { audit, authenticate, requirePerm } from '../auth/context.ts';
 import { holdersOf, notify } from './notify.ts';
+import { fileSchemaInstalled, readFileBytes, storeAttachment, withFile } from '../lib/files.ts';
 
 /** Salary adjustments (EGP). Four-eyes: the creator, the subject and the approver are three different people. */
 const KIND_AR: Record<string, string> = { deduction: 'جزاء', bonus: 'علاوة', raise: 'زيادة راتب' };
@@ -12,10 +13,10 @@ export const financeModule: Module = (r, { db }) => {
   r.get('/finance/adjustments/:id/attachment', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const x = await one(db, `SELECT employee_id, attachment FROM salary_adjustments WHERE id = $1`, [req.params.id]);
-    if (!x || !x.attachment) throw notFound();
+    const x = await one(db, `SELECT * FROM salary_adjustments WHERE id = $1`, [req.params.id]);
+    if (!x || (!x.attachment && !x.attachment_file_id)) throw notFound();
     if (x.employee_id !== a.id && !a.perms.has('finance.read')) throw notFound();
-    return { binary: x.attachment, contentType: 'image/jpeg' };
+    return { binary: await readFileBytes(db, x.attachment, x.attachment_file_id), contentType: 'image/jpeg' };
   });
 
   r.get('/finance/adjustments', async (req) => {
@@ -24,9 +25,10 @@ export const financeModule: Module = (r, { db }) => {
     const k = req.query.get('kind'); if (k) { vals.push(k); where.push(`s.kind = $${vals.length}`); }
     const m = req.query.get('month'); if (m) { vals.push(monthParam(m)); where.push(`s.period = $${vals.length}`); }
     const st = req.query.get('status'); if (st) { vals.push(st); where.push(`s.status = $${vals.length}`); }
+    const fileCol = (await fileSchemaInstalled(db)) ? ' OR s.attachment_file_id IS NOT NULL' : '';
     const rows = await db.query(`
       SELECT s.id, s.employee_id, s.period, s.kind, s.amount_egp, s.reason, s.status, s.created_by, s.decided_by, s.decided_at,
-             s.created_at, (s.attachment IS NOT NULL) AS has_attachment, e.full_name AS employee_name, e.code AS employee_code, c.full_name AS created_by_name, d.full_name AS decided_by_name
+             s.created_at, (s.attachment IS NOT NULL${fileCol}) AS has_attachment, e.full_name AS employee_name, e.code AS employee_code, c.full_name AS created_by_name, d.full_name AS decided_by_name
         FROM salary_adjustments s JOIN employees e ON e.id = s.employee_id JOIN employees c ON c.id = s.created_by
         LEFT JOIN employees d ON d.id = s.decided_by ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY s.created_at DESC LIMIT 300`, vals);
@@ -44,12 +46,13 @@ export const financeModule: Module = (r, { db }) => {
       attachment = imageAttachment(b.attachment, 'attachment', 600_000);
     }
     const kind = oneOf(b, 'kind', ['deduction', 'bonus', 'raise'] as const)!;
+    const attFile = await storeAttachment(db, 'adjustment_attachment', attachment, 'attachment', a.id);
     const row = await db.tx(async (q) => {
-      const s = await one(q, `INSERT INTO salary_adjustments (employee_id, period, kind, amount_egp, reason, created_by, attachment)
+      const s = await one(q, ...withFile(`INSERT INTO salary_adjustments (employee_id, period, kind, amount_egp, reason, created_by, attachment)
         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, employee_id, period, kind, amount_egp, reason, status, created_by, created_at`,
         [employeeId, monthParam(typeof b.month === 'string' ? b.month : null),
         kind, num(b, 'amountEgp', { min: 0.01, max: 10_000_000 }),
-        reqStr(b, 'reason', { min: 3, max: 500 }), a.id, attachment]);
+        reqStr(b, 'reason', { min: 3, max: 500 }), a.id, attachment], 'attachment', attFile));
       await audit(q, a.id, 'finance.adjustment_create', 'salary_adjustment', s.id, undefined, s);
       const emp = await one(q, `SELECT full_name FROM employees WHERE id = $1`, [employeeId]);
       for (const to of await holdersOf(q, 'finance.approve', [a.id, employeeId])) {

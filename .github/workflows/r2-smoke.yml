@@ -1,0 +1,26 @@
+name: R2 smoke check (manual, synthetic data only)
+# Checks the least-privilege R2 token against the real private bucket with synthetic bytes under staging/smoke/ only:
+# upload, HEAD, integrity-checked download, no-overwrite, private (anonymous refused), presigned 60 s, tampered signature
+# refused, another bucket refused, cleanup verified. Prints PASS/FAIL only — never a credential or a presigned URL.
+# The token lives in repository secrets set by the owner (R2_SMOKE_*); this workflow never runs on push.
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22 }
+      - name: Smoke check (no dependencies needed)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_SMOKE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_SMOKE_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SMOKE_SECRET_ACCESS_KEY }}
+          R2_BUCKET: valunivo-files
+          R2_JURISDICTION: eu
+        run: node --experimental-transform-types --no-warnings scripts/r2-smoke.ts
