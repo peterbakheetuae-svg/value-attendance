@@ -147,7 +147,7 @@ test('missing required permissions: the token is not kept and a working connecti
   assert.equal(r.status, 400);
   assert.ok(r.raw.toString().includes('leads_retrieval'), 'the missing permission is named');
   assert.deepEqual(await meta(), before, 'not replaced, not switched off');
-  const a = (await h.db.query(`SELECT after FROM audit_log WHERE action = 'integration.meta_oauth_incomplete' ORDER BY created_at DESC LIMIT 1`)).rows[0];
+  const a = (await h.db.query(`SELECT after FROM audit_log WHERE action = 'integration.meta_oauth_incomplete' ORDER BY at DESC LIMIT 1`)).rows[0];
   assert.ok(JSON.stringify(a.after).includes('leads_retrieval') && !JSON.stringify(a.after).includes('LONG-TOKEN'));
 });
 

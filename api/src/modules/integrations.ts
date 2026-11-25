@@ -302,7 +302,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       return page(400, false, 'الصلاحيات ناقصة — الربط ما اتحفظش', `اسمح بالصلاحيات دي وابدأ الربط تاني: ${missingRequired.join('، ')}. الربط القديم (لو موجود) فضل زي ما هو.`);
     }
     await ensure('meta');
-    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = NULL, updated_by = $3, updated_at = $4 WHERE source = $1`,
+    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = '', updated_by = $3, updated_at = $4 WHERE source = $1`,
       ['meta', seal(token), actor.id, now]);
     await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingOptional: missing });
     let pages = 0;
