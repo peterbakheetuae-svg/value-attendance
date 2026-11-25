@@ -11,6 +11,7 @@ import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode }
 import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { seal, unseal } from '../lib/secretbox.ts';
+import { deletionStatusPage, processDeletionRequest, processPendingDeletions, recordDeletionRequest } from './meta_deletion.ts';
 import { LEAD_FIELDS, graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
 import { hasBackupToken } from '../lib/backup-token.ts';
 import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
@@ -341,25 +342,23 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     return ok({ ok: true, matched: forgot });
   });
   /**
-   * Meta's Data Deletion Request callback: the same clean-up, then the answer Meta expects — a status URL and a
-   * confirmation code (kept in the audit log, so the status page can confirm it). We hold no Facebook profile data; the
-   * only data of that person is the token, removed here.
+   * Meta's Data Deletion Request callback (see modules/meta_deletion.ts for what is and is not held): the request is
+   * recorded first (never lost), then processed; a failure leaves it «pending» for the scheduler to retry. The answer is
+   * what Meta expects — a status URL and a confirmation code — and the status page says exactly what was done.
    */
   r.post('/public/meta/data-deletion', async (req) => {
     const x = signedFrom(req);
     if (!x.configured) throw notFound();
     if (!x.sr) throw new AppError('unauthenticated', 'Bad signed_request');
-    const matched = await forgetMetaUser(x.sr.user_id, 'فيسبوك: طلب حذف بيانات من الحساب اللي ربط المكتب — اعمل «إعادة الربط»');
     const codeId = randomBytes(12).toString('hex');
-    await audit(db, null, 'integration.meta_data_deletion', 'meta_data_deletion', codeId, undefined, { matched });
+    await recordDeletionRequest(db, x.sr.user_id, codeId, clock());
+    try { await processDeletionRequest(db, codeId, clock()); }
+    catch (e) { await noteError('meta', `Data deletion ${codeId}: ${safeMetaError(e)} — pending, retried by the scheduler`).catch(() => undefined); }
     return ok({ url: `${x.base}/public/meta/data-deletion/${codeId}`, confirmation_code: codeId });
   });
   r.get('/public/meta/data-deletion/:code', async (req) => {
-    const code = /^[0-9a-f]{24}$/.test(req.params.code) ? req.params.code : '';
-    const done = code ? await one(db, `SELECT 1 FROM audit_log WHERE action = 'integration.meta_data_deletion' AND entity_id = $1`, [code]) : null;
-    return { status: done ? 200 : 404, binary: Buffer.from(callbackPage(!!done, done ? 'تم تنفيذ طلب الحذف' : 'الطلب غير موجود',
-      done ? 'اتشال التوكن اللي كان محفوظ لحسابك (لو كان موجود). مفيش بيانات تانية من حساب فيسبوك متخزنة عندنا.' : 'راجع رمز التأكيد.'), 'utf8'),
-      contentType: 'text/html; charset=utf-8' };
+    const p = await deletionStatusPage(db, req.params.code);
+    return { status: p.status, binary: Buffer.from(p.html, 'utf8'), contentType: 'text/html; charset=utf-8' };
   });
 
   /** the connection's state: configured? connected? token expiry, granted / missing permissions, last sync, last error */
@@ -411,8 +410,12 @@ export const integrationsModule: Module = (r, { db, clock }) => {
    */
   r.post('/integrations/meta/sync/run', async (req) => {
     if (!hasBackupToken(req.headers)) await metaManager(req);
+    // Meta data deletion requests left pending by a failure are retried first (independent of the sync's claim)
+    const deletions = await processPendingDeletions(db, clock());
     const out = await runScheduledMetaSync(db, clock());
-    return ok({ ...out, errors: (out.errors ?? []).map((e) => safeMetaError(e)) });
+    const errors = (out.errors ?? []).map((e) => safeMetaError(e));
+    if (deletions.failed) errors.push(`${deletions.failed} Meta data deletion request(s) still pending`);
+    return ok({ ...out, errors, deletions });
   });
 
   /** «Verify token جديد»: the 4-digit code goes to the person's own e-mail first */

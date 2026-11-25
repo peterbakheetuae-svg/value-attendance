@@ -15,7 +15,7 @@ export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
  *    linked (what it already has) and then every few minutes — besides the ones the webhook pushes. Each Meta lead comes
  *    in once (leads.meta_lead_id).
  */
-// one Graph API version for all Meta calls (META_GRAPH_VERSION, default v21.0 — see lib/meta-oauth.ts)
+// one Graph API version for all Meta calls (META_GRAPH_VERSION, default v25.0 — see lib/meta-oauth.ts)
 export const LEAD_FIELDS = 'id,field_data,form_id,ad_id,ad_name,adset_id,campaign_id,campaign_name,created_time';
 const META_ID = /^[0-9]{3,30}$/;
 
@@ -23,6 +23,16 @@ export async function graph(path: string, token: string, init?: RequestInit): Pr
   const sep = path.includes('?') ? '&' : '?';
   // the URL carries the token: metaFetch never logs it and never puts it in an error
   return metaFetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, init);
+}
+
+/**
+ * A lead Meta sent that can never be taken as it is (ingestion policy): it has no usable phone number. Retrying it
+ * gives the same answer, so a sync pass reports it (`rejected`) and is still complete. Every other failure — the
+ * database, a campaign without a project (configuration, fixed by a person), anything unexpected — is a processing
+ * failure: the pass is incomplete and the checkpoint stays, so the next run reads the lead again.
+ */
+export class MetaLeadRejected extends Error {
+  constructor(message: string) { super(message); this.name = 'MetaLeadRejected'; }
 }
 
 /** a Meta lead to the campaign of ours that its Meta campaign (or its form) is linked to — null = not ours / already in */
@@ -43,7 +53,7 @@ export async function takeMetaLead(db: Db, g: any, now: Date, origin: MetaLeadOr
   if (!c.project_id) throw new Error(`the campaign «${c.name}» has no project`);
   const fullName = f.full_name || [f.first_name, f.last_name].filter(Boolean).join(' ') || 'عميل من فيسبوك';
   const phone = f.phone_number || f.phone || f.mobile || '';
-  if (phoneNorm(phone).length < 7) throw new Error('lead without a phone');
+  if (phoneNorm(phone).length < 7) throw new MetaLeadRejected('lead without a phone');
   const extra = Object.entries(f).filter(([k]) => !['full_name', 'first_name', 'last_name', 'phone_number', 'phone', 'email'].includes(k))
     .map(([k, v]) => `${k}: ${v}`);
   const notes = [g.campaign_name ? `حملة: ${g.campaign_name}` : '', g.ad_name ? `إعلان: ${g.ad_name}` : '', ...extra].filter(Boolean).join(' — ').slice(0, 1900);
@@ -86,26 +96,35 @@ export async function pageToken(db: Db, pageId: string | null): Promise<string |
  * with the office's token, from the campaigns' ads). Returns how many came in. Never throws: errors are kept on the page /
  * the integration.
  */
-export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number; clock?: () => number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
+export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number; clock?: () => number } = {}): Promise<{ added: number; errors: string[]; rejected: string[]; complete: boolean }> {
   // the budget is checked before every Meta request and before every lead (each lead is its own transaction, under its
   // advisory lock): once it is spent no new work starts, so a run ends within budget + one request / one lead
   const budget = new Budget(opts.deadlineMs ?? 20_000, opts.clock ?? Date.now);
   const errors: string[] = [];
+  const rejected: string[] = [];
   let added = 0;
   // a pass is complete only if nothing was cut short (budget, the 20-page cap, a page whose forms could not be read);
   // only a complete pass moves the campaigns' checkpoint — otherwise the next run reads the same window again (idempotent)
   let complete = true;
   const camps = (await db.query(`SELECT id, meta_campaign_ids, meta_synced_at FROM lead_campaigns
       WHERE active AND cardinality(meta_campaign_ids) > 0 ${opts.campaignId ? 'AND id = $1' : ''}`, opts.campaignId ? [opts.campaignId] : [])).rows;
-  if (!camps.length) return { added, errors, complete };
+  if (!camps.length) return { added, errors, rejected, complete };
   const wanted = new Set<string>(camps.flatMap((c) => (c.meta_campaign_ids ?? []).map(String)));
   // from the oldest sync of these campaigns (a campaign never synced: its last 90 days)
   const since = new Date(Math.min(...camps.map((c) => (c.meta_synced_at ? new Date(c.meta_synced_at).getTime() - 3_600_000 : now.getTime() - 90 * 86_400_000))));
   const filtering = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(since.getTime() / 1000) }]));
   const takeFrom = (pageId: string | null) => async (g: any) => {
     if (!wanted.has(String(g?.campaign_id ?? ''))) return;
-    // a lead that cannot be taken (no phone, no project) is reported, not retried forever: it does not make the pass incomplete
-    try { if (await takeMetaLead(db, g, now, { source: 'meta_sync', pageId }) === 'added') added++; } catch (e: any) { errors.push(String(e?.message ?? e)); }
+    try { if (await takeMetaLead(db, g, now, { source: 'meta_sync', pageId }) === 'added') added++; }
+    catch (e: any) {
+      const id = String(g?.id ?? '').replace(/\D/g, '').slice(0, 30);
+      // a permanent rejection (no phone) is reported and not retried forever: the pass stays complete
+      if (e instanceof MetaLeadRejected) { rejected.push(`${e.message} (lead ${id})`); return; }
+      // anything else (database, configuration, unexpected) is a processing failure: the pass is incomplete, the
+      // checkpoint does not move and the next run reads this lead again (idempotent: meta_lead_id + advisory lock)
+      complete = false;
+      errors.push(String(e?.message ?? e));
+    }
   };
   const leadsOf = async (edge: string, token: string, pageId: string | null) => {
     let next: string | null = `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}`;
@@ -156,7 +175,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
   if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
   // finalization after this point never touches the checkpoint
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
-  return { added, errors, complete };
+  return { added, errors, rejected, complete };
 }
 
 /**
@@ -165,7 +184,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
  * API instances, at most every 5 minutes), with a longer time budget. Idempotent: every Meta lead comes in once
  * (leads.meta_lead_id is unique), so a webhook and a scheduled run that see the same lead add it once.
  */
-export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; complete?: boolean; errors?: string[] }> {
+export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; complete?: boolean; errors?: string[]; rejected?: string[] }> {
   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
       WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - make_interval(mins => $2))
         AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
@@ -182,7 +201,7 @@ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: bo
   // transaction and the checkpoint (meta_synced_at) only moves after a complete pass, so the next run re-reads the window.
   // Two scheduled runs cannot overlap: the claim lasts 5 minutes, ten times the longest a run can live.
   const r = await syncMeta(db, now, { deadlineMs: SCHEDULED_BUDGET_MS });
-  return { ran: true, added: r.added, complete: r.complete, errors: [...new Set(r.errors)].slice(0, 5) };
+  return { ran: true, added: r.added, complete: r.complete, errors: [...new Set(r.errors)].slice(0, 5), rejected: [...new Set(r.rejected)].slice(0, 5) };
 }
 
 /** every 10 minutes at most (the first request after that pays it, with a short time budget) */

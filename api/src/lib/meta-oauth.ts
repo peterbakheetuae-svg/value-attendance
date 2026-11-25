@@ -16,12 +16,18 @@ import { META_REQUEST_TIMEOUT_MS } from './meta-sync-limits.ts';
  *   META_APP_ID              the Meta app id (digits)
  *   META_APP_SECRET          that app's secret (its own setting — not META_APP_SECRETS, the webhook signing secrets)
  *   META_OAUTH_REDIRECT_URI  exactly the "Valid OAuth Redirect URI" registered on the Meta app: https://<api host>/public/meta/oauth/callback
- *   META_GRAPH_VERSION       optional, e.g. v25.0 (default: the version the rest of the Meta code already uses)
+ *   META_GRAPH_VERSION       optional, e.g. v26.0 (default below)
  *   SECRETS_KEY              required: signs the state and seals the token at rest (lib/secretbox.ts)
  */
 
-/** the version the existing Meta code was built and tested on (meta_sync.ts, integrations.ts) */
-export const DEFAULT_GRAPH_VERSION = 'v21.0';
+/**
+ * The Graph / Marketing API version of every Meta call (OAuth dialog and exchange, debug_token, pages, lead forms and
+ * leads, webhooks subscription, campaign ads, campaign Insights). v25.0 (released 2026-02-18): the public changelogs of
+ * v22.0–v25.0 list no change to any endpoint, field or parameter used here (review 2026-11-26; see
+ * docs/MARKETING_INTELLIGENCE_PROGRESS.md). v21.0 is removed by Meta on 2027-01-21 and the Marketing API v21–v24 are
+ * already past or near their end. Not yet exercised against Meta itself (no credentials here).
+ */
+export const DEFAULT_GRAPH_VERSION = 'v25.0';
 const VERSION = /^v[0-9]{2}\.0$/;
 
 export function graphVersion(env: Record<string, string | undefined> = process.env): string {
@@ -224,12 +230,12 @@ export function safeMetaError(e: unknown): string {
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
 /** the page the browser lands on after Meta (Arabic, RTL, no script, no token) */
-export function callbackPage(ok: boolean, title: string, detail: string): string {
+export function callbackPage(ok: boolean, title: string, detail: string, appFooter = true): string {
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>${esc(title)}</title>
 <style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center;color:#1f2937}
 h1{font-size:1.25rem;color:${ok ? '#047857' : '#b91c1c'}}p{line-height:1.7}</style></head>
-<body><h1>${esc(title)}</h1><p>${esc(detail)}</p><p>ارجع للتطبيق — حالة الربط بتظهر في إعدادات الربط (Meta).</p></body></html>`;
+<body><h1>${esc(title)}</h1><p>${esc(detail)}</p>${appFooter ? '<p>ارجع للتطبيق — حالة الربط بتظهر في إعدادات الربط (Meta).</p>' : ''}</body></html>`;
 }
 
 // ------------------------------------------------------------------ deauthorization / data deletion (Phase A)

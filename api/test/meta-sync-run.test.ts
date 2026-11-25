@@ -53,7 +53,7 @@ test('a scheduled run pulls the linked campaign\'s leads once; a second knock ri
   assert.equal(r.body.ran, true);
   assert.equal(r.body.added, 2);
   const again = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
-  assert.deepEqual(again.body, { ran: false, reason: 'recent', errors: [] });
+  assert.deepEqual(again.body, { ran: false, reason: 'recent', errors: [], deletions: { processed: 0, failed: 0 } });
   h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
   const later = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
   assert.equal(later.body.ran, true);
@@ -67,7 +67,7 @@ test('switched off: the scheduler is told why and nothing is pulled', async () =
   await h.db.query(`UPDATE integrations SET active = false WHERE source = 'meta'`);
   h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
   const r = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
-  assert.deepEqual(r.body, { ran: false, reason: 'off', errors: [] });
+  assert.deepEqual(r.body, { ran: false, reason: 'off', errors: [], deletions: { processed: 0, failed: 0 } });
   await h.db.query(`UPDATE integrations SET active = true WHERE source = 'meta'`);
 });
 
@@ -133,4 +133,48 @@ test('normal completion with the same deterministic clock: complete, and the che
   assert.equal(r.added, 2);
   const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
   assert.equal(new Date(after).toISOString(), h.now.value.toISOString(), 'the checkpoint moved to this run');
+});
+
+test('P1: a database failure on one lead makes the pass incomplete — the checkpoint stays; the next run takes that lead', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 60_000);
+  const before = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  // a real database error for one phone number (a trigger in this test database only)
+  await h.db.query(`CREATE OR REPLACE FUNCTION test_fail_lead() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.phone LIKE '%9990' THEN RAISE EXCEPTION 'simulated database failure'; END IF; RETURN NEW; END $$`);
+  await h.db.query(`CREATE TRIGGER test_fail_lead BEFORE INSERT ON leads FOR EACH ROW EXECUTE FUNCTION test_fail_lead()`);
+  metaLeads = [lead('8201', '01088889990'), lead('8202', '01088882002')];
+  const r = await syncMeta(h.db, h.now.value, { deadlineMs: 60_000 });
+  assert.equal(r.complete, false, 'a processing failure makes the pass incomplete');
+  assert.equal(r.added, 1, 'the other lead is still taken');
+  assert.equal(r.errors.length, 1);
+  assert.deepEqual(r.rejected, [], 'a failure is not a rejection');
+  assert.deepEqual((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at, before, 'the checkpoint did not move');
+  // the scheduled run reports it as an error (the workflow fails on errors)
+  h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
+  const run = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
+  assert.equal(run.body.ran, true);
+  assert.equal(run.body.complete, false);
+  assert.equal(run.body.errors.length, 1);
+  // fixed: the next pass reads the same window again, takes the lead once, and only then moves the checkpoint
+  await h.db.query(`DROP TRIGGER test_fail_lead ON leads; DROP FUNCTION test_fail_lead()`);
+  h.now.value = new Date(h.now.value.getTime() + 60_000);
+  const again = await syncMeta(h.db, h.now.value, { deadlineMs: 60_000 });
+  assert.deepEqual([again.complete, again.added, again.errors.length], [true, 1, 0]);
+  assert.equal((await h.db.query(`SELECT count(*)::int n FROM leads WHERE meta_lead_id IN ('8201','8202')`)).rows[0].n, 2, 'each once');
+  assert.equal(new Date((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at).toISOString(),
+    h.now.value.toISOString());
+});
+
+test('P1: a permanent rejection (no phone number) is reported as rejected, adds nothing, and the pass is still complete', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 6 * 60_000);
+  const noPhone = { ...lead('8301', ''), field_data: [{ name: 'full_name', values: ['بدون رقم'] }] };
+  metaLeads = [noPhone, lead('8302', '01088883002')];
+  const run = await h.call(null, 'POST', '/integrations/meta/sync/run', {}, { 'x-backup-token': TOKEN });
+  assert.equal(run.status, 200, JSON.stringify(run.body));
+  assert.deepEqual([run.body.ran, run.body.complete, run.body.added, run.body.errors], [true, true, 1, []]);
+  assert.equal(run.body.rejected.length, 1);
+  assert.match(run.body.rejected[0], /without a phone.*8301/);
+  assert.equal((await h.db.query(`SELECT count(*)::int n FROM leads WHERE meta_lead_id = '8301'`)).rows[0].n, 0);
+  assert.equal(new Date((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at).toISOString(),
+    h.now.value.toISOString(), 'the checkpoint moved: retrying would give the same answer');
 });

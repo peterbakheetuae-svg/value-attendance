@@ -91,10 +91,10 @@ Weights, targets, periods and existing manual results are unchanged by this work
 - No token, secret or Graph URL in responses, logs or errors (`safeMetaError`); the dashboard returns no token fields (tested).
 - Every new route checks its permission on the server (`leads.quality`, `leads.config`, `leads.read_all`, owner-only formula approval); partners refused.
 - Fixed in this pass: a manual correction of an automatic KPI kept `source='auto'` and would have been overwritten by the next run.
-- Open: the Data Deletion callback removes the office's Meta token and page links; lead records already collected are company business records and are **not** deleted — confirm this matches the published privacy policy.
+- Data Deletion behaviour: see «Review corrections — P1 Data Deletion» below (the earlier status page overstated what was held; corrected).
 
 ### Meta configuration still required (exact)
-In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; **Deauthorize callback URL** `https://<API host>/public/meta/deauthorize`; **Data Deletion Request URL** `https://<API host>/public/meta/data-deletion`; Webhooks → Page → `leadgen` → `https://<API host>/public/hooks/meta`. Host env: `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, optional `META_GRAPH_VERSION` (default v21.0 — Meta removes v21.0 on 2027-01-21; set a current version, e.g. v26.0, after testing). Insights read with the granted `ads_management` (Meta accepts `ads_read` or `ads_management` for the Insights API). GitHub secret `BACKUP_TOKEN` for `meta-sync.yml` (only runs on `main`). Nothing was set by this work and no real Meta call was made.
+In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; **Deauthorize callback URL** `https://<API host>/public/meta/deauthorize`; **Data Deletion Request URL** `https://<API host>/public/meta/data-deletion`; Webhooks → Page → `leadgen` → `https://<API host>/public/hooks/meta`. Host env: `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, optional `META_GRAPH_VERSION` (default **v25.0** since the review corrections; see below). Insights read with the granted `ads_management` (Meta accepts `ads_read` or `ads_management` for the Insights API). GitHub secret `BACKUP_TOKEN` for `meta-sync.yml` (only runs on `main`). Nothing was set by this work and no real Meta call was made.
 
 ### Vercel
 - Both `vercel.json` (root) and `api/vercel.json` (the project `value-attendance` builds from `api/`) carry `"feat/marketing-intelligence": false`; commits after 38b7037 got **0** Vercel statuses (checked on 132be3e).
@@ -200,3 +200,39 @@ deployment on project `value-attendance` (no migration: previews never migrate).
 - API tests, run 45716091763 @ 3350d3d: PostgreSQL 16 — 611 pass / 0 fail / 2 skipped, least-privilege runtime role 612 / 612; PostgreSQL 18 — same. Migration 092 applied on fresh databases in order.
 - App check, run 45715657993 @ 132be3e (last commit touching `app/`): `flutter analyze` 0 errors (Flutter 3.38.10), Android release build check with a throwaway key, web build check — success; nothing published.
 - Vercel: 0 deployment statuses on 132be3e and 3350d3d.
+
+## Review corrections (2026-11-26, independent review of `feat/marketing-intelligence`)
+
+### P1 — lead sync errors and the checkpoint (`api/src/modules/meta_sync.ts`)
+- Ingestion policy: a lead Meta sent **without a usable phone number** is a permanent rejection (`MetaLeadRejected`): it is reported in `rejected` (lead id only), adds nothing, and the pass stays complete — re-reading it gives the same answer.
+- Every other failure on a lead (database error, a linked campaign without a project, anything unexpected) is a processing failure: `complete = false`, the error is in `errors`, and `lead_campaigns.meta_synced_at` does not move, so the next run reads the same window again. Idempotency (unique `meta_lead_id`) and the per-lead advisory lock are unchanged.
+- `meta-sync.yml`: errors fail the run (red); rejected leads give a warning; an incomplete pass without errors (time budget) is a notice. Fixed: the incomplete check used `jq '.complete // true'`, which reads `false` as `true`.
+
+### P1 — Data Deletion (`api/src/modules/meta_deletion.ts`, 092 `meta_data_deletion_requests`)
+What this app holds from Facebook about the person in the signed request (an app-scoped user id):
+| Data | Where | On a matching request |
+|---|---|---|
+| user access token of the person who connected the office (Facebook Login) | `integrations.access_token` | deleted |
+| SHA-256 hash of that person's app-scoped id | `integrations.meta_user_hash` | deleted |
+| page access tokens obtained through that token, with page ids / names | `meta_pages` | deleted (all rows) |
+| leads submitted through the company's Lead Ads forms (name, phone, answers, Meta campaign / form / ad ids) | `leads` | **not deleted**: stored as the company's lead records **without any Facebook user id**, so a request carrying an app-scoped id cannot identify them |
+
+- Every verified request is recorded first (`pending`), then processed in one transaction; the result is `completed` (with what was removed) or `no_data_found`. A failure leaves it `pending`; the scheduler (`POST /integrations/meta/sync/run`) retries pending requests first. The hash is kept only while pending.
+- The status page states exactly what was done, says plainly that Lead Ads lead records are not covered by the request and that the person can ask the company directly. It never claims a deletion that did not happen, and no longer claims that nothing else is stored.
+- Unsigned / wrongly signed requests are refused (401) and not recorded. Not verified: whether this matches the published privacy policy, and whether any law requires more — **owner / legal decision**; no legal exception is claimed.
+
+### P2 — Ads Insights completeness (`api/src/lib/meta-insights.ts readInsightsPage / insightRowProblem`)
+A response whose `data` is not a list, a row that is not an object, belongs to another campaign, is not one day, has a present-but-invalid number / currency / actions list, or a `next` link without a cursor makes the pass incomplete with an error; valid days of the page are still stored (idempotent); the checkpoint does not move. Absent metrics stay NULL (not a problem).
+
+### P2 — Insights claim recovery (`runInsightsClaimed`)
+A complete pass and a rate-limited pass keep the 60-minute claim; any other incomplete pass, an error or an exception gives the claim back so the next knock after **5 minutes** runs (a run lives ≤ 30 s, so no overlap). Only our own claim is given back. The checkpoint is only moved inside a complete pass.
+
+### P2 — Lead quality history (092 trigger `lead_quality_events_immutable`)
+BEFORE UPDATE **and DELETE**: any direct change or deletion raises. Allowed only what the foreign keys do: ON DELETE CASCADE when the lead no longer exists (a duplicate merged away), ON DELETE SET NULL of `by_id` when that employee no longer exists, ON UPDATE CASCADE of a renamed id. TRUNCATE (owner data reset / ops scripts) is not a row operation and stays possible.
+
+### P2 — Graph API version
+Default `v25.0` (was v21.0). Reviewed against the public changelogs v22.0–v26.0 for every endpoint used: OAuth dialog / code exchange / `fb_exchange_token`, `debug_token`, `me/accounts`, `me/businesses`, `{page}/subscribed_apps`, `{page}/leadgen_forms`, `{form|ad}/leads` with `filtering`, `{campaign}/ads`, `{campaign}/insights` with `time_increment=1`. No change listed for them (v24.0 deprecates creating Messenger lead ads, not used; v26.0 removes `pretty` / `date_format` / `debug` / ETag, not used). v26.0 is also expected to work (set `META_GRAPH_VERSION=v26.0`); its full changelog page could not be retrieved here, which is why v25.0 is the default. **Remaining uncertainty:** no call was made to Meta with this version (no credentials); the first real connection should be checked end to end.
+
+### P2 — Automatic KPI execution
+There was no recurring trigger (only the manual `POST /kpi/auto/run`). Added `POST /kpi/auto/scheduled` (scheduler token or `kpi.config`) → `runScheduledKpis`: the current Cairo month, plus the previous month during its first 3 days. Only owner-approved calculators run; manual and completed results are never touched; idempotent. `meta-sync.yml` knocks it hourly (the :07 run), nightly and on dispatch — on `main` only. Limitation (unchanged behaviour): result rows of a month exist once that employee's KPI page for the month is opened (snapshot of weights / targets); the run fills existing rows only.
+

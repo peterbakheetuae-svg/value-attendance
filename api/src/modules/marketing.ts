@@ -1,3 +1,4 @@
+import { addMonths, local } from '../lib/time.ts';
 import { ok, type Module } from '../ctx.ts';
 import { one, type Db, type Q } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
@@ -9,7 +10,7 @@ import { unseal } from '../lib/secretbox.ts';
 import { graph } from './meta_sync.ts';
 import { Budget, eachWithin, passComplete, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
 import { isRateLimited, safeMetaError } from '../lib/meta-oauth.ts';
-import { costPer, dayComplete, insightsPath, parseInsightRow, sumOrNull, type InsightDay } from '../lib/meta-insights.ts';
+import { costPer, dayComplete, insightsPath, readInsightsPage, sumOrNull, type InsightDay } from '../lib/meta-insights.ts';
 
 /**
  * Marketing Intelligence (092): Meta Ads Insights snapshots (D), lead quality (E), KPI calculation sources (F), campaign
@@ -64,11 +65,13 @@ export async function syncInsights(db: Db, now: Date, opts: { deadlineMs?: numbe
       for (let page = 0; next; page++) {
         if (page >= 10 || !budget.left()) { complete = false; break; }
         const r: any = await graph(next, token);
-        const rows: any[] = Array.isArray(r.data) ? r.data : [];
-        const days: InsightDay[] = rows.map(parseInsightRow).filter((d): d is InsightDay => !!d && d.metaCampaignId === id);
-        if (!(await eachWithin(days, budget, async (d) => { (await upsertInsightDay(db, d, now)) === 'stored' ? stored++ : kept++; }))) { complete = false; break; }
-        const after = r?.paging?.cursors?.after;
-        next = r?.paging?.next && after ? `${insightsPath(id, since, until)}&after=${encodeURIComponent(after)}` : null;
+        // a malformed answer (data not a list, a bad row, a next page without a cursor) is never a complete page: the
+        // valid days are kept (idempotent upsert), the pass is incomplete and the checkpoint does not move
+        const pg = readInsightsPage(r, id);
+        if (pg.problems.length) { complete = false; errors.push(`Insights ${id}: ${pg.problems[0]}${pg.problems.length > 1 ? ` (+${pg.problems.length - 1})` : ''}`); }
+        if (!(await eachWithin(pg.days, budget, async (d) => { (await upsertInsightDay(db, d, now)) === 'stored' ? stored++ : kept++; }))) { complete = false; break; }
+        if (pg.problems.some((p) => p.startsWith('malformed response'))) break;
+        next = pg.after ? `${insightsPath(id, since, until)}&after=${encodeURIComponent(pg.after)}` : null;
       }
     } catch (e) {
       complete = false;
@@ -80,6 +83,38 @@ export async function syncInsights(db: Db, now: Date, opts: { deadlineMs?: numbe
   if (complete) await db.query(`UPDATE integrations SET insights_synced_through = $1 WHERE source = 'meta'`, [until]);
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [`Insights: ${errors.at(-1)}`]).catch(() => undefined);
   return { ran: true as const, complete, stored, kept, rateLimited, since, until, errors: [...new Set(errors)].slice(0, 5) };
+}
+
+/**
+ * The scheduled Insights pass under a claim (integrations.insights_sync_at), one at a time across instances:
+ *  - a complete pass keeps the claim for INSIGHTS_EVERY_MINUTES (Insights change slowly);
+ *  - Meta's rate limit keeps it too (Meta asked us to slow down);
+ *  - any other incomplete pass, an error or an unexpected exception gives the claim back early: the next knock after
+ *    INSIGHTS_RETRY_MINUTES runs again. That is far longer than a run can live (function limit 30 s), so two runs never
+ *    overlap. Only our own claim is given back (WHERE insights_sync_at = the time we claimed).
+ * The checkpoint (insights_synced_through) is moved only inside a complete pass (syncInsights), never here.
+ */
+export const INSIGHTS_EVERY_MINUTES = 60; export const INSIGHTS_RETRY_MINUTES = 5;
+export async function runInsightsClaimed(db: Db, now: Date, pass: (db: Db, now: Date) => ReturnType<typeof syncInsights> = syncInsights) {
+  const claimed = await one(db, `UPDATE integrations SET insights_sync_at = $1 WHERE source = 'meta' AND active
+      AND (insights_sync_at IS NULL OR insights_sync_at < $1::timestamptz - make_interval(mins => $2)) RETURNING 1`, [now, INSIGHTS_EVERY_MINUTES]);
+  if (!claimed) {
+    const it = await one(db, `SELECT active FROM integrations WHERE source = 'meta'`);
+    return { ran: false, reason: !it?.active ? 'off' : 'recent', errors: [] as string[] };
+  }
+  const giveBack = () => db.query(`UPDATE integrations SET insights_sync_at = $1::timestamptz - make_interval(mins => $2)
+      WHERE source = 'meta' AND insights_sync_at = $1`, [now, INSIGHTS_EVERY_MINUTES - INSIGHTS_RETRY_MINUTES]).catch(() => undefined);
+  try {
+    const out = await pass(db, now);
+    if (!out.ran || (!out.complete && !out.rateLimited)) await giveBack();
+    return { errors: [] as string[], ...out };
+  } catch (e) {
+    // never left holding the claim for an hour; the error is recorded without any token / URL
+    await giveBack();
+    const m = `Insights: ${safeMetaError(e)}`;
+    await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [m.slice(0, 300)]).catch(() => undefined);
+    return { ran: true, complete: false, errors: [m] };
+  }
 }
 
 // ------------------------------------------------------------------ F. KPI calculators (candidates — none active by default)
@@ -130,6 +165,24 @@ export async function runAutoKpis(db: Db, period: string, now: Date) {
   return { definitions: defs.length, updated };
 }
 
+/**
+ * The recurring run (POST /kpi/auto/scheduled — .github/workflows/kpi-auto.yml, main only): the current Cairo month, and
+ * during the first KPI_CLOSE_DAYS days of a month also the month before (actions logged late on its last day). Only
+ * owner-approved calculators run (runAutoKpis reads calc_approved_at); with none approved nothing is written. It fills
+ * the result rows that exist (a period's rows are snapshotted when the KPI page of that employee and month is first
+ * opened — unchanged) and never touches a manual entry or a completed result. Idempotent: the same records give the
+ * same values, so a repeated or overlapping knock is harmless.
+ */
+export const KPI_CLOSE_DAYS = 3;
+export async function runScheduledKpis(db: Db, now: Date) {
+  const today = local(now).date;
+  const current = `${today.slice(0, 7)}-01`;
+  const periods = Number(today.slice(8, 10)) <= KPI_CLOSE_DAYS ? [addMonths(current, -1), current] : [current];
+  const runs: { period: string; definitions: number; updated: number }[] = [];
+  for (const period of periods) runs.push({ period, ...(await runAutoKpis(db, period, now)) });
+  return { ran: true, runs, errors: [] as string[] };
+}
+
 // ------------------------------------------------------------------ E. lead quality
 export const QUALITY = ['unreviewed', 'qualified', 'not_qualified', 'invalid_contact', 'duplicate', 'unreachable'] as const;
 const NEEDS_REASON = new Set(['not_qualified', 'invalid_contact', 'duplicate', 'unreachable']);
@@ -149,16 +202,7 @@ export const marketingModule: Module = (r, { db, clock }) => {
   // ---------------------------------------------- D. insights: the scheduler's knock (or a person with leads.config)
   r.post('/integrations/meta/insights/run', async (req) => {
     if (!hasBackupToken(req.headers)) await metaManager(req);
-    const now = clock();
-    // one pass at a time, at most every 60 minutes (the same claim pattern as the leads sync)
-    const claimed = await one(db, `UPDATE integrations SET insights_sync_at = $1 WHERE source = 'meta' AND active
-        AND (insights_sync_at IS NULL OR insights_sync_at < $1::timestamptz - interval '60 minutes') RETURNING 1`, [now]);
-    if (!claimed) {
-      const it = await one(db, `SELECT active FROM integrations WHERE source = 'meta'`);
-      return ok({ ran: false, reason: !it?.active ? 'off' : 'recent', errors: [] });
-    }
-    const out = await syncInsights(db, now);
-    return ok({ errors: [], ...out });
+    return ok(await runInsightsClaimed(db, clock()));
   });
 
   // ---------------------------------------------- E. quality: classify (with history), read the history
@@ -251,6 +295,10 @@ export const marketingModule: Module = (r, { db, clock }) => {
     if (!d) throw invalid('المؤشر مالوش مصدر حساب محدد', { field: 'calcSource' });
     await audit(db, a.id, 'kpi.calc_approve', 'kpi_definition', d.id, undefined, { calcSource: d.calc_source });
     return ok({ ok: true });
+  });
+  r.post('/kpi/auto/scheduled', async (req) => {
+    if (!hasBackupToken(req.headers)) { const a = await authenticate(db, req); requirePerm(a, 'kpi.config'); }
+    return ok(await runScheduledKpis(db, clock()));
   });
   r.post('/kpi/auto/run', async (req) => {
     if (!hasBackupToken(req.headers)) { const a = await authenticate(db, req); requirePerm(a, 'kpi.config'); }

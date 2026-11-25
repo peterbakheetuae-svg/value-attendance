@@ -65,7 +65,7 @@ test('state: signed, bound to the person, expires in 10 minutes, tamper-proof', 
 test('URLs: the login dialog asks the minimum scopes with the fixed redirect; the exchange URLs stay server-side', () => {
   const cfg = (oauthConfig(env()) as any).cfg;
   const u = new URL(dialogUrl(cfg, 'st.ate'));
-  assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v21.0/dialog/oauth');
+  assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v25.0/dialog/oauth');
   assert.equal(u.searchParams.get('client_id'), '1234567890');
   assert.equal(u.searchParams.get('redirect_uri'), 'https://api.example.com/public/meta/oauth/callback');
   assert.equal(u.searchParams.get('response_type'), 'code');
@@ -76,8 +76,9 @@ test('URLs: the login dialog asks the minimum scopes with the fixed redirect; th
   assert.equal(x.searchParams.get('redirect_uri'), cfg.redirectUri);
   assert.equal(x.searchParams.get('code'), 'the-code');
   assert.equal(new URL(longLivedUrl(cfg, 't')).searchParams.get('grant_type'), 'fb_exchange_token');
-  assert.equal(graphVersion({ META_GRAPH_VERSION: 'v25.0' }), 'v25.0');
-  assert.equal(graphVersion({ META_GRAPH_VERSION: '25; DROP' }), 'v21.0', 'an invalid version falls back');
+  assert.equal(graphVersion({ META_GRAPH_VERSION: 'v26.0' }), 'v26.0');
+  assert.equal(graphVersion({ META_GRAPH_VERSION: '25; DROP' }), 'v25.0', 'an invalid version falls back');
+  assert.equal(graphVersion({}), 'v25.0', 'the default');
 });
 
 test('least privilege: required vs optional vs later (Insights) scopes; ads_read is not asked yet', () => {

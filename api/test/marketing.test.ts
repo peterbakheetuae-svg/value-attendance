@@ -5,7 +5,8 @@ import { harness, cast, type Harness } from './helpers.ts';
 import { seal } from '../src/lib/secretbox.ts';
 import { metaUserHash } from '../src/lib/meta-oauth.ts';
 import { takeMetaLead } from '../src/modules/meta_sync.ts';
-import { syncInsights, runAutoKpis } from '../src/modules/marketing.ts';
+import { syncInsights, runAutoKpis, runInsightsClaimed, runScheduledKpis } from '../src/modules/marketing.ts';
+import { processDeletionRequest, processPendingDeletions } from '../src/modules/meta_deletion.ts';
 
 /**
  * Marketing Intelligence (092) on a real database: attribution (C), ownership history (C), Ads Insights (D), lead quality
@@ -17,6 +18,7 @@ const KEYS = ['SECRETS_KEY', 'META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIR
 const saved: Record<string, string | undefined> = {};
 const SECRET = 'app-secret-0123456789abcdef';
 let insightsRows: any[] = []; let insightsError: { code: number; message: string } | null = null; let insightsCalls = 0;
+let insightsBody: unknown = undefined;   // when set: Meta's raw answer (malformed-response tests)
 const lead = (id: string, phone: string, extra: Record<string, unknown> = {}) => ({ id, campaign_id: '777', campaign_name: 'Meta 777',
   form_id: '9001', ad_id: '4401', adset_id: '3301', created_time: '2026-11-25T09:00:00+0000',
   field_data: [{ name: 'full_name', values: [`عميل ${id}`] }, { name: 'phone_number', values: [phone] }], ...extra });
@@ -55,6 +57,7 @@ before(async () => {
     if (path === '777/insights') {
       insightsCalls++;
       if (insightsError) return j({ error: insightsError }, 400);
+      if (insightsBody !== undefined) return j(insightsBody);
       return j({ data: insightsRows });
     }
     return j({ data: [] });
@@ -183,6 +186,90 @@ test('D. the insights route: scheduler token or leads.config; at most hourly', a
   } finally { delete process.env.BACKUP_TOKEN; }
 });
 
+const checkpoint = async () => (await h.db.query(`SELECT insights_synced_through::text t FROM integrations WHERE source = 'meta'`)).rows[0].t;
+
+test('P2: a malformed Insights response is never an empty valid page — incomplete, reported, checkpoint unchanged', async () => {
+  const before = await checkpoint();
+  try {
+    for (const body of [{ data: 'not-a-list' }, {}, { error_like: true }, { data: [], paging: { next: 'https://graph.facebook.com/next' } }]) {
+      insightsBody = body;
+      const r = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+      assert.equal(r.complete, false, JSON.stringify(body));
+      assert.match(r.errors.join(' '), /malformed response/);
+      assert.equal(await checkpoint(), before, 'the checkpoint did not move');
+    }
+  } finally { insightsBody = undefined; }
+});
+
+test('P2: malformed rows make the pass incomplete; the valid days are kept; absent metrics stay NULL (not malformed)', async () => {
+  const before = await checkpoint();
+  const good = { campaign_id: '777', date_start: '2026-11-25', date_stop: '2026-11-25', account_currency: 'EGP', impressions: '500', spend: '90' };
+  const absent = { campaign_id: '777', date_start: '2026-11-22', date_stop: '2026-11-22' };   // Meta sent no metrics: valid, NULL
+  for (const bad of [
+    { campaign_id: '777', date_start: '2026-11-26', date_stop: '2026-11-26', spend: 'abc' },
+    { campaign_id: '777', date_start: '2026-11-26', date_stop: '2026-11-26', impressions: '-3' },
+    { campaign_id: '777', date_start: '2026-11-26', date_stop: '2026-11-26', clicks: '2.5' },
+    { campaign_id: '999', date_start: '2026-11-26', date_stop: '2026-11-26', spend: '1' },
+    { campaign_id: '777', date_start: '2026-11-20', date_stop: '2026-11-26', spend: '1' },
+    { campaign_id: '777', date_start: '2026-11-26', date_stop: '2026-11-26', actions: 'lead' },
+    'not-a-row',
+  ]) {
+    insightsRows = [good, bad];
+    const r = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+    assert.equal(r.complete, false, JSON.stringify(bad));
+    assert.match(r.errors.join(' '), /malformed row/);
+    assert.equal(await checkpoint(), before);
+  }
+  assert.equal((await h.db.query(`SELECT spend::float s FROM meta_insights_daily WHERE meta_campaign_id = '777' AND day = '2026-11-25'`)).rows[0].s, 90, 'the valid day was kept');
+  insightsRows = [good, absent];
+  const ok = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+  assert.equal(ok.complete, true);
+  const a = (await h.db.query(`SELECT spend, impressions, leads FROM meta_insights_daily WHERE meta_campaign_id = '777' AND day = '2026-11-22'`)).rows[0];
+  assert.deepEqual([a.spend, a.impressions, a.leads], [null, null, null], 'unavailable is NULL, never 0');
+  assert.equal(await checkpoint(), '2026-11-26', 'a valid complete pass moves it');
+});
+
+test('P2: insights claim — a failure or an incomplete pass gives the claim back after 5 minutes, not 60; concurrent claims run once', async () => {
+  const t0 = new Date('2026-12-01T10:00:00Z');
+  await h.db.query(`UPDATE integrations SET insights_sync_at = NULL WHERE source = 'meta'`);
+  const before = await checkpoint();
+  // an unexpected exception: reported, no token in it, claim given back early, checkpoint untouched
+  const boom = await runInsightsClaimed(h.db, t0, async () => { throw new Error('connection reset access_token=SECRET123'); }) as any;
+  assert.deepEqual([boom.ran, boom.complete], [true, false]);
+  assert.equal(boom.errors.length, 1);
+  assert.doesNotMatch(boom.errors[0], /SECRET123/);
+  assert.equal(await checkpoint(), before);
+  assert.equal((await runInsightsClaimed(h.db, new Date(t0.getTime() + 60_000), syncInsights) as any).reason, 'recent', 'not immediately (no overlap)');
+  // after 5 minutes it runs again (an incomplete pass: malformed answer)
+  insightsBody = { data: 'broken' };
+  const t1 = new Date(t0.getTime() + 5 * 60_000 + 1_000);
+  try {
+    const retry = await runInsightsClaimed(h.db, t1) as any;
+    assert.deepEqual([retry.ran, retry.complete], [true, false]);
+  } finally { insightsBody = undefined; }
+  // incomplete → again after 5 minutes; then a complete pass keeps the claim for the hour
+  const t2 = new Date(t1.getTime() + 5 * 60_000 + 1_000);
+  insightsRows = [];
+  const done = await runInsightsClaimed(h.db, t2) as any;
+  assert.deepEqual([done.ran, done.complete], [true, true]);
+  assert.equal((await runInsightsClaimed(h.db, new Date(t2.getTime() + 6 * 60_000)) as any).reason, 'recent', 'complete: hourly');
+  // a rate limit keeps the claim too (Meta asked us to slow down)
+  const t3 = new Date(t2.getTime() + 61 * 60_000);
+  insightsError = { code: 17, message: 'User request limit reached' };
+  try {
+    const rl = await runInsightsClaimed(h.db, t3) as any;
+    assert.equal(rl.rateLimited, true);
+    assert.equal((await runInsightsClaimed(h.db, new Date(t3.getTime() + 6 * 60_000)) as any).reason, 'recent');
+  } finally { insightsError = null; }
+  // two instances knocking at the same moment: exactly one runs
+  const t4 = new Date(t3.getTime() + 61 * 60_000);
+  let runs = 0;
+  const slow = async () => { runs++; await new Promise((r) => setTimeout(r, 50)); return { ran: true as const, complete: true, stored: 0, kept: 0, rateLimited: false, since: '', until: '', errors: [] }; };
+  const [x, y] = await Promise.all([runInsightsClaimed(h.db, t4, slow as any), runInsightsClaimed(h.db, t4, slow as any)]) as any[];
+  assert.equal(runs, 1);
+  assert.deepEqual([x.ran, y.ran].sort(), [false, true]);
+});
+
 test('F. KPI sources: mapped → pending; only the owner approves; a run fills empty / automatic rows, never a manual entry', async () => {
   const def = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'meetings'`)).rows[0].id;
   const manualDef = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'viewings'`)).rows[0].id;
@@ -227,6 +314,41 @@ test('F. KPI sources: mapped → pending; only the owner approves; a run fills e
   assert.ok(list.body.definitions.filter((d: any) => d.status === 'manual').length >= 10, 'every other KPI stays manual');
 });
 
+test('P2: the recurring KPI run — scheduler token or kpi.config; current month (+ the previous one in its first 3 days); approved formulas only; manual kept', async () => {
+  const meetings = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'meetings'`)).rows[0].id;
+  const deals = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'closed_deals'`)).rows[0].id;
+  const set = (await h.db.query(`SELECT set_id FROM kpi_results WHERE kpi_id = $1 AND employee_id = $2 LIMIT 1`, [meetings, c.ids.e1])).rows[0].set_id;
+  // mapped but NOT approved: never calculated
+  await h.db.query(`UPDATE kpi_definitions SET calc_source = 'deals_won', calc_approved_at = NULL, calc_approved_by = NULL WHERE id = $1`, [deals]);
+  const pending = (await h.db.query(`INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot) VALUES ($1,'2026-11-01',$2,$3,10,5) RETURNING id`, [c.ids.e2, set, deals])).rows[0].id;
+  const fresh = (await h.db.query(`INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot) VALUES ($1,'2026-11-01',$2,$3,50,10) RETURNING id`, [c.ids.e2, set, meetings])).rows[0].id;
+  const lid = (await h.db.query(`SELECT id FROM leads WHERE meta_lead_id = '9101'`)).rows[0].id;
+  await h.db.query(`INSERT INTO lead_actions (lead_id, stage, by_id, comment, created_at) VALUES ($1, 'meeting', $2, 'ميتنج آخر الشهر', '2026-11-30T21:30:00Z'),
+      ($1, 'done_deal', $2, 'تم', '2026-11-29T10:00:00Z')`, [lid, c.ids.e2]);   // 23:30 Cairo on 30 Nov
+  const manualBefore = (await h.db.query(`SELECT actual::float, source FROM kpi_results WHERE kpi_id = $1 AND employee_id = $2 AND period = '2026-11-01'`, [meetings, c.ids.e1])).rows[0];
+  // 2 December (Cairo): November is still filled
+  const out = await runScheduledKpis(h.db, new Date('2026-12-02T10:00:00Z'));
+  assert.deepEqual(out.runs.map((r) => r.period), ['2026-11-01', '2026-12-01']);
+  const f = (await h.db.query(`SELECT actual::float, source FROM kpi_results WHERE id = $1`, [fresh])).rows[0];
+  assert.deepEqual([f.actual, f.source], [1, 'auto'], 'an approved formula fills an empty row (Cairo month boundary respected)');
+  assert.equal((await h.db.query(`SELECT actual FROM kpi_results WHERE id = $1`, [pending])).rows[0].actual, null, 'not approved → never calculated');
+  const manualAfter = (await h.db.query(`SELECT actual::float, source FROM kpi_results WHERE kpi_id = $1 AND employee_id = $2 AND period = '2026-11-01'`, [meetings, c.ids.e1])).rows[0];
+  assert.deepEqual(manualAfter, manualBefore, 'a manual result is never overwritten');
+  // later in the month only the current month
+  assert.deepEqual((await runScheduledKpis(h.db, new Date('2026-12-10T10:00:00Z'))).runs.map((r) => r.period), ['2026-12-01']);
+  // the route: the scheduler's token or kpi.config only
+  process.env.BACKUP_TOKEN = 'scheduler-token-0123456789abcdef';
+  try {
+    assert.equal((await h.call(c.t.e1, 'POST', '/kpi/auto/scheduled', {})).status, 403);
+    assert.equal((await h.call(null, 'POST', '/kpi/auto/scheduled', {}, { 'x-backup-token': 'wrong-token-xxxxxxxxxxxxxxxx' })).status, 401);
+    const r = await h.call(null, 'POST', '/kpi/auto/scheduled', {}, { 'x-backup-token': process.env.BACKUP_TOKEN });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ran, true);
+    assert.deepEqual(r.body.errors, []);
+  } finally { delete process.env.BACKUP_TOKEN; }
+  await h.db.query(`UPDATE kpi_definitions SET calc_source = NULL WHERE id = $1`, [deals]);
+});
+
 test('G. dashboard: management only; filters; spend unknown without insights, summed with them; no tokens', async () => {
   assert.equal((await h.call(c.t.e1, 'GET', '/marketing/overview')).status, 403);
   const r = await h.call(c.t.owner, 'GET', '/marketing/overview?from=2026-11-01&to=2026-11-30');
@@ -265,6 +387,78 @@ test('A. deauthorize / data deletion: signed by our app only; the connecting per
   assert.ok(it.last_error.includes('إعادة الربط'));
   assert.equal((await h.db.query(`SELECT count(*)::int n FROM meta_pages`)).rows[0].n, 0);
   assert.equal((await h.db.query(`SELECT count(*)::int n FROM leads`)).rows[0].n, leadsBefore, 'leads and attribution untouched');
-  assert.equal((await h.call(null, 'GET', `/public/meta/data-deletion/${del.body.confirmation_code}`)).status, 200);
-  assert.equal((await h.call(null, 'GET', `/public/meta/data-deletion/${'0'.repeat(24)}`)).status, 404);
+  const page = await statusPage(del.body.confirmation_code);
+  assert.equal(page.status, 200);
+  assert.match(page.html, /تم تنفيذ طلب الحذف/);
+  assert.match(page.html, /اتمسح توكن الدخول/);
+  assert.match(page.html, /اتمسح 1 من توكنات الصفحات/);
+  assert.match(page.html, /Lead Ads/, 'the page says the lead records are not covered');
+  assert.doesNotMatch(page.html, /مفيش بيانات تانية/, 'no claim that nothing else is stored');
+  const rec = (await h.db.query(`SELECT status, user_hash, token_removed, pages_removed FROM meta_data_deletion_requests WHERE code = $1`, [del.body.confirmation_code])).rows[0];
+  assert.deepEqual([rec.status, rec.user_hash, rec.token_removed, rec.pages_removed], ['completed', null, true, 1], 'the hash is not kept once processed');
+  assert.equal((await statusPage('0'.repeat(24))).status, 404);
+  assert.equal((await statusPage('not-a-code')).status, 404);
+});
+
+const statusPage = async (code: string) => {
+  const res = await fetch(`${h.base}/public/meta/data-deletion/${code}`);
+  return { status: res.status, html: await res.text() };
+};
+
+test('A. data deletion from someone whose data we do not hold: recorded and answered as «nothing found», nothing deleted', async () => {
+  await h.db.query(`UPDATE integrations SET access_token = $1, meta_user_hash = $2 WHERE source = 'meta'`, [seal('OFFICE-TOKEN-yyyyyyyyyyyy'), metaUserHash('77777')]);
+  const del = await form('/public/meta/data-deletion', { signed_request: signed({ algorithm: 'HMAC-SHA256', user_id: '88888' }) });
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.ok((await h.db.query(`SELECT access_token FROM integrations WHERE source = 'meta'`)).rows[0].access_token, 'the office connection stays');
+  const rec = (await h.db.query(`SELECT status, token_removed, pages_removed FROM meta_data_deletion_requests WHERE code = $1`, [del.body.confirmation_code])).rows[0];
+  assert.deepEqual([rec.status, rec.token_removed, rec.pages_removed], ['no_data_found', false, 0]);
+  const page = await statusPage(del.body.confirmation_code);
+  assert.match(page.html, /ما لقيناش أي بيانات دخول/);
+  assert.doesNotMatch(page.html, /تم تنفيذ طلب الحذف/, 'never claims a deletion that did not happen');
+  // a forged request is refused and not recorded
+  const n = (await h.db.query(`SELECT count(*)::int n FROM meta_data_deletion_requests`)).rows[0].n;
+  assert.equal((await form('/public/meta/data-deletion', { signed_request: signed({ algorithm: 'HMAC-SHA256', user_id: '77777' }, 'wrong-secret-xxxxxxxxxxxx') })).status, 401);
+  assert.equal((await form('/public/meta/data-deletion', { signed_request: 'garbage' })).status, 401);
+  assert.equal((await h.db.query(`SELECT count(*)::int n FROM meta_data_deletion_requests`)).rows[0].n, n);
+  assert.ok((await h.db.query(`SELECT access_token FROM integrations WHERE source = 'meta'`)).rows[0].access_token);
+});
+
+test('A. a failure while processing keeps the request pending (never lost, page says so); the retry completes it once', async () => {
+  await h.db.query(`CREATE OR REPLACE FUNCTION test_fail_deletion() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.status <> 'pending' THEN RAISE EXCEPTION 'simulated failure'; END IF; RETURN NEW; END $$`);
+  await h.db.query(`CREATE TRIGGER test_fail_deletion BEFORE UPDATE ON meta_data_deletion_requests FOR EACH ROW EXECUTE FUNCTION test_fail_deletion()`);
+  const del = await form('/public/meta/data-deletion', { signed_request: signed({ algorithm: 'HMAC-SHA256', user_id: '77777' }) });
+  assert.equal(del.status, 200, 'Meta still gets its code and status URL');
+  const code = del.body.confirmation_code;
+  const pending = (await h.db.query(`SELECT status, user_hash IS NOT NULL AS has_hash FROM meta_data_deletion_requests WHERE code = $1`, [code])).rows[0];
+  assert.deepEqual([pending.status, pending.has_hash], ['pending', true]);
+  assert.ok((await h.db.query(`SELECT access_token FROM integrations WHERE source = 'meta'`)).rows[0].access_token, 'rolled back: nothing half-done');
+  assert.match((await statusPage(code)).html, /قيد التنفيذ/);
+  await h.db.query(`DROP TRIGGER test_fail_deletion ON meta_data_deletion_requests; DROP FUNCTION test_fail_deletion()`);
+  assert.deepEqual(await processPendingDeletions(h.db, h.now.value), { processed: 1, failed: 0 });
+  const done = (await h.db.query(`SELECT status, user_hash, token_removed FROM meta_data_deletion_requests WHERE code = $1`, [code])).rows[0];
+  assert.deepEqual([done.status, done.user_hash, done.token_removed], ['completed', null, true]);
+  assert.equal((await h.db.query(`SELECT access_token FROM integrations WHERE source = 'meta'`)).rows[0].access_token, null);
+  assert.equal(await processDeletionRequest(h.db, code, h.now.value), null, 'idempotent: a processed request is left as it is');
+  assert.deepEqual(await processPendingDeletions(h.db, h.now.value), { processed: 0, failed: 0 });
+  // the database keeps the record consistent: a pending request must carry its hash, a processed one must not
+  await assert.rejects(h.db.query(`UPDATE meta_data_deletion_requests SET user_hash = 'x' WHERE code = $1`, [code]), /meta_data_deletion_requests_state/);
+});
+
+test('P2: quality history — a direct UPDATE or DELETE is refused; removing the employee or the lead still works (FK actions)', async () => {
+  const emp = (await h.db.query(`INSERT INTO employees (code, full_name, role_key, job_title, joining_date, password_hash, must_change_password)
+      VALUES ('QH1', 'مصنف مؤقت', 'sales_employee', '', '2026-01-01', 'x', false) RETURNING id`)).rows[0].id;
+  const lid = (await h.db.query(`INSERT INTO leads (full_name, phone, phone_norm) VALUES ('عميل تاريخ', '01077770001', '01077770001') RETURNING id`)).rows[0].id;
+  await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason, by_id) VALUES ($1, 'unreviewed', 'not_qualified', 'رقم مش شغال', $2)`, [lid, emp]);
+  await assert.rejects(h.db.query(`DELETE FROM lead_quality_events WHERE lead_id = $1`, [lid]), /append-only/, 'a direct delete');
+  await assert.rejects(h.db.query(`UPDATE lead_quality_events SET reason = 'تعديل' WHERE lead_id = $1`, [lid]), /append-only/);
+  await assert.rejects(h.db.query(`UPDATE lead_quality_events SET by_id = NULL WHERE lead_id = $1`, [lid]), /append-only/, 'clearing the author while they exist');
+  await assert.rejects(h.db.query(`UPDATE lead_quality_events SET to_q = 'qualified', by_id = NULL WHERE lead_id = $1`, [lid]), /append-only/);
+  // the employee leaves the system: ON DELETE SET NULL clears the author, the decision stays
+  await h.db.query(`DELETE FROM employees WHERE id = $1`, [emp]);
+  const ev = (await h.db.query(`SELECT to_q, reason, by_id FROM lead_quality_events WHERE lead_id = $1`, [lid])).rows;
+  assert.deepEqual(ev.map((x) => [x.to_q, x.reason, x.by_id]), [['not_qualified', 'رقم مش شغال', null]]);
+  // the lead itself is removed (e.g. merged as a duplicate): ON DELETE CASCADE removes its history with it
+  await h.db.query(`DELETE FROM leads WHERE id = $1`, [lid]);
+  assert.equal((await h.db.query(`SELECT count(*)::int n FROM lead_quality_events WHERE lead_id = $1`, [lid])).rows[0].n, 0);
 });

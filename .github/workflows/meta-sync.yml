@@ -1,4 +1,5 @@
 name: Meta leads sync (scheduled)
+# Also knocks /integrations/meta/insights/run (hourly on the server) and /kpi/auto/scheduled (owner-approved KPI formulas).
 # Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
 # real-time path; this is the safety net for missed deliveries). The server decides: one run at a time (a 5-minute claim;
 # a run lives at most 30 s), and every Meta lead comes in once (leads.meta_lead_id + a per-lead lock).
@@ -33,6 +34,7 @@ jobs:
       - name: Knock on /integrations/meta/sync/run
         env:
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
           API: https://valunivo.vercel.app
         shell: bash
         run: |
@@ -60,11 +62,14 @@ jobs:
             if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
               echo "::error title=Unexpected answer::$path did not answer with its result"; head -c 500 out.json || true; return 1
             fi
-            jq -c '{ran, reason, added, stored, complete, errors}' out.json
+            jq -c '{ran, reason, added, stored, complete, errors, rejected, runs}' out.json
             if [ "$(jq -r '.ran' out.json)" = "true" ]; then
               n=$(jq '(.errors // []) | length' out.json)
               if [ "$n" -gt 0 ]; then echo "::error title=$path ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; return 1; fi
-              echo "::notice::$path done"
+              # leads Meta sent that can never be taken (no phone number): reported, not a failure of the run
+              r=$(jq '(.rejected // []) | length' out.json)
+              if [ "$r" -gt 0 ]; then echo "::warning title=$path rejected leads::$(jq -r '(.rejected // []) | join(" | ")' out.json | head -c 600)"; fi
+              if [ "$(jq -r '.complete == false' out.json)" = "true" ]; then echo "::notice::$path incomplete (time budget): the next run continues from the same checkpoint"; else echo "::notice::$path done"; fi
             else
               echo "::notice::$path not run: $(jq -r '.reason // "unknown"' out.json)"
             fi
@@ -73,4 +78,9 @@ jobs:
           knock /integrations/meta/sync/run || status=1
           # Ads Insights: the server runs it at most hourly (a knock inside the hour answers "recent")
           knock /integrations/meta/insights/run || status=1
+          # automatic KPIs (only owner-approved formulas; with none approved nothing is written): once an hour (the :07
+          # knock), at the nightly catch-up and on a manual dispatch
+          if [ "$(date -u +%M)" -lt 15 ] || [ "${EVENT_SCHEDULE}" = "40 23 * * *" ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            knock /kpi/auto/scheduled || status=1
+          fi
           exit $status

@@ -130,10 +130,32 @@ CREATE TABLE IF NOT EXISTS lead_quality_events (
 CREATE INDEX IF NOT EXISTS lead_quality_events_lead ON lead_quality_events (lead_id, at DESC);
 CREATE INDEX IF NOT EXISTS lead_quality_events_by ON lead_quality_events (by_id) WHERE by_id IS NOT NULL;
 -- the history is append-only (a correction is a new event)
+-- UPDATE and DELETE are refused, with exactly the two changes the foreign keys themselves make:
+--   * DELETE of the events of a lead that no longer exists (ON DELETE CASCADE — a duplicate lead merged away);
+--   * UPDATE that only clears by_id because that employee no longer exists (ON DELETE SET NULL), or only follows a
+--     lead / employee id that was renamed (ON UPDATE CASCADE: the old id is gone, the new one exists).
+-- Everything else — a direct UPDATE or DELETE by any role — raises. (TRUNCATE is the owner's data reset only.)
 CREATE OR REPLACE FUNCTION lead_quality_events_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN RAISE EXCEPTION 'lead quality history is append-only' USING ERRCODE = 'check_violation'; END $$;
+DECLARE a jsonb; b jsonb;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM leads WHERE id = OLD.lead_id) THEN RETURN OLD; END IF;
+  ELSE
+    a := to_jsonb(OLD) - 'lead_id' - 'by_id';
+    b := to_jsonb(NEW) - 'lead_id' - 'by_id';
+    IF a = b
+       AND (NEW.lead_id = OLD.lead_id
+            OR (NOT EXISTS (SELECT 1 FROM leads WHERE id = OLD.lead_id) AND EXISTS (SELECT 1 FROM leads WHERE id = NEW.lead_id)))
+       AND (NEW.by_id IS NOT DISTINCT FROM OLD.by_id
+            OR (OLD.by_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM employees WHERE id = OLD.by_id)
+                AND (NEW.by_id IS NULL OR EXISTS (SELECT 1 FROM employees WHERE id = NEW.by_id)))) THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'lead quality history is append-only' USING ERRCODE = 'check_violation';
+END $$;
 DROP TRIGGER IF EXISTS lead_quality_events_immutable ON lead_quality_events;
-CREATE TRIGGER lead_quality_events_immutable BEFORE UPDATE ON lead_quality_events FOR EACH ROW EXECUTE FUNCTION lead_quality_events_immutable();
+CREATE TRIGGER lead_quality_events_immutable BEFORE UPDATE OR DELETE ON lead_quality_events FOR EACH ROW EXECUTE FUNCTION lead_quality_events_immutable();
 
 INSERT INTO permissions (key, description) VALUES ('leads.quality', 'Leads: classify a lead''s quality (qualified / not qualified / invalid …)')
   ON CONFLICT (key) DO NOTHING;
@@ -155,3 +177,23 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE kpi_results ADD COLUMN IF NOT EXISTS calculated_at timestamptz;
 ALTER TABLE kpi_results ADD COLUMN IF NOT EXISTS evidence jsonb;
+
+-- ============================================================ A. Meta Data Deletion Requests
+-- Every signed request Meta sends to /public/meta/data-deletion is recorded before anything is processed (never
+-- discarded): the confirmation code the person gets, when it came, and what was actually done. user_hash (a SHA-256 hash
+-- of the app-scoped id, as integrations.meta_user_hash) is kept only while the request is pending — the
+-- scheduler retries a pending request — and cleared once it is processed.
+CREATE TABLE IF NOT EXISTS meta_data_deletion_requests (
+  code           text PRIMARY KEY CHECK (code ~ '^[0-9a-f]{24}$'),
+  received_at    timestamptz NOT NULL,
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'no_data_found')),
+  user_hash      text,
+  processed_at   timestamptz,
+  token_removed  boolean NOT NULL DEFAULT false,
+  pages_removed  int NOT NULL DEFAULT 0 CHECK (pages_removed >= 0),
+  attempts       int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  CONSTRAINT meta_data_deletion_requests_state CHECK (
+    (status = 'pending' AND user_hash IS NOT NULL AND processed_at IS NULL)
+    OR (status <> 'pending' AND user_hash IS NULL AND processed_at IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS meta_data_deletion_requests_pending ON meta_data_deletion_requests (received_at) WHERE status = 'pending';

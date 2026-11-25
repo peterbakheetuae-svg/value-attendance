@@ -63,3 +63,50 @@ export function sumOrNull(values: (number | null)[]): number | null {
 }
 /** cost per lead over a period: only when both spend and leads are known and leads > 0 */
 export const costPer = (spend: number | null, n: number | null) => (spend === null || n === null || n === 0 ? null : Math.round((spend / n) * 100) / 100);
+
+// ------------------------------------------------------------------ response validation (review P2)
+const INT_FIELDS = ['impressions', 'reach', 'clicks'] as const;
+const NUM_FIELDS = ['spend', 'cpm', 'cpc', 'ctr'] as const;
+const present = (v: unknown) => v !== undefined && v !== null && v !== '';
+const badNumber = (v: unknown, int: boolean) => {
+  if (typeof v !== 'string' && typeof v !== 'number') return true;
+  const n = Number(v);
+  return !Number.isFinite(n) || n < 0 || (int && !Number.isInteger(n));
+};
+const badActions = (list: unknown) => present(list) && (!Array.isArray(list)
+  || list.some((a: any) => !a || typeof a !== 'object' || typeof a.action_type !== 'string' || (present(a.value) && badNumber(a.value, false))));
+
+/**
+ * Why a row cannot be trusted, or null. Absent metrics are fine (they stay NULL); a metric that is present but is not a
+ * non-negative number, a malformed actions list, a missing / wrong campaign or a row that is not one day are problems.
+ */
+export function insightRowProblem(row: any, metaCampaignId: string): string | null {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return 'row is not an object';
+  if (String(row.campaign_id ?? '') !== metaCampaignId) return 'row of another or no campaign';
+  const day = String(row.date_start ?? '');
+  if (!DAY.test(day) || String(row.date_stop ?? day) !== day) return 'row is not a single day';
+  for (const f of INT_FIELDS) if (present(row[f]) && badNumber(row[f], true)) return `invalid ${f}`;
+  for (const f of NUM_FIELDS) if (present(row[f]) && badNumber(row[f], false)) return `invalid ${f}`;
+  if (badActions(row.actions)) return 'invalid actions';
+  if (badActions(row.cost_per_action_type)) return 'invalid cost_per_action_type';
+  if (present(row.account_currency) && !(typeof row.account_currency === 'string' && /^[A-Z]{3}$/.test(row.account_currency))) return 'invalid account_currency';
+  return null;
+}
+
+/**
+ * One page of the Insights answer: the days that can be stored, and the problems that make the pass incomplete. A
+ * response whose `data` is not a list is never an empty valid page; a `next` link without a cursor is never the end.
+ */
+export function readInsightsPage(r: any, metaCampaignId: string): { days: InsightDay[]; problems: string[]; after: string | null } {
+  if (!r || typeof r !== 'object' || !Array.isArray(r.data)) return { days: [], problems: ['malformed response: data is not a list'], after: null };
+  const problems: string[] = []; const days: InsightDay[] = [];
+  for (const row of r.data) {
+    const p = insightRowProblem(row, metaCampaignId);
+    const d = p ? null : parseInsightRow(row);
+    if (!d) problems.push(`malformed row: ${p ?? 'unreadable'}`); else days.push(d);
+  }
+  const next = r.paging?.next;
+  const after = typeof r.paging?.cursors?.after === 'string' && r.paging.cursors.after ? r.paging.cursors.after : null;
+  if (next && !after) problems.push('malformed response: a next page without a cursor');
+  return { days, problems, after: next && after ? after : null };
+}

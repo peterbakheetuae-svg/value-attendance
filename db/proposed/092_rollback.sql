@@ -3,10 +3,11 @@
 BEGIN;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM lead_quality_events) OR EXISTS (SELECT 1 FROM leads WHERE attribution_source IS NOT NULL)
-     OR EXISTS (SELECT 1 FROM kpi_results WHERE source = 'auto') THEN
-    RAISE EXCEPTION '092 rollback refused: quality decisions, attributions or automatic KPI results exist';
+     OR EXISTS (SELECT 1 FROM kpi_results WHERE source = 'auto') OR EXISTS (SELECT 1 FROM meta_data_deletion_requests) THEN
+    RAISE EXCEPTION '092 rollback refused: quality decisions, attributions, automatic KPI results or Meta deletion requests exist';
   END IF;
 END $$;
+DROP TABLE IF EXISTS meta_data_deletion_requests;
 DELETE FROM role_permissions WHERE perm_key IN ('leads.quality');
 DELETE FROM permissions WHERE key IN ('leads.quality');
 ALTER TABLE kpi_results DROP COLUMN IF EXISTS evidence;
