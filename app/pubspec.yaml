@@ -18,6 +18,8 @@ dependencies:
   shared_preferences: ^2.3.2
   # the session token on Android: Android Keystore-backed storage (VA-04)
   flutter_secure_storage: ^10.0.0 # 10.x: its web part compiles to WebAssembly (9.x used dart:html); 11.x needs compileSdk 37
+  # optional fingerprint / face / device-PIN lock over the saved session (2.x API: AuthenticationOptions)
+  local_auth: '>=2.3.0 <3.0.0'
   geolocator: ^13.0.1
   # in-shift follow-up keeps running with the app closed (foreground service with its own engine)
   flutter_background_service: ^5.1.0

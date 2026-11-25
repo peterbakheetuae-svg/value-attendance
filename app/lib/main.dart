@@ -1,5 +1,7 @@
 import 'package:jph_real_estate_hr/design/glass_perf.dart';
 import 'package:flutter/material.dart';
+import 'core/app_lock.dart';
+import 'core/app_lock_gate.dart';
 import 'core/app_updater.dart';
 import 'core/push.dart';
 import 'core/windows_camera.dart';
@@ -46,6 +48,9 @@ Future<void> main() async {
   // startup steps don't depend on each other: load them together instead of one after another
   // (strings for the added screens, the saved session, theme / language)
   await Future.wait([I18n.load(), session.restore(), appController.initialize()]);
+  // optional fingerprint / device-PIN lock over the saved session (الإعدادات): locked at start when it is on
+  await AppLock.instance.init(hasSession: () => session.signedIn);
+  WidgetsBinding.instance.addObserver(AppLock.instance);
 
 
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -114,7 +119,14 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
     WindowsCamera.register(navigatorKey);
   }
 
+  /// the lock screen's «تسجيل الدخول من جديد»: a full sign-out (the server session is revoked, the phone forgets it)
+  Future<void> _signOutFromLock() async {
+    await SessionService.logout();
+    await JphBridge.session.logout();
+  }
+
   Future<void> _onSession() async {
+    if (!JphBridge.session.signedIn) AppLock.instance.reset();
     final s = JphBridge.session.signedIn ? await SessionService.get() : null;
     if (mounted && (s == null) != (_session == null)) setState(() => _session = s);
   }
@@ -156,7 +168,12 @@ class _JPHBootstrapState extends State<JPHBootstrap> {
           // Android: location / over other apps / battery first; never opens without the location permission
           // Windows app: + the small update status chip (nothing on Android / web)
           // TopMessenger: error / info messages drawn above any open form, sheet or dialog
-          builder: (context, child) => WindowsUpdateOverlay(child: PermissionsGate(child: TopMessenger(child: child ?? const SizedBox()))),
+          // AppLock: the optional fingerprint / device-PIN lock covers everything while it is locked
+          builder: (context, child) => AppLockGate(
+            lock: AppLock.instance,
+            onSignOut: _signOutFromLock,
+            child: WindowsUpdateOverlay(child: PermissionsGate(child: TopMessenger(child: child ?? const SizedBox()))),
+          ),
           home: _home(),
         );
       },
