@@ -25,7 +25,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
   const o = objects.get(key);
   if (!o) return new Response(null, { status: 404 });
   if (init.method === 'HEAD') return new Response(null, { status: 200, headers: { 'content-length': String(o.data.length), 'content-type': o.type, 'x-amz-meta-sha256': o.sha } });
-  if (init.method === 'GET') return new Response(tamper ? new Uint8Array([1, 2, 3]) : o.data, { status: 200, headers: { 'content-type': o.type } });
+  if (init.method === 'GET') return new Response((tamper ? new Uint8Array([1, 2, 3]) : o.data) as unknown as BodyInit, { status: 200, headers: { 'content-type': o.type } });
   return new Response(null, { status: 405 });
 }) as unknown as typeof fetch;
 

@@ -153,7 +153,7 @@ export class R2Client {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
-      return await this.fetchImpl(`${this.scheme}://${this.host}${path}`, { method, headers, body, signal: ctl.signal });
+      return await this.fetchImpl(`${this.scheme}://${this.host}${path}`, { method, headers, body: body as unknown as BodyInit | undefined, signal: ctl.signal });
     } catch (e) {
       throw new R2Error(`storage unreachable (${method})`, 503, (e as Error).name);
     } finally { clearTimeout(t); }
