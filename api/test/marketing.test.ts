@@ -100,7 +100,8 @@ test('C. ownership history: every change of a campaign\'s company is kept; old l
   const r = await h.call(c.t.owner, 'GET', `/leads/campaigns/${campaign}/owners`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(r.body.owners.map((o: any) => [o.companyId, o.officeDirect, o.to === null]),
-    [[null, true, true], [otherCompany, false, false], [company, false, false]]);
+    [[null, true, true], [otherCompany, false, false], [company, false, false], [null, true, false]],
+    'the campaign was made office-direct, then given to company A, then B, then office-direct again');
   assert.equal((await h.db.query(`SELECT attributed_company_id FROM leads WHERE meta_lead_id = '9101'`)).rows[0].attributed_company_id, company);
   assert.equal((await h.call(c.t.e1, 'GET', `/leads/campaigns/${campaign}/owners`)).status, 403);
   await h.db.query(`UPDATE lead_campaigns SET marketing_company_id = $2 WHERE id = $1`, [campaign, company]);
@@ -184,10 +185,15 @@ test('D. the insights route: scheduler token or leads.config; at most hourly', a
 
 test('F. KPI sources: mapped → pending; only the owner approves; a run fills empty / automatic rows, never a manual entry', async () => {
   const def = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'meetings'`)).rows[0].id;
-  const set = (await h.db.query(`INSERT INTO kpi_sets (name, scope_type, employee_id, created_by) VALUES ('t', 'employee', $1, $2) RETURNING id`, [c.ids.e1, c.ids.owner])).rows[0].id;
+  const manualDef = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'viewings'`)).rows[0].id;
+  // a set must hold KPIs weighing 100 (deferred database check): made with its items in one transaction
+  const set = await h.db.tx(async (q) => {
+    const s = (await q.query(`INSERT INTO kpi_sets (name, scope_type, employee_id, created_by) VALUES ('t', 'employee', $1, $2) RETURNING id`, [c.ids.e1, c.ids.owner])).rows[0].id;
+    await q.query(`INSERT INTO kpi_set_items (set_id, kpi_id, weight, target) VALUES ($1, $2, 50, 10), ($1, $3, 50, 10)`, [s, def, manualDef]);
+    return s;
+  });
   const period = '2026-11-01';
   const auto = (await h.db.query(`INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot) VALUES ($1,$2,$3,$4,50,10) RETURNING id`, [c.ids.e1, period, set, def])).rows[0].id;
-  const manualDef = (await h.db.query(`SELECT id FROM kpi_definitions WHERE key = 'viewings'`)).rows[0].id;
   await h.db.query(`UPDATE kpi_definitions SET calc_source = 'meetings_set', calc_approved_at = now(), calc_approved_by = $2 WHERE id = $1`, [manualDef, c.ids.owner]);
   const manual = (await h.db.query(`INSERT INTO kpi_results (employee_id, period, set_id, kpi_id, weight_snapshot, target_snapshot, actual, state, entered_by)
       VALUES ($1,$2,$3,$4,50,10,7,'in_progress',$5) RETURNING id`, [c.ids.e1, period, set, manualDef, c.ids.sm1])).rows[0].id;
@@ -206,6 +212,15 @@ test('F. KPI sources: mapped → pending; only the owner approves; a run fills e
   assert.deepEqual([a.actual, a.source, a.evidence.calculator], [2, 'auto', 'meetings_set']);
   const m = (await h.db.query(`SELECT actual::float, source, entered_by FROM kpi_results WHERE id = $1`, [manual])).rows[0];
   assert.deepEqual([m.actual, m.source, m.entered_by], [7, 'manual', c.ids.sm1], 'a manual entry is never overwritten');
+  // a person correcting an automatic value takes it over: the next run leaves it alone
+  const fix = await h.call(c.t.owner, 'PUT', `/kpi/results/${auto}`, { state: 'in_progress', actual: 5 });
+  assert.equal(fix.status, 200, JSON.stringify(fix.body));
+  await runAutoKpis(h.db, period, h.now.value);
+  const f = (await h.db.query(`SELECT actual::float, source, calculated_at FROM kpi_results WHERE id = $1`, [auto])).rows[0];
+  assert.deepEqual([f.actual, f.source, f.calculated_at], [5, 'manual', null], 'a manual correction of an automatic row is never overwritten');
+  const mine = await h.call(c.t.owner, 'GET', `/kpi/employees/${c.ids.e1}?month=2026-11`);
+  assert.equal(mine.status, 200, JSON.stringify(mine.body));
+  assert.ok(mine.body.current.items.every((i: any) => ['auto', 'manual'].includes(i.source)), 'each item says where its value came from');
   const list = await h.call(c.t.owner, 'GET', '/kpi/calculators');
   assert.equal(list.status, 200, JSON.stringify(list.body));
   assert.equal(list.body.definitions.filter((d: any) => d.status === 'auto').length, 2, 'only the two approved here');

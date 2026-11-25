@@ -46,7 +46,8 @@ BEGIN
     'project_images','ex_inventory','developer_images','partner_units','partner_projects',
     'ex_payments','ex_installments','ex_commission_transfers','ex_unit_files','ex_units','developers',
     'company_owners','company_assets',
-    'action_otps','partner_email_otps','partner_notifications','meta_seen_campaigns','password_otps']
+    'action_otps','partner_email_otps','partner_notifications','meta_seen_campaigns','password_otps',
+    'lead_quality_events','lead_campaign_owners','meta_insights_daily']
   LOOP
     IF to_regclass(t) IS NULL THEN CONTINUE; END IF;
     EXECUTE format('SELECT count(*) FROM %I', t) INTO n;
@@ -54,6 +55,14 @@ BEGIN
   END LOOP;
 END $$;
 UPDATE integrations SET campaign_id = NULL WHERE campaign_id IS NOT NULL;  -- the campaigns go; the integrations' keys stay
+-- tables of migration 092 (marketing intelligence) point at leads / campaigns: emptied first, only where 092 is installed
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['lead_quality_events','lead_campaign_owners','meta_insights_daily'] LOOP
+    IF to_regclass(t) IS NOT NULL THEN EXECUTE format('TRUNCATE %I', t); END IF;
+  END LOOP;
+END $$;
 TRUNCATE cash_attachments, deals, lead_whatsapp, lead_exports, lead_targets, lead_checkins, lead_requests, lead_attachments,
   tasks, lead_referrals, lead_logs, lead_actions, leads, lead_campaigns,
   attendance_breaks, attendance_corrections, attendance_selfies, attendance, tracking_pings, tracking_state,

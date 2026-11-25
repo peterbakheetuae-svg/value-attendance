@@ -10,6 +10,7 @@ import '../../widgets/side_sheet.dart';
 import '../exclusive/exclusive_projects_page.dart' show newUnit;
 import 'leads_api.dart';
 import 'leads_extra.dart';
+import 'marketing_overview_page.dart' show qualityNames, qualityColor;
 import 'tasks_page.dart' show editTask;
 import 'deals_page.dart' show editDeal;
 import '../projects/brokerage_page.dart' show sellListingToLead;
@@ -31,6 +32,8 @@ class _LeadPageState extends State<LeadPage> {
   Map<String, dynamic>? _d;
   Map<String, dynamic> _meta = {};
   String _tab = 'comments';
+  /// the lead's quality and its history (GET /leads/:id/quality); empty for whoever may not read it
+  Map<String, dynamic> _q = {};
 
   @override
   void initState() {
@@ -45,6 +48,10 @@ class _LeadPageState extends State<LeadPage> {
       _d = r[0]['success'] == true ? r[0] : {'error': r[0]['message'] ?? tr('الليد مش موجود')};
       _meta = r[1];
     });
+    if (seesQuality) {
+      final q = await lget('/leads/${widget.leadId}/quality');
+      if (mounted) setState(() => _q = q['success'] == true ? q : {});
+    }
     // a repeated lead opened by the management: the «إنجاز» decision comes up right away (once per opening)
     if (!_askedDuplicate && lm(_d?['can'])['resolveDuplicate'] == true) {
       _askedDuplicate = true;
@@ -138,6 +145,60 @@ class _LeadPageState extends State<LeadPage> {
 
   Future<void> _stars(Map<String, dynamic> l, int v) async {
     final r = await lpost('/leads/${l['id']}/stars', {'stars': v}, ok: tr('اتحفظ ✅'));
+    if (!mounted) return;
+    if (r['success'] != true) JphUi.toast(context, r);
+    _after(r['success'] == true);
+  }
+
+  /// تصنيف جودة الليد: a choice of the server's list; a rejection needs a reason (3+ letters); the history is kept on the server
+  Future<void> _classify() async {
+    final isDark = context.read<AppController>().isDark;
+    final reason = TextEditingController();
+    String picked = '${_q['quality'] ?? 'unreviewed'}';
+    const needsReason = {'not_qualified', 'invalid_contact', 'duplicate', 'unreachable'};
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => GlassAlertDialog(
+          icon: const Icon(Icons.verified_rounded, color: Ar.green, size: 34),
+          title: Text(tr('جودة الليد')),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final e in qualityNames.entries)
+                  ChoiceChip(
+                    selected: picked == e.key,
+                    label: Text(tr(e.value), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    onSelected: (_) => set(() => picked = e.key),
+                  ),
+              ]),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reason,
+                onChanged: (_) => set(() {}),
+                maxLength: 500,
+                minLines: 1,
+                maxLines: 3,
+                decoration: InputDecoration(labelText: needsReason.contains(picked) ? tr('السبب (مطلوب)') : tr('ملاحظة (اختياري)')),
+              ),
+              for (final h in ll(_q['history']).take(5))
+                Text('${tr(qualityNames[h['from']] ?? '${h['from']}')} ← ${tr(qualityNames[h['to']] ?? '${h['to']}')} · ${h['by'] ?? '—'} · ${agoAr(h['at'])}'
+                    '${'${h['reason'] ?? ''}'.isEmpty ? '' : ' · ${h['reason']}'}',
+                    style: TextStyle(fontSize: 12, color: JphUi.sub(isDark))),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء'))),
+            FilledButton(
+              onPressed: needsReason.contains(picked) && reason.text.trim().length < 3 ? null : () => Navigator.pop(ctx, true),
+              child: Text(tr('حفظ')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || go != true) return;
+    final r = await lpost('/leads/${widget.leadId}/quality', {'quality': picked, if (reason.text.trim().isNotEmpty) 'reason': reason.text.trim()}, ok: tr('اتحفظ ✅'));
     if (!mounted) return;
     if (r['success'] != true) JphUi.toast(context, r);
     _after(r['success'] == true);
@@ -240,6 +301,12 @@ class _LeadPageState extends State<LeadPage> {
               pill('${stageNames[l['stage']] ?? l['stage']}', stageColor('${l['stage']}'), icon: stageIcon('${l['stage']}')),
               if (rating != null) pill(rating.$1, rating.$2),
               pill(kind, Ar.grey, dot: false),
+              if (_q['quality'] != null)
+                InkWell(
+                  onTap: _q['canClassify'] == true ? _classify : null,
+                  borderRadius: BorderRadius.circular(20),
+                  child: pill(tr(qualityNames['${_q['quality']}'] ?? '${_q['quality']}'), qualityColor('${_q['quality']}'), icon: Icons.verified_rounded),
+                ),
             ]),
             const SizedBox(height: 8),
             SelectableText(phone, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: JphUi.text(isDark))),

@@ -25,7 +25,8 @@ export function summarize(rows: any[]) {
     if (r.state === 'completed' && ach !== null && ach < 100) state = 'below_target';
     return { id: r.id, kpiId: r.kpi_id, key: r.key, nameAr: r.name_ar, nameEn: r.name_en, measurementType: r.measurement_type,
       weight: r.weight_snapshot, target: r.target_snapshot, actual: r.actual, achievementPercent: ach,
-      weightedScore: weighted, state, updatedAt: r.updated_at, enteredBy: r.entered_by_name ?? null };
+      weightedScore: weighted, state, updatedAt: r.updated_at, enteredBy: r.entered_by_name ?? null,
+      source: r.source ?? 'manual', calculatedAt: r.calculated_at ?? null };
   });
   const evaluated = items.filter((i) => i.weightedScore !== null);
   const status = !items.length ? 'no_kpis'
@@ -237,7 +238,7 @@ export const kpiModule: Module = (r, { db, clock }) => {
         await assertCanRead(q, a, row.employee_id, 'kpi');
         throw forbidden();
       }
-      await q.query(`UPDATE kpi_results SET actual = $2, state = $3, entered_by = $4, updated_at = now() WHERE id = $1`, [row.id, actual, state, a.id]);
+      await q.query(`UPDATE kpi_results SET actual = $2, state = $3, entered_by = $4, source = 'manual', calculated_at = NULL, updated_at = now() WHERE id = $1`, [row.id, actual, state, a.id]);
       await audit(q, a.id, 'kpi.result_update', 'kpi_result', row.id, { actual: row.actual, state: row.state }, { actual, state });
     });
     return ok({ ok: true });

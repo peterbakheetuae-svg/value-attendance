@@ -10,6 +10,7 @@ import 'lead_page.dart';
 import '../../widgets/app_nav.dart';
 import '../../widgets/glass_bottom_nav.dart';
 import 'leads_api.dart';
+import 'marketing_overview_page.dart';
 import 'leads_dashboard_cards.dart';
 import 'leads_list_page.dart';
 import 'leads_reports_page.dart';
@@ -123,6 +124,7 @@ class _LeadsDashboardPageState extends State<LeadsDashboardPage> {
                     if (can['deals'] == true) _go(isDark, tr('الصفقات'), Icons.handshake_rounded, Ar.green, () => _open(const DealsPage()), wide),
                     if (manager) _go(isDark, tr('التارجت'), Icons.flag_rounded, Ar.accent, () => _open(const LeadsTargetsPage()), wide),
                     if (can['reports'] == true) _go(isDark, tr('التقارير'), Icons.insights_rounded, Ar.green, () => _open(const LeadsReportsPage()), wide),
+                    if (seesMarketing) _go(isDark, tr('لوحة التسويق'), Icons.campaign_rounded, Ar.info, () => _open(const MarketingOverviewPage()), wide),
                     if (can['config'] == true)
                       _go(isDark, tr('الإعدادات'), Icons.tune_rounded, Ar.tan, () async {
                         await _open(const LeadsSettingsPage());
