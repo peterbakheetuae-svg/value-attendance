@@ -280,13 +280,19 @@ test('marketing-company documents + the company\'s own logo: R2, office / partne
   await failsCleanly('marketing_company_file', () => h.call(pt, 'PUT', '/partner/files/logo', { fileName: 'logo.png', mime: 'image/png', data: b64(png()) }));
 });
 
-test('HR: a staged required document (before the employee exists) on R2, protected, HR-only download', { timeout: 120_000 }, async () => {
+test('HR: a staged required document (before the employee exists) on R2: temporary until attached, then protected; HR-only download', { timeout: 120_000 }, async () => {
   const id = jpg();
   const st = await h.call(c.t.hr, 'POST', '/documents/staged', { kind: 'national_id', mime: 'image/jpeg', fileName: 'id.jpg', data: b64(id) });
   assert.equal(st.status, 201, JSON.stringify(st.body));
   const r = (await h.db.query(`SELECT content, content_file_id FROM employee_documents WHERE id = $1`, [st.body.id])).rows[0];
   assert.equal(r.content, null);
-  await stored(r.content_file_id, id, 'employee_document', 'protected');
+  // staged, not attached yet: temporary (an abandoned staged upload may go after a day) …
+  const f = await stored(r.content_file_id, id, 'employee_document', 'temporary');
+  // … attached to the new employee: protected from then on (never purged)
+  const emp = await h.call(c.t.hr, 'POST', '/employees', { code: 'R2DOC', fullName: 'موظف المستند', role: 'sales_employee', documents: { nationalId: st.body.id } });
+  assert.equal(emp.status, 201, JSON.stringify(emp.body));
+  const after = await fileRow(f.id);
+  assert.deepEqual([after.ref_count, after.retention_class], [1, 'protected']);
   const dl = await h.call(c.t.hr, 'GET', `/documents/${st.body.id}`);
   assert.equal(dl.status, 200);
   assert.deepEqual(dl.raw, id);
