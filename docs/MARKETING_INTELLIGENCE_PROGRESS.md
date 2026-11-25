@@ -130,3 +130,25 @@ No migration was added. No production data, schema, environment or deployment wa
 | Typecheck (strict, whole API) | 0 errors in project code; 2 = `nodemailer` absent here |
 | Written, not executed (need `pg`) | `meta-oauth-routes.test.ts` (12), `meta-sync-run.test.ts` (5) — CI |
 | Unavailable | Flutter analyse/compile (no SDK); the workflow `if:` branch guard (needs a GitHub Actions run) |
+
+### Real CI execution (2026-11-25, branch `feat/marketing-intelligence` @ 953ec98, run 45703878259)
+
+GitHub Actions `API tests` — a real PostgreSQL service (16 and 18), every migration applied to a fresh database, the whole
+API suite (not mocks of the database; Meta's HTTP endpoints are faked inside the tests):
+
+| Job | typecheck | `npm test` | least-privilege runtime role |
+|---|---|---|---|
+| Postgres 16 | ✅ | 592 passed, 0 failed, 2 skipped (role-only tests) | 593 passed, 0 failed |
+| Postgres 18 | ✅ | 592 passed, 0 failed, 2 skipped | 593 passed, 0 failed |
+
+Defects the real run found and fixed: the OAuth callback set `integrations.last_error = NULL` (column is NOT NULL, 062 —
+every successful connection would have failed); an unconfigured callback answered 503 (no read route may answer 5xx → 404);
+the callback was missing from `security.test.ts`'s public-route list; test setup (the accountant needs the administrative
+officer position for `leads.config`; `audit_log` time column is `at`).
+
+Migrations: **none needed or applied** (single-use state uses `action_otps`, 082). Live database checked read-only:
+090's columns / constraint / index present, 091's `file_objects` present — applied out of numeric order, independent, no gap.
+
+Deployment control: the branch is listed in `deploymentEnabled: false` in BOTH `vercel.json` and `api/vercel.json`
+(the API project builds from `api/`). Before `api/vercel.json` was updated, commit `06b5080` produced one Vercel PREVIEW
+deployment on project `value-attendance` (no migration: previews never migrate).
