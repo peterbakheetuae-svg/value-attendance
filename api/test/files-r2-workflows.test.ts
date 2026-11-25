@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { harness, cast, regrantAppRole, asLead, PW, type Harness } from './helpers.ts';
 import { migrate } from '../src/migrate-core.ts';
-import { R2Client, R2Error, r2ConfigFromEnv, type R2Config } from '../src/lib/r2.ts';
+import { R2Client, R2Error, r2ConfigFromEnv, signV4, uriEncode, type R2Config } from '../src/lib/r2.ts';
 import { setFileStorageForTests } from '../src/lib/files.ts';
 
 /**
@@ -40,6 +40,35 @@ class SmokeR2 extends R2Client {
   rawHead(mapped: string) { assert.ok(mapped.startsWith('staging/smoke/')); return super.head(mapped); }
 }
 
+/**
+ * Test-only listing of staging/smoke/wf-* (the API's client has no list on purpose): finds objects a cancelled earlier
+ * run could not delete, so every run leaves the smoke prefix empty.
+ */
+async function listSmoke(cfg: R2Config): Promise<string[]> {
+  const host = `${cfg.accountId}.${cfg.jurisdiction ? cfg.jurisdiction + '.' : ''}r2.cloudflarestorage.com`;
+  const keys: string[] = []; let token = '';
+  for (let page = 0; page < 50; page++) {
+    const query: Record<string, string> = { 'list-type': '2', prefix: 'staging/smoke/wf-', ...(token ? { 'continuation-token': token } : {}) };
+    const amzDate = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const payloadHash = createHash('sha256').update('').digest('hex');
+    const headers = { 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate };
+    const path = `/${uriEncode(cfg.bucket)}`;
+    const { signature, signedHeaders, scope } = signV4({ method: 'GET', host, path, query, headers, payloadHash, amzDate,
+      region: 'auto', accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey });
+    const qs = Object.keys(query).sort().map((k) => `${uriEncode(k)}=${uriEncode(query[k])}`).join('&');
+    const res = await fetch(`https://${host}${path}?${qs}`, { headers: { ...headers,
+      authorization: `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}` } });
+    assert.equal(res.status, 200, 'list of the smoke prefix');
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(m[1].replace(/&amp;/g, '&'));
+    const next = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml)?.[1];
+    if (!/<IsTruncated>true<\/IsTruncated>/.test(xml) || !next) break;
+    token = next;
+  }
+  return keys;
+}
+let realCfg: R2Config | null = null;
+
 // ------------------------------------------------------------------ the in-memory stand-in (default)
 const objects = new Map<string, { data: Uint8Array; type: string; sha: string }>();
 let failAll = false;
@@ -67,6 +96,7 @@ function storages() {
     const cfg = r2ConfigFromEnv();
     assert.ok(cfg, 'R2_TEST_REAL=1 needs the R2_* variables of the smoke token');
     assert.equal(cfg!.bucket, 'valunivo-files');
+    realCfg = cfg;
     good = new SmokeR2(cfg!);
     // the same bucket with a wrong secret: every request is refused by R2 itself (a real storage failure)
     broken = new SmokeR2({ ...cfg!, secretAccessKey: 'x'.repeat(40) } as R2Config);
@@ -98,9 +128,13 @@ after(async () => {
     // clean-up: every object this run wrote is deleted and checked gone (real bucket: under staging/smoke/<run>/ only)
     if (REAL) {
       const g = good as SmokeR2;
-      for (const k of g.written) await g.rawDelete(k);
-      for (const k of g.written) assert.equal(await g.rawHead(k), null, 'smoke object deleted');
-      console.log(`real bucket: ${g.written.size} synthetic objects written under ${PREFIX}, all deleted and verified gone`);
+      // this run's objects, plus any a cancelled earlier run left under staging/smoke/wf-*
+      const left = (await listSmoke(realCfg!)).filter((k) => k.startsWith('staging/smoke/wf-'));
+      const all = new Set([...g.written, ...left]);
+      for (const k of all) await g.rawDelete(k);
+      for (const k of all) assert.equal(await g.rawHead(k), null, 'smoke object deleted');
+      assert.deepEqual(await listSmoke(realCfg!), [], 'staging/smoke/wf-* is empty');
+      console.log(`real bucket: ${g.written.size} synthetic objects written under ${PREFIX}; ${all.size - g.written.size} left by an earlier cancelled run; all deleted, prefix verified empty`);
     }
   } finally { setFileStorageForTests(undefined); await h.close(); }
 });
@@ -160,7 +194,7 @@ async function refusedStoresNothing(expect: number[], upload: () => Promise<{ st
 }
 
 // ================================================================== the workflows
-test('unit files (reservation form / contract): R2, client-details permission, no overwrite, failure, limit refused before storage', async () => {
+test('unit files (reservation form / contract): R2, client-details permission, no overwrite, failure, limit refused before storage', { timeout: 120_000 }, async () => {
   const a = await h.call(c.t.e1, 'POST', '/exclusive/units', await asLead(h, c.ids.e1, { projectId: cpid, unitNo: 'F-1', clientName: 'عميل ملفات', clientPhone: '01077700091',
     unitPrice: 2_000_000, expectedContractDate: '2026-12-20' }));
   assert.equal(a.status, 201, JSON.stringify(a.body));
@@ -180,7 +214,7 @@ test('unit files (reservation form / contract): R2, client-details permission, n
   assert.equal(Number((await h.db.query(`SELECT count(*) FROM ex_unit_files WHERE unit_id = $1`, [u])).rows[0].count), 1, 'no row for the failed upload');
 });
 
-test('project image + developer images: R2, setup permission, replacement keeps the old record (released), failure', async () => {
+test('project image + developer images: R2, setup permission, replacement keeps the old record (released), failure', { timeout: 120_000 }, async () => {
   const p1 = png();
   assert.equal((await h.call(c.t.owner, 'PUT', `/exclusive/projects/${pid}/image`, { mime: 'image/png', image: b64(p1) })).status, 200);
   let x = (await h.db.query(`SELECT data, data_file_id FROM project_images WHERE project_id = $1`, [pid])).rows[0];
@@ -211,7 +245,7 @@ test('project image + developer images: R2, setup permission, replacement keeps 
   await failsCleanly('developer_image', () => h.call(c.t.owner, 'PUT', `/exclusive/developers/${did}/image/photo`, { mime: 'image/png', image: b64(png()) }));
 });
 
-test('marketing-company documents + the company\'s own logo: R2, office / partner permissions, delete releases the file, failure', async () => {
+test('marketing-company documents + the company\'s own logo: R2, office / partner permissions, delete releases the file, failure', { timeout: 120_000 }, async () => {
   const mk = await h.call(c.t.owner, 'POST', '/marketing-companies', { name: 'شركة ملفات R2', kind: 'fixed', monthlyFee: 5000 });
   assert.equal(mk.status, 201, JSON.stringify(mk.body));
   const id = mk.body.company.id;
@@ -246,7 +280,7 @@ test('marketing-company documents + the company\'s own logo: R2, office / partne
   await failsCleanly('marketing_company_file', () => h.call(pt, 'PUT', '/partner/files/logo', { fileName: 'logo.png', mime: 'image/png', data: b64(png()) }));
 });
 
-test('HR: a staged required document (before the employee exists) on R2, protected, HR-only download', async () => {
+test('HR: a staged required document (before the employee exists) on R2, protected, HR-only download', { timeout: 120_000 }, async () => {
   const id = jpg();
   const st = await h.call(c.t.hr, 'POST', '/documents/staged', { kind: 'national_id', mime: 'image/jpeg', fileName: 'id.jpg', data: b64(id) });
   assert.equal(st.status, 201, JSON.stringify(st.body));
@@ -260,7 +294,9 @@ test('HR: a staged required document (before the employee exists) on R2, protect
   await failsCleanly('employee_document', () => h.call(c.t.hr, 'POST', '/documents/staged', { kind: 'national_id', mime: 'image/jpeg', fileName: 'id.jpg', data: b64(jpg()) }));
 });
 
-test('attendance selfie: R2 at check-in, own / HR read, signed media link, retention removes the row and releases the file, failure', async () => {
+// regression (2026-11-25): the selfie used to be stored INSIDE the check-in transaction, which holds the employee row
+// FOR UPDATE — the file record's foreign key to that employee waited for it forever (every R2 check-in hung)
+test('attendance selfie: R2 at check-in, own / HR read, signed media link, retention removes the row and releases the file, failure', { timeout: 120_000 }, async () => {
   const s1 = jpg();
   const ok = await h.call(c.t.e1, 'POST', '/attendance/check-in', { selfie: b64(s1), selfieMime: 'image/jpeg' });
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
@@ -288,7 +324,7 @@ test('attendance selfie: R2 at check-in, own / HR read, signed media link, reten
   h.now.value = new Date('2026-03-10T08:00:00Z');
 });
 
-test('employee photo through the signed media link (R2)', async () => {
+test('employee photo through the signed media link (R2)', { timeout: 120_000 }, async () => {
   const p = jpg();
   assert.equal((await h.call(c.t.e2, 'PUT', `/employees/${c.ids.e2}/photo`, { mime: 'image/jpeg', data: b64(p) })).status, 200);
   const e = (await h.db.query(`SELECT photo, photo_file_id FROM employees WHERE id = $1`, [c.ids.e2])).rows[0];
@@ -302,7 +338,7 @@ test('employee photo through the signed media link (R2)', async () => {
   assert.equal((await h.db.query(`SELECT photo_file_id FROM employees WHERE id = $1`, [c.ids.e2])).rows[0].photo_file_id, e.photo_file_id, 'unchanged after the failure');
 });
 
-test('brokerage listing photos: R2, editor permission before storage, viewer download, limit / failure', async () => {
+test('brokerage listing photos: R2, editor permission before storage, viewer download, limit / failure', { timeout: 120_000 }, async () => {
   const l = await h.call(c.t.e1, 'POST', '/brokerage/listings', { kind: 'resale', title: 'شقة R2', address: 'التجمع', area: 120, price: 1_500_000,
     finishing: 'super_lux', description: '', ownerName: 'المالك', ownerPhone: '01000000091' });
   assert.equal(l.status, 201, JSON.stringify(l.body));
@@ -321,7 +357,7 @@ test('brokerage listing photos: R2, editor permission before storage, viewer dow
   assert.equal((await fileRow(r.data_file_id)).ref_count, 1);
 });
 
-test('cash: expense photo (at creation and later), receipt photo, transfer photo (upsert) — R2, cashbox permissions, retry stores nothing, failure', async () => {
+test('cash: expense photo (at creation and later), receipt photo, transfer photo (upsert) — R2, cashbox permissions, retry stores nothing, failure', { timeout: 120_000 }, async () => {
   assert.equal((await h.call(tGm, 'POST', '/cash/adjustments', { cashbox: 'hr', kind: 'opening', amount: 100_000, reason: 'رصيد افتتاحي' })).status, 201);
   assert.equal((await h.call(c.t.owner, 'POST', '/cash/adjustments', { cashbox: 'office', kind: 'opening', amount: 100_000, reason: 'رصيد افتتاحي' })).status, 201);
   // expense with its photo
@@ -383,7 +419,7 @@ test('cash: expense photo (at creation and later), receipt photo, transfer photo
   await failsCleanly('cash_attachment', () => h.call(c.t.hr, 'POST', `/cash/attachments/transfer/${tid}`, { attachment: b64(jpg()) }));
 });
 
-test('advance and salary-adjustment photos: R2, own / finance read, failure', async () => {
+test('advance and salary-adjustment photos: R2, own / finance read, failure', { timeout: 120_000 }, async () => {
   const p = jpg();
   const ad = await h.call(c.t.e2, 'POST', '/advances', { kind: 'advance', amount: 1500, period: '2026-03-01', note: 'سلفة', attachment: b64(p) });
   assert.equal(ad.status, 201, JSON.stringify(ad.body));
@@ -409,7 +445,7 @@ test('advance and salary-adjustment photos: R2, own / finance read, failure', as
   await failsCleanly('adjustment_attachment', () => h.call(c.t.acc, 'POST', '/finance/adjustments', { employeeId: c.ids.e1, month: '2026-03', kind: 'bonus', amountEgp: 50, reason: 'مكافأة', attachment: b64(jpg()) }));
 });
 
-test('company logo: R2, edit permission before storage, replacement, failure', async () => {
+test('company logo: R2, edit permission before storage, replacement, failure', { timeout: 120_000 }, async () => {
   const l1 = png();
   assert.equal((await h.call(c.t.owner, 'PUT', '/company/logo', { mime: 'image/png', image: b64(l1) })).status, 200);
   let x = (await h.db.query(`SELECT data, data_file_id FROM company_assets WHERE key = 'logo'`)).rows[0];
@@ -427,7 +463,7 @@ test('company logo: R2, edit permission before storage, replacement, failure', a
 
 // regression (2026-11-25): R2 switched off again (the documented rollback) while 091 stays installed — replacing a file
 // that is in R2 left the old <col>_file_id next to the new bytes, and the CHECK refused every replacement (500)
-test('R2 switched off with 091 installed: replacements go to Postgres and clear the R2 reference (no 500); R2 files answer 503, not lost', async () => {
+test('R2 switched off with 091 installed: replacements go to Postgres and clear the R2 reference (no 500); R2 files answer 503, not lost', { timeout: 120_000 }, async () => {
   setFileStorageForTests(null);
   try {
     const l = png();
@@ -453,7 +489,7 @@ test('R2 switched off with 091 installed: replacements go to Postgres and clear 
   } finally { setFileStorageForTests(good); }
 });
 
-test('storage health: read-only counts for the owner / the scheduler, alert on orphans, never a key or a name', async () => {
+test('storage health: read-only counts for the owner / the scheduler, alert on orphans, never a key or a name', { timeout: 120_000 }, async () => {
   const before = (await h.call(c.t.owner, 'GET', '/admin/files/health')).body;
   assert.equal(before.installed, true);
   assert.equal(before.alert, true, 'the failures above left orphan records');

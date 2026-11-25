@@ -204,6 +204,18 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     await assertPunchClient(db, a, req, 'حضور');
     const b = obj(req.body ?? {});
     const { at: now, offline } = await trustedTime(db, a, b, clock(), 'حضور'); const l = local(now);
+    const selfie = selfieFrom(b);
+    // R2 (091): the selfie is written and verified BEFORE the transaction — inside it, the employee row lock below
+    // (FOR UPDATE) would block the file record's own foreign-key check on that employee (FOR KEY SHARE) and the check-in
+    // would wait forever. The refusals that do not depend on the race are checked first so nothing is stored for them.
+    let fileId: string | null = null;
+    if (selfie) {
+      if (await one(db, `SELECT id FROM attendance WHERE employee_id = $1 AND work_date = $2`, [a.id, l.date])) throw conflict('You already checked in today');
+      const s0 = await scheduleFor(db, a.id);
+      if (!s0.attendance_exempt) {
+        fileId = await storeFile(db, { category: 'attendance_selfie', bytes: selfie.buf, mime: selfie.mime, name: 'selfie', createdBy: a.id });
+      }
+    }
     const row = await db.tx(async (q) => {
       // serialize per employee so two taps cannot both pass the duplicate check
       await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [a.id]);
@@ -213,7 +225,6 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       if (s.attendance_exempt) throw new AppError('unprocessable', 'This account does not use check-in / check-out', { reason: 'attendance_exempt' });
       const g = await geofence(q, b);
       const cfg = await one(q, `SELECT selfie_required, selfie_retention_days FROM company_settings`);
-      const selfie = selfieFrom(b);
       if (s.emp_selfie_required && !selfie) throw new AppError('unprocessable', 'A selfie is required to check in', { reason: 'selfie_required' });
       const inserted = await one(q, `
         INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
@@ -223,8 +234,6 @@ export const attendanceModule: Module = (r, { db, clock }) => {
         [a.id, l.date, s.start_time, s.end_time, s.late_grace_minutes, s.early_grace_minutes, s.overtime_enabled,
          s.overtime_min_minutes, now, g.lat, g.lng, g.acc, g.status, offline]);
       if (selfie) {
-        // R2 (091) when configured: written and verified on its own connection before this row may point at it
-        const fileId = await storeFile(db, { category: 'attendance_selfie', bytes: selfie.buf, mime: selfie.mime, name: 'selfie', createdBy: a.id });
         await q.query(...withFile(`INSERT INTO attendance_selfies (attendance_id, employee_id, image, mime, taken_at) VALUES ($1,$2,$3,$4,$5)`,
           [inserted.id, a.id, selfie.buf, selfie.mime, now], 'image', fileId));
       }
