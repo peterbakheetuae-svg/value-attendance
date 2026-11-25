@@ -1,0 +1,103 @@
+name: Candidate builds — Android (throwaway key) + Web + Windows (unsigned), nothing published
+# Release-candidate builds of the R2 branch for review only.
+#  - No secret is referenced anywhere in this file: no release key, no Windows certificate, no update-signing key,
+#    no deploy credentials. The APK is signed with a key generated on the runner and discarded with it, so it can
+#    never be mistaken for (or installed over) the production app.
+#  - Nothing is deployed or published: artifacts are kept 14 days in this run only.
+on:
+  push:
+    branches: [feature/r2-storage-2026-11-25]
+    paths: ['app/**', '.github/workflows/candidate-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency: { group: candidate-build-${{ github.ref }}, cancel-in-progress: true }
+env:
+  FLUTTER_VERSION: '3.38.10'
+  # public endpoints (not secrets): the live API and its Cloudflare mirror
+  API_BASE_URL: https://valunivo.vercel.app
+  API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+  # public Firebase client identifiers, the same ones app.yml builds with
+  FIREBASE_DEFINES: >-
+    --dart-define=FIREBASE_API_KEY=AIzaSyBpuGxRAmut3r_mCMtvdtqYMlnW3uNNvHY
+    --dart-define=FIREBASE_APP_ID=1:1055799246852:android:1f3156a362edc90023f551
+    --dart-define=FIREBASE_SENDER_ID=1055799246852
+    --dart-define=FIREBASE_PROJECT_ID=bustling-syntax-480805-k4
+jobs:
+  android-web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - run: flutter pub get
+      - name: Analyze (errors fail)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; ! grep -qE "^\s*error •" analyze.txt
+      - name: Unit / widget tests
+        run: flutter test
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with: { distribution: temurin, java-version: '17' }
+      - name: Android candidate APK (throwaway key — NOT a production signature)
+        run: |
+          flutter create --platforms=android,web --org com.jph.valueattendance --project-name jph_real_estate_hr .
+          dart run tool/patch_android.dart
+          P=$(openssl rand -hex 16)
+          keytool -genkeypair -storetype PKCS12 -keystore "$RUNNER_TEMP/cand.p12" -alias valueattendance -keyalg RSA -keysize 2048 -validity 14 -storepass "$P" -keypass "$P" -dname "CN=VALUNIVO candidate (not for distribution)"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=valueattendance\nkeyPassword=%s\n' "$RUNNER_TEMP/cand.p12" "$P" "$P" > android/key.properties
+          flutter build apk --release --build-name=1.0.${{ github.run_number }}-rc --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS $FIREBASE_DEFINES
+          rm -f android/key.properties "$RUNNER_TEMP/cand.p12"
+          mkdir -p ../out
+          cp build/app/outputs/flutter-apk/app-release.apk ../out/VALUNIVO-candidate-${{ github.run_number }}-throwaway-key-NOT-FOR-DISTRIBUTION.apk
+      - name: Web candidate (WebAssembly, /valunivo/ base path)
+        run: |
+          flutter build web --release --wasm --base-href "/valunivo/" --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+          cp deploy/hostinger/.htaccess build/web/.htaccess
+          grep -q '<base href="/valunivo/">' build/web/index.html
+          if find build/web -name '*.env' -o -name '*.p12' -o -name '*.jks' -o -name '*.pem' -o -name 'key.properties' | grep -q .; then echo "::error::secret file in web build"; exit 1; fi
+          (cd build/web && tar -czf ../../../out/VALUNIVO-web-candidate-${{ github.run_number }}.tar.gz .)
+      - name: Checksums + provenance
+        run: |
+          cd ../out
+          echo "commit ${{ github.sha }} branch ${{ github.ref_name }} run ${{ github.run_id }}" > BUILD-INFO.txt
+          sha256sum *.apk *.tar.gz | tee SHA256SUMS.txt
+          ls -la
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: { name: candidate-android-web, path: out, retention-days: 14 }
+
+  windows:
+    runs-on: windows-2022
+    defaults: { run: { working-directory: app, shell: bash } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - run: flutter config --enable-windows-desktop && flutter pub get
+      - name: Build Windows (Release, unsigned, automatic updates off — no update key is passed)
+        run: |
+          flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+          R=build/windows/x64/runner/Release
+          for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do cp "/c/Windows/System32/$d" "$R/"; done
+          rm -f "$R"/*.exp "$R"/*.lib
+          for f in VALUNIVO.exe flutter_windows.dll data/app.so data/icudtl.dat data/flutter_assets/AssetManifest.bin; do
+            test -s "$R/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          if find "$R" -name '*.env' -o -name '*.p12' -o -name '*.pfx' -o -name '*.pem' | grep -q .; then echo "::error::secret file in package"; exit 1; fi
+      - name: Launch test (the exe starts and stays up)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build\windows\x64\runner\Release\VALUNIVO.exe" -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { Write-Host "::error::VALUNIVO.exe exited after start (code $($p.ExitCode))"; exit 1 }
+          Write-Host "running: pid $($p.Id)"; Stop-Process -Id $p.Id -Force
+      - name: Package + checksum
+        run: |
+          mkdir -p ../out
+          (cd build/windows/x64/runner/Release && 7z a -tzip -bso0 ../../../../../../out/VALUNIVO-windows-candidate-${{ github.run_number }}-x64-unsigned.zip .)
+          cd ../out && sha256sum *.zip | tee SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: { name: candidate-windows, path: out, retention-days: 14 }
