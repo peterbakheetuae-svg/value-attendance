@@ -8,6 +8,7 @@ import { holdersOf, notify } from './notify.ts';
 import { local } from '../lib/time.ts';
 import { canHrOperate, canOffice, parseReceipt, recordReceipt, type ReceiptInput } from './cash.ts';
 import { leadForReservation } from './leads.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 /**
  * Resale (إعادة بيع) and rental (إيجار) under «التسويق» — PROPOSED migration 087; until it runs every route answers
@@ -747,13 +748,15 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const b = obj(req.body);
     const p = photoInput(b);
+    await editable(db, a, req.params.id);   // permission first: nothing is stored for someone who may not add it
+    const fileId = await storeFile(db, { category: 'listing_photo', bytes: Buffer.from(p.data, 'base64'), mime: p.mime, name: 'photo', createdBy: a.id });
     const out = await db.tx(async (q) => {
       const l = await editable(q, a, req.params.id);
       const n = Number((await one(q, `SELECT count(*)::int n, COALESCE(max(position), -1) m FROM brokerage_listing_photos WHERE listing_id = $1 AND NOT removed`, [l.id])).n);
       if (n >= MAX_PHOTOS) throw new AppError('unprocessable', `أقصى عدد ${MAX_PHOTOS} صور`, { reason: 'too_many_photos' });
       const pos = Number((await one(q, `SELECT COALESCE(max(position), -1) + 1 p FROM brokerage_listing_photos WHERE listing_id = $1`, [l.id])).p);
-      const x = await one(q, `INSERT INTO brokerage_listing_photos (listing_id, mime, data, position, added_by, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-        [l.id, p.mime, p.data, pos, a.id, clock()]);
+      const x = await one(q, ...withFile(`INSERT INTO brokerage_listing_photos (listing_id, mime, data, position, added_by, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [l.id, p.mime, p.data, pos, a.id, clock()], 'data', fileId));
       await q.query(`UPDATE brokerage_listings SET updated_at = $2 WHERE id = $1`, [l.id, clock()]);
       await audit(q, a.id, 'brokerage.listing.photo', 'brokerage_listing', l.id, undefined, { photoId: x.id, mime: p.mime, bytes: p.data.length });
       return x.id as string;
@@ -778,9 +781,9 @@ export const brokerageModule: Module = (r, { db, clock }) => {
     viewer(a);
     if (!isUuid(req.params.id) || !isUuid(req.params.photoId)) throw notFound();
     await needListings(db);
-    const x = await one(db, `SELECT mime, data FROM brokerage_listing_photos WHERE id = $1 AND listing_id = $2 AND NOT removed`, [req.params.photoId, req.params.id]);
+    const x = await one(db, `SELECT * FROM brokerage_listing_photos WHERE id = $1 AND listing_id = $2 AND NOT removed`, [req.params.photoId, req.params.id]);
     if (!x) throw notFound();
-    return ok({ image: `data:${x.mime};base64,${x.data}` });
+    return ok({ image: `data:${x.mime};base64,${(x.data_file_id ? (await readFileBytes(db, null, x.data_file_id)).toString('base64') : x.data)}` });
   });
 
   // anyone sells / rents a listing: the client, the final price and the commission he took — the administrative officer is told

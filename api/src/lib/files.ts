@@ -70,6 +70,7 @@ export async function storeFile(db: Q, f: {
   const c = r2()!;
   if (!ALLOWED_MIME.has(f.mime)) throw new AppError('validation_failed', 'نوع الملف مش مسموح', { field: 'data' });
   if (f.bytes.length < 1 || f.bytes.length > MAX_BYTES) throw new AppError('validation_failed', 'حجم الملف مش مسموح', { field: 'data' });
+  if (!contentMatches(f.bytes, f.mime)) throw new AppError('validation_failed', 'محتوى الملف مش مطابق لنوعه', { field: 'data' });
   const sha = sha256Hex(f.bytes);
   const now = new Date();
   const key = `${envPrefix()}/${f.category}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}`;
@@ -118,4 +119,36 @@ function storageError(e: unknown): AppError {
   // never the URL, key, or credentials in the error or the logs
   console.error(`[files] storage error: ${code}`);
   return new AppError('service_unavailable', 'تخزين الملفات مش متاح دلوقتي — جرّب بعد شوية', { reason: 'storage_unavailable' });
+}
+
+
+export { withFile } from './files-sql.ts';
+
+/** the file's first bytes must be what its MIME type says (never trust a declared type alone) */
+export function contentMatches(b: Buffer, mime: string): boolean {
+  const s = (i: number, n: number) => b.subarray(i, i + n).toString('latin1');
+  switch (mime) {
+    case 'image/jpeg': return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    case 'image/png': return s(0, 8) === '\x89PNG\r\n\x1a\n';
+    case 'image/webp': return s(0, 4) === 'RIFF' && s(8, 4) === 'WEBP';
+    case 'application/pdf': return s(0, 5) === '%PDF-';
+    case 'application/msword': return b.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': return s(0, 4) === 'PK\x03\x04';
+    default: return false;
+  }
+}
+
+/** the MIME type a file's own bytes say it is (null when it is none of the accepted types) */
+export function sniffMime(b: Buffer): string | null {
+  for (const m of ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) if (contentMatches(b, m)) return m;
+  return null;
+}
+
+/** storeFile for an image-or-PDF attachment whose type the route does not state: the bytes decide (null type → Postgres) */
+export async function storeAttachment(db: Q, category: FileCategory, bytes: Buffer | null, name: string, createdBy: string | null) {
+  if (!bytes) return null;
+  const mime = sniffMime(bytes);
+  if (!mime) return null;   // an odd legacy format stays in Postgres exactly as the route accepted it
+  return storeFile(db, { category, bytes, mime, name, createdBy });
 }

@@ -10,6 +10,7 @@ import { companyForPayment, companyOtpInstalled, tellCompany } from './company-p
 import { checkClassification, classificationInstalled } from './expense-classes.ts';
 import { onBrokerageReceiptReversed } from './brokerage.ts';
 import { computePayrollMany, loadRules } from './payroll-calc.ts';
+import { readFileBytes, storeAttachment, withFile } from '../lib/files.ts';
 
 /**
  * Financial system, phase 1 — the office cashbox and the HR cashbox.
@@ -612,7 +613,7 @@ export function shapeReceipt(x: any) {
 function shapeExpense(x: any) {
   return {
     id: x.id, refNo: Number(x.ref_no), cashbox: x.cashbox, amount: Number(x.amount_egp), category: x.category, reason: x.reason,
-    beneficiary: x.beneficiary, notes: x.notes, hasAttachment: x.has_attachment === true, occurredAt: x.occurred_at,
+    beneficiary: x.beneficiary, notes: x.notes, hasAttachment: x.has_attachment === true || !!x.attachment_file_id, occurredAt: x.occurred_at,
     recordedBy: x.recorded_by, recordedByName: x.recorded_by_name, status: x.status, approvedAt: x.approved_at,
     approvedByName: x.approved_by_name, rejectReason: x.reject_reason, reviewedAt: x.reviewed_at, reviewedByName: x.reviewed_by_name,
     reversedAt: x.reversed_at, reverseReason: x.reverse_reason, createdAt: x.created_at,
@@ -1012,6 +1013,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const notes = str(b, 'notes', { optional: true, max: 1000 }) ?? '';
     const ref = clientRef(b);
     const att = attachment(b);
+    const attFile = await storeAttachment(db, 'expense_attachment', att, 'receipt', a.id);
     if (att && !canAttachmentUpload(a)) throw forbidden('رفع صورة الإيصال محتاج صلاحية «رفع صور الإيصالات»');
     const occurred = when(b, 'occurredAt', clock());
     const method = oneOf(b, 'paymentMethod', ['cash', 'bank'] as const, true) ?? 'cash';
@@ -1034,12 +1036,12 @@ export const cashModule: Module = (r, { db, clock }) => {
       // HR records directly; above the threshold the manager approves first. Office expenses are the manager's own.
       const needsApproval = box === 'hr' && !canOffice(a) && amount > threshold;
       const status = needsApproval ? 'pending_approval' : companyOtp ? 'awaiting_otp' : 'posted';
-      const x = await one(q, `
+      const x = await one(q, ...withFile(`
         INSERT INTO cash_expenses (cashbox, amount_egp, category, reason, beneficiary, notes, attachment, client_ref, occurred_at, recorded_by,
                status, approved_by, approved_at, payment_method, marketing_company_id)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, ref_no, marketing_company_id, amount_egp`,
         [box, amount, category, reason, beneficiary, notes, att, ref, occurred, a.id,
-          status, status === 'posted' ? a.id : null, status === 'posted' ? clock() : null, method, mkId]);
+          status, status === 'posted' ? a.id : null, status === 'posted' ? clock() : null, method, mkId], 'attachment', attFile));
       if (cls && (cls.groupId || cls.categoryId)) {
         await q.query(`UPDATE cash_expenses SET expense_group_id = $2, expense_category_id = $3 WHERE id = $1`, [x.id, cls.groupId, cls.categoryId]);
       }
@@ -1085,7 +1087,7 @@ export const cashModule: Module = (r, { db, clock }) => {
   const shapeFixed = (f: any) => ({ id: f.id, name: f.name, category: f.category, amount: Number(f.amount_egp), beneficiary: f.beneficiary,
     cashbox: f.cashbox, paymentMethod: f.payment_method, notes: f.notes, active: f.active,
     expenseGroupId: f.expense_group_id ?? null, expenseCategoryId: f.expense_category_id ?? null,
-    paid: f.exp_id ? { expenseId: f.exp_id, cashbox: f.exp_box, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true } : null });
+    paid: f.exp_id ? { expenseId: f.exp_id, cashbox: f.exp_box, status: f.exp_status, refNo: Number(f.exp_ref), hasAttachment: f.exp_att === true || !!f.exp_att_file } : null });
 
   r.get('/cash/fixed-expenses', async (req) => {
     const a = await authenticate(db, req);
@@ -1093,7 +1095,7 @@ export const cashModule: Module = (r, { db, clock }) => {
     const m = req.query.get('month');
     const period = m && /^\d{4}-\d{2}$/.test(m) ? `${m}-01` : local(clock()).date.slice(0, 7) + '-01';
     const rows = await db.query(`
-      SELECT f.*, x.id AS exp_id, x.cashbox AS exp_box, x.status AS exp_status, x.ref_no AS exp_ref, (x.attachment IS NOT NULL) AS exp_att
+      SELECT f.*, x.id AS exp_id, x.cashbox AS exp_box, x.status AS exp_status, x.ref_no AS exp_ref, (x.attachment IS NOT NULL) AS exp_att, to_jsonb(x) ->> 'attachment_file_id' AS exp_att_file
         FROM fixed_expenses f
         LEFT JOIN LATERAL (SELECT * FROM cash_expenses e WHERE e.fixed_expense_id = f.id AND e.fixed_period = $1::date
                              AND e.status IN ('pending_approval','posted') ORDER BY e.created_at DESC LIMIT 1) x ON true
@@ -1205,11 +1207,13 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (!isUuid(req.params.id)) throw notFound();
     const att = attachment(obj(req.body));
     if (!att) throw invalid('ارفع صورة الإيصال', { field: 'attachment' });
+    const fileId = await storeAttachment(db, 'expense_attachment', att, 'receipt', a.id);
     await db.tx(async (q) => {
-      const x = await one(q, `SELECT id, cashbox, recorded_by, attachment IS NOT NULL AS has FROM cash_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
+      const x = await one(q, `SELECT id, cashbox, recorded_by, attachment IS NOT NULL ${fileId ? 'OR attachment_file_id IS NOT NULL' : ''} AS has FROM cash_expenses WHERE id = $1 FOR UPDATE`, [req.params.id]);
       if (!x) throw notFound();
       if (!canBox(a, x.cashbox) || !canAttachmentUpload(a)) throw forbidden();
-      await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
+      if (fileId) await q.query(`UPDATE cash_expenses SET attachment = NULL, attachment_file_id = $2 WHERE id = $1`, [x.id, fileId]);
+      else await q.query(`UPDATE cash_expenses SET attachment = $2 WHERE id = $1`, [x.id, att]);
       await audit(q, a.id, 'cash.expense.attachment', 'cash_expense', x.id, undefined, { replaced: x.has });
     });
     return ok({ ok: true });
@@ -1218,10 +1222,10 @@ export const cashModule: Module = (r, { db, clock }) => {
   r.get('/cash/expenses/:id/attachment', async (req) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id)) throw notFound();
-    const x = await one(db, `SELECT cashbox, attachment FROM cash_expenses WHERE id = $1`, [req.params.id]);
-    if (!x || !x.attachment) throw notFound();
+    const x = await one(db, `SELECT * FROM cash_expenses WHERE id = $1`, [req.params.id]);
+    if (!x || (!x.attachment && !x.attachment_file_id)) throw notFound();
     if (!canSee(a, x.cashbox) || !canAttachmentView(a)) throw forbidden();
-    return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+    return ok({ attachment: (await readFileBytes(db, x.attachment, x.attachment_file_id)).toString('base64') });
   });
 
   // ------------------------------------------------------------------ نقل من البنك إلى خزنة المكتب
@@ -1324,11 +1328,11 @@ export const cashModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     if (!isUuid(req.params.id) || !['receipt', 'expense'].includes(req.params.kind)) throw notFound();
     const t = req.params.kind === 'receipt' ? 'cash_receipts' : 'cash_expenses';
-    const x = await one(db, `SELECT cashbox, recorded_by, attachment FROM ${t} WHERE id = $1`, [req.params.id]);
-    if (!x || !x.attachment) throw notFound();
+    const x = await one(db, `SELECT * FROM ${t} WHERE id = $1`, [req.params.id]);
+    if (!x || (!x.attachment && !x.attachment_file_id)) throw notFound();
     // the one who recorded it, or who sees that cashbox and its receipts' photos
     if (x.recorded_by !== a.id && !(canSee(a, x.cashbox) && canAttachmentView(a))) throw forbidden();
-    return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+    return ok({ attachment: (await readFileBytes(db, x.attachment, x.attachment_file_id)).toString('base64') });
   });
 
   // ------------------------------------------------------------------ صورة الإيصال الموقّع: transfers and payouts
@@ -1351,9 +1355,9 @@ export const cashModule: Module = (r, { db, clock }) => {
   r.get('/cash/attachments/:entity/:id', async (req) => {
     const a = await authenticate(db, req);
     await attachmentAccess(a, req.params.entity, req.params.id, false);
-    const x = await one(db, `SELECT attachment FROM cash_attachments WHERE entity = $1 AND entity_id = $2`, [req.params.entity, req.params.id]);
+    const x = await one(db, `SELECT * FROM cash_attachments WHERE entity = $1 AND entity_id = $2`, [req.params.entity, req.params.id]);
     if (!x) throw notFound();
-    return ok({ attachment: Buffer.from(x.attachment).toString('base64') });
+    return ok({ attachment: (await readFileBytes(db, x.attachment, x.attachment_file_id)).toString('base64') });
   });
   r.post('/cash/attachments/:entity/:id', async (req) => {
     const a = await authenticate(db, req);
@@ -1363,9 +1367,10 @@ export const cashModule: Module = (r, { db, clock }) => {
     if (raw.length > 1_000_000) throw invalid('الصورة كبيرة — اختار صورة أصغر', { field: 'attachment' });
     const buf = imageAttachment(raw, 'attachment', 700_000, 'الصورة مش واضحة');
     if (buf.length < 100) throw invalid('الصورة مش واضحة', { field: 'attachment' });
-    await db.query(`INSERT INTO cash_attachments (entity, entity_id, attachment, updated_by, updated_at) VALUES ($1,$2,$3,$4,$5)
+    const fileId = await storeAttachment(db, 'cash_attachment', buf, 'receipt', a.id);
+    await db.query(...withFile(`INSERT INTO cash_attachments (entity, entity_id, attachment, updated_by, updated_at) VALUES ($1,$2,$3,$4,$5)
                     ON CONFLICT (entity, entity_id) DO UPDATE SET attachment = EXCLUDED.attachment, updated_by = EXCLUDED.updated_by,
-                      updated_at = EXCLUDED.updated_at`, [req.params.entity, req.params.id, buf, a.id, clock()]);
+                      updated_at = EXCLUDED.updated_at`, [req.params.entity, req.params.id, buf, a.id, clock()], 'attachment', fileId));
     await audit(db, a.id, 'cash.attachment', req.params.entity, req.params.id, undefined, { bytes: buf.length });
     return ok({ ok: true });
   });
