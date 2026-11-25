@@ -41,7 +41,7 @@ async function ensureTemplate() {
         try {
           // the database as production had it before the 2026-11-23 release; the suites that test 066 / 083–087 apply
           // them themselves (and release-migrations.test.ts runs the whole db/migrations the way the deploy does)
-          await migrate(db, MIGRATIONS_DIR, { skip: (f) => RELEASE_2026_11_23.includes(f) || RELEASE_R2.includes(f) });
+          await migrate(db, MIGRATIONS_DIR, { skip: (f) => RELEASE_2026_11_23.includes(f) || RELEASE_R2.includes(f) || RELEASE_HANDOVER.includes(f) });
           // most suites create employees without files; the documents suite turns this back on
           await db.query(`UPDATE company_settings SET require_employee_documents = false, gps_required = false,
             payroll_auto_deductions = false, deduction_mode = 'per_minute'`); // suites that test the office check turn it on
@@ -59,6 +59,8 @@ export const RELEASE_2026_11_23 = ['066_fine_grained_permissions.sql', '083_fina
   '088_brokerage_listings.sql', '089_brokerage_deal_lead.sql'];
 /** the R2 release (owner-approved D1 / D3 / D4, 2026-11-25): file storage — not in the template either; suites apply it */
 export const RELEASE_R2 = ['091_r2_file_objects.sql'];
+/** the brokerage commission handover (owner request 2026-11-25): not in the template either; suites apply it */
+export const RELEASE_HANDOVER = ['090_brokerage_handover.sql'];
 
 export interface Harness {
   db: Db; base: string; now: { value: Date }; server: Server; dbName: string;

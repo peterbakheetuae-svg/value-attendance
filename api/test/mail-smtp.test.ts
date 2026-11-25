@@ -254,12 +254,15 @@ test('the VALUNIVO code email: dark card, logo + wordmark, the code, 10 minutes,
   assert.equal(m.subject, 'كود استعادة كلمة المرور — فاليو', 'subject unchanged');
   assert.match(m.text, /4821/); assert.match(m.text, /10 دقايق/);
   for (const needle of ['رمز التحقق الأمني (OTP)', '>4821</span>', '10 دقائق', 'تنبيه أمني:', 'cid:valunivo-icon', 'cid:valunivo-wordmark',
-    'cid:valunivo-header-bg', 'background-color: #09090b', '#ff6b00', 'https://jaurea.com/valunivo/', 'نظام إدارة الأعمال'])
+    'background-color: #09090b', '#ff6b00', 'https://jaurea.com/valunivo/', 'نظام إدارة الأعمال'])
     assert.ok(m.html.includes(needle), `html has ${needle}`);
   assert.ok(!m.html.includes('<script>x'), 'the name is escaped');
   assert.ok(m.html.includes('&lt;script&gt;x&lt;/script&gt; أحمد'));
   assert.ok(!m.html.includes('YOUR_DOMAIN') && !m.html.includes('{{'), 'no template placeholders left');
-  assert.deepEqual(m.inline.map((i) => i.cid), ['valunivo-icon', 'valunivo-wordmark', 'valunivo-header-bg']);
+  assert.deepEqual(m.inline.map((i) => i.cid), ['valunivo-icon', 'valunivo-wordmark']);
+  // every inline image is an <img> in the page (a cid: used only as a background is shown by Gmail as a loose picture)
+  for (const i of m.inline) assert.ok(m.html.includes(`<img src="cid:${i.cid}"`), `${i.cid} is an <img>`);
+  assert.ok(!/background="cid:|url\('cid:/.test(m.html), 'no cid: background');
   for (const i of CODE_MAIL_IMAGES) {
     const b = Buffer.from(i.base64, 'base64');
     assert.ok(b.length > 1000 && b.length < 40_000, `${i.filename} is a small real image (${b.length} bytes)`);
@@ -267,20 +270,20 @@ test('the VALUNIVO code email: dark card, logo + wordmark, the code, 10 minutes,
   }
   // the other two code emails share the design, each with its own purpose; HR password reset keeps its plain page
   const a = actionCodeMail({ name: 'أحمد', code: '7310', company: 'فاليو', what: 'استلام صرف <b>' });
-  assert.ok(a.html.includes('>7310</span>') && a.html.includes('«استلام صرف &lt;b&gt;»') && a.inline.length === 3);
+  assert.ok(a.html.includes('>7310</span>') && a.html.includes('«استلام صرف &lt;b&gt;»') && a.inline.length === 2);
   assert.equal(a.subject, 'كود تأكيد — فاليو');
   const e = emailChangeMail({ name: 'شركة', code: '5512', company: 'فاليو' });
-  assert.ok(e.html.includes('>5512</span>') && e.html.includes('البريد الإلكتروني الجديد') && e.inline.length === 3);
+  assert.ok(e.html.includes('>5512</span>') && e.html.includes('البريد الإلكتروني الجديد') && e.inline.length === 2);
   assert.equal(e.subject, 'كود تأكيد الإيميل — فاليو');
   assert.ok(!('inline' in passwordResetMail({ name: 'أحمد', code: 'E1', password: 'x', company: 'فاليو', isPin: false })));
 });
 
-test('SMTP: the three images travel inside the message as inline (cid) parts', async () => {
+test('SMTP: the two images travel inside the message as inline (cid) parts', async () => {
   gmailEnv();
   assert.equal(await sendMail({ to: 'someone@value.test', toName: 'أحمد', ...otpMail({ name: 'أحمد', code: '4821', company: 'فاليو' }) }), true);
   const raw = convs[0].data!;
   assert.match(raw, /multipart\/related/);
-  for (const cid of ['valunivo-icon', 'valunivo-wordmark', 'valunivo-header-bg']) assert.match(raw, new RegExp(`Content-ID: <${cid}>`), cid);
+  for (const cid of ['valunivo-icon', 'valunivo-wordmark']) assert.match(raw, new RegExp(`Content-ID: <${cid}>`), cid);
   assert.match(raw, /Content-Disposition: inline/);
 });
 
