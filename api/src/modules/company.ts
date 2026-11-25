@@ -4,6 +4,7 @@ import { forbidden } from '../http/errors.ts';
 import { obj, oneOf, str } from '../http/validate.ts';
 import { invalid } from '../http/errors.ts';
 import { audit, authenticate, has, type Actor } from '../auth/context.ts';
+import { readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 const PHONE = /^\+?[0-9]{8,15}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,8 +49,8 @@ export const companyModule: Module = (r, { db }) => {
   // ------------------------------------------------------------------ لوجو الشركة (on every document of the company)
   r.get('/company/logo', async (req) => {
     await authenticate(db, req);
-    const x = await one(db, `SELECT mime, data, updated_at FROM company_assets WHERE key = 'logo'`);
-    return ok({ image: x ? `data:${x.mime};base64,${x.data}` : null, at: x?.updated_at ?? null });
+    const x = await one(db, `SELECT * FROM company_assets WHERE key = 'logo'`);
+    return ok({ image: x ? `data:${x.mime};base64,${x.data_file_id ? (await readFileBytes(db, null, x.data_file_id)).toString('base64') : x.data}` : null, at: x?.updated_at ?? null });
   });
 
   r.put('/company/logo', async (req) => {
@@ -59,9 +60,10 @@ export const companyModule: Module = (r, { db }) => {
     const mime = oneOf(b, 'mime', ['image/jpeg', 'image/png', 'image/webp'] as const)!;
     const data = str(b, 'image', { min: 16, max: 1_400_000 })!;
     if (!/^[A-Za-z0-9+/=]+$/.test(data)) throw invalid('الصورة مش سليمة', { field: 'image' });
-    await db.query(`INSERT INTO company_assets (key, mime, data, updated_at, updated_by) VALUES ('logo',$1,$2,now(),$3)
+    const fileId = await storeFile(db, { category: 'company_logo', bytes: Buffer.from(data, 'base64'), mime, name: 'logo', createdBy: a.id });
+    await db.query(...withFile(`INSERT INTO company_assets (key, mime, data, updated_at, updated_by) VALUES ('logo',$1,$2,now(),$3)
                     ON CONFLICT (key) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = now(), updated_by = EXCLUDED.updated_by`,
-      [mime, data, a.id]);
+      [mime, data, a.id], 'data', fileId));
     await audit(db, a.id, 'company.logo', 'settings', null, undefined, { mime, bytes: data.length });
     return ok({ saved: true });
   });
