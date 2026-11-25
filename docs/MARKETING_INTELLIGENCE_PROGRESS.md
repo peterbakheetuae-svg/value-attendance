@@ -54,17 +54,60 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Per-source checkpoints, retry/backoff, dead-letter, counters (processed / added / duplicates / rejected) | — needs storage → migration proposal | ⬜ 🔒 schema approval |
 | Admin retry / resync | existing «اسحب الليدز دلوقتي»; per-campaign resync on link | 🟡 |
 
-## Phases 4–10
+## Phases A–K (continuation after V3, migration 092)
 
-| Phase | Status | Next step |
+| Phase | Status | Where |
 |---|---|---|
-| 4 Attribution: ad account / ad set / ad, ownership history, office-direct campaigns, drill-down | ⬜ 🔒 | additive migration proposal (ERD, rollback) for owner approval |
-| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; decide and verify the read permission (`ads_read`, future list) and its App Review then |
-| 6 Lead quality classification (authority pending) | ⬜ 🔒 | proposal with a configurable permission and a pending state; **no authority assigned** |
-| 7 Automatic KPIs (attendance, sales, manager) | ⬜ 🔒 | source mapping per KPI key; `kpi_results` needs source / calculated_at columns; **no new weights** |
-| 8 Unified dashboard | ⬜ | after 4–7 |
-| 9 Security / authorization validation | 🟡 | tests per phase; full review at the end |
-| 10 Documentation / acceptance | 🟡 | this file |
+| A Meta lifecycle: deauthorize, data deletion (+ status URL), token forget, `meta_user_hash` | ✅ code + tests | `integrations.ts`, `meta-oauth.ts parseSignedRequest` |
+| C Attribution set once at intake (page/form/campaign/ad set/ad/company), campaign ownership history, manual attribution once | ✅ | `meta_sync.ts takeMetaLead`, 092 triggers, `marketing.ts` |
+| D Ads Insights daily snapshots, missing ≠ 0, rate-limit stop, time budget, checkpoint only when complete | ✅ code + tests (fake Graph) | `meta-insights.ts`, `marketing.ts syncInsights` |
+| E Lead quality: structure + history (append-only), reason required for a rejection; permission `leads.quality` granted to the owner only | ✅ — **who else classifies is an owner decision** | 092, `marketing.ts` |
+| F Automatic KPIs: 6 calculators, each **pending until the owner approves**; a manual entry (or a manual correction of an automatic one) is never overwritten | ✅ infrastructure; **no formula active** | `marketing.ts KPI_CALCULATORS / runAutoKpis` |
+| G Unified dashboard API (`GET /marketing/overview`, `leads.read_all`) | ✅ | `marketing.ts` |
+| H Flutter: لوحة التسويق, lead quality pill + dialog, KPI «تلقائي» badge, OAuth status | ✅ code; analyze/build in CI (`app-check.yml`) | `app/lib/jph/pages/leads/marketing_overview_page.dart`, `lead_page.dart`, `lib/pages/kpi_page.dart` |
+| I Security | ✅ reviewed (see below) | |
+| J Migration 092 (additive) + rollback | ✅ CI PG16 / PG18 | `db/proposed/092_*`, `db/migrations/092_*` |
+| K Tests | ✅ `marketing.test.ts`, `meta-insights.test.ts` + earlier | |
+
+### KPI definitions and automatic sources (none active; activation = owner approval via `POST /kpi/definitions/:id/calc/approve`)
+
+| KPI key | Candidate calculator | Formula (exact, Cairo month) | Status |
+|---|---|---|---|
+| `calls` | `answered_calls` (or `lead_actions`) | count of the employee's lead actions with answered = true | needs owner choice + approval |
+| `follow_ups` | `lead_actions` | count of the employee's manual lead actions | needs approval |
+| `qualified_leads` | `qualified_leads` | distinct leads assigned to the employee that became `qualified` in the month | needs approval **and** a decision on who classifies |
+| `meetings` | `meetings_set` | actions moving a lead to stage `meeting` | needs approval |
+| `closed_deals` | `deals_won` | actions moving a lead to stage `done_deal` | needs approval |
+| `viewings`, `offers` | none (no stage / record defines a viewing or an offer) | — | manual; needs a business definition |
+| `sales_target` | none (target money vs. which sales table and which date is not defined) | — | manual |
+| `attendance_commit`, `punctuality` | none yet (attendance metrics exist; the scoring rule — e.g. % of working days, grace — is not approved) | — | manual; needs the rule |
+| `follow_up_quality`, `manager_rating` | none (judgement) | — | manual by design |
+
+Weights, targets, periods and existing manual results are unchanged by this work.
+
+### Security review (phase I)
+- Public Meta callbacks (`/public/meta/deauthorize`, `/public/meta/data-deletion`) accept only a valid `signed_request` (HMAC-SHA256 with `META_APP_SECRET`, constant-time compare); a bad signature changes nothing; form bodies are accepted only under `/public/meta/`.
+- The status URL reveals only a status for a random confirmation code; no user id is stored in clear (`meta_user_hash`).
+- No token, secret or Graph URL in responses, logs or errors (`safeMetaError`); the dashboard returns no token fields (tested).
+- Every new route checks its permission on the server (`leads.quality`, `leads.config`, `leads.read_all`, owner-only formula approval); partners refused.
+- Fixed in this pass: a manual correction of an automatic KPI kept `source='auto'` and would have been overwritten by the next run.
+- Open: the Data Deletion callback removes the office's Meta token and page links; lead records already collected are company business records and are **not** deleted — confirm this matches the published privacy policy.
+
+### Meta configuration still required (exact)
+In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; **Deauthorize callback URL** `https://<API host>/public/meta/deauthorize`; **Data Deletion Request URL** `https://<API host>/public/meta/data-deletion`; Webhooks → Page → `leadgen` → `https://<API host>/public/hooks/meta`. Host env: `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, optional `META_GRAPH_VERSION` (default v21.0 — Meta removes v21.0 on 2027-01-21; set a current version, e.g. v26.0, after testing). Insights read with the granted `ads_management` (Meta accepts `ads_read` or `ads_management` for the Insights API). GitHub secret `BACKUP_TOKEN` for `meta-sync.yml` (only runs on `main`). Nothing was set by this work and no real Meta call was made.
+
+### Vercel
+- Both `vercel.json` (root) and `api/vercel.json` (the project `value-attendance` builds from `api/`) carry `"feat/marketing-intelligence": false`; commits after 38b7037 got **0** Vercel statuses (checked on 132be3e).
+- Production migrations run only from `api/scripts/migrate-if-production.mjs` (Vercel production build of `main`); a preview never migrates. `meta-sync.yml` knocks only on `refs/heads/main`.
+- **Cleanup to do by hand:** preview deployment `2jCzuWMHPFB33nCUo2TeAKRVpLgv` (project `value-attendance`, commit 06b5080) was created by mistake before the `api/vercel.json` fix. It is **not deleted** (no Vercel access from here). Delete it in Vercel → project `value-attendance` → Deployments → that id → ⋯ → Delete; and keep Deployment Protection on for previews.
+
+### Release process (not done — waits for an independent review)
+1. Review `feat/marketing-intelligence` (diff vs `main`), CI green (API PG16/18 + least-privilege, App analyze/build check).
+2. Take a Neon branch/snapshot of production `main` before merge.
+3. Merge into `main` → Vercel production build runs `migrate-if-production.mjs` → applies `092_marketing_intelligence.sql` (additive). Rollback file: `db/proposed/092_rollback.sql` (drops only what 092 creates).
+4. Set the Meta env vars and app callbacks above; connect via «اربط بحساب فيسبوك».
+5. App: the existing `app.yml` release on `main` builds the APK / Windows / web — only after review; not run by this work.
+6. After release, the owner decides who gets `leads.quality` and approves KPI formulas one by one.
 
 ## Meta permissions (`api/src/lib/meta-oauth.ts`)
 
