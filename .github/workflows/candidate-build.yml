@@ -11,7 +11,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency: { group: candidate-build-${{ github.ref }}, cancel-in-progress: true }
+concurrency:
+  group: candidate-build-${{ github.ref }}
+  cancel-in-progress: true
 env:
   FLUTTER_VERSION: '3.38.10'
   # public endpoints (not secrets): the live API and its Cloudflare mirror
