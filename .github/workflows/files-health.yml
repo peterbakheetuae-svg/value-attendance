@@ -22,7 +22,7 @@ jobs:
           code=$(curl -s -m 60 -o out.json -w '%{http_code}' -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/admin/files/health) || code=000
           if [ "$code" = "404" ]; then echo "::notice::this API version has no storage health yet"; exit 0; fi
           if [ "$code" != "200" ]; then echo "::error::storage health answered $code"; exit 1; fi
-          jq '{installed, r2, alert, problems, counts, oldestProblemAt, problemsByCategory}' out.json
+          jq '{installed, r2, storage, alert, problems, counts, oldestProblemAt, problemsByCategory}' out.json
           if [ "$(jq -r '.alert' out.json)" = "true" ]; then
-            echo "::error::file storage needs attention: $(jq -c '.counts' out.json) — see /admin/files/health (owner) and the 091 runbook"; exit 1
+            echo "::error::file storage needs attention: storage=$(jq -r '.storage' out.json) $(jq -c '.counts' out.json) — see /admin/files/health (owner) and the 091 runbook"; exit 1
           fi

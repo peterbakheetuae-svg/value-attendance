@@ -498,6 +498,13 @@ test('R2 switched off with 091 installed: replacements go to Postgres and clear 
 test('storage health: read-only counts for the owner / the scheduler, alert on orphans, never a key or a name', { timeout: 120_000 }, async () => {
   const before = (await h.call(c.t.owner, 'GET', '/admin/files/health')).body;
   assert.equal(before.installed, true);
+  assert.equal(before.storage, 'ok', 'the bucket answers with the configured credentials (HEAD of a key never written)');
+  setFileStorageForTests(broken);
+  try {
+    const down = (await h.call(c.t.owner, 'GET', '/admin/files/health')).body;
+    assert.match(String(down.storage), /^error_40[13]$|^unreachable$/);
+    assert.equal(down.alert, true, 'credentials refused → alert');
+  } finally { setFileStorageForTests(good); }
   assert.equal(before.alert, true, 'the failures above left orphan records');
   assert.ok(before.counts.orphan >= 10, JSON.stringify(before.counts));
   assert.ok(before.problemsByCategory.unit_file >= 1);

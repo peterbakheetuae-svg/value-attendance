@@ -8,7 +8,7 @@ name: R2 smoke check (manual, synthetic data only)
 on:
   workflow_dispatch:
   push:
-    branches: [feature/r2-storage-2026-11-25]
+    branches: [feature/r2-storage-2026-11-25, release/followup-2026-11-25]
     paths: ['.github/r2-smoke.trigger']
 concurrency: { group: r2-smoke, cancel-in-progress: false }
 permissions: {}

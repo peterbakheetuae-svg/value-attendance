@@ -48,12 +48,10 @@ DirectoryIndex index.html
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "DENY"
   Header always set Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=(), usb=()"
-  # Enforced now: the parts that cannot break the Flutter app (no framing, no plugins, no <base> / form hijacking)
-  Header always set Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
-  # Full policy in report-only first: the browser reports what it would block (console) without blocking. Flutter's wasm
-  # renderer needs 'wasm-unsafe-eval' and loads its engine from www.gstatic.com; fonts may come from fonts.gstatic.com.
-  # After a clean test on the live site, this line becomes the enforced Content-Security-Policy (PRODUCTION_ACTIONS_REQUIRED).
-  Header always set Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.gstatic.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://valunivo.vercel.app https://value-attendance.vercel.app https://value-attendance-api.peter-bakheet-uae.workers.dev https://www.gstatic.com https://fonts.gstatic.com https://fcm.googleapis.com https://firebaseinstallations.googleapis.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+  # Enforced (2026-11-25, after the live report-only check: the only report was the loader's inline script, now the file
+  # va-loader.js). Flutter's wasm renderer needs 'wasm-unsafe-eval' and loads its engine from www.gstatic.com; map tiles come
+  # from tile.openstreetmap.org; the API, its second domain and the Cloudflare mirror are the only other connections.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.gstatic.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://valunivo.vercel.app https://value-attendance.vercel.app https://value-attendance-api.peter-bakheet-uae.workers.dev https://www.gstatic.com https://fonts.gstatic.com https://fcm.googleapis.com https://firebaseinstallations.googleapis.com https://tile.openstreetmap.org; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
   <FilesMatch "\.(html|js|mjs|json|webmanifest|wasm|apk|ttf|otf|woff|woff2|webp|png|jpg|jpeg|gif|svg)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
