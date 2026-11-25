@@ -9,6 +9,7 @@ import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 import { deliverLead, onlineAmong } from './lead_routing.ts';
 import {
+import { readFileBytes, storeFile } from '../lib/files.ts';
   anyLeads, assignable, canAll, canConfig, canDistribute, canSee, canTeam, canWork, insertLead, log, OPEN_SQL, phoneNorm, readLead, ref,
   rotation, scopeSql, STAGE_AR, stagesOf, stageShape, LATE, type Stage,
 } from './leads.ts';
@@ -258,9 +259,14 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     // VA-07: only the types the app offers, decided by the file's real content (never the client's mime / name alone)
     const mime = attachmentType(buf, fileName);
     if (!mime) throw invalid('نوع الملف مش مسموح — صور (JPG/PNG/WEBP) أو PDF أو Word / Excel بس', { field: 'data' });
+    // R2 when configured (091): the object is written and verified before the row may point at it
+    const fileId = await storeFile(db, { category: 'lead_attachment', bytes: buf, mime, name: fileName, createdBy: a.partner ? null : a.id });
     const x = await db.tx(async (q) => {
-      const f = await one(q, `INSERT INTO lead_attachments (lead_id, file_name, mime, size_bytes, data, by_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [l.id, fileName, mime, buf.length, buf, a.id, now]);
+      const f = fileId
+        ? await one(q, `INSERT INTO lead_attachments (lead_id, file_name, mime, size_bytes, data, data_file_id, by_id, created_at) VALUES ($1,$2,$3,$4,NULL,$5,$6,$7) RETURNING id`,
+            [l.id, fileName, mime, buf.length, fileId, a.id, now])
+        : await one(q, `INSERT INTO lead_attachments (lead_id, file_name, mime, size_bytes, data, by_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+            [l.id, fileName, mime, buf.length, buf, a.id, now]);
       await log(q, l.id, 'attachment', a.id, { fileName });
       return f;
     });
@@ -275,7 +281,7 @@ export const leadsExtraModule: Module = (r, { db, clock }) => {
     // who downloaded a client's document (never its content)
     await audit(db, a.partner ? null : a.id, 'lead.attachment_download', 'lead', f.lead_id, undefined,
       { attachment: f.id, ...(a.partner ? { company: a.partner } : {}) });
-    return ok({ fileName: f.file_name, mime: f.mime, data: Buffer.from(f.data).toString('base64') });
+    return ok({ fileName: f.file_name, mime: f.mime, data: (await readFileBytes(db, f.data, f.data_file_id)).toString('base64') });
   });
 
   r.post('/leads/attachments/:aid/delete', async (req) => {

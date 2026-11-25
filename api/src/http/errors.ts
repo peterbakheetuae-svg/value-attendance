@@ -1,11 +1,11 @@
 export type ErrorCode =
   | 'bad_request' | 'validation_failed' | 'unauthenticated' | 'forbidden' | 'not_found'
-  | 'conflict' | 'locked' | 'unprocessable' | 'payload_too_large' | 'rate_limited' | 'internal_error';
+  | 'conflict' | 'locked' | 'unprocessable' | 'payload_too_large' | 'rate_limited' | 'internal_error' | 'service_unavailable';
 
 const STATUS: Record<ErrorCode, number> = {
   bad_request: 400, validation_failed: 400, unauthenticated: 401, forbidden: 403,
   not_found: 404, conflict: 409, locked: 423, unprocessable: 422,
-  payload_too_large: 413, rate_limited: 429, internal_error: 500,
+  payload_too_large: 413, rate_limited: 429, internal_error: 500, service_unavailable: 503,
 };
 
 export class AppError extends Error {
