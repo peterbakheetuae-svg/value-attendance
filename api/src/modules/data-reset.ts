@@ -1,6 +1,6 @@
 import { ok, type Module } from '../ctx.ts';
-import { one } from '../db.ts';
-import { forbidden, invalid } from '../http/errors.ts';
+import { one, type Q } from '../db.ts';
+import { AppError, forbidden, invalid } from '../http/errors.ts';
 import { obj } from '../http/validate.ts';
 import { audit, authenticate, isOwner } from '../auth/context.ts';
 import { cairoInstant } from '../lib/time.ts';
@@ -31,6 +31,30 @@ const norm = (v: unknown) => String(v ?? '').replace(/[ًٌٍَُِّْـ]/g, ''
   .replace(/چ/g, 'ج').replace(/\s+/g, ' ').trim().toLowerCase();
 const isDay = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const isTime = (v: unknown) => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+
+/**
+ * D3 (owner, 2026-11-25): the reset is refused ENTIRELY when it would take protected records or protected files with it.
+ * Protected records = posted money / payroll / contract history (append-only by design; the reset never erases it).
+ * Protected files   = files of class 'protected' (HR, payroll, finance, contracts) still referenced by a wiped table (091).
+ * Attendance, requests and other day-to-day activity stay resettable as before.
+ */
+const PROTECTED_RECORDS = ['cash_receipts', 'cash_expenses', 'cash_transfers', 'cash_adjustments', 'cash_bank_moves', 'payouts',
+  'unit_sales', 'sale_installments', 'ex_installments', 'ex_commission_transfers', 'commission_requests', 'commission_entitlements',
+  'advance_requests', 'advance_deductions', 'salary_adjustments', 'payroll_batches'];
+
+async function resetBlockers(q: Q): Promise<{ table: string; rows: number }[]> {
+  const out: { table: string; rows: number }[] = [];
+  for (const t of PROTECTED_RECORDS.filter((x) => WIPE.includes(x))) {
+    if (!(await one(q, `SELECT to_regclass($1) IS NOT NULL AS ok`, [`public.${t}`]))?.ok) continue;
+    const n = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
+    if (n > 0) out.push({ table: t, rows: n });
+  }
+  if ((await one(q, `SELECT to_regclass('public.file_objects') IS NOT NULL AS ok`))?.ok) {
+    const n = Number((await one(q, `SELECT count(*)::int AS n FROM file_objects WHERE ref_count = 1 AND retention_class = 'protected'`)).n);
+    if (n > 0) out.push({ table: 'file_objects (protected files)', rows: n });
+  }
+  return out;
+}
 
 export const dataResetModule: Module = (r, { db }) => {
   /** match each old employee to a current one: phone first, then the name */
@@ -143,10 +167,14 @@ export const dataResetModule: Module = (r, { db }) => {
     }
     const days = (id: string) => plan.filter((p) => p.employeeId === id).length;
     const summary = report.map((r0) => ({ ...r0, days: r0.matched ? days(r0.matched.id) : 0 }));
-    if (dryRun) return ok({ dryRun: true, summary, rows: plan.length, skipped });
+    const blockers = await resetBlockers(db);
+    if (dryRun) return ok({ dryRun: true, summary, rows: plan.length, skipped, blockers });
+    if (blockers.length) throw new AppError('conflict', 'مسح البيانات مرفوض: فيه سجلات مالية / ملفات محمية مش بتتمسح', { reason: 'protected_data', blockers });
 
     if (b.confirm !== CONFIRM) throw invalid(`Type "${CONFIRM}" to confirm`, { field: 'confirm' });
     const done = await db.tx(async (q) => {
+      // re-checked inside the transaction (nothing may slip in between the check and the wipe)
+      if ((await resetBlockers(q)).length) throw new AppError('conflict', 'مسح البيانات مرفوض: فيه سجلات مالية / ملفات محمية مش بتتمسح', { reason: 'protected_data' });
       const before: Record<string, number> = {};
       for (const t of WIPE) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
       await q.query(`UPDATE integrations SET campaign_id = NULL`);   // the campaigns go; the integrations' keys stay

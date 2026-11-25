@@ -695,7 +695,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
       await q.query(`UPDATE tasks SET lead_id = NULL WHERE lead_id = $1`, [orig.id]);
       // (each written out: the least-privilege role's DELETE grants are checked against these statements)
       await q.query(`DELETE FROM lead_actions WHERE lead_id = $1`, [orig.id]);
-      await q.query(`DELETE FROM lead_attachments WHERE lead_id = $1`, [orig.id]);
+      // D4 (owner, 2026-11-25): the duplicate's attachments move to the lead that stays — never deleted
+      await q.query(`UPDATE lead_attachments SET lead_id = $2 WHERE lead_id = $1`, [orig.id, rep.id]);
       await q.query(`DELETE FROM lead_checkins WHERE lead_id = $1`, [orig.id]);
       await q.query(`DELETE FROM lead_logs WHERE lead_id = $1`, [orig.id]);
       await q.query(`DELETE FROM lead_referrals WHERE lead_id = $1`, [orig.id]);
