@@ -3,7 +3,7 @@ import { ok, type Module } from '../ctx.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, forbidden, invalid, notFound } from '../http/errors.ts';
 import { isUuid, obj, oneOf, str } from '../http/validate.ts';
-import { audit, authenticate, has } from '../auth/context.ts';
+import { actorById, audit, authenticate, has } from '../auth/context.ts';
 import type { Req } from '../http/router.ts';
 import { notify } from './notify.ts';
 import { assignable, phoneNorm, readLead } from './leads.ts';
@@ -11,8 +11,12 @@ import { deliverLead, onlineAmong, ROUTE_MODES, valueAqarRoute, type RouteMode }
 import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { seal, unseal } from '../lib/secretbox.ts';
-import { graph, pageToken, syncMeta, takeMetaLead } from './meta_sync.ts';
+import { graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
+import { hasBackupToken } from '../lib/backup-token.ts';
 import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
+import {
+  META_SCOPES, callbackPage, graphBase, codeExchangeUrl, dialogUrl, longLivedUrl, missingScopes, oauthConfig, safeMetaError, signState, verifyState,
+} from '../lib/meta-oauth.ts';
 
 // the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
 export { metaSignatureOk };
@@ -27,6 +31,14 @@ export { metaSignatureOk };
  */
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
+
+/** a server-side call to Meta's OAuth endpoints (the URL carries the app secret: never logged, never returned) */
+async function metaFetch(url: string): Promise<any> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const g: any = await res.json().catch(() => ({}));
+  if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
+  return g ?? {};
+}
 
 /** the first non-empty text among the given keys (any case, nested one level under «data» / «fields») */
 function pick(rec: Record<string, any>, keys: string[]): string {
@@ -143,7 +155,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     // a marketing company sees only Meta campaigns no other company's campaign is linked to (VA-11)
     const taken = a.partner ? await partnerHidden(a.partner) : new Set<string>();
     try {
-      const res = await fetch(`https://graph.facebook.com/v21.0/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(token)}`);
+      const res = await fetch(`${graphBase()}/me/adaccounts?fields=name,campaigns.limit(200){id,name,effective_status,objective}&limit=50&access_token=${encodeURIComponent(token)}`);
       const g: any = await res.json();
       if (!res.ok) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
       const out: any[] = [];
@@ -163,10 +175,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
    * a Facebook page (or all the pages of a user token): kept with its own page token and subscribed to «leadgen», so its
    * lead forms' leads reach the webhook. The token is never shown back.
    */
-  r.post('/integrations/meta/pages', async (req) => {
-    const a = await admin(req);
-    const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
-    if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
+  const connectPages = async (t: string, actorId: string) => {
     let found: { id: string; name: string; token: string }[] = [];
     const add = (list: any) => {
       for (const p of Array.isArray(list?.data) ? list.data : []) {
@@ -207,13 +216,108 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       } catch (e: any) { err = String(e?.message ?? e).slice(0, 300); }
       await db.query(`INSERT INTO meta_pages (page_id, name, access_token, subscribed, last_error, added_by) VALUES ($1,$2,$3,$4,$5,$6)
                       ON CONFLICT (page_id) DO UPDATE SET name = EXCLUDED.name, access_token = EXCLUDED.access_token,
-                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, seal(p.token), subscribed, err, a.id]);
+                        subscribed = EXCLUDED.subscribed, last_error = EXCLUDED.last_error`, [p.id, p.name, seal(p.token), subscribed, err, actorId]);
       out.push({ id: p.id, name: p.name, subscribed, lastError: err });
     }
-    await audit(db, a.id, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
+    await audit(db, actorId, 'integration.meta_pages', 'integration', null, undefined, { pages: out.map((p) => p.id) });
     // what the linked campaigns already have comes in now
     const pulled = await syncMeta(db, clock(), { deadlineMs: 8000 }).catch(() => ({ added: 0, errors: [] as string[] }));
-    return ok({ pages: out, added: pulled.added });
+    return { pages: out, added: pulled.added };
+  };
+  /** manual token (kept for backward compatibility — the official way is «Connect with Facebook», OAuth below) */
+  r.post('/integrations/meta/pages', async (req) => {
+    const a = await admin(req);
+    const t = (str(obj(req.body), 'accessToken', { max: 2000 }) ?? '').trim();
+    if (t.length < 20) throw invalid('الصق التوكن', { field: 'accessToken' });
+    return ok(await connectPages(t, a.id));
+  });
+
+  // ------------------------------------------------------------------ official Meta OAuth (lib/meta-oauth.ts)
+  /** only a person (not a marketing company) with the leads configuration permission manages the office's Meta connection */
+  const metaManager = async (req: Req) => {
+    const a = await authenticate(db, req);
+    if (a.partner || !has(a, 'leads.config')) throw forbidden('ربط Meta لمن عنده إعدادات الليدز');
+    return a;
+  };
+  const oauthStarts = new Map<string, number[]>();   // per person, per API instance: at most 5 starts / 10 minutes
+
+  /** «اربط بحساب فيسبوك»: the official login dialog URL (the app opens it in the browser) */
+  r.post('/integrations/meta/oauth/start', async (req) => {
+    const a = await metaManager(req);
+    const c = oauthConfig();
+    if (!c.ok) return ok({ configured: false, missing: c.missing });
+    const t = clock().getTime();
+    const recent = (oauthStarts.get(a.id) ?? []).filter((x) => x > t - 600_000);
+    if (recent.length >= 5) throw new AppError('rate_limited', 'استنى شوية وجرب تاني');
+    oauthStarts.set(a.id, [...recent, t]);
+    return ok({ configured: true, url: dialogUrl(c.cfg, signState(a.id, clock())), scopes: [...META_SCOPES] });
+  });
+
+  /**
+   * Meta redirects the browser here. The state proves who started it (and when); that person must still be allowed. The
+   * code is exchanged on the server for a long-lived token, kept sealed; the pages it manages are connected as before.
+   * The answer is a small page: never a token, a secret, or Meta's raw error.
+   */
+  r.get('/public/meta/oauth/callback', async (req) => {
+    const page = (status: number, good: boolean, title: string, detail: string) =>
+      ({ status, binary: Buffer.from(callbackPage(good, title, detail), 'utf8'), contentType: 'text/html; charset=utf-8' });
+    const c = oauthConfig();
+    if (!c.ok) return page(503, false, 'ربط Meta مش متجهز', 'الإعدادات على السيرفر ناقصة — كلم المسؤول.');
+    const st = verifyState(req.query.get('state'), clock());
+    if (!st.ok) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق (الرابط بينتهي بعد 10 دقايق).');
+    const actor = await actorById(db, st.actorId);
+    if (!actor || actor.partner || !has(actor, 'leads.config')) return page(403, false, 'مش مسموح', 'الحساب اللي بدأ الربط مبقاش عنده صلاحية إعدادات الليدز.');
+    if (req.query.get('error')) {
+      await audit(db, actor.id, 'integration.meta_oauth_declined', 'integration', null, undefined, { reason: String(req.query.get('error_reason') ?? '').slice(0, 60) });
+      return page(400, false, 'الربط اتلغى', 'ما تمش إعطاء الصلاحيات على فيسبوك. تقدر تبدأ تاني من التطبيق.');
+    }
+    const code = String(req.query.get('code') ?? '');
+    if (!/^[A-Za-z0-9_\-#.]{10,2000}$/.test(code)) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق.');
+    let token: string;
+    try {
+      const short = await metaFetch(codeExchangeUrl(c.cfg, code));
+      const long = await metaFetch(longLivedUrl(c.cfg, String(short.access_token ?? '')));
+      token = String(long.access_token ?? short.access_token ?? '');
+      if (token.length < 20) throw new Error('no token');
+    } catch (e) {
+      await noteError('meta', `OAuth: ${safeMetaError(e)}`);
+      return page(502, false, 'فيسبوك رفض الربط', 'جرب تاني بعد شوية. التفاصيل عند المسؤول في إعدادات الربط.');
+    }
+    await ensure('meta');
+    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = NULL, updated_by = $3, updated_at = $4 WHERE source = $1`,
+      ['meta', seal(token), actor.id, clock()]);
+    const missing = missingScopes(await graph('me/permissions', token).catch(() => null));
+    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingScopes: missing });
+    let pages = 0;
+    try { pages = (await connectPages(token, actor.id)).pages.length; } catch (e) { await noteError('meta', `OAuth pages: ${safeMetaError(e)}`); }
+    return page(200, true, 'تم ربط Meta', missing.length
+      ? `اتربط ${pages} صفحة، بس فيه صلاحيات ناقصة: ${missing.join('، ')}. اعمل «إعادة الربط» واسمح بيها.`
+      : `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.`);
+  });
+
+  /** the connection's state: configured? connected? token expiry, granted / missing permissions, last sync, last error */
+  r.get('/integrations/meta/oauth/status', async (req) => {
+    await metaManager(req);
+    const c = oauthConfig();
+    const it = await ensure('meta');
+    const token = unseal(it.access_token);
+    const pages = (await db.query(`SELECT count(*)::int n, count(*) FILTER (WHERE subscribed)::int subscribed,
+        count(*) FILTER (WHERE last_error IS NOT NULL)::int failing FROM meta_pages`)).rows[0];
+    const out: any = {
+      configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
+      lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
+      pages, expiresAt: null, tokenValid: null, missingScopes: null,
+    };
+    if (token && c.ok) {
+      try {
+        // debug_token with the app token (app id|secret, server side) — expiry and validity without exposing the token
+        const d = (await graph(`debug_token?input_token=${encodeURIComponent(token)}`, `${c.cfg.appId}|${c.cfg.appSecret}`)).data ?? {};
+        out.tokenValid = d.is_valid === true;
+        out.expiresAt = d.expires_at ? new Date(Number(d.expires_at) * 1000).toISOString() : null;   // 0 = never expires
+        out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
+      } catch (e) { out.statusError = safeMetaError(e); }
+    }
+    return ok(out);
   });
 
   r.post('/integrations/meta/pages/:id/remove', async (req) => {
@@ -230,6 +334,16 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     const r2 = await syncMeta(db, clock(), { deadlineMs: 20_000 });
     await db.query(`UPDATE integrations SET meta_sync_at = $1 WHERE source = 'meta'`, [clock()]);
     return ok({ added: r2.added, errors: [...new Set(r2.errors)].slice(0, 5) });
+  });
+
+  /**
+   * the scheduler's knock (.github/workflows/meta-sync.yml) with the host's X-Backup-Token, or a person with leads.config:
+   * pulls the linked campaigns' leads from Meta without anyone opening the app. Never returns a token or a lead.
+   */
+  r.post('/integrations/meta/sync/run', async (req) => {
+    if (!hasBackupToken(req.headers)) await metaManager(req);
+    const out = await runScheduledMetaSync(db, clock());
+    return ok({ ...out, errors: (out.errors ?? []).map((e) => safeMetaError(e)) });
   });
 
   /** «Verify token جديد»: the 4-digit code goes to the person's own e-mail first */

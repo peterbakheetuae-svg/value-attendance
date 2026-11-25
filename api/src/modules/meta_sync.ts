@@ -4,6 +4,7 @@ import { phoneNorm, readLead } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
 import { unseal } from '../lib/secretbox.ts';
+import { graphBase } from '../lib/meta-oauth.ts';
 
 /**
  * Meta lead ads (db/migrations/081_meta_pages_sync.sql):
@@ -12,13 +13,13 @@ import { unseal } from '../lib/secretbox.ts';
  *    linked (what it already has) and then every few minutes — besides the ones the webhook pushes. Each Meta lead comes
  *    in once (leads.meta_lead_id).
  */
-const GRAPH = 'https://graph.facebook.com/v21.0';
+// one Graph API version for all Meta calls (META_GRAPH_VERSION, default v21.0 — see lib/meta-oauth.ts)
 const LEAD_FIELDS = 'id,field_data,form_id,ad_name,campaign_id,campaign_name,created_time';
 const META_ID = /^[0-9]{3,30}$/;
 
 export async function graph(path: string, token: string, init?: RequestInit): Promise<any> {
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`${GRAPH}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
+  const res = await fetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
   const g: any = await res.json().catch(() => ({}));
   if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
   return g ?? {};
@@ -128,6 +129,28 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
   if (Date.now() < stop) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
   return { added, errors };
+}
+
+/**
+ * The scheduler's run (POST /integrations/meta/sync/run — a GitHub Actions cron, see .github/workflows/meta-sync.yml):
+ * independent of anyone opening the app. It claims the same «meta_sync_at» slot as maybeSyncMeta (one run at a time across
+ * API instances, at most every 5 minutes), with a longer time budget. Idempotent: every Meta lead comes in once
+ * (leads.meta_lead_id is unique), so a webhook and a scheduled run that see the same lead add it once.
+ */
+export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
+  const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
+      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - interval '5 minutes')
+        AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
+      RETURNING 1`, [now]);
+  if (!claimed) {
+    const it = await one(db, `SELECT active, access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages) AS connected FROM integrations WHERE source = 'meta'`);
+    return { ran: false, reason: !it?.active ? 'off' : !it.connected ? 'not_connected' : 'recent' };
+  }
+  if (!(await one(db, `SELECT 1 FROM lead_campaigns WHERE active AND cardinality(meta_campaign_ids) > 0 LIMIT 1`))) {
+    return { ran: false, reason: 'no_linked_campaigns' };
+  }
+  const r = await syncMeta(db, now, { deadlineMs: 45_000 });
+  return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
 }
 
 /** every 10 minutes at most (the first request after that pays it, with a short time budget) */

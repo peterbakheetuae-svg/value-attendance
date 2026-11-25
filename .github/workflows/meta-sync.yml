@@ -1,0 +1,28 @@
+name: Meta leads sync (scheduled)
+# Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
+# real-time path; this is the safety net for missed deliveries). The server decides: it runs at most every 5 minutes, one
+# run at a time, and every Meta lead comes in once (leads.meta_lead_id is unique) — a knock that overlaps a webhook adds nothing twice.
+# The schedule follows keep-warm.yml's working hours (the database compute is awake then anyway, so it costs no extra
+# Neon CU-hours on the Free plan), plus one nightly catch-up run.
+on:
+  schedule:
+    - cron: '7,22,37,52 6-17 * * 0-4,6'   # every 15 minutes, 08:00–19:59 Cairo (UTC+2), Saturday–Thursday
+    - cron: '40 23 * * *'                 # a nightly catch-up, 01:40 Cairo
+  workflow_dispatch:
+permissions: {}
+concurrency: { group: meta-sync, cancel-in-progress: false }
+jobs:
+  knock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel)
+      - env:
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+        run: |
+          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — the scheduled Meta sync is off (the webhook and the app still pull)"; exit 0; fi
+          code=$(curl -s -m 90 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/integrations/meta/sync/run) || code=000
+          cat out.json 2>/dev/null; echo
+          [ "$code" = "200" ] && exit 0
+          if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
+          echo "::warning::the API answered $code"
