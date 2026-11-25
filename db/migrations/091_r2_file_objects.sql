@@ -1,3 +1,4 @@
+-- Applied by the R2 release (owner decisions D1 / D3 / D4, 2026-11-25). Body = db/proposed/091_r2_file_objects.sql, byte for byte.
 -- 091_r2_file_objects.sql — PROPOSED v3.1 (not applied). migrate-core runs it in one transaction, under its advisory
 -- lock; every statement is also safe to re-run (IF NOT EXISTS / CREATE OR REPLACE / guarded DO blocks). PostgreSQL 16 and 18.
 -- v3.1 = v3 + N2 (upload window, purge log and evidence) + N5 (retention classes and policy, protected TRUNCATE).

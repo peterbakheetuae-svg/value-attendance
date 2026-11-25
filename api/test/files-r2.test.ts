@@ -1,7 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { harness, cast, type Harness } from './helpers.ts';
+import { harness, cast, regrantAppRole, type Harness } from './helpers.ts';
+import { migrate } from '../src/migrate-core.ts';
 import { R2Client } from '../src/lib/r2.ts';
 import { setFileStorageForTests } from '../src/lib/files.ts';
 
@@ -32,6 +33,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>; let pid: string; let channel: string;
 before(async () => {
   h = await harness('2026-11-25T08:00:00Z'); c = await cast(h);
+  await migrate(h.db); await regrantAppRole(h);   // the releases the template leaves out: 066, 083-089, 091 (R2)
   await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع R2', ownerName: 'أ. سامي', ownerPhone: '0100' })).body.project.id;
   channel = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;

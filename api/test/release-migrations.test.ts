@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, RELEASE_2026_11_23 } from './helpers.ts';
+import { harness, cast, RELEASE_2026_11_23, RELEASE_R2 } from './helpers.ts';
 import { migrate, MIGRATIONS_DIR } from '../src/migrate-core.ts';
 
 /**
@@ -40,7 +40,7 @@ test('the deploy path: db/migrations on the pre-release production schema with r
     const meBefore = (await h.call(c.t.hr, 'GET', '/me')).body.permissions as string[];
 
     const applied = await migrate(h.db);
-    assert.deepEqual(applied, RELEASE_2026_11_23, 'exactly the release, in order');
+    assert.deepEqual(applied, [...RELEASE_2026_11_23, ...RELEASE_R2], 'exactly the releases, in order');
     assert.deepEqual(await migrate(h.db), [], 'a second deploy applies nothing');
     const all = (await h.db.query(`SELECT name FROM schema_migrations ORDER BY name`)).rows.map((r) => r.name);
     for (const n of RELEASE_2026_11_23) assert.ok(all.includes(n));
