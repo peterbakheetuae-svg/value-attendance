@@ -544,6 +544,10 @@ export const exclusiveModule: Module = (r, { db, clock }) => {
       : sig.subarray(1, 4).toString('latin1') === 'PNG' ? 'image/png'
       : sig.subarray(0, 4).toString('latin1') === 'RIFF' && sig.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
     if (!mime) throw invalid('ارفع صورة (JPG / PNG) أو ملف PDF', { field: 'data' });
+    // the limit is checked again in the transaction; checked here too so nothing is stored for an upload that is refused
+    if ((await one(db, `SELECT count(*)::int AS n FROM ex_unit_files WHERE unit_id = $1 AND kind = $2`, [u.id, kind])).n >= MAX_PER_KIND) {
+      throw invalid(`أقصى ${MAX_PER_KIND} ملفات`, { field: 'data' });
+    }
     const fileId = await storeFile(db, { category: 'unit_file', bytes: buf, mime, name: fileName, createdBy: a.id });
     const x = await db.tx(async (q) => {
       const n = await one(q, `SELECT count(*)::int AS n FROM ex_unit_files WHERE unit_id = $1 AND kind = $2`, [u.id, kind]);

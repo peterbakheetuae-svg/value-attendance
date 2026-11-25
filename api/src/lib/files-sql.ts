@@ -23,11 +23,17 @@ function items(s: string): string[] {
 
 /**
  * Rewrites a simple `INSERT INTO t (cols…) VALUES (…) [ON CONFLICT … EXCLUDED.<col> …]` for a row whose bytes went to
- * R2: <bytesCol> gets NULL and <bytesCol>_file_id gets the file id. With fileId null the statement is returned unchanged
- * (Postgres storage, and databases without 091). Used only on the API's own literal statements, never on user text.
+ * R2: <bytesCol> gets NULL and <bytesCol>_file_id gets the file id. With fileId null the bytes stay in Postgres and the
+ * statement is returned unchanged — except, once 091 is installed (`schema`), an upsert's DO UPDATE also clears
+ * <bytesCol>_file_id, so replacing an R2 file while R2 is switched off cannot leave both sources set (CHECK ≤ 1).
+ * Used only on the API's own literal statements, never on user text.
  */
-export function withFile(sql: string, params: unknown[], bytesCol: string, fileId: string | null): [string, unknown[]] {
-  if (!fileId) return [sql, params];
+export function withFile(sql: string, params: unknown[], bytesCol: string, fileId: string | null, schema = false): [string, unknown[]] {
+  if (!fileId) {
+    if (!schema) return [sql, params];
+    const set = new RegExp(`(${bytesCol}\\s*=\\s*EXCLUDED\\.${bytesCol})\\b`);
+    return [set.test(sql) ? sql.replace(set, `$1, ${bytesCol}_file_id = NULL`) : sql, params];
+  }
   const head = /^\s*INSERT\s+INTO\s+\w+\s*/i.exec(sql);
   if (!head || sql[head[0].length] !== '(') throw new Error('withFile: unsupported statement');
   const [colText, afterCols] = group(sql, head[0].length);

@@ -10,6 +10,7 @@ on:
   push:
     branches: [feature/r2-storage-2026-11-25]
     paths: ['.github/r2-smoke.trigger']
+concurrency: { group: r2-smoke, cancel-in-progress: false }
 permissions: {}
 jobs:
   smoke:
@@ -30,3 +31,36 @@ jobs:
           R2_BUCKET: valunivo-files
           R2_JURISDICTION: eu
         run: node --experimental-transform-types --no-warnings scripts/r2-smoke.ts
+
+  # Every file workflow of the API against the REAL private bucket (api/test/files-r2-workflows.test.ts, R2_TEST_REAL=1):
+  # a throwaway PostgreSQL in this job (no business database is reachable from here), synthetic bytes only, every key
+  # moved under staging/smoke/wf-<run>/ by the test's client, every object deleted and checked gone at the end.
+  workflows:
+    needs: smoke
+    if: github.repository == 'peterbakheetuae-svg/value-attendance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_PASSWORD: ci }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: '22' }
+      - run: npm install --include=dev
+      - name: File workflows against the real bucket (synthetic, staging/smoke/ only)
+        env:
+          TEST_PG_URL: 'postgres://postgres:ci@localhost:5432/postgres'
+          R2_TEST_REAL: '1'
+          R2_ACCOUNT_ID: ${{ secrets.R2_SMOKE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_SMOKE_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SMOKE_SECRET_ACCESS_KEY }}
+          R2_BUCKET: valunivo-files
+          R2_JURISDICTION: eu
+        run: node --import tsx --test test/files-r2-workflows.test.ts

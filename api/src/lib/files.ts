@@ -15,6 +15,7 @@ import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { AppError } from '../http/errors.ts';
 import { R2Client, R2Error, r2ConfigFromEnv, sha256Hex } from './r2.ts';
+import { withFile as pureWithFile } from './files-sql.ts';
 
 export type FileCategory =
   | 'employee_photo' | 'employee_document' | 'attendance_selfie' | 'advance_attachment' | 'receipt_attachment'
@@ -56,7 +57,8 @@ export async function fileSchemaInstalled(q: Q): Promise<boolean> { return schem
 
 /** true when new files go to R2 (both the credentials and migration 091 are present) */
 export async function r2Enabled(q: Q): Promise<boolean> {
-  return !!r2() && (await schemaReady(q));
+  const schema = await schemaReady(q);   // always asked first: withFile() below relies on it being known
+  return !!r2() && schema;
 }
 
 const envPrefix = () => (process.env.VERCEL_ENV === 'production' || process.env.FILES_ENV === 'prod' ? 'prod' : 'staging');
@@ -125,7 +127,48 @@ function storageError(e: unknown): AppError {
 }
 
 
-export { withFile } from './files-sql.ts';
+/**
+ * withFile (files-sql.ts) with this process's knowledge of 091: every caller ran storeFile / storeAttachment first,
+ * which asked the database, so an upsert that keeps the bytes in Postgres also clears an earlier R2 reference.
+ */
+export function withFile(sql: string, params: unknown[], bytesCol: string, fileId: string | null): [string, unknown[]] {
+  return pureWithFile(sql, params, bytesCol, fileId, installed === true);
+}
+
+/**
+ * Read-only storage health (091): what an operator must look at — never keys, names or bytes. `alert` is true when a
+ * write did not finish (orphan, a pending / stored record past its upload window) or a verified file was never linked
+ * to its business row for over an hour (the business write failed after the upload). Replaced files (released) and
+ * detached ones are normal history and only counted.
+ */
+export async function fileHealth(q: Q): Promise<Record<string, unknown>> {
+  if (!(await schemaReady(q))) return { installed: false, r2: !!r2(), alert: false };
+  const x = await one(q, `
+    SELECT count(*) FILTER (WHERE status = 'orphan')::int AS orphan,
+           count(*) FILTER (WHERE status IN ('pending', 'stored') AND upload_expires_at < now())::int AS stuck_upload,
+           count(*) FILTER (WHERE status = 'verified' AND ref_count = 0 AND released_at IS NULL
+                              AND verified_at < now() - interval '1 hour')::int AS never_linked,
+           count(*) FILTER (WHERE status = 'verified' AND ref_count = 1)::int AS linked,
+           count(*) FILTER (WHERE status = 'verified' AND ref_count = 0 AND released_at IS NOT NULL)::int AS released,
+           count(*) FILTER (WHERE status = 'detached')::int AS detached,
+           count(*) FILTER (WHERE status IN ('purge_pending', 'purged'))::int AS purge,
+           min(created_at) FILTER (WHERE status = 'orphan'
+                                     OR (status IN ('pending', 'stored') AND upload_expires_at < now())
+                                     OR (status = 'verified' AND ref_count = 0 AND released_at IS NULL
+                                         AND verified_at < now() - interval '1 hour')) AS oldest_problem
+      FROM file_objects`);
+  const byCategory = (await q.query(`
+    SELECT category, count(*)::int AS n FROM file_objects
+     WHERE status = 'orphan' OR (status IN ('pending', 'stored') AND upload_expires_at < now())
+        OR (status = 'verified' AND ref_count = 0 AND released_at IS NULL AND verified_at < now() - interval '1 hour')
+     GROUP BY category ORDER BY category`)).rows;
+  const problems = x.orphan + x.stuck_upload + x.never_linked;
+  return { installed: true, r2: !!r2(), alert: problems > 0, problems,
+    counts: { orphan: x.orphan, stuckUpload: x.stuck_upload, neverLinked: x.never_linked, linked: x.linked,
+      released: x.released, detached: x.detached, purge: x.purge },
+    oldestProblemAt: x.oldest_problem ? new Date(x.oldest_problem).toISOString() : null,
+    problemsByCategory: Object.fromEntries(byCategory.map((r: any) => [r.category, r.n])) };
+}
 
 /** the file's first bytes must be what its MIME type says (never trust a declared type alone) */
 export function contentMatches(b: Buffer, mime: string): boolean {
@@ -151,6 +194,7 @@ export function sniffMime(b: Buffer): string | null {
 /** storeFile for an image-or-PDF attachment whose type the route does not state: the bytes decide (null type → Postgres) */
 export async function storeAttachment(db: Q, category: FileCategory, bytes: Buffer | null, name: string, createdBy: string | null) {
   if (!bytes) return null;
+  await schemaReady(db);
   const mime = sniffMime(bytes);
   if (!mime) return null;   // an odd legacy format stays in Postgres exactly as the route accepted it
   return storeFile(db, { category, bytes, mime, name, createdBy });

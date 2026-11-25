@@ -4,6 +4,8 @@ import { AppError, forbidden, invalid } from '../http/errors.ts';
 import { obj } from '../http/validate.ts';
 import { audit, authenticate, isOwner } from '../auth/context.ts';
 import { cairoInstant } from '../lib/time.ts';
+import { fileHealth } from '../lib/files.ts';
+import { hasBackupToken } from '../lib/backup-token.ts';
 import { scheduleFor } from './attendance.ts';
 
 /**
@@ -57,6 +59,18 @@ async function resetBlockers(q: Q): Promise<{ table: string; rows: number }[]> {
 }
 
 export const dataResetModule: Module = (r, { db }) => {
+  /**
+   * Storage health (read-only, counts only): orphan / unfinished / never-linked file records. For the owner, or the
+   * scheduler's X-Backup-Token (the GitHub files-health check fails, and GitHub e-mails the owner, while `alert` is true).
+   */
+  r.get('/admin/files/health', async (req) => {
+    if (!hasBackupToken(req.headers)) {
+      const a = await authenticate(db, req);
+      if (!isOwner(a)) throw forbidden('Only the owner');
+    }
+    return ok(await fileHealth(db));
+  });
+
   /** match each old employee to a current one: phone first, then the name */
   async function matchPeople(people: Record<string, unknown>[]) {
     const current = (await db.query(`SELECT id, full_name, phone, status FROM employees`)).rows;
