@@ -141,8 +141,24 @@ export function withFile(sql: string, params: unknown[], bytesCol: string, fileI
  * to its business row for over an hour (the business write failed after the upload). Replaced files (released) and
  * detached ones are normal history and only counted.
  */
+/**
+ * Read-only reachability of the bucket with the configured credentials: a HEAD of a key that is never written
+ * (`<env>/health/probe`). 404 = the credentials work and nothing is touched; anything else is reported (code only).
+ */
+async function storageProbe(): Promise<string | null> {
+  const c = r2();
+  if (!c) return null;
+  try {
+    await c.head(`${envPrefix()}/health/probe`);
+    return 'ok';
+  } catch (e) {
+    return e instanceof R2Error ? `error_${e.status}` : 'unreachable';
+  }
+}
+
 export async function fileHealth(q: Q): Promise<Record<string, unknown>> {
-  if (!(await schemaReady(q))) return { installed: false, r2: !!r2(), alert: false };
+  const storage = await storageProbe();
+  if (!(await schemaReady(q))) return { installed: false, r2: !!r2(), storage, alert: storage !== null && storage !== 'ok' };
   const x = await one(q, `
     SELECT count(*) FILTER (WHERE status = 'orphan')::int AS orphan,
            count(*) FILTER (WHERE status IN ('pending', 'stored') AND upload_expires_at < now())::int AS stuck_upload,
@@ -163,7 +179,7 @@ export async function fileHealth(q: Q): Promise<Record<string, unknown>> {
         OR (status = 'verified' AND ref_count = 0 AND released_at IS NULL AND verified_at < now() - interval '1 hour')
      GROUP BY category ORDER BY category`)).rows;
   const problems = x.orphan + x.stuck_upload + x.never_linked;
-  return { installed: true, r2: !!r2(), alert: problems > 0, problems,
+  return { installed: true, r2: !!r2(), storage, alert: problems > 0 || (storage !== null && storage !== 'ok'), problems,
     counts: { orphan: x.orphan, stuckUpload: x.stuck_upload, neverLinked: x.never_linked, linked: x.linked,
       released: x.released, detached: x.detached, purge: x.purge },
     oldestProblemAt: x.oldest_problem ? new Date(x.oldest_problem).toISOString() : null,

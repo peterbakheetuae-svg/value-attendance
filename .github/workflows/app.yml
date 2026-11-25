@@ -78,6 +78,7 @@ jobs:
           grep -q 'va-push.js' build/web/index.html
       - name: The start of loading — the orbiting logo until the app's first frame
         run: |
+          cp web_loader/va-loader.js build/web/   # its script is a file, not inline: the enforced CSP allows no inline script
           python3 - <<'PY'
           p = 'build/web/index.html'; s = open(p).read()
           loader = open('web_loader/loader.html').read()
@@ -107,7 +108,7 @@ jobs:
           rm -rf build/hostinger && cp -r build/web build/hostinger
           cp deploy/hostinger/.htaccess build/hostinger/.htaccess
           # the build must be complete and point at /valunivo/ before anything is uploaded
-          for f in index.html flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp push-sw.js va-push.js; do
+          for f in index.html va-loader.js flutter_bootstrap.js main.dart.js assets/AssetManifest.bin.json assets/assets/bg/dark_bg.webp push-sw.js va-push.js; do
             test -s "build/hostinger/$f" || { echo "::error::missing $f"; exit 1; }
           done
           grep -q '<base href="/valunivo/">' build/hostinger/index.html || { echo "::error::wrong base href"; exit 1; }
