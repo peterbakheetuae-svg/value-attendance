@@ -93,11 +93,21 @@ test('token answers are validated; only a valid user token of our app is accepte
     assert.throws(() => tokenFrom(bad), /no valid access token/);
   }
   assert.equal(tokenFrom({ access_token: 'T'.repeat(30) }).expiresIn, null, 'no expires_in → unknown, not 0');
-  assert.ok(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'USER' } }, '1234567890'));
-  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '999', type: 'USER' } }, '1234567890'), false, 'another app');
-  assert.equal(tokenIsOurs({ data: { is_valid: false, app_id: '1234567890' } }, '1234567890'), false, 'revoked / expired');
-  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'PAGE' } }, '1234567890'), false, 'not a user token');
+  const ours = (data: unknown) => tokenIsOurs({ data }, '1234567890');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'USER' }), true, 'a valid user token of our app');
+  assert.equal(ours({ is_valid: true, app_id: 1234567890, type: 'USER' }), true, 'a numeric app_id is the same app');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890' }), false, 'type missing');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: null }), false, 'type null');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'PAGE' }), false, 'PAGE token');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'APP' }), false, 'APP token');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'SYSTEM_USER' }), false, 'SYSTEM_USER token');
+  assert.equal(ours({ is_valid: true, app_id: '1234567890', type: 'user' }), false, 'case matters');
+  assert.equal(ours({ is_valid: true, app_id: '999', type: 'USER' }), false, 'wrong app_id');
+  assert.equal(ours({ is_valid: true, type: 'USER' }), false, 'no app_id');
+  assert.equal(ours({ is_valid: false, app_id: '1234567890', type: 'USER' }), false, 'invalid (revoked / expired)');
+  assert.equal(ours({ is_valid: 'true', app_id: '1234567890', type: 'USER' }), false, 'is_valid must be the boolean true');
   assert.equal(tokenIsOurs(null, '1234567890'), false);
+  assert.equal(tokenIsOurs({}, '1234567890'), false);
 });
 
 test('metaFetch: a network failure or timeout never surfaces the URL (token / secret / code)', async () => {

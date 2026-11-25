@@ -320,7 +320,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     const out: any = {
       configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
       lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
-      pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null,
+      pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null, missingOptional: null,
     };
     if (token && c.ok) {
       try {
@@ -330,6 +330,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         out.expiresAt = d.expires_at ? new Date(Number(d.expires_at) * 1000).toISOString() : null;   // 0 = never expires
         out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
         out.missingRequired = out.missingScopes.filter((s: string) => (META_SCOPES_REQUIRED as readonly string[]).includes(s));
+        out.missingOptional = out.missingScopes.filter((s: string) => !(META_SCOPES_REQUIRED as readonly string[]).includes(s));
       } catch (e) { out.statusError = safeMetaError(e); }
     }
     return ok(out);

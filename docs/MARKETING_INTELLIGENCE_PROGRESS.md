@@ -30,7 +30,7 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Requirement (spec §2) | Implementation | Status |
 |---|---|---|
 | Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
-| Least-privilege permissions | required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management` (Meta's retrieving guide requires it for a lead's `campaign_id`/`ad_id`; no read-only alternative is documented); optional: `business_management` (portfolio pages only); later (Phase 5, not requested): `ads_read` | ✅ |
+| Least-privilege permissions | see «Meta permissions» below — required, optional and future are separate lists; the login dialog asks for required + optional only | ✅ |
 | Separate app credentials | `META_APP_SECRET` is its own setting; never borrowed from `META_APP_SECRETS` (webhook signing) | ✅ |
 | State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; **single-use**: nonce recorded hashed in `action_otps` (082, action `meta_oauth_state`) at start, consumed by one atomic `UPDATE … WHERE used_at IS NULL … RETURNING` at callback (no migration needed); one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ unit here · ✅ CI written (replay, concurrent, expired, forged, wrong person, revoked) |
 | Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
@@ -59,17 +59,29 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Phase | Status | Next step |
 |---|---|---|
 | 4 Attribution: ad account / ad set / ad, ownership history, office-direct campaigns, drill-down | ⬜ 🔒 | additive migration proposal (ERD, rollback) for owner approval |
-| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; `ads_read` needs App Review |
+| 5 Ads Insights: daily snapshots, spend, reach, CPL…, missing ≠ 0 | ⬜ 🔒 | snapshot table proposal; decide and verify the read permission (`ads_read`, future list) and its App Review then |
 | 6 Lead quality classification (authority pending) | ⬜ 🔒 | proposal with a configurable permission and a pending state; **no authority assigned** |
 | 7 Automatic KPIs (attendance, sales, manager) | ⬜ 🔒 | source mapping per KPI key; `kpi_results` needs source / calculated_at columns; **no new weights** |
 | 8 Unified dashboard | ⬜ | after 4–7 |
 | 9 Security / authorization validation | 🟡 | tests per phase; full review at the end |
 | 10 Documentation / acceptance | 🟡 | this file |
 
+## Meta permissions (`api/src/lib/meta-oauth.ts`)
+
+| List | Permissions | Used for | Asked by the current OAuth |
+|---|---|---|---|
+| **Required** (`META_SCOPES_REQUIRED`) — a grant without any of them is not kept | `pages_show_list`, `pages_read_engagement` | list pages, read their lead forms | yes |
+| | `pages_manage_metadata` | subscribe a page to the `leadgen` webhook | yes |
+| | `pages_manage_ads` | Meta lists it for retrieving all lead and ad-level data | yes |
+| | `leads_retrieval` | read leads (bulk + webhook) | yes |
+| | `ads_management` | a lead's `campaign_id` / `ad_id` (attribution); Meta documents no read-only alternative | yes |
+| **Optional** (`META_SCOPES_OPTIONAL`) — not blocking | `business_management` | pages owned through a business portfolio only | yes |
+| **Future** (`META_SCOPES_LATER_INSIGHTS`) — not requested | `ads_read` | Ads Insights (Phase 5), when approved | **no** |
+
 ## External configuration still required (nothing set by this work)
 
 1. **Meta app** (developers.facebook.com): product «Facebook Login» with the Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; Webhooks product, object Page, field `leadgen`, callback `https://<API host>/public/hooks/meta` with the existing verify token.
-2. **App Review / Advanced Access** for `leads_retrieval`, `pages_manage_metadata`, `pages_read_engagement`, `pages_show_list`, `ads_read`, `ads_management`, `business_management` (only app roles can grant them before review); Business Verification as Meta requires.
+2. **App Review / Advanced Access** for the permissions the current OAuth asks for — required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`; optional: `business_management` (only app roles can grant them before review); Business Verification as Meta requires. `ads_read` is **not** part of this review — it belongs to the later Ads Insights phase.
 3. **API host environment** (Vercel): `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, existing `META_APP_SECRETS` and `SECRETS_KEY`; optional `META_GRAPH_VERSION`.
 4. **GitHub repository secret** `BACKUP_TOKEN` (same value as on the host) for `meta-sync.yml`.
 
@@ -99,3 +111,22 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Flutter | not compiled / analysed (no Flutter SDK here) |
 
 No migration was added. No production data, schema, environment or deployment was changed.
+
+### Final correction pass (2026-11-25)
+
+| Finding | Correction |
+|---|---|
+| `tokenIsOurs` accepted a missing type | `debug_token.data.type` must be exactly `USER` (missing / PAGE / APP / SYSTEM_USER refused) |
+| Deadline checked only between page requests | `Budget` + `eachWithin` (`lib/meta-sync-limits.ts`): checked before every Meta request and every lead; no new database work after it; per-lead transaction + advisory lock unchanged |
+| Checkpoint could advance after a cut-short pass | `syncMeta` returns `complete`; the checkpoint moves only after a complete pass (budget, the 20-page cap, or an unreadable page's forms make it incomplete) |
+| Permissions list | required / optional / future separated (table above); `pages_manage_ads` in the App Review list; `ads_read` only in the future list |
+| Flutter status | required missing (blocking, «إعادة ربط») vs optional missing (`business_management`, not blocking) — API status returns `missingRequired` and `missingOptional` |
+| Workflow branch guard | the knock job runs only when `github.ref == refs/heads/main`; a dispatch from another branch only prints a notice. Endpoint and secrets unchanged |
+
+| Kind | Result |
+|---|---|
+| Executed here: every DB-free test file (8 files) | **52 passed, 0 failed** |
+| Workflow knock script against a fake API (9 scenarios) | exit codes as specified; secret never printed |
+| Typecheck (strict, whole API) | 0 errors in project code; 2 = `nodemailer` absent here |
+| Written, not executed (need `pg`) | `meta-oauth-routes.test.ts` (12), `meta-sync-run.test.ts` (5) — CI |
+| Unavailable | Flutter analyse/compile (no SDK); the workflow `if:` branch guard (needs a GitHub Actions run) |

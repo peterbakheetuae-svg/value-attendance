@@ -81,3 +81,25 @@ test('two overlapping passes over the same Meta lead add it once — no duplicat
   assert.deepEqual(n, [{ meta_lead_id: '6101', n: 1 }, { meta_lead_id: '6102', n: 1 }]);
 });
 
+
+test('a large page of leads: processing stops at the budget, the pass is incomplete and the checkpoint does not move', async () => {
+  const before = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  metaLeads = Array.from({ length: 300 }, (_, i) => lead(String(7000 + i), `0107777${String(i).padStart(4, '0')}`));
+  const t0 = Date.now();
+  const r = await syncMeta(h.db, h.now.value, { deadlineMs: 50 });
+  const elapsed = Date.now() - t0;
+  assert.equal(r.complete, false);
+  assert.ok(r.added < 300, `stopped early (added ${r.added})`);
+  assert.ok(elapsed < 50 + 1_500, `ended near the budget (${elapsed} ms: budget + at most one lead in progress)`);
+  const after = (await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at;
+  assert.deepEqual(after, before, 'an incomplete pass never advances the checkpoint');
+  // the next pass with enough time finishes the rest; nothing is added twice
+  h.now.value = new Date(h.now.value.getTime() + 60_000);
+  const rest = await syncMeta(h.db, h.now.value, { deadlineMs: 60_000 });
+  assert.equal(rest.complete, true);
+  assert.equal(r.added + rest.added, 300);
+  const n = (await h.db.query(`SELECT count(*)::int n FROM leads WHERE meta_lead_id::bigint BETWEEN 7000 AND 7299`)).rows[0].n;
+  assert.equal(n, 300);
+  assert.notDeepEqual((await h.db.query(`SELECT meta_synced_at FROM lead_campaigns WHERE id = $1`, [campaign])).rows[0].meta_synced_at, before,
+    'a complete pass moves it');
+});

@@ -171,6 +171,20 @@ test('reconnection updates the same page (no duplicate) and its token', async ()
   assert.ok(pages[0].access_token.startsWith('enc:v1:'));
 });
 
+test('only the optional business_management missing: the connection is kept (not blocking) and status lists it as optional', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);   // a fresh start-rate window (5 per 10 minutes)
+  code('CODE-NOBIZ-000001', 'LONG-TOKEN-NOBIZNOBIZNOBIZNOBIZ', { granted: ALL.filter((p) => p !== 'business_management') });
+  const r = await withState('CODE-NOBIZ-000001', await start());
+  assert.equal(r.status, 200, r.raw.toString());
+  assert.ok(r.raw.toString().includes('business_management'), 'named as an optional permission');
+  const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
+  assert.deepEqual(s.body.missingRequired, []);
+  assert.deepEqual(s.body.missingOptional, ['business_management']);
+  // back to a full grant for the next test
+  code('CODE-FULL-00000001', 'LONG-TOKEN-FULLFULLFULLFULLFULLF');
+  assert.equal((await withState('CODE-FULL-00000001', await start())).status, 200);
+});
+
 test('status: validity, expiry and missing permissions, without any token or secret; employees are refused', async () => {
   assert.equal((await h.call(c.t.e1, 'GET', '/integrations/meta/oauth/status')).status, 403);
   const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
@@ -179,6 +193,7 @@ test('status: validity, expiry and missing permissions, without any token or sec
   assert.equal(s.body.tokenValid, true);
   assert.equal(s.body.expiresAt, new Date(1_800_000_000 * 1000).toISOString());
   assert.deepEqual(s.body.missingRequired, []);
+  assert.deepEqual(s.body.missingOptional, []);
   assert.ok(!JSON.stringify(s.body).match(/LONG-TOKEN|PAGE-OF|app-secret/));
 });
 

@@ -5,7 +5,7 @@ import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
 import { unseal } from '../lib/secretbox.ts';
 import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
-import { CLAIM_MINUTES, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
+import { Budget, CLAIM_MINUTES, SCHEDULED_BUDGET_MS, eachWithin } from '../lib/meta-sync-limits.ts';
 export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
 
 /**
@@ -76,44 +76,52 @@ export async function pageToken(db: Db, pageId: string | null): Promise<string |
  * with the office's token, from the campaigns' ads). Returns how many came in. Never throws: errors are kept on the page /
  * the integration.
  */
-export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[] }> {
-  const stop = Date.now() + (opts.deadlineMs ?? 20_000);
+export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; deadlineMs?: number } = {}): Promise<{ added: number; errors: string[]; complete: boolean }> {
+  // the budget is checked before every Meta request and before every lead (each lead is its own transaction, under its
+  // advisory lock): once it is spent no new work starts, so a run ends within budget + one request / one lead
+  const budget = new Budget(opts.deadlineMs ?? 20_000);
   const errors: string[] = [];
   let added = 0;
+  // a pass is complete only if nothing was cut short (budget, the 20-page cap, a page whose forms could not be read);
+  // only a complete pass moves the campaigns' checkpoint — otherwise the next run reads the same window again (idempotent)
+  let complete = true;
   const camps = (await db.query(`SELECT id, meta_campaign_ids, meta_synced_at FROM lead_campaigns
       WHERE active AND cardinality(meta_campaign_ids) > 0 ${opts.campaignId ? 'AND id = $1' : ''}`, opts.campaignId ? [opts.campaignId] : [])).rows;
-  if (!camps.length) return { added, errors };
+  if (!camps.length) return { added, errors, complete };
   const wanted = new Set<string>(camps.flatMap((c) => (c.meta_campaign_ids ?? []).map(String)));
   // from the oldest sync of these campaigns (a campaign never synced: its last 90 days)
   const since = new Date(Math.min(...camps.map((c) => (c.meta_synced_at ? new Date(c.meta_synced_at).getTime() - 3_600_000 : now.getTime() - 90 * 86_400_000))));
   const filtering = encodeURIComponent(JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(since.getTime() / 1000) }]));
   const take = async (g: any) => {
     if (!wanted.has(String(g?.campaign_id ?? ''))) return;
+    // a lead that cannot be taken (no phone, no project) is reported, not retried forever: it does not make the pass incomplete
     try { if (await takeMetaLead(db, g, now) === 'added') added++; } catch (e: any) { errors.push(String(e?.message ?? e)); }
   };
   const leadsOf = async (edge: string, token: string) => {
     let next: string | null = `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}`;
-    for (let page = 0; next && page < 20 && Date.now() < stop; page++) {
+    for (let page = 0; next && page < 20 && budget.left(); page++) {
       const r: any = await graph(next, token);
-      for (const g of Array.isArray(r.data) ? r.data : []) await take(g);
+      if (!(await eachWithin(Array.isArray(r.data) ? r.data : [], budget, take))) { complete = false; return; }
       const after = r?.paging?.cursors?.after;
       next = r?.paging?.next && after ? `${edge}/leads?fields=${LEAD_FIELDS}&limit=100&filtering=${filtering}&after=${encodeURIComponent(after)}` : null;
     }
+    if (next) complete = false;   // the budget or the page cap stopped it with pages left
   };
   const pages = (await db.query(`SELECT page_id, access_token FROM meta_pages ORDER BY added_at`)).rows;
   const office = unseal((await one(db, `SELECT access_token FROM integrations WHERE source = 'meta'`))?.access_token);
   // 1) every page's lead forms (a page token reads its own forms' leads)
   const sources = [...pages.map((p) => ({ id: String(p.page_id), token: unseal(p.access_token) ?? '' })).filter((p) => p.token), ...(office && !pages.length ? [{ id: 'me', token: office }] : [])];
   for (const p of sources) {
-    if (Date.now() >= stop) break;
+    if (!budget.left()) { complete = false; break; }
     try {
       const forms = await graph(`${p.id}/leadgen_forms?fields=id&limit=100`, p.token);
       for (const fm of Array.isArray(forms.data) ? forms.data : []) {
-        if (Date.now() >= stop) break;
+        if (!budget.left()) { complete = false; break; }
         if (META_ID.test(String(fm.id))) await leadsOf(String(fm.id), p.token);
       }
-      if (p.id !== 'me') await db.query(`UPDATE meta_pages SET last_error = NULL WHERE page_id = $1`, [p.id]);
+      if (p.id !== 'me' && budget.left()) await db.query(`UPDATE meta_pages SET last_error = NULL WHERE page_id = $1`, [p.id]);
     } catch (e: any) {
+      complete = false;
       const m = String(e?.message ?? e).slice(0, 300);
       errors.push(m);
       if (p.id !== 'me') await db.query(`UPDATE meta_pages SET last_error = $2 WHERE page_id = $1`, [p.id, m]);
@@ -122,19 +130,19 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
   // 2) the office's (ads) token: the campaigns' ads' leads
   if (office) {
     for (const mc of wanted) {
-      if (Date.now() >= stop) break;
+      if (!budget.left()) { complete = false; break; }
       try {
         const ads = await graph(`${mc}/ads?fields=id&limit=200`, office);
         for (const ad of Array.isArray(ads.data) ? ads.data : []) {
-          if (Date.now() >= stop) break;
+          if (!budget.left()) { complete = false; break; }
           if (META_ID.test(String(ad.id))) await leadsOf(String(ad.id), office);
         }
-      } catch { /* a page token cannot read ads: the forms above are enough */ }
+      } catch { /* a page token cannot read ads: the forms above are enough (not an incomplete pass) */ }
     }
   }
-  if (Date.now() < stop) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
+  if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
-  return { added, errors };
+  return { added, errors, complete };
 }
 
 /**
@@ -143,7 +151,7 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
  * API instances, at most every 5 minutes), with a longer time budget. Idempotent: every Meta lead comes in once
  * (leads.meta_lead_id is unique), so a webhook and a scheduled run that see the same lead add it once.
  */
-export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
+export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; complete?: boolean; errors?: string[] }> {
   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
       WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - make_interval(mins => $2))
         AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
@@ -160,7 +168,7 @@ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: bo
   // transaction and the checkpoint (meta_synced_at) only moves after a complete pass, so the next run re-reads the window.
   // Two scheduled runs cannot overlap: the claim lasts 5 minutes, ten times the longest a run can live.
   const r = await syncMeta(db, now, { deadlineMs: SCHEDULED_BUDGET_MS });
-  return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
+  return { ran: true, added: r.added, complete: r.complete, errors: [...new Set(r.errors)].slice(0, 5) };
 }
 
 /** every 10 minutes at most (the first request after that pays it, with a short time budget) */

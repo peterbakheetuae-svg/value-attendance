@@ -17,7 +17,16 @@ on:
 permissions: {}
 concurrency: { group: meta-sync, cancel-in-progress: false }
 jobs:
+  # Branch guard: only the workflow on main may call the production API. A manual dispatch from any other branch (a review
+  # or feature branch carrying a modified copy of this file) does not run the knock at all — it ends here, green, with a notice.
+  guard:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "::notice title=Not run::the Meta sync calls the production API only from main (this run is on ${GITHUB_REF})"
   knock:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

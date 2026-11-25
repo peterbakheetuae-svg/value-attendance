@@ -252,14 +252,17 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   List<Widget> _oauthStatus() {
     if (_oauth.isEmpty) return const [];
     final connected = _oauth['connected'] == true;
-    final missing = ((_oauth['missingScopes'] as List?) ?? const []).cast<Object?>();
+    // required permissions block the connection; optional ones (business_management) only limit what it reaches
+    final missingRequired = ((_oauth['missingRequired'] as List?) ?? const []).cast<Object?>();
+    final missingOptional = ((_oauth['missingOptional'] as List?) ?? const []).cast<Object?>();
     final expires = DateTime.tryParse('${_oauth['expiresAt'] ?? ''}')?.toLocal();
     final lines = <String>[
       if (_oauth['configured'] != true) '${tr('الربط الرسمي مش متجهز على السيرفر — ناقص')}: ${((_oauth['missing'] as List?) ?? const []).join('، ')}',
       connected ? tr('متربط بحساب فيسبوك ✅') : tr('لسه مش متربط بحساب فيسبوك'),
       if (_oauth['tokenValid'] == false) tr('الربط انتهى أو اتلغى من فيسبوك — اعمل إعادة ربط'),
       if (expires != null) '${tr('صلاحية الربط لحد')}: ${expires.year}-${expires.month.toString().padLeft(2, '0')}-${expires.day.toString().padLeft(2, '0')}',
-      if (missing.isNotEmpty) '${tr('صلاحيات ناقصة')}: ${missing.join('، ')}',
+      if (missingRequired.isNotEmpty) '${tr('صلاحيات مطلوبة ناقصة — اعمل إعادة ربط واسمح بيها')}: ${missingRequired.join('، ')}',
+      if (missingOptional.isNotEmpty) '${tr('صلاحية اختيارية مش متاحة (الربط شغال؛ صفحات الـ Business portfolio بس مش هتظهر)')}: ${missingOptional.join('، ')}',
       '${tr('آخر سحب')}: ${_when(_oauth['lastSyncAt'])}',
       if ('${_oauth['lastError'] ?? ''}'.isNotEmpty) '${tr('آخر مشكلة')}: ${_oauth['lastError']}',
     ];

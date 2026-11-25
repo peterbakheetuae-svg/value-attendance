@@ -11,3 +11,35 @@ test('budget + one request < the function limit (read from vercel-build.mjs) < t
   assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS < FUNCTION_MAX_SECONDS * 1000);
   assert.ok(FUNCTION_MAX_SECONDS * 1000 < CLAIM_MINUTES * 60_000);
 });
+
+import { Budget, eachWithin } from '../src/lib/meta-sync-limits.ts';
+
+test('a large page of leads cannot carry the work past the budget: it is checked before every lead', async () => {
+  let t = 0;
+  const clock = () => t;
+  const budget = new Budget(100, clock);               // 100 ms
+  const seen: number[] = [];
+  const leads = Array.from({ length: 1000 }, (_, i) => i);
+  const done = await eachWithin(leads, budget, async (i) => { seen.push(i); t += 10; });   // each lead takes 10 ms
+  assert.equal(done, false, 'an incomplete pass');
+  assert.equal(seen.length, 10, 'leads started only while budget was left (t = 0..90)');
+  assert.ok(t <= 100, `work ended at the budget (t=${t})`);
+  // once spent, nothing more starts
+  const after: number[] = [];
+  assert.equal(await eachWithin([1, 2, 3], budget, async (i) => { after.push(i); }), false);
+  assert.deepEqual(after, []);
+});
+
+test('enough budget: every lead is processed and the pass is complete; an empty page is complete', async () => {
+  let t = 0;
+  const budget = new Budget(1_000, () => t);
+  const seen: number[] = [];
+  assert.equal(await eachWithin([1, 2, 3], budget, async (i) => { seen.push(i); t += 5; }), true);
+  assert.deepEqual(seen, [1, 2, 3]);
+  assert.equal(await eachWithin([], budget, async () => { throw new Error('never'); }), true);
+});
+
+test('the worst case of a scheduled run stays inside the function limit', () => {
+  // budget + one Meta request in flight when it runs out (a lead's transaction is milliseconds; the checkpoint is one UPDATE)
+  assert.ok(SCHEDULED_BUDGET_MS + META_REQUEST_TIMEOUT_MS <= (FUNCTION_MAX_SECONDS - 4) * 1000, 'at least 4 s headroom');
+});

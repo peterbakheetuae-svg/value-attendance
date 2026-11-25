@@ -183,7 +183,8 @@ export function tokenFrom(answer: unknown): { token: string; expiresIn: number |
 /** debug_token's answer: a valid USER token issued to OUR app (a token of another app is never accepted) */
 export function tokenIsOurs(debug: unknown, appId: string): boolean {
   const d = (debug as any)?.data ?? {};
-  return d.is_valid === true && String(d.app_id ?? '') === appId && (d.type === undefined || d.type === 'USER');
+  // the type must be stated and be USER: a missing type, a PAGE / APP / SYSTEM_USER token is refused
+  return d.is_valid === true && String(d.app_id ?? '') === appId && d.type === 'USER';
 }
 
 /**
