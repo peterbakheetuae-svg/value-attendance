@@ -1,9 +1,14 @@
 name: Meta leads sync (scheduled)
 # Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
-# real-time path; this is the safety net for missed deliveries). The server decides: it runs at most every 5 minutes, one
-# run at a time, and every Meta lead comes in once (leads.meta_lead_id is unique) — a knock that overlaps a webhook adds nothing twice.
+# real-time path; this is the safety net for missed deliveries). The server decides: one run at a time (a 5-minute claim;
+# a run lives at most 30 s), and every Meta lead comes in once (leads.meta_lead_id + a per-lead lock).
 # The schedule follows keep-warm.yml's working hours (the database compute is awake then anyway, so it costs no extra
 # Neon CU-hours on the Free plan), plus one nightly catch-up run.
+#
+# The run FAILS (red, e-mailed by GitHub) when: the BACKUP_TOKEN secret is missing; the API refuses the token (401/403);
+# the API keeps failing (5xx), times out or cannot be reached after the retries; any other status; an answer that is not
+# the expected JSON; or a sync that ran with errors. A run the server declines on purpose (off / not connected /
+# no linked campaign / ran recently) is green with a notice.
 on:
   schedule:
     - cron: '7,22,37,52 6-17 * * 0-4,6'   # every 15 minutes, 08:00–19:59 Cairo (UTC+2), Saturday–Thursday
@@ -14,15 +19,42 @@ concurrency: { group: meta-sync, cancel-in-progress: false }
 jobs:
   knock:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel)
-      - env:
+      - name: Knock on /integrations/meta/sync/run
+        env:
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+          API: https://valunivo.vercel.app
+        shell: bash
         run: |
-          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — the scheduled Meta sync is off (the webhook and the app still pull)"; exit 0; fi
-          code=$(curl -s -m 90 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/integrations/meta/sync/run) || code=000
-          cat out.json 2>/dev/null; echo
-          [ "$code" = "200" ] && exit 0
-          if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
-          echo "::warning::the API answered $code"
+          set -euo pipefail
+          if [ -z "${BACKUP_TOKEN:-}" ]; then
+            echo "::error title=Meta sync not configured::repository secret BACKUP_TOKEN is not set (same value as the API host's BACKUP_TOKEN). Set it, or disable this workflow."
+            exit 1
+          fi
+          # 3 attempts, backoff 15 s then 45 s; only 5xx, timeouts and network errors are retried
+          for attempt in 1 2 3; do
+            code=$(curl -sS -m 45 --connect-timeout 10 -o out.json -w '%{http_code}' -X POST \
+                     -H "X-Backup-Token: ${BACKUP_TOKEN}" -H 'Accept: application/json' \
+                     "${API}/integrations/meta/sync/run" 2>curl.err) || code=000
+            case "$code" in
+              200) break ;;
+              401|403) echo "::error title=Token refused::the API refused the scheduler token ($code) — check the BACKUP_TOKEN secret"; exit 1 ;;
+              000|5??) echo "::warning::attempt $attempt: no usable answer ($code: $(head -c 200 curl.err 2>/dev/null | tr -d '\r\n'))" ;;
+              *) echo "::error title=Unexpected status::the API answered $code"; head -c 500 out.json 2>/dev/null || true; exit 1 ;;
+            esac
+            if [ "$attempt" = 3 ]; then echo "::error title=API unavailable::no successful answer after 3 attempts (last: $code)"; exit 1; fi
+            sleep $(( attempt == 1 ? 15 : 45 ))
+          done
+          # the answer must be the sync's JSON: { ran: boolean, reason?, added?, errors: [] }
+          if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
+            echo "::error title=Unexpected answer::the API's answer is not the sync result"; head -c 500 out.json || true; exit 1
+          fi
+          jq -c '{ran, reason, added, errors}' out.json
+          if [ "$(jq -r '.ran' out.json)" = "true" ]; then
+            n=$(jq '(.errors // []) | length' out.json)
+            if [ "$n" -gt 0 ]; then echo "::error title=Sync ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; exit 1; fi
+            echo "::notice::synced — $(jq -r '.added // 0' out.json) new lead(s)"
+          else
+            echo "::notice::not run: $(jq -r '.reason // "unknown"' out.json)"
+          fi

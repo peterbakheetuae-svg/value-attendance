@@ -4,7 +4,9 @@ import { phoneNorm, readLead } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
 import { unseal } from '../lib/secretbox.ts';
-import { graphBase } from '../lib/meta-oauth.ts';
+import { graphBase, metaFetch } from '../lib/meta-oauth.ts';
+import { CLAIM_MINUTES, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
+export { CLAIM_MINUTES, SCHEDULED_BUDGET_MS };
 
 /**
  * Meta lead ads (db/migrations/081_meta_pages_sync.sql):
@@ -19,10 +21,8 @@ const META_ID = /^[0-9]{3,30}$/;
 
 export async function graph(path: string, token: string, init?: RequestInit): Promise<any> {
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, { ...init, signal: AbortSignal.timeout(8000) });
-  const g: any = await res.json().catch(() => ({}));
-  if (!res.ok || g?.error) throw new Error(g?.error?.message ?? `Meta ${res.status}`);
-  return g ?? {};
+  // the URL carries the token: metaFetch never logs it and never puts it in an error
+  return metaFetch(`${graphBase()}/${path}${sep}access_token=${encodeURIComponent(token)}`, init);
 }
 
 /** a Meta lead to the campaign of ours that its Meta campaign (or its form) is linked to — null = not ours / already in */
@@ -45,6 +45,12 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
   const notes = [g.campaign_name ? `حملة: ${g.campaign_name}` : '', g.ad_name ? `إعلان: ${g.ad_name}` : '', ...extra].filter(Boolean).join(' — ').slice(0, 1900);
   const x = readLead({ fullName, phone, email: f.email ?? '', notes, kind: 'fresh' });
   const lead = await db.tx(async (q: Q) => {
+    // one Meta lead at a time across webhook deliveries and sync runs (a transaction-scoped advisory lock, released at
+    // commit), then checked again inside the lock: two concurrent takers never both add it, nor hit the unique index
+    if (metaId) {
+      await q.query(`SELECT pg_advisory_xact_lock(hashtext('meta_lead:' || $1))`, [metaId]);
+      if (await one(q, `SELECT 1 FROM leads WHERE meta_lead_id = $1`, [metaId])) return 'exists' as const;
+    }
     x.projectId ??= c.project_id ?? null; x.channelId ??= c.channel_id ?? null; x.campaignId = c.id;
     // the same number twice on the same campaign the same day: once
     if (await one(q, `SELECT 1 FROM leads WHERE campaign_id = $1 AND phone_norm = $2 AND created_at > $3::timestamptz - interval '1 day'`,
@@ -53,7 +59,7 @@ export async function takeMetaLead(db: Db, g: any, now: Date): Promise<'added' |
     if (metaId) await q.query(`UPDATE leads SET meta_lead_id = $2 WHERE id = $1`, [l.id, metaId]);
     return l;
   });
-  return lead ? 'added' : 'skipped';
+  return lead === 'exists' ? 'exists' : lead ? 'added' : 'skipped';
 }
 
 /** the token a page's leads are read with: its own, else the office's saved one */
@@ -139,9 +145,9 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
  */
 export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: boolean; reason?: string; added?: number; errors?: string[] }> {
   const claimed = await one(db, `UPDATE integrations SET meta_sync_at = $1
-      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - interval '5 minutes')
+      WHERE source = 'meta' AND active AND (meta_sync_at IS NULL OR meta_sync_at < $1::timestamptz - make_interval(mins => $2))
         AND (access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages))
-      RETURNING 1`, [now]);
+      RETURNING 1`, [now, CLAIM_MINUTES]);
   if (!claimed) {
     const it = await one(db, `SELECT active, access_token IS NOT NULL OR EXISTS (SELECT 1 FROM meta_pages) AS connected FROM integrations WHERE source = 'meta'`);
     return { ran: false, reason: !it?.active ? 'off' : !it.connected ? 'not_connected' : 'recent' };
@@ -149,7 +155,11 @@ export async function runScheduledMetaSync(db: Db, now: Date): Promise<{ ran: bo
   if (!(await one(db, `SELECT 1 FROM lead_campaigns WHERE active AND cardinality(meta_campaign_ids) > 0 LIMIT 1`))) {
     return { ran: false, reason: 'no_linked_campaigns' };
   }
-  const r = await syncMeta(db, now, { deadlineMs: 45_000 });
+  // the time budget stays inside the function's hard limit (maxDuration 30 s, scripts/vercel-build.mjs): 18 s of work + at
+  // most one Meta request in flight (8 s timeout) + the checkpoint write. A killed run loses nothing: each lead is its own
+  // transaction and the checkpoint (meta_synced_at) only moves after a complete pass, so the next run re-reads the window.
+  // Two scheduled runs cannot overlap: the claim lasts 5 minutes, ten times the longest a run can live.
+  const r = await syncMeta(db, now, { deadlineMs: SCHEDULED_BUDGET_MS });
   return { ran: true, added: r.added, errors: [...new Set(r.errors)].slice(0, 5) };
 }
 

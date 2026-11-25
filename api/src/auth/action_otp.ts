@@ -15,7 +15,8 @@ export async function sendActionCode(q: Q, a: Actor, action: string, what: strin
   const e = await one(q, `SELECT email, full_name FROM employees WHERE id = $1`, [a.id]);
   if (!e?.email) throw new AppError('unprocessable', 'مفيش إيميل على حسابك — لازم إيميل عشان يوصلك الكود', { reason: 'no_email' });
   if (!mailEnabled()) throw new AppError('unprocessable', 'الإيميل مش متظبط لسه', { reason: 'mail_off' });
-  const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND created_at > now() - interval '15 minutes'`, [a.id]);
+  // the e-mailed codes only: Meta OAuth state nonces (action «meta_oauth_state», no e-mail) are not counted
+  const recent = await one(q, `SELECT count(*)::int AS n FROM action_otps WHERE employee_id = $1 AND action <> 'meta_oauth_state' AND created_at > now() - interval '15 minutes'`, [a.id]);
   if (recent.n >= 3) throw new AppError('conflict', 'طلبت أكواد كتير — استنى ربع ساعة', { reason: 'otp_rate_limited' });
   const code = String(randomInt(0, 10_000)).padStart(4, '0');
   await q.query(`UPDATE action_otps SET expires_at = now() WHERE employee_id = $1 AND action = $2 AND used_at IS NULL AND expires_at > now()`, [a.id, action]);

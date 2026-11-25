@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  META_SCOPES, callbackPage, codeExchangeUrl, dialogUrl, graphVersion, longLivedUrl, missingScopes, oauthConfig,
-  redirectUriOk, safeMetaError, signState, verifyState,
+  META_SCOPES, META_SCOPES_LATER_INSIGHTS, META_SCOPES_OPTIONAL, META_SCOPES_REQUIRED, callbackPage, codeExchangeUrl, dialogUrl,
+  graphVersion, longLivedUrl, metaFetch, missingScopes, newState, nonceHash, oauthConfig, redirectUriOk, safeMetaError, signStateWith,
+  tokenFrom, tokenIsOurs, verifyState,
 } from '../src/lib/meta-oauth.ts';
+const signState = (actor: string, at: Date, e: Record<string, string | undefined>) => newState(actor, at, e).state;
 
 /** Meta OAuth (official Facebook Login, server-side code flow) — the rules that need no network or database */
 const KEY = Buffer.alloc(32, 9).toString('base64');
@@ -20,9 +22,10 @@ test('configuration: names (never values) of what is missing; no SECRETS_KEY →
   assert.equal(none.ok, false);
   assert.deepEqual((none as any).missing, ['META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIRECT_URI', 'SECRETS_KEY']);
   assert.ok(!JSON.stringify(oauthConfig(env({ SECRETS_KEY: undefined }))).includes('abcdef0123'), 'the secret is never echoed');
-  // a single webhook signing secret doubles as the app secret; several are ambiguous
-  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef' })).ok, true);
-  assert.equal(oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef,fedcba9876543210fedcba' })).ok, false);
+  // the webhook signing secrets are never used as the OAuth app secret (separate credentials)
+  const borrowed = oauthConfig(env({ META_APP_SECRET: undefined, META_APP_SECRETS: 'abcdef0123456789abcdef' }));
+  assert.equal(borrowed.ok, false);
+  assert.deepEqual((borrowed as any).missing, ['META_APP_SECRET']);
 });
 
 test('redirect URI: exactly our callback over https; http only on a local non-production API', () => {
@@ -37,8 +40,14 @@ test('redirect URI: exactly our callback over https; http only on a local non-pr
 test('state: signed, bound to the person, expires in 10 minutes, tamper-proof', () => {
   const e = env();
   const s = signState('emp-1', now, e);
-  assert.deepEqual(verifyState(s, now, e), { ok: true, actorId: 'emp-1' });
-  assert.deepEqual(verifyState(s, new Date(now.getTime() + 9 * 60_000), e), { ok: true, actorId: 'emp-1' });
+  const v = verifyState(s, now, e) as any;
+  assert.equal(v.ok, true); assert.equal(v.actorId, 'emp-1'); assert.match(v.nonce, /^[A-Za-z0-9_-]{16,64}$/);
+  assert.equal((verifyState(s, new Date(now.getTime() + 9 * 60_000), e) as any).actorId, 'emp-1');
+  // the stored hash is bound to the person: the same nonce under another person's id is a different hash
+  assert.notEqual(nonceHash('emp-1', v.nonce), nonceHash('emp-2', v.nonce));
+  assert.equal(nonceHash('emp-1', v.nonce), nonceHash('emp-1', v.nonce));
+  // a signed state with a malformed nonce is refused
+  assert.equal((verifyState(signStateWith('emp-1', 'x', now.getTime() + 60_000, e), now, e) as any).reason, 'malformed');
   assert.equal((verifyState(s, new Date(now.getTime() + 10 * 60_000 + 1), e) as any).reason, 'expired');
   assert.notEqual(signState('emp-1', now, e), s, 'a fresh nonce each time');
   // another person's id spliced into the payload
@@ -69,6 +78,40 @@ test('URLs: the login dialog asks the minimum scopes with the fixed redirect; th
   assert.equal(new URL(longLivedUrl(cfg, 't')).searchParams.get('grant_type'), 'fb_exchange_token');
   assert.equal(graphVersion({ META_GRAPH_VERSION: 'v25.0' }), 'v25.0');
   assert.equal(graphVersion({ META_GRAPH_VERSION: '25; DROP' }), 'v21.0', 'an invalid version falls back');
+});
+
+test('least privilege: required vs optional vs later (Insights) scopes; ads_read is not asked yet', () => {
+  assert.deepEqual([...META_SCOPES], [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL]);
+  assert.ok(META_SCOPES_REQUIRED.includes('leads_retrieval') && META_SCOPES_REQUIRED.includes('pages_manage_metadata'));
+  assert.ok(META_SCOPES_LATER_INSIGHTS.every((s) => !(META_SCOPES as readonly string[]).includes(s)), 'later scopes are not requested');
+  assert.equal(new Set(META_SCOPES).size, META_SCOPES.length, 'no duplicates');
+});
+
+test('token answers are validated; only a valid user token of our app is accepted', () => {
+  assert.deepEqual(tokenFrom({ access_token: 'EAAB' + 'x'.repeat(40), expires_in: 5_184_000 }), { token: 'EAAB' + 'x'.repeat(40), expiresIn: 5_184_000 });
+  for (const bad of [null, {}, { access_token: '' }, { access_token: 'short' }, { access_token: 123 }, { access_token: 'has space '.repeat(5) }]) {
+    assert.throws(() => tokenFrom(bad), /no valid access token/);
+  }
+  assert.equal(tokenFrom({ access_token: 'T'.repeat(30) }).expiresIn, null, 'no expires_in → unknown, not 0');
+  assert.ok(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'USER' } }, '1234567890'));
+  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '999', type: 'USER' } }, '1234567890'), false, 'another app');
+  assert.equal(tokenIsOurs({ data: { is_valid: false, app_id: '1234567890' } }, '1234567890'), false, 'revoked / expired');
+  assert.equal(tokenIsOurs({ data: { is_valid: true, app_id: '1234567890', type: 'PAGE' } }, '1234567890'), false, 'not a user token');
+  assert.equal(tokenIsOurs(null, '1234567890'), false);
+});
+
+test('metaFetch: a network failure or timeout never surfaces the URL (token / secret / code)', async () => {
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED https://graph.facebook.com/x?client_secret=SECRET&code=CODE') }); }) as any;
+    await assert.rejects(metaFetch('https://graph.facebook.com/x?client_secret=SECRET&code=CODE'), (e: any) => {
+      assert.equal(e.message, 'Meta could not be reached'); assert.equal(e.cause, undefined); return true;
+    });
+    globalThis.fetch = (async () => { const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; }) as any;
+    await assert.rejects(metaFetch('https://graph.facebook.com/x?access_token=EAAsecret'), /did not answer in time/);
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { message: 'Invalid OAuth access token.' } }), { status: 400 })) as any;
+    await assert.rejects(metaFetch('https://graph.facebook.com/x?access_token=EAAsecret'), /Invalid OAuth access token/);
+  } finally { globalThis.fetch = real; }
 });
 
 test('permissions: what was not granted is reported (declined ≠ granted)', () => {

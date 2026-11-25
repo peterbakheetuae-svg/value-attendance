@@ -30,12 +30,14 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Requirement (spec §2) | Implementation | Status |
 |---|---|---|
 | Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
-| Minimum permissions | `META_SCOPES` (documented per Meta's Lead Ads guides) | ✅ |
-| State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ tested here |
+| Least-privilege permissions | required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management` (Meta's retrieving guide requires it for a lead's `campaign_id`/`ad_id`; no read-only alternative is documented); optional: `business_management` (portfolio pages only); later (Phase 5, not requested): `ads_read` | ✅ |
+| Separate app credentials | `META_APP_SECRET` is its own setting; never borrowed from `META_APP_SECRETS` (webhook signing) | ✅ |
+| State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; **single-use**: nonce recorded hashed in `action_otps` (082, action `meta_oauth_state`) at start, consumed by one atomic `UPDATE … WHERE used_at IS NULL … RETURNING` at callback (no migration needed); one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ unit here · ✅ CI written (replay, concurrent, expired, forged, wrong person, revoked) |
 | Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
 | Token stored only on the server, sealed | long-lived token sealed in `integrations.access_token`; OAuth refuses to run without `SECRETS_KEY` | ✅ CI |
 | No secrets in responses / errors | `safeMetaError` redacts tokens / secrets / codes; landing page has none | ✅ tested here + CI |
-| Token lifecycle, reconnection, revoked permissions | long-lived exchange; `auth_type=rerequest`; status via `debug_token` (validity, expiry, scopes); «إعادة الربط» | ✅ code · ⛔ real check |
+| Token lifecycle, reconnection, revoked permissions | token answers validated (`tokenFrom`); long-lived exchange; `debug_token` must show a valid USER token **of our app**; missing required permissions → token not kept, a working connection left as it was; reconnection upserts pages (no duplicates); `auth_type=rerequest`; status shows validity, expiry, `missingRequired` | ✅ CI written · ⛔ real check |
+| No secrets in diagnostics | `metaFetch` (all Meta calls, incl. `graph()`) never logs and never surfaces the URL or a network error's cause | ✅ unit here |
 | Connection status, missing permissions, last sync, errors | `GET /integrations/meta/oauth/status`; Flutter section in `leads_integrations.dart` | ✅ API (CI) · 🟡 Flutter not compiled here |
 | Pages / ad accounts / campaigns / forms discovery | pages reuse the existing discovery (`connectPages`); campaigns via existing `/integrations/meta/campaigns` | 🟡 ad sets, ads, business-level asset selection → Phase 4 |
 | Manual token kept for compatibility | unchanged, relabelled «ربط بتوكن (متقدم)» | ✅ |
@@ -46,7 +48,8 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 |---|---|---|
 | Webhook ingestion | existing, signed (fail-closed in production) | ✅ existing |
 | Independent scheduler (no app open) | `POST /integrations/meta/sync/run` (X-Backup-Token or `leads.config`) + `.github/workflows/meta-sync.yml` | ✅ CI · ⛔ needs `BACKUP_TOKEN` repo secret |
-| One run at a time, idempotent with the webhook | claims `integrations.meta_sync_at`; `leads.meta_lead_id` unique | ✅ CI |
+| One run at a time, idempotent with the webhook | 5-minute claim on `integrations.meta_sync_at`; a run's budget is 18 s (+ one 8 s request) inside the function's 30 s `maxDuration`, so two scheduled runs cannot overlap (`lib/meta-sync-limits.ts`, checked against `vercel-build.mjs`). Manual / per-campaign syncs may overlap a run: each lead is taken under a transaction-scoped advisory lock and re-checked, so it is added once without a unique-index error | ✅ unit here · ✅ CI written |
+| Workflow reliability | fails on: missing secret, 401/403, 5xx / timeout / network after 3 attempts (15 s, 45 s backoff), other statuses, non-JSON answers, a sync that ran with errors; a declined run (off / recent / not connected) is green with a notice; no secret printed | ✅ 10 scenarios run here against a fake API |
 | Historical sync | existing: 90 days on first link, then from `meta_synced_at` − 1 h | ✅ existing |
 | Per-source checkpoints, retry/backoff, dead-letter, counters (processed / added / duplicates / rejected) | — needs storage → migration proposal | ⬜ 🔒 schema approval |
 | Admin retry / resync | existing «اسحب الليدز دلوقتي»; per-campaign resync on link | 🟡 |
@@ -80,6 +83,19 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | `app/lib/jph/pages/leads/leads_integrations.dart` | «اربط بحساب فيسبوك» + connection status section |
 | `.github/workflows/meta-sync.yml` | new scheduled knock |
 | `api/test/meta-oauth.test.ts` | new unit tests (ran here) |
-| `api/test/meta-oauth-routes.test.ts`, `api/test/meta-sync-run.test.ts` | new Postgres tests (CI) |
+| `api/src/lib/meta-sync-limits.ts` | new: the scheduled run's time limits |
+| `api/src/auth/action_otp.ts` | the e-mailed code rate limit does not count OAuth state nonces |
+| `api/test/meta-sync-limits.test.ts` | new unit test (ran here) |
+| `api/test/meta-oauth-routes.test.ts`, `api/test/meta-sync-run.test.ts` | Postgres tests (CI): 11 + 4 |
+
+### Test record (2026-11-25, security corrections)
+
+| Kind | Result |
+|---|---|
+| Executed here: every DB-free test file (8 files, incl. 3 new) | **49 passed, 0 failed** |
+| Workflow script against a fake API (10 scenarios) | all exit codes as specified; secret never printed |
+| Typecheck (strict, whole API, Node types) | 0 errors in project code; 2 = `nodemailer` package absent here |
+| Written, not executed (need `pg`; package installs blocked here) | `meta-oauth-routes.test.ts` (11), `meta-sync-run.test.ts` (4) — run in `api-ci.yml` |
+| Flutter | not compiled / analysed (no Flutter SDK here) |
 
 No migration was added. No production data, schema, environment or deployment was changed.
