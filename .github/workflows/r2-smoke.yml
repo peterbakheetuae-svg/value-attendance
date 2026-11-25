@@ -2,12 +2,18 @@ name: R2 smoke check (manual, synthetic data only)
 # Checks the least-privilege R2 token against the real private bucket with synthetic bytes under staging/smoke/ only:
 # upload, HEAD, integrity-checked download, no-overwrite, private (anonymous refused), presigned 60 s, tampered signature
 # refused, another bucket refused, cleanup verified. Prints PASS/FAIL only — never a credential or a presigned URL.
-# The token lives in repository secrets set by the owner (R2_SMOKE_*); this workflow never runs on push.
+# The token lives in repository secrets set by the owner (R2_SMOKE_*).
+# Runs manually, or on the R2 feature branch only when .github/r2-smoke.trigger changes (workflow_dispatch needs the
+# file on the default branch, which is not merged yet). Never on main, PRs or forks.
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/r2-storage-2026-11-25]
+    paths: ['.github/r2-smoke.trigger']
 permissions: {}
 jobs:
   smoke:
+    if: github.repository == 'peterbakheetuae-svg/value-attendance'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults: { run: { working-directory: api } }
