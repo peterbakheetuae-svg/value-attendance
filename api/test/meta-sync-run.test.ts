@@ -16,6 +16,8 @@ before(async () => {
   process.env.SECRETS_KEY = Buffer.alloc(32, 4).toString('base64');
   process.env.BACKUP_TOKEN = TOKEN;
   h = await harness('2026-11-25T10:00:00Z'); c = await cast(h);
+  // leads.config comes with the administrative officer's position (as in meta_sync.test.ts); the accountant role lacks it
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   const pid = (await h.call(c.t.owner, 'POST', '/exclusive/projects', { name: 'مشروع الجدولة', ownerName: 'أ. سامي', ownerPhone: '0100' })).body.project.id;
   const ch = (await h.call(c.t.acc, 'GET', '/leads/meta')).body.channels[0].id;
   await h.call(c.t.acc, 'POST', '/leads/campaigns', { name: 'حملة مجدولة', channelId: ch, projectId: pid });

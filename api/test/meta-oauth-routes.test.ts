@@ -28,6 +28,8 @@ before(async () => {
     META_OAUTH_REDIRECT_URI: 'https://api.example.com/public/meta/oauth/callback',
   });
   h = await harness('2026-11-25T10:00:00Z'); c = await cast(h);
+  // leads.config comes with the administrative officer's position (as in meta_sync.test.ts); the accountant role lacks it
+  await h.db.query(`UPDATE employees SET position_key = 'admin_officer' WHERE id = $1`, [c.ids.acc]);
   globalThis.fetch = (async (url: any, init: any) => {
     const u = new URL(String(url));
     if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
@@ -209,6 +211,6 @@ test('not configured — including META_APP_SECRETS alone: start names what is m
   try {
     const r = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
     assert.deepEqual(r.body, { configured: false, missing: ['META_APP_SECRET'] });
-    assert.equal((await cb('code=x&state=y')).status, 503);
+    assert.equal((await cb('code=x&state=y')).status, 404, 'not set up: 404, never a 5xx');
   } finally { process.env.META_APP_SECRET = secret; delete process.env.META_APP_SECRETS; }
 });

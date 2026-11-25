@@ -263,7 +263,8 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     const page = (status: number, good: boolean, title: string, detail: string) =>
       ({ status, binary: Buffer.from(callbackPage(good, title, detail), 'utf8'), contentType: 'text/html; charset=utf-8' });
     const c = oauthConfig();
-    if (!c.ok) return page(503, false, 'ربط Meta مش متجهز', 'الإعدادات على السيرفر ناقصة — كلم المسؤول.');
+    // not set up on this server: 404 (the feature is absent here), never a 5xx — no read route answers 5xx (malformed-input.test)
+    if (!c.ok) return page(404, false, 'ربط Meta مش متجهز', 'الإعدادات على السيرفر ناقصة — كلم المسؤول.');
     const now = clock();
     const st = verifyState(req.query.get('state'), now);
     const invalidLink = () => page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق (الرابط بيتستخدم مرة واحدة وبينتهي بعد 10 دقايق).');
