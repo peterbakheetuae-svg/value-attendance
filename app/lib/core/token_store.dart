@@ -11,6 +11,8 @@ import 'token_store_stub.dart' if (dart.library.io) 'token_store_windows.dart' a
 ///    there on first read: copied, read back to verify, and only then the plain copy is removed — if the secure storage
 ///    fails, the existing session is kept (never signed out by the migration).
 ///  - Windows: encrypted with Windows DPAPI (bound to the signed-in Windows user), unchanged.
+///    A NEW session is never written in plain text: if the secure storage cannot keep it, it lives in memory only for this
+///    run (the employee signs in again after the app restarts) — security review L-2026-11-24, fail closed.
 ///  - Web: the same `token` entry as before (browser storage).
 /// The token itself is never printed or logged.
 class TokenStore {
@@ -20,6 +22,8 @@ class TokenStore {
   static const _protectedKey = 'token_dpapi';
   static const _secureKey = 'session_token';
   static const _secure = FlutterSecureStorage();
+  // Android only: a session the secure storage refused to keep (never written to disk in plain text)
+  static String? _memory;
 
   static bool get _android => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
@@ -48,6 +52,7 @@ class TokenStore {
       if (legacy != null) await p.remove(_plainKey); // already migrated: the plain copy goes
       return secure;
     }
+    if (_memory != null) return _memory;
     if (legacy == null || legacy.isEmpty) return null;
     // migrate an older session: copy → verify → only then remove the plain copy
     if (await _storeSecure(legacy)) await p.remove(_plainKey);
@@ -67,12 +72,9 @@ class TokenStore {
   static Future<void> write(String token) async {
     final p = await SharedPreferences.getInstance();
     if (_android) {
-      if (await _storeSecure(token)) {
-        await p.remove(_plainKey);
-      } else {
-        // the phone's secure storage failed: keep the session working rather than sign the employee out
-        await p.setString(_plainKey, token);
-      }
+      // the phone's secure storage failed: the session works for this run only, never as a plain file
+      _memory = await _storeSecure(token) ? null : token;
+      await p.remove(_plainKey);
       return;
     }
     if (!PlatformInfo.isWindows) {
@@ -85,6 +87,7 @@ class TokenStore {
   }
 
   static Future<void> clear() async {
+    _memory = null;
     final p = await SharedPreferences.getInstance();
     await p.remove(_plainKey);
     await p.remove(_protectedKey);
