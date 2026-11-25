@@ -38,12 +38,15 @@ export function withFile(sql: string, params: unknown[], bytesCol: string, fileI
   const cols = items(colText), vals = items(valText);
   const i = cols.indexOf(bytesCol);
   if (i < 0 || cols.length !== vals.length) throw new Error(`withFile: column ${bytesCol} not in the statement`);
-  vals[i] = 'NULL';
+  // the bytes' own parameter stays in place, set to NULL (an unreferenced parameter has no type in PostgreSQL)
+  const out = [...params];
+  const pm = /^\$(\d+)$/.exec(vals[i]);
+  if (pm) out[Number(pm[1]) - 1] = null; else vals[i] = 'NULL';
   cols.push(`${bytesCol}_file_id`);
   vals.push(`$${params.length + 1}`);
   let rest = sql.slice(afterVals);
   if (new RegExp(`EXCLUDED\\.${bytesCol}\\b`).test(rest)) {
     rest = rest.replace(new RegExp(`(${bytesCol}\\s*=\\s*EXCLUDED\\.${bytesCol})\\b`), `$1, ${bytesCol}_file_id = EXCLUDED.${bytesCol}_file_id`);
   }
-  return [`${head[0]}(${cols.join(', ')})${sql.slice(afterCols, valOpen)}(${vals.join(', ')})${rest}`, [...params, fileId]];
+  return [`${head[0]}(${cols.join(', ')})${sql.slice(afterCols, valOpen)}(${vals.join(', ')})${rest}`, [...out, fileId]];
 }
