@@ -9,12 +9,14 @@ import { harness, cast, type Harness } from './helpers.ts';
  * grant. Pure rules first, then the real route on production's schema with one key removed from the table.
  */
 const ALL = new Set(PERMISSIONS.map((p) => p.key));
+const APPLIED = new Set(PERMISSIONS.map((p) => p.since).filter((n): n is number => n !== undefined)); // every migration ran
 const actor = (perms: string[], known?: ReadonlySet<string>, extra: Partial<Actor> = {}): Actor => ({
   id: 'x', code: 'X', fullName: 'x', role: 'sales_employee', perms: new Set(perms), sessionId: 's',
-  mustChangePassword: false, known, ...extra,
+  mustChangePassword: false, known, migrations: APPLIED, ...extra,
 });
 const without = (...keys: string[]) => new Set([...ALL].filter((k) => !keys.includes(k)));
 const pre066 = new Set(PERMISSIONS.filter((p) => p.since !== 66).map((p) => p.key)); // a database before migration 066
+const pre066Migrations = new Set([...APPLIED].filter((n) => n !== 66));
 
 test('no key list (the permission table could not be read) → every fine check denies', () => {
   const a = actor(['report.read_all', 'employee.manage', 'cash.office']);
@@ -25,10 +27,15 @@ test('no key list (the permission table could not be read) → every fine check 
   assert.deepEqual(effectivePermissions(a).filter((k) => !a.perms.has(k)), [], 'nothing added beyond the rows');
 });
 
+test('the migration record cannot be read → treated as applied: a missing key is denied', () => {
+  const a = actor(['employee.manage'], without('employee.create'), { migrations: undefined });
+  assert.equal(can(a, 'employee.create', 'employee.manage'), false);
+});
+
 test('a key missing after its migration ran (damaged table) → denied, never the open / broad rule from before', () => {
   const known = without('report.export', 'employee.create');
-  assert.equal(migrationApplied(known, 'report.export'), true);
   const a = actor(['employee.manage', 'report.read_all'], known);
+  assert.equal(migrationApplied(a, 'report.export'), true);
   assert.equal(can(a, 'report.export', null), false, 'open-before key is not open any more');
   assert.equal(can(a, 'employee.create', 'employee.manage'), false, 'split key does not fall back to the broad key');
   const eff = effectivePermissions(a);
@@ -41,12 +48,13 @@ test('a core key (no migration of its own) missing from the table → denied', (
 });
 
 test('a database genuinely before 066 keeps exactly its old behaviour (compatibility)', () => {
-  assert.equal(migrationApplied(pre066, 'report.export'), false);
-  const a = actor(['employee.manage'], pre066);
+  const old = { migrations: pre066Migrations };
+  const a = actor(['employee.manage'], pre066, old);
+  assert.equal(migrationApplied(a, 'report.export'), false);
   assert.equal(can(a, 'report.export', null), true, 'open before 066, as before');
   assert.equal(can(a, 'employee.create', 'employee.manage'), true, 'broad key decides before 066, as before');
-  assert.equal(can(actor([], pre066), 'employee.create', 'employee.manage'), false);
-  assert.equal(can(actor([], pre066, { settled: true }), 'report.export', null), false, 'a settled account never');
+  assert.equal(can(actor([], pre066, old), 'employee.create', 'employee.manage'), false);
+  assert.equal(can(actor([], pre066, { ...old, settled: true }), 'report.export', null), false, 'a settled account never');
 });
 
 test('a complete table: only the fine key counts (individual denial respected)', () => {

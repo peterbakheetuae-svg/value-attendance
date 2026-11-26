@@ -17,6 +17,8 @@ export interface Actor {
   settled?: boolean;
   /** permission keys that exist in this database (a fine-grained key added by a migration not run yet is absent) */
   known?: ReadonlySet<string>;
+  /** migration numbers recorded in schema_migrations (066 → 66): tells «not installed yet» from «missing» */
+  migrations?: ReadonlySet<number>;
   /** a marketing company (079) looking at the sales pages read-only: its company id (also in `id`) — never an employee */
   partner?: string;
   /** when this session last talked to the server BEFORE this request (written every ≤ 5 minutes) — an offline record
@@ -41,12 +43,18 @@ export function partnerRoute(method: string, path: string): boolean {
 
 // the permission keys of this database: read once a minute per instance (they only change with a migration)
 let knownKeys: { at: number; keys: ReadonlySet<string> } | null = null;
+let knownMigrations: ReadonlySet<number> = new Set();
 async function dbPermissionKeys(q: Q): Promise<ReadonlySet<string>> {
   if (knownKeys && Date.now() - knownKeys.at < 60_000) return knownKeys.keys;
   const r = await q.query<{ key: string }>(`SELECT key FROM permissions`);
+  const m = await q.query<{ n: number }>(`SELECT DISTINCT substring(name from '^([0-9]+)_')::int AS n FROM schema_migrations
+                                           WHERE name ~ '^[0-9]+_'`);
+  knownMigrations = new Set(m.rows.map((x) => Number(x.n)));
   knownKeys = { at: Date.now(), keys: new Set(r.rows.map((x) => x.key)) };
   return knownKeys.keys;
 }
+/** the migration numbers read together with the key list (call after dbPermissionKeys) */
+const dbMigrations = () => knownMigrations;
 
 /** drops the cached key list (the next request reads it again) — for the throwaway test databases */
 export function forgetPermissionKeys() { knownKeys = null; }
@@ -104,7 +112,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
       if (p) {
         if (p.mustChangePassword) throw new AppError('forbidden', 'You must change your password first', { reason: 'must_change_password' });
         return { id: p.companyId, code: '', fullName: p.name, role: 'marketing_partner', perms: new Set(), sessionId: p.sessionId,
-          mustChangePassword: false, partner: p.companyId, known: await dbPermissionKeys(q) };
+          mustChangePassword: false, partner: p.companyId, known: await dbPermissionKeys(q), migrations: dbMigrations() };
       }
     }
     if (await isPartnerToken(q, token)) throw new AppError('forbidden', 'Marketing company accounts see only their own pages', { reason: 'partner_account' });
@@ -126,6 +134,7 @@ export async function authenticate(q: Q, req: Req, opts: { allowPasswordChange?:
     sessionId: row.session_id, mustChangePassword: row.must_change_password,
     prevSeenAt: row.prev_seen ? new Date(row.prev_seen) : null,
     known: await dbPermissionKeys(q),
+    migrations: dbMigrations(),
   };
   // «تم التصفيه»: no permissions at all (every page closes) and nothing can be written — only reading his own
   // records (the attendance report) and signing out / changing the password
@@ -158,6 +167,7 @@ export async function actorById(q: Q, id: string): Promise<Actor | null> {
     perms: settled ? new Set() : new Set([...row.perms, ...(row.plus ?? [])].filter((p: string) => !(row.minus ?? []).includes(p) && isRegistered(p)
       && (row.role_key === OWNER_ROLE || !isOwnerOnly(p)))),
     known: await dbPermissionKeys(q),
+    migrations: dbMigrations(),
   };
 }
 
@@ -176,19 +186,19 @@ export function can(a: Actor, fine: string, broad: string | string[] | null): bo
   if (a.known.has(fine)) return holdsFine(a, fine);
   // the key is missing although its migration has run (another key of the same migration exists): a damaged or
   // partly applied permission table — deny instead of falling back to the rule from before the key existed
-  if (migrationApplied(a.known, fine)) return false;
+  if (migrationApplied(a, fine)) return false;
   if (broad === null) return !a.settled; // had no separate check before
   return (Array.isArray(broad) ? broad : [broad]).some((b) => has(a, b));
 }
 
 /**
- * true when the migration that added `fine` has run on this database: another registered key introduced by the same
- * migration (same `since`) is present. A key with no `since` is one of the original keys — its absence is always an anomaly.
+ * true when the migration that added `fine` is recorded as applied on this database (schema_migrations), or when that is
+ * unknown (fail closed). A key with no `since` is one of the original keys — its absence is always an anomaly.
  */
-export function migrationApplied(known: ReadonlySet<string>, fine: string): boolean {
+export function migrationApplied(a: Actor, fine: string): boolean {
   const since = PERM_BY_KEY.get(fine)?.since;
-  if (since === undefined) return true;
-  return PERMISSIONS.some((p) => p.since === since && p.key !== fine && known.has(p.key));
+  if (since === undefined || !a.migrations) return true;
+  return a.migrations.has(since);
 }
 
 /** a fine key that exists in this database: held, and — where the registry says so — together with all its required keys */
@@ -214,7 +224,7 @@ export function effectivePermissions(a: Actor): string[] {
   for (const p of PERMISSIONS) {
     if (a.known?.has(p.key)) { if (!holdsFine(a, p.key)) out.delete(p.key); continue; }
     // the same rule as can(): no key list, or a key missing after its migration ran → not held
-    if (!a.known || migrationApplied(a.known, p.key)) { out.delete(p.key); continue; }
+    if (!a.known || migrationApplied(a, p.key)) { out.delete(p.key); continue; }
     if (p.openBefore || (p.splitFrom ? (Array.isArray(p.splitFrom) ? p.splitFrom : [p.splitFrom]).some((b) => has(a, b)) : (p.since && a.role === 'owner'))) out.add(p.key);
   }
   return [...out].sort();
