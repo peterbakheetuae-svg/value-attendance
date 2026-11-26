@@ -45,7 +45,10 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
         // «الأفضل»: the ranking (rank, id, name) is the company's by design; another team's numbers must be hidden
         const shownOthers = (res.body?.best ?? []).filter((x: any) => seen.includes(x.id) && (x.actions !== null || x.meetings !== null || x.deals !== null));
         const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [] }).includes(id));
-        if (shownOthers.length || elsewhere.length) leaks.push(`${r} → another team's numbers or records`);
+        if (shownOthers.length || elsewhere.length) {
+          const where = Object.keys(res.body ?? {}).filter((k) => k !== 'best' && seen.some((id) => JSON.stringify(res.body[k]).includes(id)));
+          leaks.push(`${r} → another team's numbers (${shownOthers.map((x: any) => x.name).join('/')}) or records in [${where.join(', ')}]`);
+        }
       } else if (r === 'GET /brokerage/people') {
         // the colleague picker of a brokerage deal: id + name of active employees only (by design), nothing else
         const extraFields = (res.body?.people ?? []).some((x: any) => Object.keys(x).some((k) => !['id', 'name'].includes(k)));
