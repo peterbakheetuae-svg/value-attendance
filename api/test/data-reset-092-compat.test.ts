@@ -67,15 +67,16 @@ test('pre-092 schema: authorization unchanged and the reset succeeds exactly as 
   for (const t of WIPE_IF_PRESENT) assert.equal((await h.db.query(`SELECT to_regclass($1) AS r`, [`public.${t}`])).rows[0].r, null, `${t} absent`);
   await activity();
   // the unchanged list truncates fine on this schema (done inside a transaction that is then rolled back)
+  const leadsBefore = await count('leads');
   await assert.rejects(h.db.tx(async (q) => { await q.query(`TRUNCATE ${WIPE.join(', ')}`); throw new Error('roll back'); }), /roll back/);
-  assert.equal(await count('leads'), 1, 'rolled back');
+  assert.equal(await count('leads'), leadsBefore, 'rolled back');
   assert.equal((await reset(null, { dryRun: false, confirm: CONFIRM })).status, 401);
   assert.equal((await reset(c.t.hr, { dryRun: false, confirm: CONFIRM })).status, 403, 'not the owner');
   assert.equal((await reset(c.t.owner, { dryRun: false })).status, 400, 'needs the confirmation words');
   const dry = await reset(c.t.owner);
   assert.equal(dry.status, 200);
   assert.equal(dry.body.dryRun, true);
-  assert.equal(await count('leads'), 1, 'dry run changed nothing');
+  assert.equal(await count('leads'), leadsBefore, 'dry run changed nothing');
   if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies']);
   const r = await reset(c.t.owner, { dryRun: false, confirm: CONFIRM });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -89,8 +90,9 @@ test('post-092 schema: the old TRUNCATE list is refused by PostgreSQL; the reset
   await h.db.query(`INSERT INTO lead_campaign_owners (campaign_id, marketing_company_id, from_at) VALUES ($1, $2, now())`, [a.campaign, a.company]);
   await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason, by_id) VALUES ($1, 'unreviewed', 'not_qualified', 'رقم غلط', $2)`, [a.lead, c.ids.owner]);
   // the defect being fixed: the unchanged list alone cannot be truncated once 092's tables exist
+  const leadsBefore = await count('leads');
   await assert.rejects(h.db.tx(async (q) => { await q.query(`TRUNCATE ${WIPE.join(', ')}`); }), /cannot truncate a table referenced in a foreign key constraint/);
-  assert.equal(await count('leads'), 1, 'that refusal changed nothing');
+  assert.equal(await count('leads'), leadsBefore, 'that refusal changed nothing');
   if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies', 'lead_quality_events', 'lead_campaign_owners']);
   const empsBefore = (await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows;
   const r = await reset(c.t.owner, { dryRun: false, confirm: CONFIRM });
