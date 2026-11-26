@@ -514,6 +514,8 @@ test('approved outing: tracking continues; outside inside the interval is no inc
   at('2026-03-11T11:30:00Z'); // 13:30 local
   assert.equal((await h.call(c.t.e1, 'POST', '/attendance/check-in', {})).status, 201);
   await ping(c.t.e1, IN);
+  // only today's incidents (his 10 March exit is an earlier test's)
+  const today11 = async () => (await incidents(c.ids.e1)).filter((x) => x.work_date === '2026-03-11');
   const outing = async (ret: string) => {
     const o = await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', reason: 'معاينة عميل', expectedReturn: ret });
     assert.equal(o.status, 201, JSON.stringify(o.body));
@@ -528,7 +530,7 @@ test('approved outing: tracking continues; outside inside the interval is no inc
   assert.equal(p1.body.tracking, true, 'tracking continues during the outing'); assert.equal(p1.body.inside, false);
   at('2026-03-11T11:40:00Z');
   await Promise.all([1, 2, 3, 4].map(() => ping(c.t.e1, OUT)));
-  assert.equal((await incidents(c.ids.e1)).length, 0, 'authorized: no incident (parallel pings too)');
+  assert.equal((await today11()).length, 0, 'authorized: no incident (parallel pings too)');
   assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'tracking.authorized_exit' AND entity_id = $1`, [o1.id])).rows.length === 1);
   at('2026-03-11T11:50:00Z');
   await ping(c.t.e1, IN);
@@ -538,17 +540,17 @@ test('approved outing: tracking continues; outside inside the interval is no inc
   const o2 = await outing('14:30'); // 12:30Z
   at('2026-03-11T12:02:00Z'); await ping(c.t.e1, OUT);
   at('2026-03-11T12:29:59Z'); await ping(c.t.e1, OUT);
-  assert.equal((await incidents(c.ids.e1)).length, 0, 'one second before the return time: still authorized');
+  assert.equal((await today11()).length, 0, 'one second before the return time: still authorized');
   at('2026-03-11T12:30:00Z');
   await Promise.all([1, 2, 3].map(() => ping(c.t.e1, OUT)));
   at('2026-03-11T12:31:00Z');
   await Promise.all([1, 2, 3].map(() => ping(c.t.e1, OUT)));
-  let inc = await incidents(c.ids.e1);
+  let inc = await today11();
   assert.equal(inc.length, 1, 'exactly one incident at expiry (concurrent pings)');
   assert.equal(new Date(inc[0].exit_at).toISOString(), '2026-03-11T12:30:00.000Z');
   assert.equal(inc[0].permission_state, 'expired'); assert.equal(inc[0].outing_id, o2.id); assert.equal(inc[0].amount_egp, null, 'open: no amount yet');
   at('2026-03-11T12:50:00Z'); await ping(c.t.e1, IN);
-  inc = await incidents(c.ids.e1);
+  inc = await today11();
   assert.equal(inc[0].status, 'closed'); assert.equal(inc[0].end_reason, 'returned'); assert.equal(inc[0].minutes, 20, 'counted from the expiry, not the departure');
   assert.equal(Number(inc[0].amount_egp), 50, 'effective rule: all switches on and the 15–60 tier');
   assert.ok((await h.db.query(`SELECT returned_at FROM outing_requests WHERE id = $1`, [o2.id])).rows[0].returned_at, 'return recorded');
@@ -556,9 +558,9 @@ test('approved outing: tracking continues; outside inside the interval is no inc
   at('2026-03-11T12:55:00Z');
   const o3 = await outing('15:00'); // 13:00Z
   at('2026-03-11T13:05:00Z'); await ping(c.t.e1, OUT);
-  inc = await incidents(c.ids.e1);
+  inc = await today11();
   assert.equal(inc.length, 2); assert.equal(inc[1].permission_state, 'expired'); assert.equal(inc[1].outing_id, o3.id);
   at('2026-03-11T13:10:00Z'); await ping(c.t.e1, IN);
-  assert.equal((await incidents(c.ids.e1))[1].minutes, 5);
+  assert.equal((await today11())[1].minutes, 5);
 });
 
