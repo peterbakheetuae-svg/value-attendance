@@ -2,6 +2,7 @@ import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { settledFromSql } from '../auth/context.ts';
 import { daysInMonth, isoDow, local, timeToMinutes } from '../lib/time.ts';
+import { absenceThresholdMinutes, lateIsAbsence, type AbsencePolicy } from '../lib/attendance-policy.ts';
 
 export interface AttendanceRow {
   id: string; work_date: string; check_in_at: Date; check_out_at: Date | null;
@@ -43,6 +44,8 @@ export type DayStatus =
 
 export interface DayEntry {
   date: string; status: DayStatus; holidayName?: string; absenceType?: string;
+  /** the check-in came at or after the company's absence threshold: the day is an absence (its timestamps are kept) */
+  lateAsAbsence?: boolean;
   attendance?: { id: string; checkIn: Date; checkOut: Date | null; corrected: boolean; hasSelfie: boolean } & DayMetrics;
   hourlyPermissionMinutes: number;
 }
@@ -68,6 +71,17 @@ export interface MonthData {
   abs: { start_date: string; end_date: string; absence_type: string }[];
   hourly: { day: string; duration_minutes: number }[];
   weekendRule: boolean;
+  /** the company's lateness → absence threshold (proposed 094); null / off = today's behaviour */
+  absencePolicy?: AbsencePolicy | null;
+}
+
+/** company_settings read schema-tolerantly: the 094 columns may not exist yet */
+const CFG_SQL = `SELECT to_jsonb(s) AS j FROM company_settings s LIMIT 1`;
+function cfgOf(rows: any[]): { weekendRule: boolean; absencePolicy: AbsencePolicy | null } {
+  const j = rows[0]?.j ?? {};
+  const mode = j.absence_threshold_mode === 'fixed_hours' || j.absence_threshold_mode === 'half_shift' ? j.absence_threshold_mode : null;
+  return { weekendRule: j.weekend_absence_rule === true,
+    absencePolicy: mode ? { mode, hours: j.absence_threshold_hours === null || j.absence_threshold_hours === undefined ? null : Number(j.absence_threshold_hours) } : null };
 }
 
 const EMP_MONTH_SQL = (where: string) => `
@@ -92,9 +106,9 @@ async function fetchMonth(q: Q, employeeId: string, period: string): Promise<Mon
     q.query(`SELECT day, duration_minutes FROM requests
               WHERE employee_id = $1 AND type IN ('hourly_permission','short_leave','emergency_permission')
                 AND status = 'approved' AND day BETWEEN $2 AND $3`, [employeeId, first, last]),
-    q.query(`SELECT weekend_absence_rule FROM company_settings LIMIT 1`),
+    q.query(CFG_SQL),
   ]);
-  return { emp: emp ?? null, att: att.rows, hol: hol.rows, abs: abs.rows, hourly: hourly.rows, weekendRule: cfg.rows[0]?.weekend_absence_rule === true };
+  return { emp: emp ?? null, att: att.rows, hol: hol.rows, abs: abs.rows, hourly: hourly.rows, ...cfgOf(cfg.rows) };
 }
 
 /**
@@ -115,7 +129,7 @@ export async function fetchMonthMany(q: Q, employeeIds: string[], period: string
     q.query(`SELECT employee_id, day, duration_minutes FROM requests
               WHERE employee_id = ANY($1::uuid[]) AND type IN ('hourly_permission','short_leave','emergency_permission')
                 AND status = 'approved' AND day BETWEEN $2 AND $3`, [employeeIds, first, last]),
-    q.query(`SELECT weekend_absence_rule FROM company_settings LIMIT 1`),
+    q.query(CFG_SQL),
   ]);
   const group = <T extends { employee_id: string }>(rows: T[]) => {
     const m = new Map<string, Omit<T, 'employee_id'>[]>();
@@ -128,11 +142,11 @@ export async function fetchMonthMany(q: Q, employeeIds: string[], period: string
   };
   const attBy = group(att.rows), absBy = group(abs.rows), hourlyBy = group(hourly.rows);
   const empBy = new Map(emps.rows.map((e) => { const { id, ...rest } = e; return [id as string, rest]; }));
-  const weekendRule = cfg.rows[0]?.weekend_absence_rule === true;
+  const { weekendRule, absencePolicy } = cfgOf(cfg.rows);
   const out = new Map<string, MonthData>();
   for (const id of employeeIds) {
     out.set(id, { emp: (empBy.get(id) as any) ?? null, att: (attBy.get(id) ?? []) as any, hol: hol.rows, abs: (absBy.get(id) ?? []) as any,
-      hourly: (hourlyBy.get(id) ?? []) as any, weekendRule });
+      hourly: (hourlyBy.get(id) ?? []) as any, weekendRule, absencePolicy });
   }
   return out;
 }
@@ -180,6 +194,16 @@ export function buildMonth(data: MonthData, period: string, today: string): { da
         m.isLate = m.lateMinutes > 0;
       }
       entry.status = 'present';
+      // the company's absence threshold (proposed 094): a check-in at or after it makes the day an absence — measured from
+      // the day's own scheduled shift, after an approved hourly permission; the late minutes are then not counted as well
+      const threshold = absenceThresholdMinutes(data.absencePolicy, a.schedule_start, a.schedule_end);
+      if (threshold !== null && !holBy.has(d) && !weekend.includes(isoDow(d))) {
+        const lateRaw = Math.max(0, local(new Date(a.check_in_at)).minutes - timeToMinutes(a.schedule_start));
+        if (lateIsAbsence(Math.max(0, lateRaw - entry.hourlyPermissionMinutes), threshold)) {
+          entry.status = 'absent'; entry.lateAsAbsence = true;
+          m.isLate = false; m.lateMinutes = 0;
+        }
+      }
       entry.attendance = { id: a.id, checkIn: a.check_in_at, checkOut: a.check_out_at, corrected: a.corrected, hasSelfie: (a as any).has_selfie === true, ...m };
     }
     if (d > today) entry.status = a ? entry.status : 'future';

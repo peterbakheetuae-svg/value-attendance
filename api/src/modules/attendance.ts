@@ -266,6 +266,8 @@ export const attendanceModule: Module = (r, { db, clock }) => {
           check_out_lat = $3, check_out_lng = $4, check_out_accuracy_m = $5, check_out_offline = $6 WHERE id = $1 RETURNING *`,
         [open.id, now, g.lat, g.lng, g.acc, offline]);
       await audit(q, a.id, 'attendance.check_out', 'attendance', open.id, undefined, { at: now, offline });
+      // an open unauthorized-exit incident ends at the check-out (capped at the scheduled shift end)
+      await (await import('./exit-incidents.ts')).closeIncident(q, a.id, now, 'checked_out');
       if (offline) await tellHrLateOffline(q, a, 'انصراف', now, clock(), open.id);
       return updated;
     });

@@ -6,6 +6,7 @@ import { bool, date, num, obj, reqStr, str, time, uuid, isUuid } from '../http/v
 import { audit, authenticate, has, requirePerm, notSettled } from '../auth/context.ts';
 import { assertDelegable, assertNoLockout, assertNotOwnProfile } from '../auth/permission-admin.ts';
 import { isRegistered } from '../lib/permission-registry.ts';
+import { validateExitTiers } from '../lib/attendance-policy.ts';
 
 function dayDivisor(b: Record<string, unknown>) {
   if (b.dayDivisor === undefined) return undefined;
@@ -212,6 +213,31 @@ export const orgModule: Module = (r, { db }) => {
     const a = await authenticate(db, req); requirePerm(a, 'settings.manage');
     const b = obj(req.body);
     const before = await one(db, `SELECT * FROM company_settings`);
+    // 2026-11-26 attendance policies (proposed 094): the absence threshold and «شرائح خروج بدون إذن». Nothing here has a
+    // default value: off / empty until the company sets them; refused (not silently ignored) before 094 is installed.
+    // Validated before anything is written (a refused value changes no setting).
+    let policy: { mode: string | null; hours: number | null; exitTiers: unknown; exitOn: boolean } | null = null;
+    if (['absenceThresholdMode', 'absenceThresholdHours', 'unauthorizedExitTiers', 'unauthorizedExitDeduction'].some((f) => b[f] !== undefined)) {
+      if (!('absence_threshold_mode' in before)) {
+        throw new AppError('unprocessable', 'These attendance policies need migration 094', { reason: 'not_installed' });
+      }
+      const mode = b.absenceThresholdMode === undefined ? before.absence_threshold_mode
+        : b.absenceThresholdMode === null || b.absenceThresholdMode === 'off' ? null
+        : b.absenceThresholdMode === 'fixed_hours' || b.absenceThresholdMode === 'half_shift' ? b.absenceThresholdMode as string
+        : (() => { throw invalid('absenceThresholdMode: off, fixed_hours or half_shift', { field: 'absenceThresholdMode' }); })();
+      const hours = b.absenceThresholdHours === undefined ? before.absence_threshold_hours
+        : b.absenceThresholdHours === null ? null : num(b, 'absenceThresholdHours', { min: 0.25, max: 24 })!;
+      if (mode === 'fixed_hours' && (hours === null || hours === undefined)) {
+        throw invalid('The fixed threshold needs its number of hours', { field: 'absenceThresholdHours' });
+      }
+      const exitTiers = b.unauthorizedExitTiers === undefined ? before.unauthorized_exit_tiers : validateExitTiers(b.unauthorizedExitTiers);
+      const exitOn = bool(b, 'unauthorizedExitDeduction') ?? before.unauthorized_exit_deduction;
+      // the deduction is switched on only with at least one enabled tier (never a deduction without configured amounts)
+      if (exitOn && !(exitTiers as any[]).some((t) => t.enabled !== false)) {
+        throw invalid('Add at least one enabled tier before switching the deduction on', { field: 'unauthorizedExitDeduction', reason: 'no_tiers' });
+      }
+      policy = { mode, hours: hours === null || hours === undefined ? null : Number(hours), exitTiers, exitOn };
+    }
     const lateRule = [
       num(b, 'lateFixedAfterMinutes', { optional: true, int: true, min: 0, max: 59 }) ?? before.late_fixed_after_minutes,
       num(b, 'lateFixedAmount', { optional: true, min: 0, max: 100000 }) ?? before.late_fixed_amount,
@@ -252,8 +278,13 @@ export const orgModule: Module = (r, { db }) => {
     const s2 = await one(db, `UPDATE company_settings SET late_fixed_after_minutes = $1, late_fixed_amount = $2, late_hour_amount = $3,
         early_deduction = $4, weekend_absence_rule = $5 RETURNING *`,
       [...lateRule, bool(b, 'earlyDeduction') ?? before.early_deduction, bool(b, 'weekendAbsenceRule') ?? before.weekend_absence_rule]);
-    await audit(db, a.id, 'settings.update', 'settings', null, publicSettings(before), publicSettings(s2));
-    return ok({ settings: publicSettings(s2) });
+    let s3 = s2;
+    if (policy) {
+      s3 = await one(db, `UPDATE company_settings SET absence_threshold_mode = $1, absence_threshold_hours = $2,
+          unauthorized_exit_tiers = $3::jsonb, unauthorized_exit_deduction = $4 RETURNING *`, [policy.mode, policy.hours, JSON.stringify(policy.exitTiers), policy.exitOn]);
+    }
+    await audit(db, a.id, 'settings.update', 'settings', null, publicSettings(before), publicSettings(s3));
+    return ok({ settings: publicSettings(s3) });
   });
 
   // ---------------------------------------------------------------- roles & permissions

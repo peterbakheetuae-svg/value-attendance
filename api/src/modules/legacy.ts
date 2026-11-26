@@ -5,7 +5,7 @@ import { date, imageAttachment, isUuid, num, obj, oneOf, reqStr, str } from '../
 import { actorById, audit, authenticate, can, canOwnerOnly, has, readableIds, requirePerm, notSettled } from '../auth/context.ts';
 import { photoScope, selfieScope } from '../auth/media-scope.ts';
 import { daysBetween, local } from '../lib/time.ts';
-import { generalManagerOf, gmRecipients, holdersOf, notify } from './notify.ts';
+import { generalManagerOf, gmRecipients, holdersOf, notify, suppressedFor } from './notify.ts';
 import { pushTo } from '../lib/fcm.ts';
 import { randomUUID } from 'node:crypto';
 import { signedMediaPath, verifyMedia } from '../lib/media.ts';
@@ -259,6 +259,8 @@ export const legacyModule: Module = (r, { db, clock }) => {
     const created = await db.tx(async (q) => {
       const out: { id: string; to: string }[] = [];
       for (const to of targets) {
+        // «إعدادات الإشعارات»: a recipient who turned the administrative announcements off is skipped (never an owner)
+        if (await suppressedFor(q, to, 'announcements')) continue;
         const r = await q.query(`INSERT INTO notifications (recipient_id, type, title, body, dedupe_key, sender_id, category)
                        SELECT $1, 'message', $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM employees WHERE id = $1 AND status = 'active')
                        RETURNING id`,

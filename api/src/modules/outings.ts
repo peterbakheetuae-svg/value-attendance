@@ -5,6 +5,7 @@ import { obj, oneOf, reqStr, str, isUuid } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds, type Actor, notSettled } from '../auth/context.ts';
 import { cairoInstant, local } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
+import { available } from './presence.ts';
 import { assertPunchClient, geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
@@ -19,11 +20,14 @@ async function resolveManager(q: Q, employeeId: string): Promise<string | null> 
 }
 
 /** Approvers: the employee's sales manager (snapshot) + every HR approver. */
-async function approversOf(q: Q, employeeId: string, managerId: string | null) {
+async function approversOf(q: Q, employeeId: string, managerId: string | null, now: Date = new Date()) {
   const hr = await holdersOf(q, 'request.approve_hr', [employeeId]);
   // the owner is told only after approval (separate notification)
   const owners = new Set((await q.query<{ id: string }>(`SELECT id FROM employees WHERE role_key = 'owner'`)).rows.map((x) => x.id));
-  return [...new Set([...(managerId ? [managerId] : []), ...hr])].filter((id) => !owners.has(id));
+  // 2026-11-26: a sales manager on approved leave / recorded absence is not told (HR, who may decide it, still is);
+  // he stays the request's manager, so he can still act on it once he is back
+  const mgr = managerId ? await available(q, [managerId], now) : [];
+  return [...new Set([...mgr, ...hr])].filter((id) => !owners.has(id));
 }
 
 export function canDecide(a: Actor, r: any) {
@@ -123,7 +127,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
       const label = parentId ? `تمديد ${KIND_AR[x.kind]}` : KIND_AR[x.kind];
       const fmt = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       const back = startsAt ? `${fmt(startsAt)} → ${fmt(expected)}` : fmt(expected);
-      for (const to of await approversOf(q, a.id, managerId)) {
+      for (const to of await approversOf(q, a.id, managerId, now)) {
         await notify(q, { to, type: parentId ? 'outing_extension_awaiting' : 'outing_awaiting', title: `طلب ${label} من ${a.fullName}`,
           body: `${startsAt ? 'من' : 'الرجوع'} ${back} — ${reason}`, entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:awaiting` });
       }

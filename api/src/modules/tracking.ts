@@ -13,16 +13,22 @@ import { pushTo, type PushResult } from '../lib/fcm.ts';
 import { leadsSweep } from './leads.ts';
 import { leadsAutoReassign } from './leads2.ts';
 import { activeOuting, markReturned } from './outings.ts';
+import { shiftEligibility } from '../lib/attendance-policy.ts';
+import { available } from './presence.ts';
+import { closeEndedShifts, closeIncident, openIncident } from './exit-incidents.ts';
 
 /** Who hears about an employee: HR/owner (attendance.read_all) + the employee's sales manager(s). */
-async function watchersOf(q: Q, employeeId: string): Promise<string[]> {
+async function watchersOf(q: Q, employeeId: string, now: Date = new Date()): Promise<string[]> {
   const all = await holdersOf(q, 'attendance.read_all', [employeeId]);
   const mgr = await q.query<{ id: string }>(`
     SELECT DISTINCT x.id FROM employees e
       LEFT JOIN teams t ON t.id = e.team_id
       JOIN employees x ON x.id IN (t.manager_id, e.sales_manager_id)
      WHERE e.id = $1 AND x.id <> $1 AND x.status = 'active' AND ${notSettled('x')}`, [employeeId]);
-  return [...new Set([...all, ...mgr.rows.map((r) => r.id)])];
+  // a sales manager on approved leave / recorded absence today hears nothing about his team (HR and the owner still do);
+  // he is back in the list as soon as he is back at work
+  const managers = await available(q, mgr.rows.map((r) => r.id), now);
+  return [...new Set([...all, ...managers])];
 }
 
 /**
@@ -38,8 +44,8 @@ async function silentCauseOf(q: Q, employeeId: string, now: Date, staleMin: numb
   return silentCause({ androidPhones: r?.phones ?? 0, androidSeenRecently: r?.seen === true });
 }
 
-async function tellWatchers(q: Q, employeeId: string, type: string, title: string, body: string, dedupeKey: string) {
-  for (const to of await watchersOf(q, employeeId)) {
+async function tellWatchers(q: Q, employeeId: string, type: string, title: string, body: string, dedupeKey: string, now: Date = new Date()) {
+  for (const to of await watchersOf(q, employeeId, now)) {
     await notify(q, { to, type, title, body, entity: 'employee', entityId: employeeId, dedupeKey });
   }
 }
@@ -52,26 +58,49 @@ async function tellWatchers(q: Q, employeeId: string, type: string, title: strin
  *  - the administrative officer = the «مسؤول إداري» position (key admin_officer, or the position named so)
  * One person once (several roles → one notification; his phones each get it once: tokens are unique).
  */
-export async function exitRecipients(q: Q, employeeId: string): Promise<string[]> {
+export async function exitRecipients(q: Q, employeeId: string, now: Date = new Date()): Promise<string[]> {
   const gm = await generalManagerOf(q, employeeId);
   const roles = await q.query<{ id: string }>(`
     SELECT e.id FROM employees e JOIN roles r ON r.key = COALESCE(e.position_key, e.role_key)
      WHERE e.status = 'active' AND ${notSettled('e')} AND e.id <> $1
        AND ((r.key = 'admin_officer' OR r.name_ar = 'مسؤول إداري')
             OR ($2::uuid IS NULL AND (r.key = 'manager' OR r.base_key = 'manager')))`, [employeeId, gm]);
-  return [...new Set([...(gm ? [gm] : []), ...roles.rows.map((x) => x.id), ...await watchersOf(q, employeeId)])];
+  return [...new Set([...(gm ? [gm] : []), ...roles.rows.map((x) => x.id), ...await watchersOf(q, employeeId, now)])];
 }
 
 /**
  * The employee-side conditions of the alarm (the shift, the office and the permission are checked on each ping):
  * the company follow-up is on, «تتبع أثناء العمل» is on for him, and he has «حضور وانصراف».
  */
-export async function trackingEligibility(q: Q, employeeId: string): Promise<{ on: boolean; reason: string | null }> {
+export async function trackingEligibility(q: Q, employeeId: string, now?: Date, opts: { ignoreAttendance?: boolean } = {}): Promise<{ on: boolean; reason: string | null; endsInMinutes?: number | null }> {
   const r = await one(q, `
     SELECT s.tracking_enabled AS company, ${WORK_TRACKING_SQL('e')} AS employee, NOT e.attendance_exempt AS attendance
       FROM employees e CROSS JOIN company_settings s WHERE e.id = $1`, [employeeId]);
   const reason = !r ? 'no_employee' : !r.company ? 'company_off' : !r.employee ? 'employee_off' : !r.attendance ? 'no_attendance' : null;
-  return { on: reason === null, reason };
+  if (reason || !now) return { on: reason === null, reason };
+  // shift-based (2026-11-26): only inside his scheduled shift on a working day, between check-in and check-out, never on
+  // an approved leave / absence or a holiday — the server decides, the app only follows its answer
+  const sh = await shiftOf(q, employeeId, now, opts.ignoreAttendance === true);
+  return { on: sh.eligible, reason: sh.reason, endsInMinutes: sh.endsInMinutes };
+}
+
+/** The employee's eligible working period right now (schedule, holiday, approved leave, check-in / check-out). */
+export async function shiftOf(q: Q, employeeId: string, now: Date, ignoreAttendance = false) {
+  const l = local(now);
+  const x = await one(q, `
+    SELECT COALESCE(e.work_start, ws.start_time)::text AS start_time, COALESCE(e.work_end, ws.end_time)::text AS end_time, ws.weekend_days,
+           EXISTS (SELECT 1 FROM holidays h WHERE h.day = $2) AS holiday,
+           EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved' AND r.type = 'full_day_absence'
+                     AND r.start_date <= $2 AND r.end_date >= $2) AS on_leave,
+           a.check_in_at, a.check_out_at
+      FROM employees e
+      JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
+      LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $2
+     WHERE e.id = $1`, [employeeId, l.date]);
+  if (!x) return { eligible: false, reason: 'no_employee' as const, endsInMinutes: null };
+  return shiftEligibility({ nowMinutes: l.minutes, isoDow: l.isoDow, weekendDays: x.weekend_days ?? [], holiday: x.holiday,
+    onLeave: x.on_leave, shiftStart: x.start_time.slice(0, 5), shiftEnd: x.end_time.slice(0, 5),
+    checkedIn: ignoreAttendance || !!x.check_in_at, checkedOut: !ignoreAttendance && !!x.check_out_at });
 }
 
 /** a short, location-free summary of what the pushes did (for the audit log) */
@@ -103,6 +132,8 @@ export async function sweep(q: Q, now: Date) {
   await leadsAutoReassign(q, now);
   // a new lead that found no salesman online → the first chosen one who comes online
   await assignWaiting(q, now);
+  // unauthorized-exit incidents still open when the scheduled shift ended are closed at the shift end
+  await closeEndedShifts(q, now);
   const l = local(now);
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`
@@ -130,7 +161,7 @@ export async function sweep(q: Q, now: Date) {
     await notify(q, { to: o.employee_id, type: 'outing_overdue', title: 'ميعاد رجوعك عدّى ⏰',
       body: 'سجّل رجوعك، أو اطلب تمديد، أو قدّم طلب جديد.', entity: 'outing_request', entityId: o.id, dedupeKey: `outing:${o.id}:overdue` });
     await tellWatchers(q, o.employee_id, 'outing_overdue_watch', `${o.full_name} لسه مرجعش`,
-      `ميعاد الرجوع المعتمد عدّى.`, `outing:${o.id}:overdue_watch`);
+      `ميعاد الرجوع المعتمد عدّى.`, `outing:${o.id}:overdue_watch`, now);
   }
 
   const remind = claimed.checkin_reminder_minutes;
@@ -141,29 +172,31 @@ export async function sweep(q: Q, now: Date) {
       await notify(q, { to: r.id, type: 'checkin_reminder', title: 'سجّلت حضورك النهارده؟ ⏰', body: 'لسه مسجلتش حضور.',
         dedupeKey: `checkin_reminder:${l.date}` });
       await tellWatchers(q, r.id, 'not_checked_in', `${r.full_name} لسه مسجلش حضور`, `عدّى ${remind} دقيقة على ميعاد الحضور.`,
-        `not_checked_in:${r.id}:${l.date}`);
+        `not_checked_in:${r.id}:${l.date}`, now);
     }
     if (remind > 0 && r.att_id && !r.check_out_at && !r.on_break && l.minutes >= end + remind) {
       await notify(q, { to: r.id, type: 'checkout_reminder', title: 'متنساش تسجّل انصراف 👋', body: 'ميعاد الانصراف عدّى.',
         dedupeKey: `checkout_reminder:${l.date}` });
       await tellWatchers(q, r.id, 'not_checked_out', `${r.full_name} مسجلش انصراف`, 'ميعاد الانصراف عدّى ولسه مسجلش.',
-        `not_checked_out:${r.id}:${l.date}`);
+        `not_checked_out:${r.id}:${l.date}`, now);
     }
     const stale = claimed.tracking_stale_minutes;
-    if (claimed.tracking_enabled && r.work_tracking && stale > 0 && r.att_id && r.check_in_at && !r.check_out_at) {
+    // the follow-up's own alerts run only inside the scheduled shift (after it ends nobody is followed)
+    const inShift = l.minutes >= start && l.minutes < end;
+    if (claimed.tracking_enabled && r.work_tracking && inShift && stale > 0 && r.att_id && r.check_in_at && !r.check_out_at) {
       const last = r.last_ping_at ? new Date(r.last_ping_at).getTime() : null;
       const silentMin = last === null ? null : Math.floor((now.getTime() - last) / 60000);
       if (silentMin !== null && silentMin >= stale) {
         const why = SILENT_CAUSE_AR[await silentCauseOf(q, r.id, now, stale)];
         await tellWatchers(q, r.id, 'tracking_stopped', `التتبع وقف عند ${r.full_name}`,
-          `آخر موقع من ${silentMin} دقيقة — ${why}.`, `tracking_stopped:${r.id}:${l.date}:${Math.floor(last! / 3_600_000)}`);
+          `آخر موقع من ${silentMin} دقيقة — ${why}.`, `tracking_stopped:${r.id}:${l.date}:${Math.floor(last! / 3_600_000)}`, now);
       } else if (last === null && neverPingedDue(new Date(r.check_in_at), now, stale)) {
         // T2: checked in and not ONE location since — the watchers are told too (before, only his own phone rang);
         // one notification per person per day (the dedupe key), a later silence after pings resume is the case above
         const why = SILENT_CAUSE_AR[await silentCauseOf(q, r.id, now, stale)];
         const sinceMin = Math.floor((now.getTime() - new Date(r.check_in_at).getTime()) / 60000);
         await tellWatchers(q, r.id, 'tracking_stopped', `التتبع مش شغال عند ${r.full_name}`,
-          `سجّل حضور من ${sinceMin} دقيقة ومفيش ولا موقع وصل — ${why}.`, `tracking_stopped:${r.id}:${l.date}:none`);
+          `سجّل حضور من ${sinceMin} دقيقة ومفيش ولا موقع وصل — ${why}.`, `tracking_stopped:${r.id}:${l.date}:none`, now);
       } else if (last !== null && isWeakFix(r.last_acc === null ? null : Number(r.last_acc))) {
         // G2: locations arrive but none is usable (accuracy worse than 200 m — e.g. «الموقع التقريبي» on Android): nobody
         // can tell inside from outside. One weak sample never warns; a run of them since the last usable fix does.
@@ -180,13 +213,13 @@ export async function sweep(q: Q, now: Date) {
           const mins = Math.floor((now.getTime() - from.getTime()) / 60000);
           await tellWatchers(q, r.id, 'tracking_weak_gps', `موقع ${r.full_name} مش دقيق`,
             `آخر ${w.weak} مواقع دقتها أضعف من ${WEAK_GPS_M} متر (من ${mins} دقيقة${lastGood ? ' من آخر موقع دقيق' : ' من الحضور'}) — مش معروف هو جوه ولا بره المكتب. ممكن يكون مشغّل «الموقع التقريبي» أو الـ GPS ضعيف.`,
-            `tracking_weak:${r.id}:${l.date}:${Math.floor(from.getTime() / 3_600_000)}`);
+            `tracking_weak:${r.id}:${l.date}:${Math.floor(from.getTime() / 3_600_000)}`, now);
         }
       }
     }
     // the account is open on more than one phone: EVERY phone must be followed, so whichever one leaves the office rings.
     // A signed-in Android phone that sends no location → that phone alone rings «افتح التطبيق» (opening it starts its follow-up)
-    if (claimed.tracking_enabled && r.work_tracking && r.att_id && r.check_in_at && !r.check_out_at && !r.on_break) {
+    if (claimed.tracking_enabled && r.work_tracking && inShift && r.att_id && r.check_in_at && !r.check_out_at && !r.on_break) {
       // never shorter than two of the phone's own reporting intervals (a working phone is never rung)
       const grace = Math.max(10, stale > 0 ? stale : 15, 2 * (claimed.tracking_interval_minutes ?? 5) + 2);
       if (now.getTime() - new Date(r.check_in_at).getTime() >= grace * 60000) await nudgeSilentPhones(q, r.id, l.date, now, grace);
@@ -238,7 +271,7 @@ async function nudgeSilentPhones(q: Q, employeeId: string, date: string, now: Da
  *  الآن»); answering it opens the app there, so that phone is followed too. Only when he is followed during work. */
 export async function ringOtherPhonesAtCheckIn(q: Q, employeeId: string, exceptSession: string, date: string, now: Date) {
   try {
-    if (!(await trackingEligibility(q, employeeId)).on) return;
+    if (!(await trackingEligibility(q, employeeId, now)).on) return;
     const phones = await androidPhones(q, employeeId, now, { except: exceptSession });
     await callPhones(q, employeeId, phones, 'checkin_other_phone', 'Valunivo Call', 'ابدأ عملك الآن', date, 'tracking.checkin_call');
   } catch { /* a ring must never undo a check-in */ }
@@ -255,8 +288,12 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const { at: now, offline } = actionTime(b, clock()); const l = local(now);
     const cfg = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
     // the company follow-up + «تتبع أثناء العمل» + «حضور وانصراف»: otherwise nothing is followed (the app stops)
-    const elig = await trackingEligibility(db, a.id);
-    if (!elig.on) return ok({ tracking: false, reason: elig.reason });
+    // (check-in / check-out keep their own answer below: 409, as before)
+    const elig = await trackingEligibility(db, a.id, now, { ignoreAttendance: true });
+    if (!elig.on) {
+      // outside the eligible period nothing is kept; an exit incident still open is closed at its shift end by the sweep
+      return ok({ tracking: false, reason: elig.reason });
+    }
     // G1: a session whose device may not record attendance does not feed the follow-up either (its office location could
     // hide a silent phone) — answered like «not followed», so the app simply stops sending; nothing is kept
     if (await punchRefusalOf(db, a, req)) return ok({ tracking: false, reason: 'device_not_authorized' });
@@ -315,9 +352,11 @@ export const trackingModule: Module = (r, { db, clock }) => {
           const where = `على بُعد ${Math.round(outside!)} متر من المكتب — الساعة ${hhmm(now)}`;
           const why = outing ? 'عدّى ميعاد الرجوع المسموح' : 'من غير إذن أو معاينة معتمدة';
           await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined, { at: now, lat, lng, acc, outsideM: Math.round(outside!), ...stages });
+          // the verified exit is recorded as an incident (once: one open incident per employee, one per exit instant)
+          await openIncident(q, { employeeId: a.id, workDate: l.date, exitAt: now, deviceKey });
           // the alarm: the employee (all his phones) + his general manager + the administrative officer (+ his watchers)
           const event = `${a.id}:${deviceKey}:${now.getTime()}`;
-          const to = await exitRecipients(q, a.id);
+          const to = await exitRecipients(q, a.id, now);
           const sent: (PushResult | null)[] = [];
           for (const r of to) {
             sent.push(await notify(q, { to: r, type: 'unauthorized_exit', title: `خروج غير مصرح: ${a.fullName}${onPhone}`, body: `${why}. ${where}.`,
@@ -330,10 +369,14 @@ export const trackingModule: Module = (r, { db, clock }) => {
             { event, recipients: to.length, employee: pushSum([self]), others: pushSum(sent) });
         }
       } else if (inside === true && wasInside === false && awaySince) {
+        // back inside: an open unauthorized-exit incident ends now (unless another of his phones is still outside)
+        const stillOut = await one(q, `SELECT 1 FROM tracking_state WHERE employee_id = $1 AND device_key <> $2 AND work_date = $3
+                                         AND inside = false AND last_ping_at > $4::timestamptz - interval '15 minutes'`, [a.id, deviceKey, l.date, now]);
+        if (!stillOut) await closeIncident(q, a.id, now, 'returned');
         const mins = Math.max(0, Math.round((now.getTime() - awaySince.getTime()) / 60000));
         awayMinutes += mins; awaySince = null;
         await tellWatchers(q, a.id, 'back_in_office', `${a.fullName} رجع المكتب${onPhone}`, `كان برة ${mins} دقيقة.`,
-          `back_in_office:${a.id}:${deviceKey}:${now.getTime()}`);
+          `back_in_office:${a.id}:${deviceKey}:${now.getTime()}`, now);
       }
       // back inside while out on a permission / visit → it is closed automatically — unless another of his
       // phones is still outside right now (a tablet left at the desk must not end a visit)
@@ -364,10 +407,11 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const a = await authenticate(db, req);
     const s = await one(db, `SELECT tracking_enabled, tracking_interval_minutes, away_margin_m FROM company_settings`);
     // this person: the company follow-up + his «تتبع أثناء العمل» + «حضور وانصراف» (reason = why not, for diagnostics)
-    const elig = await trackingEligibility(db, a.id);
+    // the shift window, holidays and leave decide; check-in / check-out are the app's own start and stop (as before)
+    const elig = await trackingEligibility(db, a.id, clock(), { ignoreAttendance: true });
     // office areas so the phone can ring by itself when it leaves them, even with no internet
     const locs = (await db.query(`SELECT lat, lng, radius_m FROM work_locations WHERE active`)).rows;
-    return ok({ enabled: elig.on, reason: elig.reason, intervalMinutes: s.tracking_interval_minutes,
+    return ok({ enabled: elig.on, reason: elig.reason, endsInMinutes: elig.endsInMinutes ?? null, intervalMinutes: s.tracking_interval_minutes,
       awayMarginM: s.away_margin_m ?? 0, offices: locs.map((l) => ({ lat: l.lat, lng: l.lng, radiusM: l.radius_m })) });
   });
 
