@@ -17,7 +17,7 @@ jobs:
       - name: Build the samples
         working-directory: app
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter test test/custody_receipt_pdf_test.dart
           ls -la build/form-samples
       - name: Attach them to the form-samples pre-release

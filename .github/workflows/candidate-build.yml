@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - name: Analyze (errors fail)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; ! grep -qE "^\s*error •" analyze.txt
       - name: Unit / widget tests
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
-      - run: flutter config --enable-windows-desktop && flutter pub get
+      - run: flutter config --enable-windows-desktop && flutter pub get --enforce-lockfile
       - name: Build Windows (Release, unsigned, automatic updates off — no update key is passed)
         run: |
           flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} \

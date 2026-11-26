@@ -23,7 +23,7 @@ jobs:
       - name: Platform folders
         run: |
           if [ ! -d web ]; then flutter create --platforms=web --org com.jph.valueattendance --project-name jph_real_estate_hr .; fi
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - name: Build Web against the preview API (demo data)
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=API_BASE_URL=${{ vars.PREVIEW_API_URL }}
       - name: Web Push helper + SPA fallback + a clear «معاينة» title

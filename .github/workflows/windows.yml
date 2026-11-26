@@ -65,7 +65,7 @@ jobs:
           fi
           if [ -z "$KEYS" ]; then echo "::notice::no pinned update key yet — this build has automatic updates switched off"; exit 0; fi
           echo "UPDATE_PUBLIC_KEY=$KEYS" >> "$GITHUB_ENV"; echo "public_key=$KEYS" >> "$GITHUB_OUTPUT"; echo "trusted update key(s): $KEYS"
-      - run: flutter config --enable-windows-desktop && flutter pub get
+      - run: flutter config --enable-windows-desktop && flutter pub get --enforce-lockfile
       - run: flutter test
       - name: Windows smoke test inside the app (DPAPI token storage, API reachable, server rejects no / forged token, login screen)
         run: flutter test integration_test/windows_smoke_test.dart -d windows --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
@@ -193,7 +193,7 @@ jobs:
       - name: Trust the test certificate (this runner only)
         shell: pwsh
         run: Import-Certificate -FilePath "$env:E\tls.cer" -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
-      - run: flutter config --enable-windows-desktop && flutter pub get
+      - run: flutter config --enable-windows-desktop && flutter pub get --enforce-lockfile
       - name: Build 1.0.A, 1.0.A+1, a broken 1.0.A+2 and 1.0.A+3 (+ installers)
         run: |
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"; [ -x "$ISCC" ] || { choco install innosetup -y --no-progress >/dev/null; }

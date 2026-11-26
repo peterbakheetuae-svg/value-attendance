@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "cd api && npm install",
+  "installCommand": "cd api && npm ci",
   "buildCommand": "cd api && node scripts/migrate-if-production.mjs && node scripts/vercel-build.mjs ../.vercel/output",
   "outputDirectory": "api/public",
   "git": {
