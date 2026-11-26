@@ -1,0 +1,38 @@
+name: Android release — verify the hosted update (read only)
+# Downloads what the phones download (https://jaurea.com/valunivo/android/latest.json and the APK it names) and checks it
+# against the GitHub release of the same version: SHA-256 and size as announced, a valid v2 signature, the same signing
+# certificate as the release, package id, versionCode / versionName. Reads only; changes nothing anywhere.
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/094-production]
+    paths: ['.github/workflows/android-release-verify.yml']
+permissions: { contents: read }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: Hosted latest.json and APK = the GitHub release
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          for d in valunivo value-attendance; do
+            J=$(curl -fsS --max-time 30 "https://jaurea.com/$d/android/latest.json?t=$(date +%s)"); echo "$d latest.json: $J"
+          done
+          J=$(curl -fsS --max-time 30 "https://jaurea.com/valunivo/android/latest.json?t=$(date +%s)")
+          V=$(jq -r .version <<<"$J"); B=$(jq -r .build <<<"$J"); A=$(jq -r .apk <<<"$J"); S=$(jq -r .size <<<"$J"); H=$(jq -r .sha256 <<<"$J")
+          [ "$A" = "value-attendance-$V.apk" ] && [ "$V" = "1.0.$B" ] || { echo "::error::inconsistent metadata"; exit 1; }
+          code=$(curl -sS -o hosted.apk -w '%{http_code}' --max-time 300 "https://jaurea.com/valunivo/android/$A"); echo "download -> $code"
+          [ "$code" = 200 ] || { echo "::error::APK download $code"; exit 1; }
+          echo "hosted size $(stat -c%s hosted.apk) sha256 $(sha256sum hosted.apk | cut -d' ' -f1)"
+          [ "$(stat -c%s hosted.apk)" = "$S" ] && [ "$(sha256sum hosted.apk | cut -d' ' -f1)" = "$H" ] || { echo "::error::hosted APK differs from latest.json"; exit 1; }
+          gh release download "v$V" -R "${{ github.repository }}" -p value-attendance.apk -O release.apk
+          [ "$(sha256sum release.apk | cut -d' ' -f1)" = "$H" ] || { echo "::error::hosted APK is not the release artifact"; exit 1; }
+          "$BT/apksigner" verify --verbose --print-certs hosted.apk | tee v.txt
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' v.txt
+          ! grep -qi 'CN=Android Debug' v.txt
+          grep -m1 'SHA-256 digest' v.txt | grep -q '212e2a9b3d7cc9d1e31104a123f1d1ea962a7cd009cf3c0d8f34aa23437e2c54' || { echo "::error::signing certificate changed"; exit 1; }
+          "$BT/aapt2" dump badging hosted.apk | head -1 | tee b.txt
+          grep -q "package: name='com.jph.valueattendance'" b.txt && grep -q "versionCode='$B'" b.txt && grep -q "versionName='$V'" b.txt
+          echo "OK: $A ($V / $B) hosted = release artifact, signed by the published certificate"
