@@ -17,6 +17,31 @@ app-check 45785421233 (Android release build check), Windows 45785439879 (build 
 | 6 | Operational workflows | Implemented and tested; **production is not configured** | Tracking OFF, office locations, teams |
 | 7 | Web and Windows artifacts | PASS (web live; Windows 1.0.46 built and update-tested, not published) | — |
 
+## Independent verification of the two original NO-GO findings (2026-11-26, third pass)
+**NO-GO 1 — Android token falling back to plain SharedPreferences.** Every token path traced (`TokenStore.read/write/clear`,
+`Session.restore/login/logout/_clear`, the background isolate in `shift_service.dart`, `SessionService.logout`):
+- new session: written to Keystore-backed storage and read back; on failure memory-only, plain key removed;
+- older plain session: removed from disk in every case (memory-only if the secure storage refuses) — fixed in `684b392`;
+- sign-out whose secure delete fails (found in this pass): a «signed out» mark now prevents restoring the left-over
+  encrypted copy at the next start, and survives the screen-session prefs wipe — fixed in `6a0b90b`;
+- no other code writes the session token to SharedPreferences (only `fcm_token`, screen-session fields, `me_cache`);
+- residual, by design: the background isolate cannot read a memory-only session, so in-shift tracking stops (fails
+  closed) on a phone whose Keystore refuses; the web build keeps its token in browser storage.
+Tests (Flutter, 84 pass, run 45790382971): legacy session with a refusing storage, new session with a refusing storage,
+sign-out whose delete fails then restart.
+
+**NO-GO 2 — permission-check failures read as grants.** Server: `has()` needs a registered key held by the account;
+`can()` fell back to the pre-migration rule (open to everyone for 5 keys) whenever a fine key was absent from the table.
+Fixed in `5a7983e`: no key list → deny; a key absent while its migration is recorded in `schema_migrations` (or that
+record is unreadable) → deny; only a database where the migration genuinely has not run keeps the old rule. A database
+error is a 500, never a grant. App: permissions start empty and stay empty when `/me` fails; a 401 clears the session.
+Tests (API, PostgreSQL 16 / 18 + least-privilege, 656 pass 0 fail, run 45792196968): pure rules, and the real export
+route on production's schema with `report.export` removed → 403 for owner / HR / employee and absent from `/me`.
+
+**Scheduled jobs:** GitHub runs this repository's schedules hours late or not at all (meta-sync: no run since it
+reached main; files-health: one run in 14 h). Failure visibility only exists when a run happens; the attendance sweeps
+do not depend on GitHub (owner's Apps Script heartbeat, seen in production logs 2026-11-26).
+
 ## 1. Security remediation
 - `pending-build` is fully contained in `main` (0 ahead / 132 behind). It was not modified.
 - **1a — material finding.** The paused remediation commits from `security/reverify-2026-11-24` (G1 device-authorised
