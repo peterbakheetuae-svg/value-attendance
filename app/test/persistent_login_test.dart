@@ -47,6 +47,32 @@ void main() {
       expect(await TokenStore.read(), 'legacy-tok');
     });
 
+    test('secure storage refuses an older plain session: the plain copy is still removed, the session lives in memory only', () async {
+      SharedPreferences.setMockInitialValues({'token': 'legacy-tok'});
+      TokenStore.debugSecureStorageFails = true;
+      try {
+        expect(await TokenStore.read(), 'legacy-tok', reason: 'not signed out during this run');
+        expect((await SharedPreferences.getInstance()).getString('token'), isNull, reason: 'never left on disk in plain text');
+        expect(await TokenStore.read(), 'legacy-tok', reason: 'kept in memory for this run');
+      } finally {
+        TokenStore.debugSecureStorageFails = false;
+        await TokenStore.clear();
+      }
+    });
+
+    test('secure storage refuses a new session: nothing is written in plain text', () async {
+      TokenStore.debugSecureStorageFails = true;
+      try {
+        await TokenStore.write('tok-new');
+        expect((await SharedPreferences.getInstance()).getString('token'), isNull);
+        expect(await TokenStore.read(), 'tok-new', reason: 'memory only, this run');
+      } finally {
+        TokenStore.debugSecureStorageFails = false;
+        await TokenStore.clear();
+      }
+      expect(await TokenStore.read(), isNull, reason: 'a restart (memory cleared) needs a new sign-in');
+    });
+
     test('explicit sign-out clears the stored session', () async {
       await TokenStore.write('tok-123');
       await TokenStore.clear();

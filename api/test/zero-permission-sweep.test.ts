@@ -27,15 +27,15 @@ const ORG_CHART = 'GET /teams';
 
 const FAKE = '00000000-0000-4000-8000-000000000000';
 
-async function sweep(idFor: (param: string) => string) {
+async function sweep(idFor: (param: string) => string, token = c.t.solo, others0?: string[]) {
   const routes = buildRouter({ db: h.db, clock: () => new Date() }).list();
   const ok: string[] = []; const leaks: string[] = []; const errors: string[] = [];
-  const others = [c.ids.owner, c.ids.hr, c.ids.acc, c.ids.sm1, c.ids.sm2, c.ids.e1, c.ids.e2, c.ids.e3];
+  const others = others0 ?? [c.ids.owner, c.ids.hr, c.ids.acc, c.ids.sm1, c.ids.sm2, c.ids.e1, c.ids.e2, c.ids.e3];
   for (const r of routes) {
     if (PUBLIC.has(r) || SKIP.has(r)) continue;
     const [method, path] = r.split(' ');
     const url = path.replace(/:([a-zA-Z]+)/g, (_m, p) => idFor(p)) + (path.includes('?') ? '' : '?month=2026-03');
-    const res = await h.call(c.t.solo, method, url, method === 'GET' ? undefined : {});
+    const res = await h.call(token, method, url, method === 'GET' ? undefined : {});
     if (res.status >= 500) errors.push(`${r} → ${res.status}`);
     if (res.status >= 200 && res.status < 300) {
       ok.push(r);
@@ -49,7 +49,7 @@ async function sweep(idFor: (param: string) => string) {
     }
   }
   // the sweep's own calls must not have ended his session (otherwise later routes were only tested as anonymous)
-  assert.equal((await h.call(c.t.solo, 'GET', '/me')).status, 200, 'session still valid after the sweep');
+  assert.equal((await h.call(token, 'GET', '/me')).status, 200, 'session still valid after the sweep');
   return { ok: ok.sort(), leaks, errors };
 }
 
@@ -78,6 +78,25 @@ test('zero-permission account, REAL ids of other people (IDOR): no route leaks a
   const real: Record<string, string> = { id: c.ids.e2, employeeId: c.ids.e2, teamId: c.ids.teamA, key: 'hr_manager' };
   const r = await sweep((p) => real[p] ?? c.ids.e2);
   console.log(`2xx (real ids): ${r.ok.length}\n${r.ok.join('\n')}`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.leaks, []);
+});
+
+// with their role's default permissions: a sales employee of team B and the manager of team B call every route with the
+// real ids of team A's people — nothing of team A may come back (cross-team IDOR), apart from the org chart
+const teamA = () => [c.ids.e1, c.ids.e2];
+const realA = (p: string) => ({ id: c.ids.e1, employeeId: c.ids.e1, teamId: c.ids.teamA, key: 'hr_manager' } as Record<string, string>)[p] ?? c.ids.e1;
+
+test('sales employee (team B, default permissions) with team A ids: no team A record leaks', async () => {
+  const r = await sweep(realA, c.t.e3, teamA());
+  console.log(`2xx (e3 → team A ids): ${r.ok.length}`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.leaks, []);
+});
+
+test('sales manager of team B (default permissions) with team A ids: no team A record leaks', async () => {
+  const r = await sweep(realA, c.t.sm2, teamA());
+  console.log(`2xx (sm2 → team A ids): ${r.ok.length}`);
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.leaks, []);
 });
