@@ -72,7 +72,7 @@ test('missing VAPID_PRIVATE_KEY: Web Push is off — never derived from FCM_SERV
     assert.equal(vapidState(), 'missing');
     assert.equal(vapidKeys(), null);
     assert.equal(webPushPublicKey(), null);
-    const r = await h.call(c.t.e1, 'GET', '/me/web-push');
+    const r = await h.call(await h.login('E1', PW), 'GET', '/me/web-push');
     assert.equal(r.status, 200); assert.equal(r.body.publicKey, null);
     assert.equal((await webPushTo(h.db, c.ids.e1, { id: 'n', type: 't', title: 'a', body: 'b' })).off, true);
   });
