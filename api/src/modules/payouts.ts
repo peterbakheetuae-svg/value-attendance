@@ -119,6 +119,12 @@ export const payoutsModule: Module = (r, { db, clock }) => {
     const note = str(b, 'note', { optional: true, max: 1000 }) ?? '';
     const advanceId = typeof b.advanceId === 'string' && b.advanceId ? b.advanceId : null;
     if (advanceId && !isUuid(advanceId)) throw invalid('advanceId is invalid', { field: 'advanceId' });
+    // F-1 (owner decision 2026-11-26): an advance or a work expense is paid ONLY against its approved request (the request
+    // decides the employee, the kind and the amount); a request id never rides on another kind of payment
+    if ((kind === 'advance' || kind === 'work_expense') && !advanceId) {
+      throw new AppError('unprocessable', 'السلفة ومصاريف العمل بتتصرف على طلب معتمد بس', { reason: 'request_required', field: 'advanceId' });
+    }
+    if (advanceId && kind !== 'advance' && kind !== 'work_expense') throw invalid('advanceId is only for an advance or a work expense', { field: 'advanceId' });
     const entitlementId = typeof b.entitlementId === 'string' && b.entitlementId ? b.entitlementId : null;
     if (entitlementId && (!isUuid(entitlementId) || kind !== 'commission')) throw invalid('entitlementId is invalid', { field: 'entitlementId' });
 
@@ -150,7 +156,8 @@ export const payoutsModule: Module = (r, { db, clock }) => {
         }
 
         // the HR cashbox may go below zero (approved policy): the deficit shows to the manager as money to transfer
-        if (advanceId) {
+        if (kind === 'advance' || kind === 'work_expense') {
+          if (!advanceId) throw new AppError('unprocessable', 'request required', { reason: 'request_required' }); // (checked above)
           // paying an approved financial request (سلفة / مصاريف عمل): the amount is the approved one
           const adv = await one(q, `SELECT * FROM advance_requests WHERE id = $1 FOR UPDATE`, [advanceId]);
           if (!adv || adv.employee_id !== employeeId || adv.status !== 'confirmed') throw invalid('The advance is not approved', { field: 'advanceId' });

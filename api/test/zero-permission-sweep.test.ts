@@ -20,9 +20,8 @@ const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', '
 // routes that end his own session — called last / not at all
 const SKIP = new Set(['POST /auth/logout', 'POST /auth/logout-all', 'POST /auth/change-password', 'POST /me/password']);
 
-// the org chart (GET /teams: team name, department, its manager's id / name, member count) is readable by every signed-in
-// employee — app pickers rely on it. Recorded as release-gate finding P-1 (whether the org chart is visible to everyone is
-// the owner's policy); the answer is checked below to carry managers only, never contact, salary or member lists.
+// the team directory (GET /teams: team, department, manager's name, member count) is readable by every signed-in employee
+// (P-1, owner decision 2026-11-26) — checked below to carry exactly those fields, never an employee id, contact or salary
 const ORG_CHART = 'GET /teams';
 
 const FAKE = '00000000-0000-4000-8000-000000000000';
@@ -44,12 +43,11 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
       if (r === 'GET /leads/dashboard') {
         // «الأفضل»: the ranking (rank, id, name) is the company's by design; another team's numbers must be hidden
         const shownOthers = (res.body?.best ?? []).filter((x: any) => seen.includes(x.id) && (x.actions !== null || x.meetings !== null || x.deals !== null));
-        // «المستخدمون المتصلون» (online): the owner's decision 2026-11-23 shows it to the GM, the administrative officer and
-        // sales managers, company-wide (finding P-2: whether a sales manager should see only his team is the owner's call);
-        // it may carry id / name / last-seen only
+        // «المستخدمون المتصلون» (online) — P-2 (owner decision 2026-11-26): a sales manager sees his own team only, so another
+        // team's ids in it are a leak like anywhere else; it carries id / name / last seen only
         const onlineOk = (res.body?.online ?? []).every((x: any) => Object.keys(x).every((k) => ['id', 'name', 'seen', 'me'].includes(k)));
         if (!onlineOk) leaks.push(`${r} → online list carries more than id / name / last seen`);
-        const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [], online: [] }).includes(id));
+        const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [] }).includes(id));
         if (shownOthers.length || elsewhere.length) {
           const where = Object.keys(res.body ?? {}).filter((k) => k !== 'best' && seen.some((id) => JSON.stringify(res.body[k]).includes(id)));
           leaks.push(`${r} → another team's numbers (${shownOthers.map((x: any) => x.name).join('/')}) or records in [${where.join(', ')}]`);
@@ -59,9 +57,10 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
         const extraFields = (res.body?.people ?? []).some((x: any) => Object.keys(x).some((k) => !['id', 'name'].includes(k)));
         if (extraFields) leaks.push(`${r} → more than id / name`);
       } else if (r === ORG_CHART) {
-        const managers = new Set((res.body?.teams ?? []).map((t: any) => t.manager_id));
-        const extra = seen.filter((id) => !managers.has(id));
-        if (extra.length || /phone|email|salary|national|address/i.test(text)) leaks.push(`${r} → more than the org chart`);
+        // P-1 (owner decision 2026-11-26): the directory for everyone — exactly these fields, no employee id at all
+        const fields = new Set((res.body?.teams ?? []).flatMap((t: any) => Object.keys(t)));
+        const allowed = ['id', 'name', 'active', 'department_name', 'manager_name', 'member_count'];
+        if (seen.length || [...fields].some((f) => !allowed.includes(f))) leaks.push(`${r} → more than the team directory: ${[...fields]}`);
       } else if (seen.length) leaks.push(`${r} → carries ${seen.length} other employee id(s)`);
     }
   }

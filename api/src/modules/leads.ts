@@ -823,12 +823,17 @@ export const leadsModule: Module = (r, { db, clock }) => {
     // المستخدمون المتصلون: people who work leads, active in the last 10 minutes — the GM, the administrative officer and
     // the sales manager only (owner's decision 2026-11-23); a salesman (or a marketing partner) gets none of it
     const seesOnline = !a.partner && (canAll(a) || canTeam(a));
+    // P-2 (owner decision 2026-11-26): a sales manager (team scope only) sees his own team's members — and himself —
+    // never another team; the GM / administrative officer (company scope) as before. Decided here, from the server's
+    // team records, whatever the request asks.
+    const onlineScope: string[] | null = !seesOnline || canAll(a) ? null : [a.id, ...await teamMemberIds(db, a.id)];
     const online = !seesOnline ? { rows: [] as any[] } : await db.query(`
       SELECT e.id, e.full_name, max(s.last_seen_at) AS seen
         FROM sessions s JOIN employees e ON e.id = s.employee_id
         JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
        WHERE s.revoked_at IS NULL AND s.last_seen_at > now() - interval '10 minutes' AND $1::timestamptz IS NOT NULL AND e.status = 'active'
-       GROUP BY e.id ORDER BY e.full_name LIMIT 30`, [now]);
+         AND ($2::uuid[] IS NULL OR e.id = ANY($2::uuid[]))
+       GROUP BY e.id ORDER BY e.full_name LIMIT 30`, [now, onlineScope]);
     // To Do List (like Elite): per stage, the follow-ups due today and how many of them got an action today
     const todoStages = await db.query(`
       SELECT l.stage, count(*)::int AS due,
@@ -840,7 +845,8 @@ export const leadsModule: Module = (r, { db, clock }) => {
        GROUP BY l.stage`, params);
     const leadsPeople = await one(db, `SELECT count(DISTINCT e.id)::int AS n FROM employees e
         JOIN role_permissions rp ON rp.role_key = COALESCE(e.position_key, e.role_key) AND rp.perm_key IN ('leads.own','leads.distribute')
-       WHERE e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'`);
+       WHERE e.status = 'active' AND COALESCE(e.legacy_fields->>'status', '') <> 'تم التصفيه'
+         AND ($1::uuid[] IS NULL OR e.id = ANY($1::uuid[]))`, [onlineScope]);
     // To Do List: my open tasks, nearest first
     const todo = await db.query(`
       SELECT k.id, k.title, k.status, k.due_at, l.id AS lead_id, l.full_name AS lead_name FROM tasks k LEFT JOIN leads l ON l.id = k.lead_id

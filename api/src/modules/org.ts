@@ -71,13 +71,18 @@ export const orgModule: Module = (r, { db }) => {
 
   // ---------------------------------------------------------------- teams
   r.get('/teams', async (req) => {
-    await authenticate(db, req);
+    const a = await authenticate(db, req);
     const rows = await db.query(`
       SELECT t.*, d.name_ar AS department_name, m.full_name AS manager_name,
              (SELECT count(*)::int FROM employees e WHERE e.team_id = t.id AND e.status = 'active' AND ${notSettled('e')}) AS member_count
         FROM teams t LEFT JOIN departments d ON d.id = t.department_id LEFT JOIN employees m ON m.id = t.manager_id
        ORDER BY t.active DESC, t.name`);
-    return ok({ teams: rows.rows });
+    // P-1 (owner decision 2026-11-26): every signed-in employee sees the team directory — team, department, manager's
+    // name, member count. The ids an editor needs (department_id / manager_id) and the record dates go to org.manage only;
+    // never a salary, contact detail or identifier of the manager or the members.
+    if (has(a, 'org.manage')) return ok({ teams: rows.rows });
+    return ok({ teams: rows.rows.map((t) => ({ id: t.id, name: t.name, active: t.active, department_name: t.department_name,
+      manager_name: t.manager_name, member_count: t.member_count })) });
   });
   r.post('/teams', async (req) => {
     const a = await authenticate(db, req); requirePerm(a, 'org.manage');
