@@ -3,17 +3,18 @@
 A green CI run or a signed APK is **not** an approved release. A release is approved only when every gate below is
 PASS or has been explicitly accepted by the owner. Order: 1 → 2 → 3 → 4 → 6 → 7 → 5 (devices last, on the final build).
 
-Status as of 2026-11-26, source `main` @ `a9043b2` (production API, web) plus release-gate checks on
-`feat/marketing-intelligence` (test and workflow changes only).
+Status as of 2026-11-26 (second pass). Evidence: API CI 45787702396 (PostgreSQL 16 / 18 and least-privilege: 649 pass,
+0 fail, installed with `npm ci` from the committed lockfile), app CI 45785434987 (analyze, 83 Flutter tests, web build),
+app-check 45785421233 (Android release build check), Windows 45785439879 (build with the locked dependencies).
 
 | # | Gate | Status | Owner action |
 |---|---|---|---|
-| 1 | Security remediation | **BLOCKED (owner)** | Decide on the paused remediation (see 1a) |
-| 2 | Centralized permissions, backend enforcement | PASS (code), P-1 open | Policy decision P-1 |
+| 1 | Security remediation | Engineering checks PASS; **acceptance BLOCKED (owner)** | Accept the security gate (1a) |
+| 2 | Centralized permissions, backend enforcement | PASS; P-1, P-2 policy open | Policy decisions P-1, P-2 |
 | 3 | Finance and payroll integrity | PASS (tests); production has no financial records yet | F-1, F-2 decisions |
 | 4 | Backup and restore | **BLOCKED (owner)** | Set the GitHub BACKUP_TOKEN secret; provide one encrypted export for a restore drill |
 | 5 | Real Android device acceptance | **NOT STARTED (owner, physical devices)** | Device test on the final build |
-| 6 | Operational workflows | Implemented and tested; **production is not configured** | Office locations, teams, tracking switch |
+| 6 | Operational workflows | Implemented and tested; **production is not configured** | Tracking OFF, office locations, teams |
 | 7 | Web and Windows artifacts | PASS (web live; Windows 1.0.46 built and update-tested, not published) | — |
 
 ## 1. Security remediation
@@ -35,10 +36,31 @@ Status as of 2026-11-26, source `main` @ `a9043b2` (production API, web) plus re
 - **Candidate APK 1.0.197 (run 45746471417) is a verification build only — not an approved release** while 1a is open.
   No further APK will be built or signed until the owner closes gate 1.
 
+- **Second pass (2026-11-26):**
+  - Android: an older plain-text session is now removed from disk in every case; if the Keystore-backed storage refuses
+    it, it lives in memory for this run only (before, the plain copy stayed on disk). Tests for a refusing storage.
+  - App permission checks fail closed: the permission set starts empty and stays empty when `/me` fails; the server
+    decides every request anyway.
+  - The 2026-11-24 re-verification findings (G1 device-authorised punches, G2 weak GPS, T2 never-pinged alert, L1/L2
+    token-protected scheduler routes, Meta webhook fail-closed, C1 retired project returns 410, migration lock) are in
+    `main` with their regression tests (device-punch 7, tracking-health 6, migrate-guard 3, migrate-concurrency 1,
+    leads-daily 3, meta_sync 5, security-rules-unit 11) — all passing. No separate NO-GO list exists in the repository
+    or the project files; if the owner's NO-GO had other reasons, they must be named.
+  - Supply chain: `api/package-lock.json` and `app/pubspec.lock` are now committed; Vercel and CI install with
+    `npm ci`, every Flutter build with `--enforce-lockfile` (before, each deploy and APK resolved versions afresh).
+    Dependabot GHSA-67mh-4wv8-2f99 closed by the `esbuild >= 0.25.0` floor (locked 0.28.2).
+  - Residual (by design, documented): device authorisation is the server's record of an approved device, not hardware
+    attestation (no Play Integrity); one active sales employee has device lock off in production (owner's setting).
+
 ## 2. Centralized permissions
 - `api/test/zero-permission-sweep.test.ts` (CI 45782791359: PostgreSQL 16 / 18 647 pass 0 fail, least-privilege 647): an active employee with every permission individually denied calls every
   registered route directly (unknown ids and other people's real ids). Result: no 500, no record of another employee
   returned, 44–45 self-service routes answer 2xx (own profile, own attendance, own requests, company info, pickers).
+- Cross-team IDOR (same test file): a team-B sales employee and team B's manager, with their default permissions, call
+  every route with team A's real ids — no team A record comes back. By-design company-wide lists are checked by content:
+  «الأفضل» ranking (names only, another team's numbers hidden), the brokerage colleague picker (id / name only).
+- **P-2 (policy):** the leads dashboard's online list (owner decision 2026-11-23) shows a sales manager every lead
+  worker online in the last 10 minutes company-wide (id / name / last seen). Owner decides whether it should be his team.
 - **P-1 (policy):** `GET /teams` (org chart: team, department, manager name/id, member count) is readable by every
   signed-in employee. Not contact or salary data. Owner decides whether the org chart is company-wide.
 
@@ -57,6 +79,12 @@ Status as of 2026-11-26, source `main` @ `a9043b2` (production API, web) plus re
   is not draft / returned.
 
 ## 4. Backup and restore
+- **Minimum owner action:** (1) GitHub → Settings → Secrets and variables → Actions → New repository secret
+  `BACKUP_TOKEN` = the same value as the Vercel production `BACKUP_TOKEN` (this environment cannot read or create
+  secrets); (2) for the restore drill, attach one encrypted export file from Google Drive and run `tools/backup-decrypt.mjs`
+  locally with the backup key (the key never leaves your machine) — or authorise a session to receive both.
+- The restore procedure itself is proven in CI on every run: «backup (encrypted, as on Drive) → restore into a new
+  database: every table, same rows, same content».
 - API host: `BACKUP_TOKEN` and `BACKUP_ENCRYPTION_KEY` are set (Production). Exports are refused without the key.
 - **GitHub repository secret `BACKUP_TOKEN` is NOT set** (proved by the leads-report and files-health run logs). Until
   now those runs passed with a warning — a false success. Fixed: they now FAIL when the secret is missing, the API does
@@ -79,8 +107,18 @@ expected return time, approval, overdue alert to the employee and watchers, mana
 employees and permissions, finance / commissions / advances / expenses / payouts, KPI dashboards, audit and protected
 records. Production configuration gaps (owner): **0 office locations** (geofence cannot work), **0 teams / departments**
 (no manager routing beyond HR), **company tracking is ON** (switched on by the owner 2026-11-25 10:36 UTC; this gate
-requires it OFF until devices are validated — switch it off from Company info so the change is audited). The overdue
+requires it OFF until devices are validated). It could not be switched off from here: no signed-in session exists in
+the connected browser and signing in needs your password. Action: sign in as owner → بيانات الشركة (Company info) →
+turn off «متابعة الموظفين أثناء الشيفت» (company tracking) → save; the change is audited (`settings.update`). The overdue
 and reminder sweeps run on the owner's minute heartbeat (Apps Script → `/backup/sweep`), last seen 2026-11-26.
+
+## Android release configuration (verified in `app/tool/patch_android.dart` and the release workflow)
+Package `com.jph.valueattendance`; release signed only with the repository key (the candidate workflow refuses a
+debug-signed build and checks the certificate equals the published one); manifest guard refuses cleartext, backups and
+debuggable; location in a foreground service of type `location` (no background-location permission — the service
+starts at check-in from the foreground; behaviour after a phone restart is a device-test item); OTA updates via
+`REQUEST_INSTALL_PACKAGES` (side-loaded distribution, not Play). Dependencies now locked. No release-blocking defect
+found in configuration; physical-device behaviour is NOT verified.
 
 ## 7. Artifacts
 | Artifact | Version | Source | SHA-256 |
