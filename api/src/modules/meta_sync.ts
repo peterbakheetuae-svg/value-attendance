@@ -1,5 +1,6 @@
 import type { Db, Q } from '../db.ts';
 import { one } from '../db.ts';
+import { audit } from '../auth/context.ts';
 import { phoneNorm, readLead } from './leads.ts';
 import { deliverLead, type RouteMode } from './lead_routing.ts';
 import { seeMetaCampaign } from './partners.ts';
@@ -175,7 +176,21 @@ export async function syncMeta(db: Db, now: Date, opts: { campaignId?: string; d
   if (complete) await db.query(`UPDATE lead_campaigns SET meta_synced_at = $2 WHERE id = ANY($1::uuid[])`, [camps.map((c) => c.id), now]);
   // finalization after this point never touches the checkpoint
   if (errors.length) await db.query(`UPDATE integrations SET last_error = $1 WHERE source = 'meta'`, [errors.at(-1)!.slice(0, 300)]).catch(() => undefined);
+  await recordSyncOutcome(db, now, { complete, added, errors: errors.length }).catch(() => undefined);
   return { added, errors, rejected, complete };
+}
+
+/**
+ * The outcome of a sync pass that actually ran (linked campaigns exist), for the connection state: «sync_succeeded» only
+ * for a complete pass with no error. Kept in the append-only audit log (no schema change); a new row only when the outcome
+ * changes or leads came in, so the scheduler's runs do not flood it. Never a token or a lead.
+ */
+export const SYNC_OUTCOME = 'integration.meta_sync_result';
+async function recordSyncOutcome(db: Db | Q, now: Date, r: { complete: boolean; added: number; errors: number }) {
+  const ok = r.complete && r.errors === 0;
+  const last = await one(db, `SELECT after FROM audit_log WHERE action = $1 ORDER BY id DESC LIMIT 1`, [SYNC_OUTCOME]);
+  if (last && last.after?.ok === ok && r.added === 0) return;
+  await audit(db, null, SYNC_OUTCOME, 'integration', null, undefined, { ok, complete: r.complete, added: r.added, errors: r.errors, at: now.toISOString() });
 }
 
 /**

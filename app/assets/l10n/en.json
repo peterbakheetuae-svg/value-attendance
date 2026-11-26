@@ -367,7 +367,7 @@
  "needs_follow_up": "Employees needing follow-up",
  "net_salary": "Net salary",
  "net_salary_to_date": "Net salary to date",
- "network_error": "Cannot reach the server. Check your connection and retry",
+ "network_error": "Check the internet and try again",
  "new_adjustment": "New adjustment",
  "new_evaluation": "New evaluation",
  "new_kpi": "New KPI",

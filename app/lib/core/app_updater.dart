@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'api.dart' show isNetworkFailure, kNetworkErrorMessage;
 import 'platform_info.dart';
 import 'windows_updater.dart';
 import '../jph/widgets/glass_dialog.dart';
@@ -88,9 +89,12 @@ class AppUpdater with WidgetsBindingObserver {
       final url = '$_base$apk';
       final size = (j['size'] as num?)?.toInt() ?? 0;
       await _offer(url, version, size);
-    } catch (_) {
+    } catch (e) {
       _lastCheck = null; // try again next time
-      if (manual && context != null && context.mounted) _say(context, 'مش قادر أتحقق من التحديث دلوقتي — اتأكد من النت وجرب تاني.');
+      // no connection: the app's one network message; anything else (a bad answer): the existing update message
+      if (manual && context != null && context.mounted) {
+        _say(context, isNetworkFailure(e) ? kNetworkErrorMessage : 'مش قادر أتحقق من التحديث دلوقتي — اتأكد من النت وجرب تاني.');
+      }
     }
   }
 

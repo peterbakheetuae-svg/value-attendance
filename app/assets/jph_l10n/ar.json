@@ -61,7 +61,7 @@
   "terms": "الشروط والأحكام",
   "support": "الدعم",
   "version": "الإصدار",
-  "network_error": "خطأ في الاتصال بالشبكة",
+  "network_error": "تأكد من الإنترنت وحاول مرة أخرى",
   "server_error": "خطأ في الخادم",
   "camera_error": "خطأ في الكاميرا",
   "location_error": "خطأ في الموقع",

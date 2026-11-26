@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -662,12 +663,18 @@ class JphRouter {
       }
       return {'success': false, 'code': e.code, 'status': e.status, 'message': msg, if (e.details != null) 'details': e.details};
     } catch (e) {
+      // a connectivity failure that did not come through ApiClient: the same one message
+      if (isNetworkFailure(e)) return _fail(kNetworkErrorMessage);
       return _fail('حدث خطأ غير متوقع');
     }
   }
 
+  /// the message a screen shows for [e] (the same mapping every action uses)
+  @visibleForTesting
+  static String messageFor(ApiException e) => _message(e);
+
   static String _message(ApiException e) {
-    if (e.isNetwork) return 'تعذّر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى\n(${e.message})';
+    if (e.isNetwork) return kNetworkErrorMessage;
     if (e.status == 401) return 'انتهت الجلسة، سجّل الدخول مرة أخرى';
     if (e.details?['reason'] == 'device_mismatch') return 'الحساب ده متسجل على موبايل تاني. كلّم الإدارة تفك الربط';
     if (e.details?['reason'] == 'device_pending') return 'الجهاز ده جديد على حسابك 📱 — اتبعت طلب للمدير العام / المسؤول الإداري، وأول ما يوافق تقدر تدخل منه';

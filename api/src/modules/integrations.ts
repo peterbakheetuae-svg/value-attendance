@@ -12,12 +12,12 @@ import { canSetup, resolveDeveloper } from './exclusive.ts';
 import { sendActionCode, takeActionCode } from '../auth/action_otp.ts';
 import { seal, unseal } from '../lib/secretbox.ts';
 import { deletionStatusPage, processDeletionRequest, processPendingDeletions, recordDeletionRequest } from './meta_deletion.ts';
-import { LEAD_FIELDS, graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
+import { LEAD_FIELDS, SYNC_OUTCOME, graph, pageToken, runScheduledMetaSync, syncMeta, takeMetaLead } from './meta_sync.ts';
 import { hasBackupToken } from '../lib/backup-token.ts';
 import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
 import {
   META_SCOPES, META_SCOPES_INSIGHTS, META_SCOPES_REQUIRED, STATE_ACTION, grantedScopes, insightsGranted, callbackPage, codeExchangeUrl, dialogUrl, graphBase, longLivedUrl, metaFetch, missingScopes,
-  metaUserHash, newState, nonceHash, oauthConfig, parseSignedRequest, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
+  metaConnectionState, metaUserHash, newState, nonceHash, oauthConfig, parseSignedRequest, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
 } from '../lib/meta-oauth.ts';
 
 // the signature check lives in lib/meta-signature.ts (no database: unit-tested on its own); still exported from here
@@ -399,6 +399,24 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         }
       } catch (e) { out.statusError = safeMetaError(e); }
     }
+    // one explicit state (not configured / not connected / pending / connected / denied / expired or revoked / sync failed /
+    // sync succeeded) — derived from what is above plus the recorded OAuth and sync outcomes; never a token
+    const now = clock();
+    const pendingAuth = !!(await one(db, `SELECT 1 FROM action_otps WHERE action = $1 AND used_at IS NULL AND expires_at > $2 LIMIT 1`, [STATE_ACTION, now]));
+    const lastOAuth = await one(db, `SELECT action FROM audit_log WHERE action = ANY($1::text[]) ORDER BY id DESC LIMIT 1`,
+      [['integration.meta_oauth_connected', 'integration.meta_oauth_declined', 'integration.meta_oauth_incomplete', 'integration.meta_oauth_failed', 'integration.meta_deauthorized']]);
+    const lastSync = await one(db, `SELECT after FROM audit_log WHERE action = $1 ORDER BY id DESC LIMIT 1`, [SYNC_OUTCOME]);
+    const syncAt = lastSync?.after?.at ? new Date(lastSync.after.at) : null;
+    out.lastSyncResult = syncAt && !Number.isNaN(syncAt.getTime())
+      ? { ok: lastSync.after.ok === true, at: syncAt.toISOString(), added: Number(lastSync.after.added) || 0, complete: lastSync.after.complete === true } : null;
+    out.authorizationPending = pendingAuth;
+    out.state = metaConnectionState({
+      configured: c.ok, hasToken: !!token, tokenValid: out.tokenValid, expiresAt: out.expiresAt, now, missingRequired: out.missingRequired,
+      pendingAuthorization: pendingAuth,
+      lastOAuth: lastOAuth ? (String(lastOAuth.action).replace(/^integration\.meta_(oauth_)?/, '') as any) : null,
+      connectedAt: token && it.updated_at ? new Date(it.updated_at) : null,
+      lastSync: out.lastSyncResult ? { ok: out.lastSyncResult.ok, at: new Date(out.lastSyncResult.at) } : null,
+    });
     return ok(out);
   });
 

@@ -6,12 +6,13 @@ import 'i18n.dart';
 /// Human message for any API failure (never a raw stack).
 String errorText(Object e) {
   if (e is ApiException) {
-    if (e.isNetwork) return t('network_error');
+    if (e.isNetwork) return t('network_error');   // ar: exactly kNetworkErrorMessage
     if (e.status == 401) return t('session_expired');
     if (e.status == 403) return t('forbidden');
     if (e.status == 404) return t('not_found');
     return e.message;
   }
+  if (isNetworkFailure(e)) return t('network_error');
   return t('unexpected_error');
 }
 
