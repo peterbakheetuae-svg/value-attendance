@@ -45,7 +45,9 @@ test('4. the real user is not locked out: another network, and his own approved 
   const atk = { 'x-real-ip': '20.0.0.2' };
   for (let i = 0; i < 12; i++) await login('E2', 'guess-' + i, atk);
   assert.equal((await login('E2', PW, atk)).status, 423, 'the attacker network waits');
-  assert.equal((await login('E2', PW, { 'x-real-ip': '30.0.0.9' })).status, 200, 'another network with the right password');
+  const other = await login('E2', PW, { 'x-real-ip': '30.0.0.9' });
+  assert.deepEqual([other.status, other.body.error?.details?.reason], [403, 'device_required'], 'another network is not throttled (the device rule answers, as before)');
+  assert.equal((await login('E2', PW, { 'x-real-ip': '30.0.0.9' }, dev('E2'))).status, 200, 'another network with his phone');
   assert.equal((await login('E2', PW, atk, dev('E2'))).status, 200, 'his approved phone, even on the same network');
 });
 
@@ -128,7 +130,7 @@ test('6/7. mirror traffic: a signed client IP is used; forged, expired, replayed
   assert.equal(verifiedMirrorIp(hd, 'POST', '/auth/login', now), '91.9.9.9', 'the API verifies what the Worker signed');
   const noKey = (await upstreamRequest(new Request('https://mirror.example/me', { headers: { 'cf-connecting-ip': '91.9.9.9', 'x-va-client-ip': '1.1.1.1' } }), {}, now))!;
   assert.equal(noKey.init.headers.get('x-va-client-ip'), null, 'no key: nothing claimed, caller copy removed');
-  assert.equal(await upstreamRequest(new Request('https://mirror.example/x', { method: 'TRACE' }), {}, now), null);
+  assert.equal(await upstreamRequest(new Request('https://mirror.example/x', { method: 'PROPFIND' }), {}, now), null);
 
   // end to end: through the mirror the per-IP limit counts the caller, not Cloudflare's shared address
   const cf = '104.16.0.1';
