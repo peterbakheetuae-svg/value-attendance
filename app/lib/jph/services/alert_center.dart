@@ -100,7 +100,7 @@ class AlertCenter with WidgetsBindingObserver {
       return true;
     }
     // a new phone waiting for approval: its employee's phones, with approve / refuse
-    if (type == 'device_request' && id != null) {
+    if ((type == 'device_request' || type == 'partner_device_request') && id != null) {
       await showModalBottomSheet<void>(
         context: ctx,
         isScrollControlled: true,
@@ -110,7 +110,8 @@ class AlertCenter with WidgetsBindingObserver {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: SingleChildScrollView(
-                  child: EmployeeDevicesBox(employeeId: id, isDark: Theme.of(c).brightness == Brightness.dark)),
+                  child: EmployeeDevicesBox(employeeId: id, isDark: Theme.of(c).brightness == Brightness.dark,
+                      basePath: type == 'partner_device_request' ? '/marketing-companies/$id' : null)),
             ),
           ),
         ),

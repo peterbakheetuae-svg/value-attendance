@@ -10,6 +10,7 @@ import '../../services/app_controller.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/employee_files.dart' show PickedDoc, pickDocument;
+import '../../widgets/employee_devices.dart' show EmployeeDevicesBox;
 import '../../widgets/glass_ui.dart';
 import '../../widgets/glass_ui_widgets.dart';
 import '../../widgets/jph_form_ui.dart';
@@ -334,6 +335,9 @@ class _MarketingCompanyFormPageState extends State<MarketingCompanyFormPage> {
                                   ),
                               ]),
                             ),
+                            // a new device of the company waiting for approval (approve / refuse here, also without the notice)
+                            if (!_isNew && _deviceLock)
+                              EmployeeDevicesBox(employeeId: widget.id!, isDark: isDark, basePath: '/marketing-companies/${widget.id}'),
 
                             _title(isDark, 'معلومات إضافية'),
                             _buildDropdownField(
