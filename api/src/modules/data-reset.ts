@@ -39,6 +39,49 @@ export async function presentDependents(q: Q): Promise<string[]> {
   return (await q.query(`SELECT t FROM unnest($1::text[]) WITH ORDINALITY AS x(t, n) WHERE to_regclass('public.' || t) IS NOT NULL ORDER BY n`,
     [WIPE_IF_PRESENT])).rows.map((r: any) => String(r.t));
 }
+/** WIPE plus the 092 dependents that exist here: the tables this reset is allowed to empty with their rows */
+export async function approvedWipeSet(q: Q): Promise<string[]> {
+  return [...WIPE, ...await presentDependents(q)];
+}
+
+/**
+ * Tables OUTSIDE `wipeSet` that hold a foreign key to a table being emptied — directly or through another such table
+ * (the whole dependency graph), read from the catalogs (pg_constraint / pg_class / pg_namespace, schema public).
+ * PostgreSQL refuses to TRUNCATE a referenced table unless every referencing table is in the same statement, so each of
+ * these must either be empty (then it joins the TRUNCATE and nothing outside the approved scope is lost) or the reset is
+ * refused. Example: brokerage_deals.lead_id → leads (migration 089). Sorted, so locks are always taken in one order.
+ */
+export async function externalDependentTables(q: Q, wipeSet: readonly string[]): Promise<string[]> {
+  const seen = new Set(wipeSet);
+  const found: string[] = [];
+  let frontier = [...wipeSet];
+  while (frontier.length) {
+    const r = await q.query(`SELECT DISTINCT src.relname AS t
+        FROM pg_constraint k
+        JOIN pg_class src ON src.oid = k.conrelid JOIN pg_namespace sn ON sn.oid = src.relnamespace
+        JOIN pg_class dst ON dst.oid = k.confrelid JOIN pg_namespace dn ON dn.oid = dst.relnamespace
+       WHERE k.contype = 'f' AND sn.nspname = 'public' AND dn.nspname = 'public' AND dst.relname = ANY($1::text[])`, [frontier]);
+    frontier = r.rows.map((x: any) => String(x.t)).filter((t) => !seen.has(t));
+    for (const t of frontier) { seen.add(t); found.push(t); }
+  }
+  return found.sort();
+}
+
+/** catalog table names → safely quoted identifiers (quote_ident on the server; never a name pasted into SQL as is) */
+async function quoted(q: Q, tables: readonly string[]): Promise<Map<string, string>> {
+  const r = await q.query(`SELECT t, 'public.' || quote_ident(t) AS i FROM unnest($1::text[]) AS t`, [tables]);
+  return new Map(r.rows.map((x: any) => [String(x.t), String(x.i)]));
+}
+
+/** each table with its row count (identifiers quoted) */
+export async function rowCounts(q: Q, tables: readonly string[]): Promise<{ table: string; rows: number }[]> {
+  const ids = await quoted(q, tables);
+  const out: { table: string; rows: number }[] = [];
+  for (const t of tables) out.push({ table: t, rows: Number((await one(q, `SELECT count(*)::int AS n FROM ${ids.get(t)}`)).n) });
+  return out;
+}
+
+const DEPENDENT_REFUSAL = 'مسح البيانات مرفوض: فيه سجلات في جداول تانية مرتبطة بالبيانات اللي هتتمسح (ومش ضمن المسح)';
 const CONFIRM = 'امسح البيانات';
 
 const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^(20|0020)/, '').replace(/^(?!0)(1\d{9})$/, '0$1');
@@ -195,18 +238,33 @@ export const dataResetModule: Module = (r, { db }) => {
     const days = (id: string) => plan.filter((p) => p.employeeId === id).length;
     const summary = report.map((r0) => ({ ...r0, days: r0.matched ? days(r0.matched.id) : 0 }));
     const blockers = await resetBlockers(db);
-    if (dryRun) return ok({ dryRun: true, summary, rows: plan.length, skipped, blockers });
+    // tables outside the reset that point at what it empties: listed in the dry run; any holding rows refuses the reset
+    const dependents = await rowCounts(db, await externalDependentTables(db, await approvedWipeSet(db)));
+    const dependencyBlockers = dependents.filter((d) => d.rows > 0);
+    if (dryRun) return ok({ dryRun: true, summary, rows: plan.length, skipped, blockers, dependents, dependencyBlockers });
     if (blockers.length) throw new AppError('conflict', 'مسح البيانات مرفوض: فيه سجلات مالية / ملفات محمية مش بتتمسح', { reason: 'protected_data', blockers });
+    if (dependencyBlockers.length) throw new AppError('conflict', DEPENDENT_REFUSAL, { reason: 'dependent_records', dependents: dependencyBlockers });
 
     if (b.confirm !== CONFIRM) throw invalid(`Type "${CONFIRM}" to confirm`, { field: 'confirm' });
     const done = await db.tx(async (q) => {
       // re-checked inside the transaction (nothing may slip in between the check and the wipe)
       if ((await resetBlockers(q)).length) throw new AppError('conflict', 'مسح البيانات مرفوض: فيه سجلات مالية / ملفات محمية مش بتتمسح', { reason: 'protected_data' });
-      const extra = await presentDependents(q);
+      const approved = await approvedWipeSet(q);
+      // the dependents are locked BEFORE they are counted (no row can be added between the check and the TRUNCATE),
+      // always in the same (sorted) order; any that holds rows refuses the whole reset and nothing is changed
+      const external = await externalDependentTables(q, approved);
+      if (external.length) {
+        const ids = await quoted(q, external);
+        await q.query(`LOCK TABLE ${external.map((t) => ids.get(t)).join(', ')} IN ACCESS EXCLUSIVE MODE`);
+        const held = (await rowCounts(q, external)).filter((d) => d.rows > 0);
+        if (held.length) throw new AppError('conflict', DEPENDENT_REFUSAL, { reason: 'dependent_records', dependents: held });
+      }
+      const all = [...approved, ...external];   // the external ones are empty here: they only satisfy the TRUNCATE
+      const ids = await quoted(q, all);
       const before: Record<string, number> = {};
-      for (const t of [...WIPE, ...extra]) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
+      for (const t of all) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${ids.get(t)}`)).n);
       await q.query(`UPDATE integrations SET campaign_id = NULL`);   // the campaigns go; the integrations' keys stay
-      await q.query(`TRUNCATE ${[...WIPE, ...extra].join(', ')}`);
+      await q.query(`TRUNCATE ${all.map((t) => ids.get(t)).join(', ')}`);
       await q.query(`SELECT set_config('va.form_delete', '*', true)`);
       const forms = await q.query(`DELETE FROM employee_documents WHERE kind = 'other' AND employee_id IS NOT NULL
         AND (file_name LIKE 'custody-receipt-%' OR file_name LIKE 'laptop-receipt-%' OR file_name LIKE 'client-intro-%')`);

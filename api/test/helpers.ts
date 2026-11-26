@@ -69,12 +69,27 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
-export async function harness(startIso = '2026-03-10T08:00:00Z'): Promise<Harness> {
-  await ensureTemplate();
+/**
+ * opts.migrationsExcept (optional): instead of the shared template, a fresh database with EVERY file of db/migrations
+ * applied in the runner's own order except the named ones ([] = all of them: production's schema). Same settings as
+ * the template. Default: the template.
+ */
+export async function harness(startIso = '2026-03-10T08:00:00Z', opts: { migrationsExcept?: string[] } = {}): Promise<Harness> {
   const dbName = 'hr_t_' + randomBytes(6).toString('hex');
-  await admin((p) => p.query(`CREATE DATABASE ${dbName} TEMPLATE ${TEMPLATE}`));
   const u = new URL(ADMIN_URL); u.pathname = '/' + dbName;
-  const db = createDb(u.toString());
+  let db: Db;
+  if (opts.migrationsExcept) {
+    const except = opts.migrationsExcept;
+    await admin((p) => p.query(`CREATE DATABASE ${dbName}`));
+    db = createDb(u.toString());
+    await migrate(db, MIGRATIONS_DIR, { skip: (f) => except.includes(f) });
+    await db.query(`UPDATE company_settings SET require_employee_documents = false, gps_required = false,
+      payroll_auto_deductions = false, deduction_mode = 'per_minute'`);
+  } else {
+    await ensureTemplate();
+    await admin((p) => p.query(`CREATE DATABASE ${dbName} TEMPLATE ${TEMPLATE}`));
+    db = createDb(u.toString());
+  }
   const now = { value: new Date(startIso) };
   // TEST_APP_ROLE=1: the API under test connects as a least-privilege runtime role (the production valunivo_app grants,
   // WITHOUT CREATE); test setup / assertions keep the admin connection (h.db)
