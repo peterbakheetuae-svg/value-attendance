@@ -9,6 +9,16 @@ import { WIPE, WIPE_IF_PRESENT } from '../src/modules/data-reset.ts';
  * column and foreign-key definitions (db/proposed/092_marketing_intelligence.sql on feat/marketing-intelligence).
  */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
+// TEST_APP_ROLE=1 (api-ci's least-privilege run): the API connects as the runtime role, which has no TRUNCATE by
+// design — the reset is refused there and must leave everything as it was (least-privilege.test.ts covers the role)
+const APP_ROLE = process.env.TEST_APP_ROLE === '1';
+/** under the runtime role: the confirmed reset is refused (409) and nothing is deleted */
+async function refusedUnderRuntimeRole(tables: string[]) {
+  const before = await Promise.all(tables.map(count));
+  const r = await reset(c.t.owner, { dryRun: false, confirm: CONFIRM });
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.deepEqual(await Promise.all(tables.map(count)), before, 'nothing deleted');
+}
 before(async () => { h = await harness('2026-11-26T10:00:00Z'); c = await cast(h); });
 after(async () => { await h.close(); });
 
@@ -66,6 +76,7 @@ test('pre-092 schema: authorization unchanged and the reset succeeds exactly as 
   assert.equal(dry.status, 200);
   assert.equal(dry.body.dryRun, true);
   assert.equal(await count('leads'), 1, 'dry run changed nothing');
+  if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies']);
   const r = await reset(c.t.owner, { dryRun: false, confirm: CONFIRM });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(Object.keys(r.body.wiped).sort(), [...WIPE].sort(), 'the same tables as before the change');
@@ -80,6 +91,7 @@ test('post-092 schema: the old TRUNCATE list is refused by PostgreSQL; the reset
   // the defect being fixed: the unchanged list alone cannot be truncated once 092's tables exist
   await assert.rejects(h.db.tx(async (q) => { await q.query(`TRUNCATE ${WIPE.join(', ')}`); }), /cannot truncate a table referenced in a foreign key constraint/);
   assert.equal(await count('leads'), 1, 'that refusal changed nothing');
+  if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies', 'lead_quality_events', 'lead_campaign_owners']);
   const empsBefore = (await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows;
   const r = await reset(c.t.owner, { dryRun: false, confirm: CONFIRM });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -92,7 +104,7 @@ test('post-092 schema: the old TRUNCATE list is refused by PostgreSQL; the reset
   assert.equal(audit.lead_quality_events, 1, 'the audit record counts them too');
 });
 
-test('a failure after the TRUNCATE rolls the whole reset back — nothing is deleted (post-092 schema)', async () => {
+test('a failure after the TRUNCATE rolls the whole reset back — nothing is deleted (post-092 schema)', { skip: APP_ROLE && 'the runtime role cannot TRUNCATE (refusal covered above)' }, async () => {
   const a = await activity();
   await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason) VALUES ($1, 'unreviewed', 'qualified', '')`, [a.lead]);
   await h.db.query(`INSERT INTO lead_campaign_owners (campaign_id, marketing_company_id, from_at) VALUES ($1, $2, now())`, [a.campaign, a.company]);
