@@ -20,6 +20,11 @@ const PUBLIC = new Set(['GET /healthz', 'GET /healthz/latency', 'GET /readyz', '
 // routes that end his own session — called last / not at all
 const SKIP = new Set(['POST /auth/logout', 'POST /auth/logout-all', 'POST /auth/change-password', 'POST /me/password']);
 
+// the org chart (GET /teams: team name, department, its manager's id / name, member count) is readable by every signed-in
+// employee — app pickers rely on it. Recorded as release-gate finding P-1 (whether the org chart is visible to everyone is
+// the owner's policy); the answer is checked below to carry managers only, never contact, salary or member lists.
+const ORG_CHART = 'GET /teams';
+
 const FAKE = '00000000-0000-4000-8000-000000000000';
 
 async function sweep(idFor: (param: string) => string) {
@@ -36,7 +41,11 @@ async function sweep(idFor: (param: string) => string) {
       ok.push(r);
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       const seen = others.filter((id) => text.includes(id));
-      if (seen.length) leaks.push(`${r} → carries ${seen.length} other employee id(s)`);
+      if (r === ORG_CHART) {
+        const managers = new Set((res.body?.teams ?? []).map((t: any) => t.manager_id));
+        const extra = seen.filter((id) => !managers.has(id));
+        if (extra.length || /phone|email|salary|national|address/i.test(text)) leaks.push(`${r} → more than the org chart`);
+      } else if (seen.length) leaks.push(`${r} → carries ${seen.length} other employee id(s)`);
     }
   }
   // the sweep's own calls must not have ended his session (otherwise later routes were only tested as anonymous)
