@@ -8,6 +8,7 @@ import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { available } from './presence.ts';
 import { escalateUnrouted } from './routing.ts';
 import { assertPunchClient, geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
+import { withPunchEvidence } from './attendance-evidence.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
 
@@ -237,9 +238,10 @@ export const outingsModule: Module = (r, { db, clock }) => {
   /** "I'm back" — closes the current permission/visit. */
   r.post('/outings/return', async (req) => {
     const a = await authenticate(db, req);
+    return withPunchEvidence(db, a, req, 'return', clock(), async () => {
     await assertPunchClient(db, a, req, 'رجوع من إذن'); // an office-checked step: the same client rule as check-in (G1)
     const body = obj(req.body ?? {});
-    const { at: now, offline } = await trustedTime(db, a, body, clock(), 'رجوع من إذن'); const l = local(now);
+    const { at: now, offline, overridden } = await trustedTime(db, a, body, clock(), 'رجوع من إذن'); const l = local(now);
     await db.tx(async (q) => {
       const x = await activeOuting(q, a.id, l.date, now);
       if (!x) throw new AppError('conflict', 'You are not out on a permission or visit');
@@ -249,6 +251,7 @@ export const outingsModule: Module = (r, { db, clock }) => {
       await markReturned(q, x, now, a.id, 'button');
       if (offline) await tellHrLateOffline(q, a, 'رجوع من إذن', now, clock(), x.id);
     });
-    return ok({ ok: true, returnedAt: now });
+    return { reply: ok({ ok: true, returnedAt: now }), usedTime: now, overridden };
+    });
   });
 };

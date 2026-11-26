@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
@@ -239,6 +240,9 @@ class ApiClient {
   /// phone with the time it happened (`offlineAt`) and sent automatically when the internet is back.
   /// Returns the server reply, or `{'queued': true}`.
   Future<Map<String, dynamic>> postOrQueue(String path, Map<String, dynamic> body, {required String label}) async {
+    // SEC-06: a punch carries one id from the tap on (the same id online and in the offline queue, so a retry or a
+    // second send is never a second punch) and the phone's clock at the tap (evidence only — the server keeps its own)
+    if (isPunchPath(path)) body = {...body, 'clientId': body['clientId'] ?? newClientId(), 'deviceTime': DateTime.now().toUtc().toIso8601String()};
     try {
       return await post(path, body);
     } on ApiException catch (e) {
@@ -251,6 +255,19 @@ class ApiClient {
       pending.value = q.where(_mine).length;
       return {'queued': true};
     }
+  }
+
+  static const _punchPaths = {'/attendance/check-in', '/attendance/check-out', '/outings/return'};
+  static bool isPunchPath(String path) => _punchPaths.contains(path);
+
+  /// a random UUID (version 4) for one punch
+  static String newClientId() {
+    final r = Random.secure();
+    final b = List<int>.generate(16, (_) => r.nextInt(256));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+    return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
   }
 
   static List<Map<String, dynamic>> _readList(SharedPreferences p, String key) {
