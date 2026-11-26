@@ -557,6 +557,32 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
     ];
   }
 
+  /// a marketing company adds a campaign (linked to itself by the server) or edits one it added: name and on / off
+  Future<void> _partnerCampaign([Map<String, dynamic>? c]) async {
+    final name = TextEditingController(text: c == null ? '' : '${c['name']}');
+    var active = true;
+    final ok = await leadForm(context, isDark, c == null ? tr('حملة جديدة') : '${tr('تعديل الحملة')} ${c['name']}', (set) => [
+          TextField(controller: name, decoration: InputDecoration(labelText: tr('اسم الحملة'))),
+          if (c != null)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: active,
+              onChanged: (v) => set(() => active = v),
+              title: Text(tr('شغالة')),
+              subtitle: Text(tr('لو وقفتها مش هتستقبل ليدز جديدة')),
+            ),
+          Text(tr('الحملة بتتربط بشركتك تلقائي، والإدارة بتختار السيلز اللي بيستقبلوا ليدزها.'), style: TextStyle(color: JphUi.sub(isDark))),
+        ], () async {
+      final body = <String, dynamic>{'name': name.text.trim(), if (c != null) 'active': active};
+      final r = c == null
+          ? await lpost('/partner/campaigns', body, ok: tr('اتضافت الحملة ✅'))
+          : await lpost('/partner/campaigns/${c['id']}', body, method: 'patch', ok: tr('اتحفظ ✅'));
+      if (mounted) JphUi.toast(context, r);
+      return r['success'] == true;
+    });
+    if (ok) _load();
+  }
+
   Future<void> _metaLink(Map<String, dynamic> c) async {
     if (_metaList.isEmpty && _metaErr == null) {
       final r = await lget('/integrations/meta/campaigns');
@@ -677,6 +703,8 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
         Text(tr('الليد بينزل على الحملة اللي حملة Meta بتاعته (أو فورمه) مربوطة بيها، ويتوزع على السيلز بتوع الحملة بالطريقة اللي تختارها.'),
             style: TextStyle(color: JphUi.sub(isDark))),
         ..._unlinkedSeen(),
+        if (ro) Align(alignment: AlignmentDirectional.centerStart,
+            child: dirBtn(isDark, tr('حملة جديدة'), Icons.add_rounded, () => _partnerCampaign(), primary: true)),
         const SizedBox(height: 6),
         for (final c in ll(_d['campaigns']))
           ListTile(
@@ -695,6 +723,8 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
             trailing: Wrap(children: [
               if (!ro) IconButton(tooltip: tr('التوزيع على السيلز'), icon: const Icon(Icons.group_rounded, size: 20), onPressed: () => _campaignRoute(c)),
               IconButton(tooltip: tr('حملات Meta'), icon: const Icon(Icons.facebook_rounded, size: 20, color: Color(0xFF1877F2)), onPressed: () => _metaLink(c)),
+              if (ro && c['createdByCompany'] == true)
+                IconButton(tooltip: tr('تعديل الحملة'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _partnerCampaign(c)),
               if (!ro) IconButton(tooltip: tr('فورم Meta'), icon: const Icon(Icons.edit_rounded, size: 18), onPressed: () => _form(c)),
             ]),
             onTap: () => ro ? _metaLink(c) : _campaignRoute(c),
