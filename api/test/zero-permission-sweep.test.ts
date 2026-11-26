@@ -45,7 +45,10 @@ async function sweep(idFor: (param: string) => string) {
 }
 
 before(async () => {
-  h = await harness(); c = await cast(h);
+  // production's schema (every migration through 092): the fine-grained keys exist, so nothing falls back to an open
+  // pre-066 rule (in a pre-066 database cash.attachment_* / cash.receipt_print / exclusive.view_client / report.export
+  // are open to everyone by design — the state before those keys existed)
+  h = await harness('2026-03-10T08:00:00Z', { migrationsExcept: [] }); c = await cast(h);
   // every permission individually denied (the strongest restriction an owner can set on an account)
   await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow, by_id)
                     SELECT $1, key, false, $2 FROM permissions`, [c.ids.solo, c.ids.owner]);
