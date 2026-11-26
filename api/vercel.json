@@ -10,8 +10,7 @@
       "release-prep/phase6-v4-085-baseline": false,
       "release-prep/final-business-model": false,
       "release-prep/integration-2026-11-23": false,
-      "feature/ui-sales-commission-2026-11-24": false,
-      "review/data-reset-092-compat": false
+      "feature/ui-sales-commission-2026-11-24": false
     }
   }
 }
