@@ -27,7 +27,25 @@ class _Tier {
         amount = TextEditingController(text: a);
 }
 
+/// one «خروج بدون إذن» tier: from (inclusive) – to (exclusive, empty = no limit) minutes, a fixed amount, on / off
+class _ExitTier {
+  final TextEditingController from;
+  final TextEditingController to;
+  final TextEditingController amount;
+  bool enabled;
+  _ExitTier(String f, String t, String a, this.enabled)
+      : from = TextEditingController(text: f),
+        to = TextEditingController(text: t),
+        amount = TextEditingController(text: a);
+}
+
 class _LateRulesPageState extends State<LateRulesPage> {
+  /// proposed 094: the settings below exist on the server (otherwise their sections are hidden)
+  bool _policies = false;
+  final List<_ExitTier> _exitTiers = [];
+  bool _exitOn = false;
+  String _absMode = 'off';
+  final TextEditingController _absHours = TextEditingController();
   final List<_Tier> _tiers = [];
   bool _enabled = false;
   /// خصم الانصراف بدري (off → counted and shown, not deducted)
@@ -52,6 +70,12 @@ class _LateRulesPageState extends State<LateRulesPage> {
       t.minutes.dispose();
       t.amount.dispose();
     }
+    for (final t in _exitTiers) {
+      t.from.dispose();
+      t.to.dispose();
+      t.amount.dispose();
+    }
+    _absHours.dispose();
     super.dispose();
   }
 
@@ -71,6 +95,14 @@ class _LateRulesPageState extends State<LateRulesPage> {
       _enabled = s['payroll_auto_deductions'] == true && s['deduction_mode'] == 'tiers';
       _early = s['early_deduction'] != false;
       _weekendRule = s['weekend_absence_rule'] == true;
+      _policies = s.containsKey('absence_threshold_mode');
+      _exitOn = s['unauthorized_exit_deduction'] == true;
+      _absMode = '${s['absence_threshold_mode'] ?? 'off'}';
+      _absHours.text = _num(s['absence_threshold_hours']);
+      _exitTiers.clear();
+      for (final t in ((s['unauthorized_exit_tiers'] as List?) ?? const []).whereType<Map>()) {
+        _exitTiers.add(_ExitTier(_num(t['fromMinutes']), _num(t['toMinutes']), _num(t['amount']), t['enabled'] != false));
+      }
       _tiers.clear();
       if (saved.isEmpty) {
         for (final d in _defaults) {
@@ -110,13 +142,116 @@ class _LateRulesPageState extends State<LateRulesPage> {
     });
     final r = await ApiService.post({'action': 'save_late_rules', 'enabled': _enabled, 'tiers': list, 'earlyDeduction': _early,
       'weekendAbsenceRule': _weekendRule});
+    var res = r;
+    if (r['success'] == true && _policies) {
+      // «شرائح خروج بدون إذن» and the absence threshold: separate settings, the server validates them (no overlaps,
+      // the deduction only with an enabled tier, fixed hours need their value)
+      final exit = <Map<String, dynamic>>[];
+      for (final t in _exitTiers) {
+        final f = int.tryParse(t.from.text.trim());
+        final to = t.to.text.trim().isEmpty ? null : int.tryParse(t.to.text.trim());
+        final a = num.tryParse(t.amount.text.trim());
+        if (f == null || a == null || (t.to.text.trim().isNotEmpty && to == null)) {
+          setState(() {
+            _saving = false;
+            _error = 'شرائح الخروج بدون إذن: اكتب «من» و«المبلغ» أرقام (و«لحد» فاضية = من غير حد)';
+          });
+          return;
+        }
+        exit.add({'fromMinutes': f, 'toMinutes': to, 'amount': a, 'enabled': t.enabled});
+      }
+      res = await ApiService.post({'action': 'save_attendance_policies', 'exitTiers': exit, 'exitDeduction': _exitOn,
+        'absenceMode': _absMode == 'off' ? null : _absMode,
+        'absenceHours': _absMode == 'fixed_hours' ? num.tryParse(_absHours.text.trim()) : null});
+    }
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('${r['message'] ?? ''}'),
-      backgroundColor: r['success'] == true ? Ar.green : Ar.red,
+      content: Text('${res['message'] ?? ''}'),
+      backgroundColor: res['success'] == true ? Ar.green : Ar.red,
     ));
   }
+
+  Widget _policySections(TextStyle sub) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SizedBox(height: 14),
+        GlassCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Row(children: [
+              Icon(Icons.directions_walk_rounded, color: AppColors.primary),
+              SizedBox(width: 8),
+              Expanded(child: Text('شرائح خروج بدون إذن', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+            ]),
+            const SizedBox(height: 6),
+            Text('منفصلة عن شرايح التأخير والانصراف بدري. المدة من وقت الخروج المسجّل لحد الرجوع أو نهاية الشيفت. '
+                'مبلغ ثابت مرة واحدة لكل خروج. المعاينة والإذن المعتمدين مش خروج بدون إذن.', style: sub),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _exitOn,
+              activeColor: AppColors.primary,
+              title: const Text('تفعيل خصم الخروج بدون إذن', style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text('لو مقفول، الخروج بيتسجّل من غير خصم', style: sub),
+              onChanged: (v) => setState(() => _exitOn = v),
+            ),
+            for (var i = 0; i < _exitTiers.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(children: [
+                  Expanded(child: TextField(controller: _exitTiers[i].from, keyboardType: TextInputType.number, decoration: _input('من', suffix: 'دقيقة'))),
+                  const SizedBox(width: 6),
+                  Expanded(child: TextField(controller: _exitTiers[i].to, keyboardType: TextInputType.number, decoration: _input('لحد', suffix: 'دقيقة'))),
+                  const SizedBox(width: 6),
+                  Expanded(
+                      child: TextField(
+                          controller: _exitTiers[i].amount,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: _input('يتخصم', suffix: 'جنيه'))),
+                  Switch(value: _exitTiers[i].enabled, activeColor: AppColors.primary, onChanged: (v) => setState(() => _exitTiers[i].enabled = v)),
+                  IconButton(
+                    tooltip: txs('حذف الشريحة'),
+                    icon: const Icon(Icons.remove_circle_outline, color: AppColors.error),
+                    onPressed: () => setState(() => _exitTiers.removeAt(i)),
+                  ),
+                ]),
+              ),
+            if (_exitTiers.length < 10)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _exitTiers.add(_ExitTier('', '', '', true))),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('إضافة شريحة'),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        GlassCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Row(children: [
+              Icon(Icons.event_busy_rounded, color: AppColors.primary),
+              SizedBox(width: 8),
+              Expanded(child: Text('التأخير اللي يتحسب غياب', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+            ]),
+            const SizedBox(height: 6),
+            Text('من ميعاد بداية شيفت الموظف نفسه. قبل الحد ده عمره ما يتحسب غياب.', style: sub),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _absMode,
+              decoration: _input('الطريقة'),
+              items: const [
+                DropdownMenuItem(value: 'off', child: Text('مقفول')),
+                DropdownMenuItem(value: 'fixed_hours', child: Text('عدد ساعات ثابت')),
+                DropdownMenuItem(value: 'half_shift', child: Text('نص مدة الشيفت')),
+              ],
+              onChanged: (v) => setState(() => _absMode = v ?? 'off'),
+            ),
+            if (_absMode == 'fixed_hours') ...[
+              const SizedBox(height: 10),
+              TextField(controller: _absHours, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: _input('بعد', suffix: 'ساعة')),
+            ],
+          ]),
+        ),
+      ]);
 
   InputDecoration _input(String label, {String? suffix}) => InputDecoration(
         labelText: txs(label),
@@ -225,6 +360,7 @@ class _LateRulesPageState extends State<LateRulesPage> {
                       Text('إذن الساعات والمعاينة المتوافق عليهم مش بيتحسبوا تأخير ولا انصراف بدري.', style: sub),
                     ]),
                   ),
+                  if (_policies) _policySections(sub),
                   if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Ar.red))),
                   const SizedBox(height: 20),
                   SizedBox(
