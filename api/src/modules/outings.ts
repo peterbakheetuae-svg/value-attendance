@@ -6,6 +6,7 @@ import { audit, authenticate, has, readableIds, type Actor, notSettled } from '.
 import { cairoInstant, local } from '../lib/time.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { available } from './presence.ts';
+import { escalateUnrouted } from './routing.ts';
 import { assertPunchClient, geofence, tellHrLateOffline, trustedTime } from './attendance.ts';
 
 const KIND_AR: Record<string, string> = { permission: 'إذن ساعات', visit: 'معاينة' };
@@ -127,9 +128,15 @@ export const outingsModule: Module = (r, { db, clock }) => {
       const label = parentId ? `تمديد ${KIND_AR[x.kind]}` : KIND_AR[x.kind];
       const fmt = (d: Date) => { const m = local(d).minutes; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
       const back = startsAt ? `${fmt(startsAt)} → ${fmt(expected)}` : fmt(expected);
-      for (const to of await approversOf(q, a.id, managerId, now)) {
+      const approvers = await approversOf(q, a.id, managerId, now);
+      for (const to of approvers) {
         await notify(q, { to, type: parentId ? 'outing_extension_awaiting' : 'outing_awaiting', title: `طلب ${label} من ${a.fullName}`,
           body: `${startsAt ? 'من' : 'الرجوع'} ${back} — ${reason}`, entity: 'outing_request', entityId: x.id, dedupeKey: `outing:${x.id}:awaiting` });
+      }
+      // nobody authorized could be told (manager away, no HR approver): it stays pending; escalated / recorded
+      if (!approvers.length) {
+        await escalateUnrouted(q, { actorId: a.id, entity: 'outing', entityId: x.id, title: `طلب ${label} من غير معتمد متاح`,
+          body: `${a.fullName}: مفيش مدير متاح ولا موارد بشرية بصلاحية الاعتماد — الطلب لسه معلّق.` });
       }
       return x;
     });

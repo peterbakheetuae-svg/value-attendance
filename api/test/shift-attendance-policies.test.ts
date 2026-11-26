@@ -2,12 +2,14 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { harness, cast, PW, type Harness, regrantAppRole } from './helpers.ts';
-import { absenceThresholdMinutes, exitMinutes, exitTierFor, lateIsAbsence, shiftEligibility, validateExitTiers } from '../src/lib/attendance-policy.ts';
+import { absenceThresholdMinutes, exitMinutes, exitTierFor, thresholdReached, shiftEligibility, validateExitTiers } from '../src/lib/attendance-policy.ts';
 import { categoryOf } from '../src/lib/notification-categories.ts';
 import { computeMonth } from '../src/modules/attendance-calc.ts';
 import { computePayroll, loadRules } from '../src/modules/payroll-calc.ts';
 import { notify, forgetPrefsTable } from '../src/modules/notify.ts';
 import { forgetIncidentsInstalled } from '../src/modules/exit-incidents.ts';
+import { escalateUnrouted } from '../src/modules/routing.ts';
+import { createDb } from '../src/db.ts';
 
 /**
  * Requirements 2026-11-26: shift-based tracking, sales-manager leave / absence routing, the absence threshold,
@@ -50,9 +52,10 @@ test('absence threshold: off, fixed hours, half of the actual shift (different d
   assert.equal(absenceThresholdMinutes({ mode: 'half_shift', hours: null }, '10:00', '18:00'), 240, '8-hour shift');
   assert.equal(absenceThresholdMinutes({ mode: 'half_shift', hours: null }, '09:00', '15:00'), 180, '6-hour shift');
   assert.equal(absenceThresholdMinutes({ mode: 'half_shift', hours: null }, '10:00', '14:30'), 135, '4.5-hour shift');
-  assert.equal(lateIsAbsence(179, 180), false, 'never before the threshold');
-  assert.equal(lateIsAbsence(180, 180), true);
-  assert.equal(lateIsAbsence(500, null), false);
+  assert.equal(thresholdReached(179, 180), false, 'before');
+  assert.equal(thresholdReached(180, 180), true, 'exactly at');
+  assert.equal(thresholdReached(181, 180), true, 'after');
+  assert.equal(thresholdReached(500, null), false, 'disabled');
 });
 
 test('tracking eligibility: only inside the shift on a working day, never on leave / holiday', () => {
@@ -213,6 +216,13 @@ test('payroll receives the deduction exactly once; a short exit (no tier) is rec
 
 test('reversal: payroll approver only, never one\'s own, once, with a reason — the database keeps the figures', async () => {
   const id = (await incidents(c.ids.e3))[0].id;
+  // a payroll sheet prepared now freezes the deduction in its snapshot — a later reversal never rewrites it
+  const sheet = await h.call(c.t.hr, 'POST', '/payroll-batches', { month: '2026-03' });
+  assert.equal(sheet.status, 201, JSON.stringify(sheet.body));
+  const lineOf = async () => (await h.db.query(`SELECT snapshot FROM payroll_batch_lines WHERE batch_id = $1 AND employee_id = $2`,
+    [sheet.body.batch.id, c.ids.e3])).rows[0]?.snapshot;
+  const frozen = await lineOf();
+  assert.equal(frozen.unauthorizedExit.amount, 50);
   assert.equal((await h.call(c.t.e3, 'POST', `/attendance/exit-incidents/${id}/reverse`, { reason: 'كان في معاينة' })).status, 403);
   assert.equal((await h.call(c.t.owner, 'POST', `/attendance/exit-incidents/${id}/reverse`, { reason: 'x' })).status, 400, 'a reason');
   const r = await h.call(c.t.owner, 'POST', `/attendance/exit-incidents/${id}/reverse`, { reason: 'المعاينة كانت متفق عليها شفهياً' });
@@ -220,6 +230,9 @@ test('reversal: payroll approver only, never one\'s own, once, with a reason —
   assert.equal((await h.call(c.t.owner, 'POST', `/attendance/exit-incidents/${id}/reverse`, { reason: 'تاني' })).status, 409);
   const p = await computePayroll(h.db, c.ids.e3, '2026-03-01', '2026-03-10', await loadRules(h.db));
   assert.equal(p.unauthorizedExit.amount, 0);
+  assert.deepEqual(await lineOf(), frozen, 'the sheet snapshot is not rewritten by the reversal');
+  assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'exit_incident.reverse' AND entity_id = $1`, [id])).rows.length === 1, 'audited');
+  assert.equal((await h.call(c.t.hr, 'POST', `/payroll-batches/${sheet.body.batch.id}/cancel`, {})).status, 200);
   const refuse = async (sql: string) => assert.rejects(h.db.query(sql, [id]), (e: any) => e.code === '23514', sql);
   await refuse(`UPDATE unauthorized_exit_incidents SET amount_egp = 1 WHERE id = $1`);
   await refuse(`UPDATE unauthorized_exit_incidents SET status = 'closed', reversed_at = NULL, reversed_by = NULL, reverse_reason = NULL WHERE id = $1`);
@@ -230,9 +243,121 @@ test('reversal: payroll approver only, never one\'s own, once, with a reason —
   assert.ok(!(await h.call(c.t.sm1, 'GET', '/attendance/exit-incidents?month=2026-03')).body.incidents.some((x: any) => x.employee_id === c.ids.e3), 'another team never');
 });
 
-test('an exit still open at the scheduled shift end is closed at the shift end; after it nobody is followed', async () => {
-  at('2026-03-10T15:30:00Z'); // 17:30 local
+// ================================================================================================ effective activation
+test('effective deduction = automatic deductions on AND exit deduction on AND a matching tier — frozen at closing', async () => {
+  // sm2 (team B manager) checks in late; two exits of 20 minutes (the 15–60 tier matches)
+  at('2026-03-10T10:00:00Z');
+  assert.equal((await h.call(c.t.sm2, 'POST', '/attendance/check-in', {})).status, 201);
+  await ping(c.t.sm2, IN);
+  // 1) global automatic deductions OFF, exit deduction on → recorded, no amount
+  await h.call(c.t.owner, 'PATCH', '/settings', { payrollAutoDeductions: false });
+  at('2026-03-10T10:05:00Z'); await ping(c.t.sm2, OUT);
+  at('2026-03-10T10:25:00Z'); await ping(c.t.sm2, IN);
+  // 2) global ON, exit deduction OFF → turning the general switch on does not activate the exit deduction
+  await h.call(c.t.owner, 'PATCH', '/settings', { payrollAutoDeductions: true, unauthorizedExitDeduction: false });
+  at('2026-03-10T10:30:00Z'); await ping(c.t.sm2, OUT);
+  at('2026-03-10T10:50:00Z'); await ping(c.t.sm2, IN);
+  const inc = await incidents(c.ids.sm2);
+  assert.equal(inc.length, 2);
+  for (const x of inc) {
+    assert.equal(x.status, 'closed'); assert.equal(x.minutes, 20); assert.equal(x.tier.amount, 50, 'the tier matched');
+    assert.equal(x.amount_egp, null, 'not effective → never deducted'); assert.equal(x.deduction_enabled, false);
+  }
+  // switching both on afterwards changes no closed incident (nothing retroactive)
+  await h.call(c.t.owner, 'PATCH', '/settings', { unauthorizedExitDeduction: true });
+  assert.ok((await incidents(c.ids.sm2)).every((x) => x.amount_egp === null));
+  // the database refuses a second open incident for the same employee (any phone, any request)
+  await h.db.query(`INSERT INTO unauthorized_exit_incidents (employee_id, work_date, attendance_id, period, exit_at, permission_state, shift_end_at)
+                    SELECT employee_id, work_date, id, '2026-03-01', '2026-03-10T10:55:00Z', 'none', '2026-03-10T16:00:00Z' FROM attendance
+                     WHERE employee_id = $1 AND work_date = '2026-03-10'`, [c.ids.sm2]);
+  await assert.rejects(h.db.query(`INSERT INTO unauthorized_exit_incidents (employee_id, work_date, attendance_id, period, exit_at, permission_state, shift_end_at)
+                    SELECT employee_id, work_date, id, '2026-03-01', '2026-03-10T10:56:00Z', 'none', '2026-03-10T16:00:00Z' FROM attendance
+                     WHERE employee_id = $1 AND work_date = '2026-03-10'`, [c.ids.sm2]), (e: any) => e.code === '23505');
+  at('2026-03-10T10:58:00Z'); await ping(c.t.sm2, IN); // closes the one opened above (returned)
+});
+
+// ================================================================================================ absence threshold
+test('absence registration: before the threshold refused, exactly at / after it allowed; only a request, never automatic; duplicates refused', async () => {
+  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'fixed_hours', absenceThresholdHours: 3 });
+  const today = { type: 'full_day_absence', startDate: '2026-03-10', endDate: '2026-03-10', absenceType: 'casual', reason: 'ظرف طارئ' };
+  // solo: 10:00 shift, no check-in; the threshold is 13:00 local = 11:00Z
+  at('2026-03-10T10:59:00Z');
+  const before = await h.call(c.t.solo, 'POST', '/requests', today);
+  assert.equal(before.status, 422); assert.equal(before.body.error.details.reason, 'absence_threshold_not_reached');
+  assert.equal(before.body.error.details.availableAtMinutes, 13 * 60);
+  const t1 = (await h.call(c.t.solo, 'GET', '/attendance/today')).body.absenceThreshold;
+  assert.deepEqual([t1.configured, t1.reached, t1.thresholdMinutes], [true, false, 180]);
+  at('2026-03-10T11:00:00Z');
+  assert.equal((await h.call(c.t.solo, 'GET', '/attendance/today')).body.absenceThreshold.reached, true, 'exactly at');
+  const at0 = await h.call(c.t.solo, 'POST', '/requests', today);
+  assert.equal(at0.status, 201, JSON.stringify(at0.body));
+  assert.ok(['pending_manager', 'pending_hr'].includes(at0.body.request.status), 'a request for review — not approved');
+  const dup = await h.call(c.t.solo, 'POST', '/requests', today);
+  assert.equal(dup.status, 409); assert.equal(dup.body.error.details.reason, 'pending_exists');
+  // the threshold passing registered nothing for anybody else and changed no attendance
+  const auto = await h.db.query(`SELECT count(*)::int AS n FROM requests WHERE type = 'full_day_absence' AND start_date = '2026-03-10'
+                                  AND employee_id NOT IN ($1, $2, $3)`, [c.ids.solo, c.ids.sm1, (await h.db.query(`SELECT id FROM employees WHERE code = 'GM1'`)).rows[0].id]);
+  assert.equal(auto.rows[0].n, 0, 'no automatic absence registration');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM attendance WHERE employee_id = $1`, [c.ids.solo])).rows[0].n, 0, 'no attendance created');
+  // a future day is not gated (planned leave as before); another shift length: half of a 6-hour shift = 3 hours
+  assert.equal((await h.call(c.t.acc, 'POST', '/requests', { ...today, startDate: '2026-03-12', endDate: '2026-03-12' })).status, 201);
+  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'half_shift' });
+  await h.db.query(`UPDATE employees SET work_start = '10:00', work_end = '16:00' WHERE id = $1`, [c.ids.acc]);
+  at('2026-03-10T10:30:00Z'); // 12:30 local: 2.5 h
+  assert.equal((await h.call(c.t.acc, 'POST', '/requests', today)).body.error.details.reason, 'absence_threshold_not_reached');
+  at('2026-03-10T11:00:00Z'); // 13:00 local: 3 h of a 6-hour shift
+  assert.equal((await h.call(c.t.acc, 'POST', '/requests', today)).status, 201);
+  // half of the default 8-hour shift is 4 hours: HR (no check-in) is still before it at 13:30 local
+  at('2026-03-10T11:30:00Z');
+  assert.equal((await h.call(c.t.hr, 'POST', '/requests', today)).body.error.details.reason, 'absence_threshold_not_reached');
+  // disabled → exactly as before 094 (no gate)
+  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'off' });
+  assert.equal((await h.call(c.t.hr, 'POST', '/requests', today)).status, 201);
+  assert.equal((await h.call(c.t.hr, 'GET', '/attendance/today')).body.absenceThreshold.configured, false);
+  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'fixed_hours', absenceThresholdHours: 3 });
+});
+
+test('a late check-in after the threshold stays a late attendance (timestamps kept), never an absence', async () => {
+  at('2026-03-10T11:40:00Z'); // 13:40 local, 3 h 40 after the start
   assert.equal((await h.call(c.t.e2, 'POST', '/attendance/check-in', {})).status, 201);
+  const m = await computeMonth(h.db, c.ids.e2, '2026-03-01', '2026-03-10');
+  const d = m.days.find((x) => x.date === '2026-03-10')!;
+  assert.equal(d.status, 'present'); assert.equal(d.attendance!.isLate, true); assert.ok(d.attendance!.lateMinutes >= 200, String(d.attendance!.lateMinutes));
+  assert.equal(new Date(d.attendance!.checkIn).toISOString(), '2026-03-10T11:40:00.000Z');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM requests WHERE employee_id = $1 AND type = 'full_day_absence' AND start_date = '2026-03-10'`,
+    [c.ids.e2])).rows[0].n, 0, 'nothing registered for him');
+});
+
+// ================================================================================================ routing failure
+test('no authorized recipient: the item stays pending; owners are told; with no owner the failure is recorded', async () => {
+  const req = (await h.db.query(`SELECT id FROM requests WHERE employee_id = $1 AND status IN ('pending_manager','pending_hr') LIMIT 1`, [c.ids.solo])).rows[0].id;
+  const r1 = await escalateUnrouted(h.db, { actorId: c.ids.solo, entity: 'request', entityId: req, title: 't', body: 'b' });
+  assert.equal(r1, 'escalated');
+  assert.ok((await types(c.ids.owner)).includes('routing_escalation'));
+  // the only owner is the actor himself → nobody to tell: recorded in the audit log, nothing else happens
+  const r2 = await escalateUnrouted(h.db, { actorId: c.ids.owner, entity: 'request', entityId: req, title: 't', body: 'b' });
+  assert.equal(r2, 'recorded');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'routing.unrouted' AND entity_id = $1`, [req])).rows[0].n, 1);
+  assert.ok(['pending_manager', 'pending_hr'].includes((await h.db.query(`SELECT status FROM requests WHERE id = $1`, [req])).rows[0].status), 'still pending');
+});
+
+// ================================================================================================ runtime role
+test('the restricted runtime role cannot delete incidents, disable their trigger or edit frozen figures', async (t) => {
+  if (process.env.TEST_APP_ROLE !== '1') { t.skip('the restricted role exists only in the least-privilege run'); return; }
+  const u = new URL(process.env.TEST_PG_URL!); u.username = 'va_app_test'; u.password = 'app-role-test-only'; u.pathname = `/${h.dbName}`;
+  const app = createDb(u.toString());
+  try {
+    const id = (await incidents(c.ids.e3))[0].id;
+    await assert.rejects(app.query(`DELETE FROM unauthorized_exit_incidents WHERE id = $1`, [id]), (e: any) => e.code === '42501', 'no DELETE grant');
+    await assert.rejects(app.query(`ALTER TABLE unauthorized_exit_incidents DISABLE TRIGGER ALL`), (e: any) => e.code === '42501', 'not the owner');
+    await assert.rejects(app.query(`UPDATE unauthorized_exit_incidents SET amount_egp = 1 WHERE id = $1`, [id]), (e: any) => e.code === '23514');
+    await assert.rejects(app.query(`DELETE FROM notification_preferences`), (e: any) => e.code === '42501');
+    await assert.rejects(app.query(`TRUNCATE unauthorized_exit_incidents`), (e: any) => e.code === '42501');
+  } finally { await app.end(); }
+});
+
+test('an exit still open at the scheduled shift end is closed at the shift end; after it nobody is followed', async () => {
+  at('2026-03-10T15:30:00Z'); // 17:30 local (e2 checked in late, above)
   await ping(c.t.e2, IN);
   at('2026-03-10T15:40:00Z');
   await ping(c.t.e2, OUT);
@@ -242,36 +367,6 @@ test('an exit still open at the scheduled shift end is closed at the shift end; 
   const inc = await incidents(c.ids.e2);
   assert.equal(inc.length, 1); assert.equal(inc[0].end_reason, 'shift_end'); assert.equal(inc[0].minutes, 20);
   assert.equal(new Date(inc[0].ended_at).toISOString(), '2026-03-10T16:00:00.000Z');
-});
-
-// ================================================================================================ absence threshold
-test('absence threshold: a check-in at / after it is an absence (kept timestamps, not also late); before it is late', async () => {
-  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'fixed_hours', absenceThresholdHours: 3 });
-  // solo: 10:00 shift; checks in at 13:00 local exactly → absent
-  const ci = await h.db.query(`INSERT INTO attendance (employee_id, work_date, schedule_start, schedule_end, late_grace_minutes, early_grace_minutes,
-      overtime_enabled, overtime_min_minutes, check_in_at, geofence_status, original_check_in_at)
-    VALUES ($1, '2026-03-09', '10:00', '18:00', 10, 10, false, 0, '2026-03-09T11:00:00Z', 'not_required', '2026-03-09T11:00:00Z'),
-           ($1, '2026-03-08', '10:00', '18:00', 10, 10, false, 0, '2026-03-08T10:59:00Z', 'not_required', '2026-03-08T10:59:00Z')
-    RETURNING id`, [c.ids.solo]);
-  assert.equal(ci.rows.length, 2);
-  let m = await computeMonth(h.db, c.ids.solo, '2026-03-01', '2026-03-10');
-  const d9 = m.days.find((d) => d.date === '2026-03-09')!, d8 = m.days.find((d) => d.date === '2026-03-08')!;
-  assert.equal(d9.status, 'absent'); assert.equal(d9.lateAsAbsence, true); assert.ok(d9.attendance, 'timestamps kept');
-  assert.equal(d9.attendance!.isLate, false, 'not double counted');
-  assert.equal(d8.status, 'present'); assert.equal(d8.attendance!.lateMinutes, 179, 'one minute before the threshold: late');
-  const p = await computePayroll(h.db, c.ids.solo, '2026-03-01', '2026-03-10', await loadRules(h.db));
-  assert.equal(p.late.days, 1, 'only the 8th is a late day');
-  // half of the actual shift: a 6-hour shift (10:00–16:00) → 3 hours as well; the 8-hour one → 4 hours (179 and 180 late: present)
-  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'half_shift' });
-  m = await computeMonth(h.db, c.ids.solo, '2026-03-01', '2026-03-10');
-  assert.equal(m.days.find((d) => d.date === '2026-03-09')!.status, 'present', '8-hour shift: 4-hour threshold');
-  await h.db.query(`UPDATE attendance SET schedule_end = '16:00' WHERE employee_id = $1 AND work_date = '2026-03-09'`, [c.ids.solo]);
-  m = await computeMonth(h.db, c.ids.solo, '2026-03-01', '2026-03-10');
-  assert.equal(m.days.find((d) => d.date === '2026-03-09')!.status, 'absent', '6-hour shift: 3-hour threshold');
-  // off again → today's behaviour exactly
-  await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'off' });
-  m = await computeMonth(h.db, c.ids.solo, '2026-03-01', '2026-03-10');
-  assert.equal(m.days.find((d) => d.date === '2026-03-09')!.status, 'present');
 });
 
 // ================================================================================================ notification preferences
@@ -314,4 +409,25 @@ test('the manager is back the next day (his leave ended): routing to him is rest
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.request.status, 'pending_manager'); assert.equal(r.body.request.manager_id, c.ids.sm1);
   assert.ok((await types(c.ids.sm1)).includes('request_awaiting'));
+});
+
+test('an unresponsive manager (no check-in once the threshold passed) is away for routing only; his records untouched; checking in restores him', async () => {
+  // Wednesday: sm2 (team B) has not checked in. Threshold 3 h → 13:00 local.
+  at('2026-03-11T10:50:00Z'); // 12:50 local: not yet away
+  const r0 = await h.call(c.t.e3, 'POST', '/requests', { type: 'hourly_permission', day: '2026-03-11', fromTime: '15:00', toTime: '15:30', reason: 'مشوار' });
+  assert.equal(r0.status, 201, JSON.stringify(r0.body));
+  assert.equal(r0.body.request.manager_id, c.ids.sm2, 'before the threshold he is still the approver');
+  at('2026-03-11T11:05:00Z'); // 13:05 local: past it, still no check-in
+  const r1 = await h.call(c.t.e3, 'POST', '/requests', { type: 'hourly_permission', day: '2026-03-16', fromTime: '16:00', toTime: '16:30', reason: 'مشوار تاني' });
+  assert.equal(r1.status, 201, JSON.stringify(r1.body));
+  assert.equal(r1.body.request.status, 'pending_hr'); assert.equal(r1.body.request.manager_id, null, 'routed past the unresponsive manager');
+  // nothing was registered for him: no absence request, no attendance row
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM requests WHERE employee_id = $1`, [c.ids.sm2])).rows[0].n, 0);
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM attendance WHERE employee_id = $1 AND work_date = '2026-03-11'`, [c.ids.sm2])).rows[0].n, 0);
+  // he checks in (late) → normal routing resumes immediately
+  at('2026-03-11T11:20:00Z');
+  assert.equal((await h.call(c.t.sm2, 'POST', '/attendance/check-in', {})).status, 201);
+  const r2 = await h.call(c.t.e3, 'POST', '/requests', { type: 'hourly_permission', day: '2026-03-12', fromTime: '15:00', toTime: '15:30', reason: 'مشوار' });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body));
+  assert.equal(r2.body.request.manager_id, c.ids.sm2);
 });

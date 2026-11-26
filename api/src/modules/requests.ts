@@ -6,7 +6,8 @@ import { assertCanRead, audit, authenticate, has, readableIds, type Actor, can, 
 import { daysBetween, isoDow, local, timeToMinutes } from '../lib/time.ts';
 import { applyCorrection } from './attendance.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
-import { available } from './presence.ts';
+import { absenceWindow, available } from './presence.ts';
+import { escalateUnrouted } from './routing.ts';
 
 export const REQUEST_TYPES = ['hourly_permission', 'short_leave', 'full_day_absence', 'emergency_permission', 'attendance_correction'] as const;
 const ABSENCE_TYPES = ['annual', 'casual', 'sick', 'unpaid', 'mission'] as const;
@@ -119,6 +120,17 @@ export const requestsModule: Module = (r, { db, clock }) => {
       if (!doc || doc.employee_id !== subjectId) throw invalid('Attachment not found', { field: 'attachmentId' });
     }
 
+    // 2026-11-26 absence threshold (proposed 094): when the company configured it, an employee registers an absence that
+    // includes TODAY only once the threshold of today's shift has passed. It is only a request (HR reviews it; the
+    // duplicate / overlap checks below still apply) — nothing is ever registered or approved automatically. Off → as before.
+    if (!forId && type === 'full_day_absence' && (f.start_date as string) <= today && (f.end_date as string) >= today) {
+      const w = await absenceWindow(db, a.id, clock());
+      if (w.configured && w.workingDay && !w.reached) {
+        throw new AppError('unprocessable', 'You can register today\'s absence only after the absence threshold', {
+          reason: 'absence_threshold_not_reached', availableAtMinutes: w.reachedAtMinutes, workingDay: w.workingDay });
+      }
+    }
+
     if (forId) {
       const row = await db.tx(async (q) => {
         await q.query(`SELECT 1 FROM employees WHERE id = $1 FOR UPDATE`, [forId]);
@@ -185,6 +197,11 @@ export const requestsModule: Module = (r, { db, clock }) => {
       for (const to of recipients) {
         await notify(q, { to, type: 'request_awaiting', title: `طلب ${TYPE_AR[type]} بانتظار موافقتك`,
           body: `${a.fullName}: ${reason}`, entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:awaiting:${status}` });
+      }
+      // nobody authorized could be told (manager away, no HR approver): the request stays pending; escalated / recorded
+      if (!recipients.length) {
+        await escalateUnrouted(q, { actorId: a.id, entity: 'request', entityId: row.id, title: `طلب ${TYPE_AR[type]} من غير معتمد متاح`,
+          body: `${a.fullName}: مفيش مدير متاح ولا موارد بشرية بصلاحية الاعتماد — الطلب لسه معلّق.` });
       }
       await notify(q, { to: a.id, type: 'request_submitted', title: `تم إرسال طلب ${TYPE_AR[type]}`,
         entity: 'request', entityId: row.id, dedupeKey: `req:${row.id}:submitted` });

@@ -151,8 +151,7 @@ export function buildPayroll(data: PayrollData, period: string, today: string, r
   let lateMin = 0, earlyMin = 0, lateDays = 0, earlyDays = 0, lateAmt = 0, earlyAmt = 0;
   for (const d of days) {
     const a = attBy.get(d.date);
-    // a day the absence threshold turned into an absence is paid / deducted as an absence only (never also as late)
-    if (!a || !d.attendance || d.lateAsAbsence) continue;
+    if (!a || !d.attendance) continue;
     const start = timeToMinutes(a.schedule_start), end = timeToMinutes(a.schedule_end);
     const lateRaw = Math.max(0, local(new Date(a.check_in_at)).minutes - start);
     let earlyRaw = 0;

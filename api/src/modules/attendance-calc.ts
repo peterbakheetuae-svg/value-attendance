@@ -2,7 +2,7 @@ import type { Q } from '../db.ts';
 import { one } from '../db.ts';
 import { settledFromSql } from '../auth/context.ts';
 import { daysInMonth, isoDow, local, timeToMinutes } from '../lib/time.ts';
-import { absenceThresholdMinutes, lateIsAbsence, type AbsencePolicy } from '../lib/attendance-policy.ts';
+import type { AbsencePolicy } from '../lib/attendance-policy.ts';
 
 export interface AttendanceRow {
   id: string; work_date: string; check_in_at: Date; check_out_at: Date | null;
@@ -44,8 +44,6 @@ export type DayStatus =
 
 export interface DayEntry {
   date: string; status: DayStatus; holidayName?: string; absenceType?: string;
-  /** the check-in came at or after the company's absence threshold: the day is an absence (its timestamps are kept) */
-  lateAsAbsence?: boolean;
   attendance?: { id: string; checkIn: Date; checkOut: Date | null; corrected: boolean; hasSelfie: boolean } & DayMetrics;
   hourlyPermissionMinutes: number;
 }
@@ -71,7 +69,8 @@ export interface MonthData {
   abs: { start_date: string; end_date: string; absence_type: string }[];
   hourly: { day: string; duration_minutes: number }[];
   weekendRule: boolean;
-  /** the company's lateness → absence threshold (proposed 094); null / off = today's behaviour */
+  /** the company's absence threshold (proposed 094) — informational here: it never changes a day's status (an absence is
+   *  only ever what the employee registers and HR approves) */
   absencePolicy?: AbsencePolicy | null;
 }
 
@@ -194,16 +193,6 @@ export function buildMonth(data: MonthData, period: string, today: string): { da
         m.isLate = m.lateMinutes > 0;
       }
       entry.status = 'present';
-      // the company's absence threshold (proposed 094): a check-in at or after it makes the day an absence — measured from
-      // the day's own scheduled shift, after an approved hourly permission; the late minutes are then not counted as well
-      const threshold = absenceThresholdMinutes(data.absencePolicy, a.schedule_start, a.schedule_end);
-      if (threshold !== null && !holBy.has(d) && !weekend.includes(isoDow(d))) {
-        const lateRaw = Math.max(0, local(new Date(a.check_in_at)).minutes - timeToMinutes(a.schedule_start));
-        if (lateIsAbsence(Math.max(0, lateRaw - entry.hourlyPermissionMinutes), threshold)) {
-          entry.status = 'absent'; entry.lateAsAbsence = true;
-          m.isLate = false; m.lateMinutes = 0;
-        }
-      }
       entry.attendance = { id: a.id, checkIn: a.check_in_at, checkOut: a.check_out_at, corrected: a.corrected, hasSelfie: (a as any).has_selfie === true, ...m };
     }
     if (d > today) entry.status = a ? entry.status : 'future';

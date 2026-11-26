@@ -5,7 +5,7 @@ import { isUuid, obj, reqStr } from '../http/validate.ts';
 import { audit, authenticate, has, readableIds } from '../auth/context.ts';
 import { cairoInstant, local } from '../lib/time.ts';
 import { exitMinutes, exitTierFor, type ExitTier } from '../lib/attendance-policy.ts';
-import { attendancePolicy } from './presence.ts';
+import { attendancePolicy, dayShifts } from './presence.ts';
 import { notify } from './notify.ts';
 
 /**
@@ -29,11 +29,10 @@ export async function incidentsInstalled(q: Q): Promise<boolean> {
 }
 export function forgetIncidentsInstalled() { installed = null; }
 
-/** The scheduled end of the employee's shift on that day (Cairo). */
+/** The scheduled end of the employee's shift on that day (Cairo): the day's saved schedule snapshot. */
 async function shiftEndAt(q: Q, employeeId: string, workDate: string): Promise<Date> {
-  const s = await one(q, `SELECT COALESCE(e.work_end, ws.end_time)::text AS end_time FROM employees e
-      JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default)) WHERE e.id = $1`, [employeeId]);
-  return cairoInstant(workDate, String(s.end_time).slice(0, 5));
+  const d = (await dayShifts(q, [employeeId], workDate)).get(employeeId)!;
+  return cairoInstant(workDate, d.end);
 }
 
 /** Opens the incident of a verified unauthorized exit (inside the ping's transaction). Returns its id, or null. */
@@ -58,8 +57,8 @@ export async function openIncident(q: Q, x: { employeeId: string; workDate: stri
 
 /**
  * Closes the employee's open incident (back inside / check-out / shift end): minutes, tier and amount frozen now.
- * The deduction applies only when the company switched it on AND an enabled tier matches; otherwise the incident is kept
- * with no amount (recorded, never deducted).
+ * The deduction applies only when it is effective (automatic deductions on AND the exit deduction on AND an enabled tier
+ * matches); otherwise the incident is kept with no amount (recorded, never deducted).
  */
 export async function closeIncident(q: Q, employeeId: string, at: Date, reason: 'returned' | 'checked_out' | 'shift_end'): Promise<void> {
   if (!(await incidentsInstalled(q))) return;
@@ -68,11 +67,14 @@ export async function closeIncident(q: Q, employeeId: string, at: Date, reason: 
   const policy = await attendancePolicy(q);
   const minutes = exitMinutes(new Date(inc.exit_at), at, new Date(inc.shift_end_at));
   const tier: ExitTier | null = exitTierFor(policy.exitTiers as ExitTier[], minutes);
-  const amount = policy.exitDeduction && tier ? tier.amount : null;
+  // effective deduction = the company's automatic deductions on AND the unauthorized-exit deduction on AND an enabled
+  // matching tier — evaluated once, here, at closing (switching a setting later never changes a closed incident)
+  const effective = policy.autoDeductions && policy.exitDeduction && !!tier;
+  const amount = effective ? tier!.amount : null;
   await q.query(`UPDATE unauthorized_exit_incidents SET status = 'closed', ended_at = $2, end_reason = $3, minutes = $4,
                    tier = $5::jsonb, amount_egp = $6, deduction_enabled = $7 WHERE id = $1`,
     [inc.id, new Date(Math.min(at.getTime(), new Date(inc.shift_end_at).getTime())), reason, minutes, tier ? JSON.stringify(tier) : null,
-      amount, policy.exitDeduction]);
+      amount, effective]);
   await audit(q, employeeId, 'exit_incident.close', 'unauthorized_exit_incident', inc.id, undefined, { reason, minutes, tier, amount });
   if (amount) {
     await notify(q, { to: employeeId, type: 'unauthorized_exit_deduction', title: `خصم خروج بدون إذن: ${amount} جنيه`,

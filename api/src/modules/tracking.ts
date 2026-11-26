@@ -14,7 +14,7 @@ import { leadsSweep } from './leads.ts';
 import { leadsAutoReassign } from './leads2.ts';
 import { activeOuting, markReturned } from './outings.ts';
 import { shiftEligibility } from '../lib/attendance-policy.ts';
-import { available } from './presence.ts';
+import { available, dayShifts } from './presence.ts';
 import { closeEndedShifts, closeIncident, openIncident } from './exit-incidents.ts';
 
 /** Who hears about an employee: HR/owner (attendance.read_all) + the employee's sales manager(s). */
@@ -84,23 +84,17 @@ export async function trackingEligibility(q: Q, employeeId: string, now?: Date, 
   return { on: sh.eligible, reason: sh.reason, endsInMinutes: sh.endsInMinutes };
 }
 
-/** The employee's eligible working period right now (schedule, holiday, approved leave, check-in / check-out). */
+/**
+ * The employee's eligible working period right now: that day's SAVED schedule snapshot once he checked in (his current
+ * schedule before), holiday, weekend, approved full-day leave, check-in / check-out.
+ */
 export async function shiftOf(q: Q, employeeId: string, now: Date, ignoreAttendance = false) {
   const l = local(now);
-  const x = await one(q, `
-    SELECT COALESCE(e.work_start, ws.start_time)::text AS start_time, COALESCE(e.work_end, ws.end_time)::text AS end_time, ws.weekend_days,
-           EXISTS (SELECT 1 FROM holidays h WHERE h.day = $2) AS holiday,
-           EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved' AND r.type = 'full_day_absence'
-                     AND r.start_date <= $2 AND r.end_date >= $2) AS on_leave,
-           a.check_in_at, a.check_out_at
-      FROM employees e
-      JOIN work_schedules ws ON ws.id = COALESCE(e.schedule_id, (SELECT id FROM work_schedules WHERE is_default))
-      LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = $2
-     WHERE e.id = $1`, [employeeId, l.date]);
-  if (!x) return { eligible: false, reason: 'no_employee' as const, endsInMinutes: null };
-  return shiftEligibility({ nowMinutes: l.minutes, isoDow: l.isoDow, weekendDays: x.weekend_days ?? [], holiday: x.holiday,
-    onLeave: x.on_leave, shiftStart: x.start_time.slice(0, 5), shiftEnd: x.end_time.slice(0, 5),
-    checkedIn: ignoreAttendance || !!x.check_in_at, checkedOut: !ignoreAttendance && !!x.check_out_at });
+  const d = (await dayShifts(q, [employeeId], l.date)).get(employeeId);
+  if (!d) return { eligible: false, reason: 'no_employee' as const, endsInMinutes: null };
+  return shiftEligibility({ nowMinutes: l.minutes, isoDow: l.isoDow, weekendDays: d.weekendDays, holiday: d.holiday,
+    onLeave: d.onLeave, shiftStart: d.start, shiftEnd: d.end,
+    checkedIn: ignoreAttendance || !!d.attendance, checkedOut: !ignoreAttendance && !!d.attendance?.checkOutAt });
 }
 
 /** a short, location-free summary of what the pushes did (for the audit log) */
@@ -138,7 +132,7 @@ export async function sweep(q: Q, now: Date) {
   if (await one(q, `SELECT 1 FROM holidays WHERE day = $1`, [l.date])) return;
   const rows = await q.query(`
     SELECT e.id, e.full_name, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time, ws.weekend_days,
-           a.id AS att_id, a.check_in_at, a.check_out_at,
+           a.id AS att_id, a.check_in_at, a.check_out_at, a.schedule_start::text AS snap_start, a.schedule_end::text AS snap_end,
            EXISTS (SELECT 1 FROM requests r WHERE r.employee_id = e.id AND r.status = 'approved'
                      AND r.type = 'full_day_absence' AND r.start_date <= $1 AND r.end_date >= $1) AS on_leave,
            EXISTS (SELECT 1 FROM attendance_breaks b WHERE b.attendance_id = a.id AND b.ended_at IS NULL) AS on_break,
@@ -182,7 +176,10 @@ export async function sweep(q: Q, now: Date) {
     }
     const stale = claimed.tracking_stale_minutes;
     // the follow-up's own alerts run only inside the scheduled shift (after it ends nobody is followed)
-    const inShift = l.minutes >= start && l.minutes < end;
+    // (once checked in: that day's saved schedule snapshot decides, like /tracking/ping)
+    const inShift = r.snap_start
+      ? l.minutes >= timeToMinutes(r.snap_start) && l.minutes < timeToMinutes(r.snap_end)
+      : l.minutes >= start && l.minutes < end;
     if (claimed.tracking_enabled && r.work_tracking && inShift && stale > 0 && r.att_id && r.check_in_at && !r.check_out_at) {
       const last = r.last_ping_at ? new Date(r.last_ping_at).getTime() : null;
       const silentMin = last === null ? null : Math.floor((now.getTime() - last) / 60000);

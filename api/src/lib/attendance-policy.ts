@@ -4,8 +4,9 @@
  *
  *  1. Shift-based tracking eligibility: following an employee runs only inside his scheduled shift on a working day,
  *     between check-in and check-out, never on approved leave / approved absence or a holiday.
- *  2. Absence threshold: when lateness becomes an absence — off (NULL: today's behaviour), a fixed number of hours, or
- *     half of the employee's own scheduled shift (never a hard-coded 8-hour shift).
+ *  2. Absence threshold: after how long past the shift start the employee may register an absence for that day — off
+ *     (NULL: today's behaviour), a fixed number of hours, or half of that day's own scheduled shift (never a
+ *     hard-coded 8-hour shift). It enables an action; it never marks anyone absent.
  *  3. «شرائح خروج بدون إذن»: fixed-EGP tiers by the minutes of an unauthorized exit, separate from the late / early tiers.
  *
  * Shifts are same-day (start < end), as everywhere else in the attendance calculation.
@@ -22,8 +23,8 @@ export function shiftMinutes(start: string, end: string): number {
 }
 
 /**
- * Minutes after the scheduled start at which a missing / late check-in becomes an absence, or null when the policy is off
- * (or not fully configured — a mode without its value never classifies anyone).
+ * Minutes after the scheduled start at which registering an absence for that day becomes possible, or null when the policy
+ * is off (or not fully configured — a mode without its value enables nothing).
  */
 export function absenceThresholdMinutes(p: AbsencePolicy | null | undefined, shiftStart: string, shiftEnd: string): number | null {
   if (!p?.mode) return null;
@@ -36,12 +37,12 @@ export function absenceThresholdMinutes(p: AbsencePolicy | null | undefined, shi
 }
 
 /**
- * Lateness (minutes after the scheduled start, after an approved hourly permission covered part of it) that reached the
- * threshold → the day is an absence (and is NOT also counted as a late arrival: no double counting). The grace period
- * only decides whether a day counts as late; it never delays the absence threshold.
+ * Has the threshold been reached, `minutesSinceStart` after the day's scheduled start? Reaching it only makes the
+ * employee ELIGIBLE to register an absence for that day (a request HR reviews) — it never registers, approves or
+ * records an absence by itself, and never changes the day's attendance.
  */
-export function lateIsAbsence(lateMinutesAfterPermission: number, thresholdMinutes: number | null): boolean {
-  return thresholdMinutes !== null && lateMinutesAfterPermission >= thresholdMinutes;
+export function thresholdReached(minutesSinceStart: number, thresholdMinutes: number | null): boolean {
+  return thresholdMinutes !== null && minutesSinceStart >= thresholdMinutes;
 }
 
 export type TrackingBlock = 'not_working_day' | 'holiday' | 'on_leave' | 'before_shift' | 'shift_ended' | 'not_checked_in' | 'checked_out';
