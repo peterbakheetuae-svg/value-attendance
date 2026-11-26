@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout, approvedRequest } from './helpers.ts';
 
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
 let gmId = ''; let tGm = '';
@@ -33,8 +33,11 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   // approved policy: the HR cashbox may go below zero — the deficit is what the office owes it
   // F2: a commission is paid only against its approved entitlement
   assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'commission', amount: 2500 })).body.error.details.reason, 'entitlement_required');
-  const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'advance', amount: 2500 });
-  assert.equal(over.status, 201);
+  // F-1 (owner decision 2026-11-26): an advance is paid only against its approved request
+  assert.equal((await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'advance', amount: 2500 })).body.error.details.reason, 'request_required');
+  const over = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'advance', amount: 2500, month: '2026-03',
+    advanceId: await approvedRequest(h, c.ids.e2, 'advance', 2500, '2026-03', c.ids.owner) });
+  assert.equal(over.status, 201, JSON.stringify(over.body));
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${over.body.payout.id}/cancel`, {})).status, 200);
   // the employee sees it, confirms receipt; others cannot
   const mine = (await h.call(c.t.e1, 'GET', '/payouts?scope=mine')).body.payouts;
@@ -49,7 +52,8 @@ test('cash: the manager hands cash to HR; HR confirms; HR payments come out of t
   assert.equal(p.salaryPaid, 3000);
   assert.equal(p.remaining, Math.round((p.net - 3000) * 100) / 100);
   // a payout not yet received can be cancelled by HR: cash comes back
-  const c2 = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 500 });
+  const c2 = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 500, month: '2026-03',
+    advanceId: await approvedRequest(h, c.ids.e2, 'work_expense', 500, '2026-03', c.ids.owner) });
   assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${c2.body.payout.id}/cancel`, {})).status, 200);
   assert.equal((await h.call(c.t.hr, 'GET', '/payouts')).body.balance, 2000);
   assert.equal((await h.call(c.t.e2, 'GET', '/payouts')).body.payouts.length, 2, 'employees see only their own');
