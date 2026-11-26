@@ -97,26 +97,6 @@ test('pre-092 schema: authorization and confirmation unchanged; the dependency g
   assert.equal(await count('leads'), leadsBefore, 'dry run changed nothing');
 });
 
-test('pre-092 schema: brokerage_deals holding a deal of a lead refuses the reset (409) — the deal, the lead and everything else unchanged', async () => {
-  const a = await activity();
-  const deal = await brokerageDeal(a.lead);
-  const dealBefore = await rowsOf('brokerage_deals');
-  const leadsBefore = await count('leads');
-  const dry = await reset(c.t.owner);
-  assert.deepEqual(dry.body.dependencyBlockers, [{ table: 'brokerage_deals', rows: 1 }], 'the dry run shows the blocker and its rows');
-  const r = await confirmed();
-  assert.equal(r.status, 409, JSON.stringify(r.body));
-  if (!APP_ROLE) {
-    assert.equal(r.body.error.details.reason, 'dependent_records');
-    assert.deepEqual(r.body.error.details.dependents, [{ table: 'brokerage_deals', rows: 1 }]);
-  }
-  assert.deepEqual(await rowsOf('brokerage_deals'), dealBefore, 'the brokerage deal is untouched');
-  assert.equal(await count('leads'), leadsBefore, 'nothing was wiped');
-  assert.equal((await h.db.query(`SELECT count(*)::int n FROM audit_log WHERE action = 'data.reset'`)).rows[0].n, 0, 'no reset recorded');
-  // the record is the owner's to handle; once it is gone the reset can run (test cleanup only)
-  await h.db.query(`DELETE FROM brokerage_deals WHERE id = $1`, [deal]);
-});
-
 test('pre-092 schema: with brokerage_deals empty the reset succeeds; the empty dependents join the TRUNCATE, nothing outside the scope is lost', async () => {
   const ext = await external();
   if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies']);
@@ -127,7 +107,36 @@ test('pre-092 schema: with brokerage_deals empty the reset succeeds; the empty d
   for (const t of ['leads', 'lead_campaigns', 'marketing_companies']) assert.equal(await count(t), 0, t);
 });
 
-test('post-092 schema (the real 092 through the real runner): the 092 tables are wiped with their rows; brokerage_deals still guarded', async () => {
+test('pre-092 schema (its own database): a brokerage deal of a lead refuses the reset (409) — the deal, the lead, the audit log unchanged', async () => {
+  // a separate database: a brokerage deal can never be deleted (087's guard), so this one keeps it to the end
+  const h2 = await harness('2026-11-26T10:00:00Z', { migrationsExcept: [M092] });
+  try {
+    const c2 = await cast(h2);
+    const n = async (t: string) => Number((await h2.db.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n);
+    const company = (await h2.db.query(`INSERT INTO marketing_companies (name, kind, created_by) VALUES ('شركة', 'commission', $1) RETURNING id`, [c2.ids.owner])).rows[0].id;
+    const campaign = (await h2.db.query(`INSERT INTO lead_campaigns (name, marketing_company_id) VALUES ('حملة', $1) RETURNING id`, [company])).rows[0].id;
+    const lead = (await h2.db.query(`INSERT INTO leads (full_name, phone, phone_norm, campaign_id) VALUES ('عميل', '01011112222', '01011112222', $1) RETURNING id`, [campaign])).rows[0].id;
+    await h2.db.query(`INSERT INTO brokerage_deals (kind, property, owner_name, client_name, price_egp, arrangement, owner_commission_egp,
+        contributor_id, closer_id, proposed_by, lead_id) VALUES ('rental', 'شقة اختبار', 'مالك', 'مستأجر', 10000, 'owner_month', 10000, $1, $1, $1, $2)`, [c2.ids.e1, lead]);
+    const dealBefore = (await h2.db.query(`SELECT * FROM brokerage_deals`)).rows;
+    const leadsBefore = await n('leads');
+    const body = { employees: [], attendance: [] };
+    const dry = await h2.call(c2.t.owner, 'POST', '/admin/data-reset', body);
+    assert.equal(dry.status, 200);
+    assert.deepEqual(dry.body.dependencyBlockers, [{ table: 'brokerage_deals', rows: 1 }], 'the dry run shows the blocker and its rows');
+    assert.ok(dry.body.dependents.some((d: any) => d.table === 'brokerage_deals' && d.rows === 1));
+    const r = await h2.call(c2.t.owner, 'POST', '/admin/data-reset', { ...body, dryRun: false, confirm: CONFIRM });
+    assert.equal(r.status, 409, JSON.stringify(r.body));
+    assert.equal(r.body.error.details.reason, 'dependent_records');
+    assert.deepEqual(r.body.error.details.dependents, [{ table: 'brokerage_deals', rows: 1 }]);
+    assert.deepEqual((await h2.db.query(`SELECT * FROM brokerage_deals`)).rows, dealBefore, 'the brokerage deal is untouched');
+    assert.equal(await n('leads'), leadsBefore, 'nothing was wiped');
+    assert.equal(await n('lead_campaigns'), 1);
+    assert.equal((await h2.db.query(`SELECT count(*)::int n FROM audit_log WHERE action = 'data.reset'`)).rows[0].n, 0, 'no reset recorded');
+  } finally { await h2.close(); }
+});
+
+test('post-092 schema (the real 092 through the real runner): the 092 tables are wiped with their rows; empty dependents included', async () => {
   assert.deepEqual(await migrate(h.db), [M092], 'exactly 092 is pending, and only 092 is applied');
   assert.deepEqual(await migrate(h.db), [], 'applied once');
   if (APP_ROLE) await regrantAppRole(h);   // the runtime role's grants on the tables 092 created
@@ -141,16 +150,6 @@ test('post-092 schema (the real 092 through the real runner): the 092 tables are
   const a = await activity();
   await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason, by_id) VALUES ($1, 'unreviewed', 'not_qualified', 'رقم غلط', $2)`, [a.lead, c.ids.owner]);
   await h.db.query(`INSERT INTO meta_insights_daily (meta_campaign_id, day, spend, fetched_at) VALUES ('777', '2026-11-25', 90, now())`);
-  // a brokerage deal still blocks, after 092 too
-  const deal = await brokerageDeal(a.lead);
-  const dealBefore = await rowsOf('brokerage_deals');
-  const qBefore = await count('lead_quality_events');
-  const blocked = await confirmed();
-  assert.equal(blocked.status, 409);
-  assert.deepEqual(await rowsOf('brokerage_deals'), dealBefore);
-  assert.equal(await count('lead_quality_events'), qBefore, 'nothing wiped');
-  await h.db.query(`DELETE FROM brokerage_deals WHERE id = $1`, [deal]);
-
   if (APP_ROLE) return refusedUnderRuntimeRole(['leads', 'lead_campaigns', 'marketing_companies', ...NEW_092]);
   const empsBefore = (await h.db.query(`SELECT * FROM employees ORDER BY id`)).rows;
   const r = await confirmed();
@@ -198,7 +197,7 @@ test('several external dependencies, also through each other: empty → included
 test('a failure after the TRUNCATE rolls the whole reset back — nothing is deleted (post-092 schema)', { skip: APP_ROLE && 'the runtime role cannot TRUNCATE (refusal covered above)' }, async () => {
   const a = await activity();
   await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason) VALUES ($1, 'unreviewed', 'qualified', '')`, [a.lead]);
-  await h.db.query(`INSERT INTO meta_insights_daily (meta_campaign_id, day, spend, fetched_at) VALUES ('777', '2026-11-25', 90, now())`);
+  await h.db.query(`INSERT INTO meta_insights_daily (meta_campaign_id, day, spend, fetched_at) VALUES ('778', '2026-11-24', 90, now())`);
   const tables = ['leads', 'lead_campaigns', 'marketing_companies', ...NEW_092, 'audit_log'];
   const before = await Promise.all(tables.map(count));
   await h.db.query(`CREATE FUNCTION test_fail_reset() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'simulated failure'; END $$`);
@@ -212,6 +211,23 @@ test('a failure after the TRUNCATE rolls the whole reset back — nothing is del
   assert.deepEqual(await Promise.all(tables.map(count)), before, 'nothing deleted, no audit record');
   assert.equal((await confirmed()).status, 200, 'with the failure gone the same reset completes');
   for (const t of NEW_092) assert.equal(await count(t), 0, t);
+});
+
+test('post-092 schema: a brokerage deal of a lead still refuses the reset (409) — deal, leads and the 092 tables unchanged', async () => {
+  const a = await activity();
+  await h.db.query(`INSERT INTO lead_quality_events (lead_id, from_q, to_q, reason) VALUES ($1, 'unreviewed', 'qualified', '')`, [a.lead]);
+  await brokerageDeal(a.lead);   // kept to the end of this file: a brokerage deal can never be deleted (087)
+  const tables = ['leads', 'lead_campaigns', 'marketing_companies', ...NEW_092, 'brokerage_deals'];
+  const before = await Promise.all(tables.map(count));
+  const dealBefore = await rowsOf('brokerage_deals');
+  const dry = await reset(c.t.owner);
+  assert.deepEqual(dry.body.dependencyBlockers, [{ table: 'brokerage_deals', rows: 1 }]);
+  const r = await confirmed();
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.equal(r.body.error.details.reason, 'dependent_records');
+  assert.deepEqual(r.body.error.details.dependents, [{ table: 'brokerage_deals', rows: 1 }]);
+  assert.deepEqual(await rowsOf('brokerage_deals'), dealBefore, 'the brokerage deal is untouched');
+  assert.deepEqual(await Promise.all(tables.map(count)), before, 'nothing wiped');
 });
 
 test('protected financial records still refuse the reset first (unchanged), whatever the dependencies', async () => {
