@@ -3,6 +3,7 @@ import { one } from '../db.ts';
 import { local, timeToMinutes } from '../lib/time.ts';
 import { buildMonth, fetchMonthMany, type MonthData } from './attendance-calc.ts';
 import { legacyCoverage, type LegacyCoverage } from './legacy-coverage.ts';
+import { incidentDeductions } from './exit-incidents.ts';
 
 export interface Tier { afterMinutes: number; amount: number }
 export interface PayrollRules {
@@ -60,6 +61,8 @@ export interface PayrollData {
   com: { s: unknown };
   /** F1: what an older (full-net) payroll-sheet line of this month settled inside the salary */
   legacy?: LegacyCoverage;
+  /** «خروج بدون إذن»: the month's closed incidents with a frozen amount (proposed 094) */
+  exits?: { count: number; amount: number };
 }
 
 const SCH_SQL = (where: string) => `SELECT e.id AS employee_id, ws.*, COALESCE(e.work_start, ws.start_time) AS start_time, COALESCE(e.work_end, ws.end_time) AS end_time FROM employees e
@@ -71,7 +74,7 @@ const SCH_SQL = (where: string) => `SELECT e.id AS employee_id, ws.*, COALESCE(e
  */
 export async function fetchPayrollMany(q: Q, ids: string[], period: string): Promise<Map<string, PayrollData>> {
   const P = [ids, period];
-  const [months, sal, emp, sch, adj, adv, paid, com, legacy] = await Promise.all([
+  const [months, sal, emp, sch, adj, adv, paid, com, legacy, exits] = await Promise.all([
     fetchMonthMany(q, ids, period),
     q.query(`SELECT employee_id, base_salary FROM employee_salaries WHERE employee_id = ANY($1::uuid[])`, [ids]),
     q.query(`SELECT id, attendance_exempt FROM employees WHERE id = ANY($1::uuid[])`, [ids]),
@@ -95,6 +98,7 @@ export async function fetchPayrollMany(q: Q, ids: string[], period: string): Pro
     q.query(`SELECT employee_id, COALESCE(sum(amount_egp), 0) AS s FROM commission_entitlements
               WHERE employee_id = ANY($1::uuid[]) AND period = $2 AND status = 'active' GROUP BY employee_id`, P),
     legacyCoverage(q, ids, period),
+    incidentDeductions(q, ids, period),
   ]);
   const by = (rows: any[], k = 'employee_id') => new Map(rows.map((r) => [r[k] as string, r]));
   const salBy = by(sal.rows), empBy = by(emp.rows, 'id'), schBy = by(sch.rows), adjBy = by(adj.rows), advBy = by(adv.rows),
@@ -106,7 +110,7 @@ export async function fetchPayrollMany(q: Q, ids: string[], period: string): Pro
       sal: salBy.get(id) ?? null, exempt: empBy.get(id)?.attendance_exempt === true, sch: schBy.get(id) ?? null, month,
       att: month.att, adj: adjBy.get(id) ?? { deductions: 0, bonuses: 0 }, adv: advBy.get(id) ?? { advances: 0, expenses: 0 },
       paid: paidBy.get(id) ?? { salary: 0, commission: 0, work_expense: 0 }, com: comBy.get(id) ?? { s: 0 },
-      legacy: legacy.get(id),
+      legacy: legacy.get(id), exits: exits.get(id),
     });
   }
   return out;
@@ -147,7 +151,8 @@ export function buildPayroll(data: PayrollData, period: string, today: string, r
   let lateMin = 0, earlyMin = 0, lateDays = 0, earlyDays = 0, lateAmt = 0, earlyAmt = 0;
   for (const d of days) {
     const a = attBy.get(d.date);
-    if (!a || !d.attendance) continue;
+    // a day the absence threshold turned into an absence is paid / deducted as an absence only (never also as late)
+    if (!a || !d.attendance || d.lateAsAbsence) continue;
     const start = timeToMinutes(a.schedule_start), end = timeToMinutes(a.schedule_end);
     const lateRaw = Math.max(0, local(new Date(a.check_in_at)).minutes - start);
     let earlyRaw = 0;
@@ -200,7 +205,10 @@ export function buildPayroll(data: PayrollData, period: string, today: string, r
   const unpaidAmt = 0;
   // no automatic deductions for someone who does not use check-in, or who earned nothing this month
   const auto = rules.auto && base !== null && !exempt && !nothingEarned;
-  const autoTotal = auto ? lateAmt + earlyAmt + absenceAmt + unpaidAmt : 0;
+  // «خروج بدون إذن»: each closed incident's fixed amount, frozen when it closed — summed here, written nowhere else, so
+  // the month's payroll (and a payroll sheet's snapshot of it) carries each incident exactly once
+  const exitAmt = Number(data.exits?.amount ?? 0);
+  const autoTotal = auto ? lateAmt + earlyAmt + absenceAmt + unpaidAmt + exitAmt : 0;
   const adminDed = Number(adj.deductions), bonuses = Number(adj.bonuses);
   const net = attendanceSalary === null ? null : r2(attendanceSalary - autoTotal - adminDed + bonuses + commissions - advances + workExpenses);
   return {
@@ -215,6 +223,7 @@ export function buildPayroll(data: PayrollData, period: string, today: string, r
     late: { days: lateDays, minutes: lateMin, amount: auto ? r2(lateAmt) : 0 },
     early: { days: earlyDays, minutes: earlyMin, amount: auto ? r2(earlyAmt) : 0 },
     absence: { days: absentDays, amount: auto ? r2(absenceAmt) : 0 },
+    unauthorizedExit: { incidents: data.exits?.count ?? 0, amount: auto ? r2(exitAmt) : 0 },
     unpaid: { days: unpaidDays, amount: auto ? r2(unpaidAmt) : 0 },
     adminDeductions: adminDed, bonuses, commissions: r2(commissions), advances, workExpenses,
     totalDeductions: r2(autoTotal + adminDed),

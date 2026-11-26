@@ -6,6 +6,7 @@ import { assertCanRead, audit, authenticate, has, readableIds, type Actor, can, 
 import { daysBetween, isoDow, local, timeToMinutes } from '../lib/time.ts';
 import { applyCorrection } from './attendance.ts';
 import { gmRecipients, holdersOf, notify } from './notify.ts';
+import { available } from './presence.ts';
 
 export const REQUEST_TYPES = ['hourly_permission', 'short_leave', 'full_day_absence', 'emergency_permission', 'attendance_correction'] as const;
 const ABSENCE_TYPES = ['annual', 'casual', 'sick', 'unpaid', 'mission'] as const;
@@ -160,8 +161,15 @@ export const requestsModule: Module = (r, { db, clock }) => {
         if (overlap) throw conflict('These dates overlap an approved absence');
       }
       let managerId = await resolveManager(q, a.id);
+      // 2026-11-26: a direct manager on approved leave / recorded absence today is skipped — the request goes to the next
+      // configured approver exactly as when there is no manager (the general manager for a leave, otherwise HR, who may
+      // decide it). Nothing is approved or rejected for him; the history records why.
+      const now = clock();
+      const skipped = managerId && !(await available(q, [managerId], now)).length ? managerId : null;
+      if (skipped) managerId = null;
+      const gms = await available(q, await gmRecipients(q, a.id), now);
       // a leave always goes to the management first: no direct manager → the general manager takes that stage
-      if (!managerId && type === 'full_day_absence') managerId = (await gmRecipients(q, a.id))[0] ?? null;
+      if (!managerId && type === 'full_day_absence') managerId = gms[0] ?? null;
       const route = managerId ? 'manager_then_hr' : 'hr_only';
       const status = managerId ? 'pending_manager' : 'pending_hr';
       const cols = Object.keys(f);
@@ -170,9 +178,9 @@ export const requestsModule: Module = (r, { db, clock }) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7 ${cols.map((_, i) => `, $${i + 8}`).join('')}) RETURNING *`,
         [a.id, type, reason, attachmentId, route, managerId, status, ...cols.map((c) => f[c])]);
       await q.query(`INSERT INTO request_actions (request_id, actor_id, stage, action) VALUES ($1,$2,'employee','submit')`, [row.id, a.id]);
-      await audit(q, a.id, 'request.submit', 'request', row.id, undefined, { type, route });
+      await audit(q, a.id, 'request.submit', 'request', row.id, undefined, { type, route, ...(skipped ? { managerAway: skipped } : {}) });
       const recipients = managerId
-        ? [...new Set([managerId, ...(type === 'full_day_absence' ? await gmRecipients(q, a.id) : [])])].filter((id) => id !== a.id)
+        ? [...new Set([managerId, ...(type === 'full_day_absence' ? gms : [])])].filter((id) => id !== a.id)
         : await holdersOf(q, 'request.approve_hr', [a.id]);
       for (const to of recipients) {
         await notify(q, { to, type: 'request_awaiting', title: `طلب ${TYPE_AR[type]} بانتظار موافقتك`,
