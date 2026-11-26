@@ -41,7 +41,16 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
       ok.push(r);
       const text = typeof res.body === 'string' ? res.body : JSON.stringify(res.body ?? '');
       const seen = others.filter((id) => text.includes(id));
-      if (r === ORG_CHART) {
+      if (r === 'GET /leads/dashboard') {
+        // «الأفضل»: the ranking (rank, id, name) is the company's by design; another team's numbers must be hidden
+        const shownOthers = (res.body?.best ?? []).filter((x: any) => seen.includes(x.id) && (x.actions !== null || x.meetings !== null || x.deals !== null));
+        const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [] }).includes(id));
+        if (shownOthers.length || elsewhere.length) leaks.push(`${r} → another team's numbers or records`);
+      } else if (r === 'GET /brokerage/people') {
+        // the colleague picker of a brokerage deal: id + name of active employees only (by design), nothing else
+        const extraFields = (res.body?.people ?? []).some((x: any) => Object.keys(x).some((k) => !['id', 'name'].includes(k)));
+        if (extraFields) leaks.push(`${r} → more than id / name`);
+      } else if (r === ORG_CHART) {
         const managers = new Set((res.body?.teams ?? []).map((t: any) => t.manager_id));
         const extra = seen.filter((id) => !managers.has(id));
         if (extra.length || /phone|email|salary|national|address/i.test(text)) leaks.push(`${r} → more than the org chart`);
