@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout, approvedRequest } from './helpers.ts';
 
 /**
  * Security review (2026-11-18): attacks tried directly on the API, the way an employee with a script would — each one
@@ -107,8 +107,9 @@ test('money: the same payout twice (double tap / two people) is refused; a payou
   at('2026-03-10T11:00:00Z');
   const fund = await h.call(c.t.owner, 'POST', '/payouts', { employeeId: c.ids.hr, kind: 'fund', amount: 50000 });
   await confirmPayout(h, c.t.hr, c.t.owner, fund.body.payout.id);
+  const req = await approvedRequest(h, c.ids.e2, 'work_expense', 750, '2026-03', c.ids.owner);
   const twice = await Promise.all([1, 2, 3].map(() =>
-    h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 750, month: '2026-03' })));
+    h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 750, month: '2026-03', advanceId: req })));
   assert.deepEqual(twice.map((x) => x.status).sort(), [201, 409, 409], JSON.stringify(twice.map((x) => x.body)));
   const p = twice.find((x) => x.status === 201)!.body.payout;
   // one code from the employee; the payer's 4 parallel entries of it confirm the payment once

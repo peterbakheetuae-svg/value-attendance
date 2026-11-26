@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { harness, cast, PW, type Harness, asLead } from './helpers.ts';
+import { harness, cast, PW, type Harness, asLead, approvedRequest } from './helpers.ts';
 
 /**
  * Duplicate financial effects under CONCURRENT repeats (double-tap, flaky network resend, replay): the same operation
@@ -84,7 +84,7 @@ test('payout confirmation (employee code) fired in parallel → money leaves the
   const fcode = (await h.call(c.t.hr, 'POST', `/payouts/${fund.body.payout.id}/code`, {})).body.code;
   const fv = await par(() => h.call(tGm, 'POST', `/payouts/${fund.body.payout.id}/verify`, { code: fcode }));
   assert.equal(fv.filter((r) => r.status === 200).length, 1, 'fund ' + statuses(fv));
-  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'work_expense', amount: 300 });
+  const pay = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e1, kind: 'work_expense', amount: 300, advanceId: await approvedRequest(h, c.ids.e1, 'work_expense', 300, '2026-03', c.ids.owner) });
   assert.equal(pay.status, 201, JSON.stringify(pay.body));
   const before = (await h.call(c.t.hr, 'GET', '/payouts')).body.balance;
   const code = (await h.call(c.t.e1, 'POST', `/payouts/${pay.body.payout.id}/code`, {})).body.code;
@@ -94,7 +94,8 @@ test('payout confirmation (employee code) fired in parallel → money leaves the
 });
 
 test('manual payout double-tap → one pending payout (the second is refused)', async () => {
-  const rs = await par(() => h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e3, kind: 'work_expense', amount: 75 }));
+  const req = await approvedRequest(h, c.ids.e3, 'work_expense', 75, '2026-03', c.ids.owner);
+  const rs = await par(() => h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e3, kind: 'work_expense', amount: 75, advanceId: req }));
   assert.equal(rs.filter((r) => r.status === 201).length, 1, statuses(rs));
   assert.equal(await count(`SELECT count(*) AS n FROM payouts WHERE employee_id = $1 AND kind = 'work_expense' AND amount_egp = 75`, [c.ids.e3]), 1);
 });

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { harness, cast, PW, insertEmployee, type Harness } from './helpers.ts';
+import { harness, cast, PW, insertEmployee, type Harness, approvedRequest } from './helpers.ts';
 
 /**
  * The disbursement code: every payment to an employee is confirmed by a 4-digit code that only the recipient's app gets,
@@ -25,7 +25,7 @@ before(async () => {
 after(async () => { await h.close(); });
 
 test('a payment waits for the code; the recipient alone gets it; the notification never carries it; «تم الاستلام» is refused', async () => {
-  const p = await pay({ employeeId: c.ids.e1, kind: 'work_expense', amount: 400, month: '2026-03', note: 'مواصلات' });
+  const p = await pay({ employeeId: c.ids.e1, kind: 'work_expense', amount: 400, month: '2026-03', note: 'مواصلات', advanceId: await approvedRequest(h, c.ids.e1, 'work_expense', 400, '2026-03', c.ids.owner) });
   assert.equal(p.status, 201, JSON.stringify(p.body));
   const id = p.body.payout.id;
   assert.equal(p.body.payout.canVerify, true, 'the payer enters the code');
@@ -57,7 +57,7 @@ test('a payment waits for the code; the recipient alone gets it; the notificatio
 });
 
 test('wrong / expired / replaced codes never confirm; 5 wrong tries end a code; 15 in an hour stop the payment', async () => {
-  const p = await pay({ employeeId: c.ids.e2, kind: 'work_expense', amount: 250, month: '2026-03' });
+  const p = await pay({ employeeId: c.ids.e2, kind: 'work_expense', amount: 250, month: '2026-03', advanceId: await approvedRequest(h, c.ids.e2, 'work_expense', 250, '2026-03', c.ids.owner) });
   const id = p.body.payout.id;
   // a newer code ends the older one
   const first = (await code(c.t.e2, id)).body.code;
@@ -132,7 +132,7 @@ test('every kind goes through the code: cash to HR, salary, advance, commission;
 });
 
 test('a disputed payment can still be confirmed with the code; the audit log keeps who and when, never the code', async () => {
-  const p = await pay({ employeeId: c.ids.e1, kind: 'work_expense', amount: 90, month: '2026-03' });
+  const p = await pay({ employeeId: c.ids.e1, kind: 'work_expense', amount: 90, month: '2026-03', advanceId: await approvedRequest(h, c.ids.e1, 'work_expense', 90, '2026-03', c.ids.owner) });
   const id = p.body.payout.id;
   assert.equal((await h.call(c.t.e1, 'POST', `/payouts/${id}/dispute`, { reason: 'استلمت 80 بس' })).status, 200);
   const k = (await code(c.t.e1, id)).body.code;

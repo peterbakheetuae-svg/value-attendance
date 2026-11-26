@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, PW, type Harness, confirmPayout } from './helpers.ts';
+import { harness, cast, PW, type Harness, confirmPayout, approvedRequest } from './helpers.ts';
 import { forgetPermissionKeys } from '../src/auth/context.ts';
 
 /**
@@ -103,7 +103,7 @@ test('December\'s salary handed over in January: paid and received (a payment of
     [p.body.payout.id])).rows[0];
   assert.deepEqual([x.m, x.status, x.d.slice(0, 4)], ['2025-12', 'received', '2026'], 'December\'s salary, dated when received');
   // a payment that belongs to an open month (a work expense of January) — as before
-  const j = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 300, month: '2026-01', note: 'مواصلات' });
+  const j = await h.call(c.t.hr, 'POST', '/payouts', { employeeId: c.ids.e2, kind: 'work_expense', amount: 300, month: '2026-01', note: 'مواصلات', advanceId: await approvedRequest(h, c.ids.e2, 'work_expense', 300, '2026-01', c.ids.owner) });
   assert.equal(j.status, 201, JSON.stringify(j.body));
   assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, j.body.payout.id)).status, 200);
 });

@@ -202,6 +202,15 @@ export async function cast(h: Harness) {
 }
 
 /**
+ * F-1 (owner decision 2026-11-26): an advance / work expense is paid only against its approved request. A confirmed
+ * request for a test payment (decided by `decidedBy`, e.g. the owner), month 'YYYY-MM'.
+ */
+export async function approvedRequest(h: { db: Db }, employeeId: string, kind: 'advance' | 'work_expense', amount: number, month: string, decidedBy: string) {
+  return (await h.db.query(`INSERT INTO advance_requests (employee_id, kind, period, amount_egp, status, created_by, decided_by, decided_at)
+                            VALUES ($1,$2,$3::date,$4,'confirmed',$1,$5,now()) RETURNING id`, [employeeId, kind, `${month}-01`, amount, decidedBy])).rows[0].id as string;
+}
+
+/**
  * A payment confirmed the way the app does it now (no more «تم الاستلام»): the recipient's app gets the 4-digit code,
  * the person who paid enters it. Returns the verify answer (or the code request's, when that failed).
  */

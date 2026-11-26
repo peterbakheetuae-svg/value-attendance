@@ -1,7 +1,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { harness, cast, insertEmployee, PW, confirmPayout, type Harness, asLead } from './helpers.ts';
+import { harness, cast, insertEmployee, PW, confirmPayout, type Harness, asLead, approvedRequest } from './helpers.ts';
 import { advanceRecoveries, profitParts } from '../src/modules/cash.ts';
 import { computePayroll, loadRules } from '../src/modules/payroll-calc.ts';
 
@@ -377,9 +377,9 @@ describe('085: payout finality and ownership-share history', () => {
     const p = await h.call(c.t.hr, 'POST', '/payouts', { kind: 'advance', employeeId: c.ids.e2, amount: 700, month: '2026-01', advanceId: adv });
     assert.equal(p.status, 201, JSON.stringify(p.body));
     assert.equal((await confirmPayout(h, c.t.e2, c.t.hr, p.body.payout.id)).status, 200);
-    const q = await h.call(c.t.hr, 'POST', '/payouts', { kind: 'advance', employeeId: c.ids.e3, amount: 300, month: '2026-01' });
+    const q = await h.call(c.t.hr, 'POST', '/payouts', { kind: 'advance', employeeId: c.ids.e3, amount: 300, month: '2026-01', advanceId: await approvedRequest(h, c.ids.e3, 'advance', 300, '2026-01', c.ids.owner) });
     assert.equal((await h.call(c.t.hr, 'POST', `/payouts/${q.body.payout.id}/cancel`, {})).status, 200);
-    const r = await h.call(c.t.hr, 'POST', '/payouts', { kind: 'advance', employeeId: c.ids.e3, amount: 301, month: '2026-01' });
+    const r = await h.call(c.t.hr, 'POST', '/payouts', { kind: 'advance', employeeId: c.ids.e3, amount: 301, month: '2026-01', advanceId: await approvedRequest(h, c.ids.e3, 'advance', 301, '2026-01', c.ids.owner) });
     assert.equal((await h.call(c.t.e3, 'POST', `/payouts/${r.body.payout.id}/dispute`, { reason: 'استلمت أقل' })).status, 200);
     assert.equal((await confirmPayout(h, c.t.e3, c.t.hr, r.body.payout.id)).status, 200, 'a disputed payment can still be confirmed');
   });
