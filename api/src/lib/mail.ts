@@ -87,13 +87,39 @@ export async function sendMail(m: { to: string; toName?: string; subject: string
       }
       return ok;
     } catch (e) {
-      const err = e as { code?: string; responseCode?: number; message?: string };
+      const err = e as { code?: string; responseCode?: number; message?: string; command?: string };
       lastMailError = `smtp ${err.code ?? 'error'}${err.responseCode ? ' ' + err.responseCode : ''}: ${safeMailError(String(err.message ?? e), [smtp.pass, smtp.user])}`;
       logMail('error', 'mail_failed', { transport: 'smtp', detail: lastMailError });
+      // the reviewed fallback (off unless MAIL_FALLBACK=brevo): only when SMTP certainly did NOT take the message —
+      // never after the message was handed over (a timeout there may still deliver: a second copy of a code is worse)
+      if (fallbackAllowed() && smtpNeverAccepted(err)) {
+        logMail('info', 'mail_fallback', { from: 'smtp', to: 'brevo', reason: err.code ?? 'error' });
+        return brevoSend(m);
+      }
       return false;
     }
   }
   if (!mailEnabled()) return false;
+  return brevoSend(m);
+}
+
+/** MAIL_FALLBACK=brevo and Brevo configured (BREVO_API_KEY + MAIL_FROM) */
+export const fallbackAllowed = () => (process.env.MAIL_FALLBACK ?? '').trim().toLowerCase() === 'brevo' && !!process.env.BREVO_API_KEY && !!process.env.MAIL_FROM;
+
+/**
+ * An SMTP failure where the provider certainly has not accepted the message: no connection, DNS, TLS, or the sign-in
+ * refused (Gmail App Password revoked / wrong), or a failure while still connecting / greeting / signing in. A refused
+ * recipient (EENVELOPE) is not retried elsewhere (the address is the problem); anything during or after DATA is
+ * ambiguous and never falls back.
+ */
+export function smtpNeverAccepted(err: { code?: string; command?: string }): boolean {
+  const cmd = String(err.command ?? '').toUpperCase();
+  if (/^(DATA|MESSAGE|RCPT|MAIL)/.test(cmd)) return false;
+  if (['EAUTH', 'EDNS', 'ECONNECTION', 'ETLS'].includes(String(err.code))) return true;
+  return /^(CONN|EHLO|HELO|LHLO|STARTTLS|AUTH)/.test(cmd);
+}
+
+async function brevoSend(m: { to: string; toName?: string; subject: string; html: string; text: string; inline?: InlineImage[] }): Promise<boolean> {
   try {
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
