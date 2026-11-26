@@ -44,7 +44,12 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
       if (r === 'GET /leads/dashboard') {
         // «الأفضل»: the ranking (rank, id, name) is the company's by design; another team's numbers must be hidden
         const shownOthers = (res.body?.best ?? []).filter((x: any) => seen.includes(x.id) && (x.actions !== null || x.meetings !== null || x.deals !== null));
-        const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [] }).includes(id));
+        // «المستخدمون المتصلون» (online): the owner's decision 2026-11-23 shows it to the GM, the administrative officer and
+        // sales managers, company-wide (finding P-2: whether a sales manager should see only his team is the owner's call);
+        // it may carry id / name / last-seen only
+        const onlineOk = (res.body?.online ?? []).every((x: any) => Object.keys(x).every((k) => ['id', 'name', 'seen', 'me'].includes(k)));
+        if (!onlineOk) leaks.push(`${r} → online list carries more than id / name / last seen`);
+        const elsewhere = seen.filter((id) => !(res.body?.best ?? []).some((x: any) => x.id === id) || JSON.stringify({ ...res.body, best: [], online: [] }).includes(id));
         if (shownOthers.length || elsewhere.length) {
           const where = Object.keys(res.body ?? {}).filter((k) => k !== 'best' && seen.some((id) => JSON.stringify(res.body[k]).includes(id)));
           leaks.push(`${r} → another team's numbers (${shownOthers.map((x: any) => x.name).join('/')}) or records in [${where.join(', ')}]`);
