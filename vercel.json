@@ -13,7 +13,8 @@
       "release-prep/integration-2026-11-23": false,
       "feature/ui-sales-commission-2026-11-24": false,
       "feat/marketing-intelligence": false,
-      "feat/shift-attendance-policies": false
+      "feat/shift-attendance-policies": false,
+      "release/094-production": false
     }
   }
 }

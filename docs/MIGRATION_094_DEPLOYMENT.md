@@ -1,8 +1,15 @@
-# Migration 094 and the restricted runtime role — deployment procedure (PREPARED, NOT EXECUTED)
+# Migration 094 and the restricted runtime role — deployment record
 
-Status at writing (2026-11-26): production has 84 migrations, no 094 objects; it connects as the table owner
-(`neondb_owner`), which can disable triggers — so the incident protections are database-enforced only once the API runs
-as the restricted role. Each part below needs the owner's explicit approval; nothing here runs on its own.
+**2026-11-26 (owner-authorised):**
+* Backup / recovery point: Neon point-in-time restore of the production branch (history retention 6 h), recorded
+  before any change at 2026-11-26T13:53:02Z, LSN 0/2A9E5F0 (117 tables, 869 rows, fingerprint e6c908e3…). No snapshot
+  or branch was created (none needed: owner's instruction). The app-level encrypted Drive export is not visible here.
+* Role `valunivo_app` created in Neon and given exactly `db/roles/valunivo_app_least_privilege.sql`; verified: not
+  superuser / createrole / createdb / bypassrls, no group membership, no CREATE on `public`, no TRUNCATE / TRIGGER /
+  REFERENCES on any of the 117 tables, DELETE only on the script's 27 tables, no UPDATE on `audit_log`, default
+  privileges for new tables = SELECT / INSERT / UPDATE (so 094's tables get no DELETE).
+* Vercel production: `MIGRATION_DATABASE_URL` = owner (build-time migrations only); `DATABASE_URL` = `valunivo_app`.
+* 094 is applied by the production deploy of `main` that adds `db/migrations/094_shift_attendance_policies.sql`.
 
 ## A. Migration 094 (schema only; every new setting stays OFF / empty)
 1. **Recovery point.** Create a Neon branch from production named `pre-094-<date>` and note its id. Confirm the daily
