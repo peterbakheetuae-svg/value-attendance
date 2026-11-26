@@ -108,7 +108,8 @@ void main() {
       final cash = await _try(session.api.get('/cash/summary'));
       final pay = await _try(session.api.get('/payouts'));
       expect(cash['owner'], isNull, reason: 'B must not see A\'s cash summary');
-      expect(cash['error'], contains('Network'));
+      // the network failure itself (not a cached copy) — shown as the one network message since 2026-11-26
+      expect(cash['error'], kNetworkErrorMessage);
       expect(jsonEncode(pay), isNot(contains('9999')), reason: 'B must not see A\'s payouts');
     });
 

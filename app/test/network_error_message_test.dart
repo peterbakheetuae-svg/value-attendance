@@ -90,6 +90,8 @@ void main() {
         expect(shown == exact, false);
         if (a.key == 401) {
           expect(shown, 'انتهت الجلسة، سجّل الدخول مرة أخرى');
+        } else if (a.key == 403) {
+          expect(shown, 'ليس لديك صلاحية لهذا الإجراء', reason: 'the existing permission message');
         } else {
           expect(shown, a.value['message']);
         }
