@@ -13,7 +13,11 @@ class EmployeeDevicesBox extends StatefulWidget {
   final VoidCallback? onChanged;
   /// HR (employee.manage) may unlink a phone too, but only the approvers approve / refuse
   final bool canManage;
-  const EmployeeDevicesBox({super.key, required this.employeeId, required this.isDark, this.onChanged, this.canManage = false});
+  /// another account's devices with the same shape (a marketing company: '/marketing-companies/<id>'); null = this employee's
+  final String? basePath;
+  const EmployeeDevicesBox({super.key, required this.employeeId, required this.isDark, this.onChanged, this.canManage = false, this.basePath});
+
+  String get path => basePath ?? '/employees/$employeeId';
 
   @override
   State<EmployeeDevicesBox> createState() => _EmployeeDevicesBoxState();
@@ -33,7 +37,7 @@ class _EmployeeDevicesBoxState extends State<EmployeeDevicesBox> {
   Future<void> _load() async {
     if (widget.employeeId.isEmpty) return;
     try {
-      final r = await JphBridge.api.get('/employees/${widget.employeeId}/devices');
+      final r = await JphBridge.api.get('${widget.path}/devices');
       if (!mounted) return;
       setState(() {
         _devices = ((r['devices'] as List?) ?? const []).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
@@ -63,7 +67,7 @@ class _EmployeeDevicesBoxState extends State<EmployeeDevicesBox> {
     String msg;
     bool ok = false;
     try {
-      await JphBridge.api.post('/employees/${widget.employeeId}/devices/${d['id']}/$what', {});
+      await JphBridge.api.post('${widget.path}/devices/${d['id']}/$what', {});
       ok = true;
       msg = what == 'approve' ? 'اتوافق على الجهاز ✅' : what == 'reject' ? 'اترفض الجهاز' : 'اتفك ربط الجهاز';
     } on ApiException catch (e) {
@@ -149,7 +153,7 @@ class _EmployeeDevicesBoxState extends State<EmployeeDevicesBox> {
             if (_canApprove && st == 'pending')
               TextButton.icon(onPressed: _busy ? null : () => _act(d, 'reject'),
                   icon: const Icon(Icons.cancel_rounded, color: Ar.red), label: const Text('رفض')),
-            if (st == 'approved' || st == 'rejected')
+            if (widget.basePath == null && (st == 'approved' || st == 'rejected'))
               TextButton.icon(onPressed: _busy ? null : () => _act(d, 'remove'),
                   icon: Icon(Icons.phonelink_erase_rounded, color: Ar.grey.shade600), label: const Text('فك الربط')),
           ]),

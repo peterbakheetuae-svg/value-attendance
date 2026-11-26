@@ -261,7 +261,7 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
       if (mgr !== undefined) set.manager_id = mgr;
       if (b.contractDate !== undefined) set.contract_date = contract ?? null;
       if (typeof b.deviceLock === 'boolean') set.device_lock = b.deviceLock;
-      if (b.resetDevice === true || b.deviceLock === false) { set.device_id = null; set.device_label = null; }
+      if (b.resetDevice === true || b.deviceLock === false) { set.device_id = null; set.device_label = null; set.pending_device_id = null; set.pending_device_label = null; set.pending_device_at = null; }
       if (typeof b.loginActive === 'boolean') set.login_active = b.loginActive;
       const keys = Object.keys(set);
       if (keys.length) await q.query(`UPDATE marketing_companies SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [before.id, ...keys.map((k) => set[k])]);

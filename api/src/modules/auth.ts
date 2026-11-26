@@ -6,7 +6,7 @@ import { createHash, randomInt } from 'node:crypto';
 import { one, type Q } from '../db.ts';
 import { AppError, invalid } from '../http/errors.ts';
 import { obj, reqStr } from '../http/validate.ts';
-import { deviceApprovers } from './devices.ts';
+import { deviceApprovers, partnerNewDevice } from './devices.ts';
 import { notify } from './notify.ts';
 import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
@@ -80,9 +80,8 @@ export const authModule: Module = (r, { db }) => {
         // «ربط الحساب بالجهاز»: the first device is its device; another one is refused until the administration frees it
         if (co.device_lock) {
           if (!deviceId) throw new AppError('forbidden', 'This device could not be identified', { reason: 'device_required' });
-          if (co.device_id && co.device_id !== deviceId) {
-            throw new AppError('forbidden', 'This account is linked to another device. Ask the administration', { reason: 'device_rejected' });
-          }
+          // another device than the linked one: it asks the approvers (once per device) and waits — a refused one stays refused
+          if (co.device_id && co.device_id !== deviceId) await partnerNewDevice(db, co.id, deviceId, deviceLabel);
         }
         const { token, hash } = newToken();
         await db.tx(async (q) => {
