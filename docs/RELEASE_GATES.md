@@ -17,6 +17,29 @@ app-check 45785421233 (Android release build check), Windows 45785439879 (build 
 | 6 | Operational workflows | Implemented and tested; **production is not configured** | Tracking OFF, office locations, teams |
 | 7 | Web and Windows artifacts | PASS (web live; Windows 1.0.46 built and update-tested, not published) | — |
 
+## Owner decisions 2026-11-26 (P-1, P-2, F-1, F-2) — implemented
+| Decision | Behaviour | Where | Status |
+|---|---|---|---|
+| P-1 team directory for everyone | `GET /teams` returns only id, name, active, department_name, manager_name, member_count to every signed-in employee; `department_id` / `manager_id` / dates only with `org.manage`; no other employee API widened | `api/src/modules/org.ts` | deployed with this commit |
+| P-2 sales manager: own team online | the leads dashboard's online list and its count are limited server-side to the manager's team members (and himself); query parameters change nothing; company scope (leads.read_all / leads.distribute) unchanged | `api/src/modules/leads.ts` | deployed with this commit |
+| F-1 request-linked payments | `POST /payouts` kind advance / work_expense needs `advanceId` of a confirmed request of the same employee and kind, not handed over outside, not already paid; amount = the request's amount still due; `advanceId` refused on any other kind | `api/src/modules/payouts.ts` | API rule deployed with this commit; database rule in proposed 093 |
+| F-2 payroll sheet protection | triggers: sheet workflow transitions only, approved / cancelled final, identity fixed, never deleted; lines writable only while draft / returned; enforced for every role including the table owner | `db/proposed/093_payroll_sheet_protection.sql` (+ `093_rollback.sql`) | **awaiting the owner's review of the exact migration** |
+
+Tests: `approved-decisions-visibility.test.ts`, `approved-decisions-finance.test.ts` (F-1 API rules, parallel payment,
+093 on a database holding an older unlinked payment that keeps working, F-1 / F-2 direct-SQL refusals as the table
+owner, the full payroll workflow with 093), the zero-permission / IDOR sweep (directory fields exact, other team's online
+ids are a leak). Existing tests that made free-form advance / work-expense payments now pay against approved requests.
+CI 45796315540: PostgreSQL 16 and 18, admin and least-privilege runs, 669 pass, 0 fail.
+
+**093 production impact (verified on a throwaway branch of production, `verify-093-2026-11-26`):** applies in one
+transaction with `lock_timeout 5s`; adds 3 functions + 3 triggers; changes no row; production has 0 payroll sheets,
+0 payouts, 0 advance requests, so nothing historical conflicts. Locks: a brief SHARE ROW EXCLUSIVE on `payroll_batches`,
+`payroll_batch_lines`, `payouts`. Not affected: TRUNCATE (owner data reset), the backup restore tool (disables user
+triggers on its empty database). Rollback: `093_rollback.sql` (drops the three triggers and functions; no data).
+**Limit:** production's API connects as the table owner (`neondb_owner`), which can `ALTER TABLE … DISABLE TRIGGER`;
+full protection against a compromised application credential needs the least-privilege role
+(`db/roles/valunivo_app_least_privilege.sql`) for the runtime connection — an owner credential change, not done.
+
 ## Independent verification of the two original NO-GO findings (2026-11-26, third pass)
 **NO-GO 1 — Android token falling back to plain SharedPreferences.** Every token path traced (`TokenStore.read/write/clear`,
 `Session.restore/login/logout/_clear`, the background isolate in `shift_service.dart`, `SessionService.logout`):
