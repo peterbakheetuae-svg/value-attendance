@@ -5,7 +5,9 @@
  *  1. script.google.com → New project → paste this file.
  *  2. Project Settings → Script properties → add BACKUP_TOKEN = the same secret you put on the API host (Vercel).
  *  3. Run `setup` once and allow access to Drive. It creates a daily trigger (around 3 AM)
- *     and takes the first backup right away.
+ *     and takes the first backup right away, and the minute heartbeat (which also sends the daily leads report
+ *     from 23:59 Cairo — the GitHub schedule for it is retired, so there is exactly one scheduler).
+ *     After updating this file, paste it again and run `setupHeartbeat` once (nothing else changes).
  *
  * Each run writes a folder "Value Attendance Backups/YYYY-MM-DD" with one JSON file per table
  * and keeps the last 30 days. Files are private to your Drive.
@@ -47,10 +49,45 @@ function workingHours_() {
 }
 
 function heartbeat() {
-  if (!workingHours_()) return;
   const token = PropertiesService.getScriptProperties().getProperty('BACKUP_TOKEN');
+  // the daily leads report (every day, Friday too): this same minute trigger knocks from 23:59 Cairo until it is sent —
+  // the API sends it once per day inside its window (23:55–06:00), so extra knocks only answer already_sent
+  if (leadsReportMinute_() && PropertiesService.getScriptProperties().getProperty('LEADS_REPORT_DONE') !== reportDay_()) leadsReport_(token);
+  if (!workingHours_()) return;
   if (!token) return;
   UrlFetchApp.fetch(API + '/backup/sweep', { method: 'post', headers: { 'X-Backup-Token': token }, muteHttpExceptions: true });
+}
+
+/** the report's day: today at 23:59, yesterday after midnight (Cairo) */
+function reportDay_() {
+  const now = new Date();
+  const hm = Utilities.formatDate(now, 'Africa/Cairo', 'HH:mm');
+  const d = hm === '23:59' ? now : new Date(now.getTime() - 3600 * 1000);
+  return Utilities.formatDate(d, 'Africa/Cairo', 'yyyy-MM-dd');
+}
+
+/** 23:59 and the first 30 minutes after midnight (Cairo): the report's knocking window */
+function leadsReportMinute_() {
+  const hm = Utilities.formatDate(new Date(), 'Africa/Cairo', 'HH:mm');
+  return hm === '23:59' || hm < '00:30';
+}
+
+/**
+ * Knock for the daily leads report. A missing token, a refused token or an API error THROWS: the execution is marked
+ * failed in Apps Script (Executions) and Google e-mails the owner its failure summary — never a silent success.
+ */
+function leadsReport_(token) {
+  if (!token) throw new Error('Daily leads report: add BACKUP_TOKEN in Project Settings → Script properties');
+  const res = UrlFetchApp.fetch(API + '/leads/daily-report/run', { method: 'post', headers: { 'X-Backup-Token': token }, muteHttpExceptions: true });
+  const code = res.getResponseCode();
+  if (code !== 200) throw new Error('Daily leads report → HTTP ' + code + ' ' + res.getContentText().slice(0, 200));
+  const out = JSON.parse(res.getContentText());
+  if (out.reason === 'mail_off') throw new Error('Daily leads report: email is not set up on the API');
+  // done for this report day: no more knocks (each one would wake the database)
+  if (out.date && (out.sent || out.reason === 'already_sent' || out.reason === 'no_recipients')) {
+    PropertiesService.getScriptProperties().setProperty('LEADS_REPORT_DONE', String(out.date));
+  }
+  return out;
 }
 
 function call_(path) {
