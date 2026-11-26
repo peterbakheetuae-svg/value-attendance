@@ -21,11 +21,19 @@ answer `tracking:false` / `enabled:false` with a reason (`before_shift`, `shift_
 (`presence.ts dayShifts`; the current schedule only before a check-in) — on approved full-day leave and on holidays; check-in /
 check-out keep their existing answers (409), so older APKs keep working and simply stop when told. The sweep's
 follow-up alerts and phone calls run only inside the shift. `/tracking/config` also returns `endsInMinutes`.
-Approved outings: tracking is NOT stopped during an approved outing; an exit inside an approved, not-yet-returned,
-not-expired outing is authorized (no alert, no incident); a ping back inside marks the outing returned (unchanged rule).
+Approved outings (tested): tracking is NOT stopped during an approved outing. Authorized interval = approved, not
+returned, `starts_at` (or the request time) ≤ now < `expected_return_at` — start inclusive, end exclusive; «HH:MM» return
+times are Cairo time. Outside inside the interval: no alert, no incident (parallel pings too); a ping back inside (no
+other phone of his outside) records `returned_at`. Still outside when the return time passes: the first outside ping
+from that second opens one incident (`permission_state = expired`, linked to the outing; minutes counted from it, not
+from the departure); the alerts are the existing «outing overdue» ones. Leaving after the return time passed while he
+was inside is an ordinary unauthorized exit (expired). A silent phone opens nothing (no verified location).
 App (`shift_service.dart`, `shift_tracker.dart`): stops on `tracking:false` / 409 / 401; no location permission → no
 tracking; secure-storage token missing → the background service stops (no plaintext fallback). A check-in before the
-shift start: tracking begins at the next app `start()` after the shift starts (the server refuses pings before it).
+shift start (tested on the server): `/tracking/config` answers `before_shift` with `startsInMinutes`, pings before it are
+refused and record nothing; from the scheduled start minute he is eligible. The app re-checks at the shift start (+30 s)
+while it is alive; with the app closed it starts at the next app start — Android gives no guaranteed wake-up, so instant
+activation is not claimed (physical-device test pending).
 **Device compatibility gate:** the server rule is authoritative, but older APKs may still run their own local alarm
 logic; keep company tracking OFF until updated phones are validated.
 
@@ -61,7 +69,10 @@ makes the employee **eligible to register** a full-day absence for today: before
 (422 `absence_threshold_not_reached`, `availableAtMinutes`); at / after it the normal request is created and goes to
 review. Nothing is registered, created or approved automatically; a late check-in stays a late attendance with its
 real timestamps (never an absence); the existing duplicate check (409 `pending_exists`) applies. Future days are not
-gated. `/attendance/today` returns `absenceThreshold` for the app.
+gated. `/attendance/today` returns `absenceThreshold` for the app. A day with a check-in can never be covered by a
+full-day absence: refused with 409 `attendance_exists` (and the dates) at submission, when HR records it, and at approval
+(checked in after submitting — it can still be rejected). No existing workflow converts an attended day into an absence
+(an attendance correction only changes times), so none was added; the attendance record is never touched.
 
 **«شرائح خروج بدون إذن»** (settings, `late_rules_page.dart`): a separate list `{fromMinutes, toMinutes|null, amount,
 enabled}`, validated server-side (whole minutes, `to > from`, positive amount, ≤ 10 tiers, no overlap among enabled
@@ -69,7 +80,9 @@ tiers; priority = ascending start). The deduction switch is refused without an e
 are untouched.
 
 **«إعدادات الإشعارات»** (`notification-prefs.ts`, `notification_preferences_page.dart`): `GET/PUT /me/notification-preferences`.
-Categories reuse the existing types: unauthorized_exit, outings, requests, lateness_absence, attendance, finance,
+Tested for all seven categories: off suppresses only that person's delivery and on delivers; another person is
+unaffected; the five mandatory types are delivered with everything off; a preference never changes routing (the request
+still goes to him) and a stored «on» row adds no recipient (another team's request, an away manager). Categories reuse the existing types: unauthorized_exit, outings, requests, lateness_absence, attendance, finance,
 announcements. A preference only suppresses (in-app row and push together); it never adds a recipient. Always delivered
 (not categories): security alerts, «إنت برة المكتب», the payment code, the follow-up calls, and every type outside the
 categories. Locked: owners (everything), HR approvers (approvals and the exit alarm). The exit-alarm category is offered
@@ -94,9 +107,13 @@ only to people who follow others. No row = on. History is never deleted. Away-ma
 
 ## 5. Owner decisions still open
 1. Exit duration rule: implemented as exit → earliest of return / check-out / shift end. Confirm.
-2. Whether an employee who already checked in late may still register an absence for that day (allowed today; HR reviews).
-3. Away for routing = approved leave, or no check-in past the absence threshold — confirm both count.
-4. A check-in before the shift start: tracking starts at the next app start after the shift begins — acceptable?
-5. The threshold values, the exit tiers and their amounts; approval of migration 094.
-6. Production connects as the table owner, which can disable triggers; full database enforcement needs the
+2. Away for routing = approved leave, or no check-in past the absence threshold — confirm both count.
+3. An outing that expires while he is outside: the incident starts at the first outside ping after the return time
+   (conservative: only verified minutes). Confirm, or choose «from the return time» (needs a decision).
+4. The threshold values, the exit tiers and their amounts; approval of migration 094.
+5. Production connects as the table owner, which can disable triggers; full database enforcement needs the
    least-privilege runtime role (`db/roles/valunivo_app_least_privilege.sql`) — an owner credential change.
+
+## 6. Not yet verified on devices
+Background start at the shift start with the app closed, stop on `tracking:false`, denied location permission,
+secure-storage failure, two phones, an older APK against this server, battery / doze behaviour.
