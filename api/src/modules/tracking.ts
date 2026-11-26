@@ -72,7 +72,7 @@ export async function exitRecipients(q: Q, employeeId: string, now: Date = new D
  * The employee-side conditions of the alarm (the shift, the office and the permission are checked on each ping):
  * the company follow-up is on, «تتبع أثناء العمل» is on for him, and he has «حضور وانصراف».
  */
-export async function trackingEligibility(q: Q, employeeId: string, now?: Date, opts: { ignoreAttendance?: boolean } = {}): Promise<{ on: boolean; reason: string | null; endsInMinutes?: number | null }> {
+export async function trackingEligibility(q: Q, employeeId: string, now?: Date, opts: { ignoreAttendance?: boolean } = {}): Promise<{ on: boolean; reason: string | null; endsInMinutes?: number | null; startsInMinutes?: number | null }> {
   const r = await one(q, `
     SELECT s.tracking_enabled AS company, ${WORK_TRACKING_SQL('e')} AS employee, NOT e.attendance_exempt AS attendance
       FROM employees e CROSS JOIN company_settings s WHERE e.id = $1`, [employeeId]);
@@ -81,7 +81,7 @@ export async function trackingEligibility(q: Q, employeeId: string, now?: Date, 
   // shift-based (2026-11-26): only inside his scheduled shift on a working day, between check-in and check-out, never on
   // an approved leave / absence or a holiday — the server decides, the app only follows its answer
   const sh = await shiftOf(q, employeeId, now, opts.ignoreAttendance === true);
-  return { on: sh.eligible, reason: sh.reason, endsInMinutes: sh.endsInMinutes };
+  return { on: sh.eligible, reason: sh.reason, endsInMinutes: sh.endsInMinutes, startsInMinutes: sh.startsInMinutes ?? null };
 }
 
 /**
@@ -91,7 +91,7 @@ export async function trackingEligibility(q: Q, employeeId: string, now?: Date, 
 export async function shiftOf(q: Q, employeeId: string, now: Date, ignoreAttendance = false) {
   const l = local(now);
   const d = (await dayShifts(q, [employeeId], l.date)).get(employeeId);
-  if (!d) return { eligible: false, reason: 'no_employee' as const, endsInMinutes: null };
+  if (!d) return { eligible: false, reason: 'no_employee' as const, endsInMinutes: null, startsInMinutes: undefined };
   return shiftEligibility({ nowMinutes: l.minutes, isoDow: l.isoDow, weekendDays: d.weekendDays, holiday: d.holiday,
     onLeave: d.onLeave, shiftStart: d.start, shiftEnd: d.end,
     checkedIn: ignoreAttendance || !!d.attendance, checkedOut: !ignoreAttendance && !!d.attendance?.checkOutAt });
@@ -365,6 +365,16 @@ export const trackingModule: Module = (r, { db, clock }) => {
           await audit(q, a.id, 'tracking.alert_dispatch', 'employee', a.id, undefined,
             { event, recipients: to.length, employee: pushSum([self]), others: pushSum(sent) });
         }
+      } else if (inside === false && wasInside === false && outing && !authorized) {
+        // 2026-11-26: he left on an approved permission / visit and its return time passed while he is still outside →
+        // normal geofence enforcement resumes: this ping (the first outside one with no valid permission) is the verified
+        // unauthorized exit. One open incident per employee — later pings, replays and his other phones add nothing.
+        // The alerts for it are the existing «outing overdue» ones (sweep), not a second alarm.
+        const id = await openIncident(q, { employeeId: a.id, workDate: l.date, exitAt: now, deviceKey });
+        if (id) {
+          await audit(q, a.id, 'tracking.unauthorized_exit', 'employee', a.id, undefined,
+            { at: now, lat, lng, acc, outsideM: outside === null ? null : Math.round(outside), permission: 'expired', after: 'outing_expired', outingId: outing.id, device: deviceLabel });
+        }
       } else if (inside === true && wasInside === false && awaySince) {
         // back inside: an open unauthorized-exit incident ends now (unless another of his phones is still outside)
         const stillOut = await one(q, `SELECT 1 FROM tracking_state WHERE employee_id = $1 AND device_key <> $2 AND work_date = $3
@@ -408,7 +418,7 @@ export const trackingModule: Module = (r, { db, clock }) => {
     const elig = await trackingEligibility(db, a.id, clock(), { ignoreAttendance: true });
     // office areas so the phone can ring by itself when it leaves them, even with no internet
     const locs = (await db.query(`SELECT lat, lng, radius_m FROM work_locations WHERE active`)).rows;
-    return ok({ enabled: elig.on, reason: elig.reason, endsInMinutes: elig.endsInMinutes ?? null, intervalMinutes: s.tracking_interval_minutes,
+    return ok({ enabled: elig.on, reason: elig.reason, endsInMinutes: elig.endsInMinutes ?? null, startsInMinutes: elig.startsInMinutes ?? null, intervalMinutes: s.tracking_interval_minutes,
       awayMarginM: s.away_margin_m ?? 0, offices: locs.map((l) => ({ lat: l.lat, lng: l.lng, radiusM: l.radius_m })) });
   });
 

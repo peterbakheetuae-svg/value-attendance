@@ -22,6 +22,9 @@ class ShiftTracker {
   DateTime? _lastSent;
   int _intervalMin = 5;
   bool _background = false; // Android: the background service does the work (keeps going with the app closed)
+  // checked in before the shift: the server refuses tracking until the shift starts; while the app is alive it re-checks
+  // once the shift begins (with the app closed it starts at the next app start — Android gives no guaranteed wake-up)
+  Timer? _startAt;
   bool get running => _sub != null || _timer != null || _background;
 
   // ---- leaving the office is detected on the phone itself (rings even with no internet)
@@ -113,6 +116,14 @@ class ShiftTracker {
       await _loadOffices(cfg);
       final p0 = await SharedPreferences.getInstance();
       if (cfg != null) await p0.setBool('tracking_enabled', cfg['enabled'] == true);
+      if (cfg != null && cfg['enabled'] != true && cfg['reason'] == 'before_shift' && cfg['startsInMinutes'] is num) {
+        _startAt?.cancel();
+        final m = (cfg['startsInMinutes'] as num).toInt();
+        _startAt = Timer(Duration(minutes: m, seconds: 30), () {
+          _startAt = null;
+          start(api, notifTitle: notifTitle, notifText: notifText);
+        });
+      }
       if ((cfg?['enabled'] ?? p0.getBool('tracking_enabled')) != true) return;
       _intervalMin = ((cfg?['intervalMinutes'] ?? 5) as num).toInt();
       if (!await Geolocator.isLocationServiceEnabled()) return;
@@ -182,6 +193,8 @@ class ShiftTracker {
   }
 
   Future<void> stop() async {
+    _startAt?.cancel();
+    _startAt = null;
     if (_background || ShiftService.supported) await ShiftService.stop();
     _background = false;
     await _sub?.cancel();
