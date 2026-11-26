@@ -307,7 +307,9 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       break: br ? breakShape(br, clock()) : null, breakAllowedMinutes: settings.break_minutes,
       schedule: { start: s.start_time, end: s.end_time, lateGraceMinutes: s.late_grace_minutes, weekendDays: s.weekend_days },
       isWeekend: s.weekend_days.includes(l.isoDow), holiday: holiday?.name ?? null, gpsRequired: settings.gps_required,
-      selfieRequired: s.emp_selfie_required === true, attendanceExempt: s.attendance_exempt === true });
+      selfieRequired: s.emp_selfie_required === true, attendanceExempt: s.attendance_exempt === true,
+      // the absence threshold (proposed 094): whether registering today's absence is open yet — information only
+      absenceThreshold: await (await import('./presence.ts')).absenceWindow(db, a.id, clock()) });
   });
 
   /** Today's board for managers/HR/owner. */
