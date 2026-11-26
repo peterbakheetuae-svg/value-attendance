@@ -9,9 +9,9 @@ This file is the persistent checklist: each session continues from the first ite
 |---|---|
 | `main` | `98f9f69` — PR #17 (revert of the Flutter dependency bumps). No later commits. |
 | Working branch | `feat/marketing-intelligence`, from `98f9f69`. |
-| Production database | Neon `valunivo-attendance-eu`, branch `main` (read-only inspection). `schema_migrations`: 091 applied 2026-11-25 09:04 UTC, **090 applied after it** (14:39 UTC) — both present; the order is out of sequence (owner to confirm the runner tolerates it). A branch `restore-before-091-2026-11-25` exists. |
+| Production database | Neon `valunivo-attendance-eu`, branch `main`. **As recorded on 2026-11-25** (an earlier read-only inspection; not re-verified on 2026-11-26 — see «Pre-release readiness» → migration history): `schema_migrations` 091 applied 09:04 UTC, 090 applied after it (14:39 UTC). A branch `restore-before-091-2026-11-25` existed then. |
 | Production data relevant here | 0 `lead_campaigns`, 0 `leads`, 0 `meta_pages`, 1 `integrations` row for Meta, 2 `marketing_companies`, 12 `kpi_definitions`, 0 active `kpi_sets`, 0 `kpi_results`. No plain Meta token (`EAA…`) stored. |
-| Graph API | Code pinned to **v21.0**; Meta removes v21.0 on **2027-01-21**; latest is v26.0 (2026-07-29). Now configurable (`META_GRAPH_VERSION`); upgrade only after a real-credential check. |
+| Graph API | At baseline the code was pinned to v21.0 (Meta removes it on 2027-01-21). **Current code: default v25.0**, configurable with `META_GRAPH_VERSION` (see «P2 — Graph API version»). Not yet exercised against Meta with real credentials. |
 
 Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒 owner decision · ⬜ not started.
 "Tested here" = unit tests run in the session; "CI" = Postgres-backed tests written for `api-ci.yml` (the session could not install `pg`).
@@ -30,7 +30,7 @@ Status keys: ✅ done (tested) · 🟡 partial · ⛔ blocked (external) · 🔒
 | Requirement (spec §2) | Implementation | Status |
 |---|---|---|
 | Official Facebook Login (server-side code flow) | `api/src/lib/meta-oauth.ts`; `POST /integrations/meta/oauth/start`, `GET /public/meta/oauth/callback` | ✅ code · ⛔ needs a Meta app |
-| Least-privilege permissions | see «Meta permissions» below — required, optional and future are separate lists; the login dialog asks for required + optional only | ✅ |
+| Least-privilege permissions | see «Meta permissions» below — required, optional and Insights are separate lists; the login dialog asks for all three (`META_SCOPES`); only the required list blocks a connection | ✅ |
 | Separate app credentials | `META_APP_SECRET` is its own setting; never borrowed from `META_APP_SECRETS` (webhook signing) | ✅ |
 | State validation / CSRF, redirect URI validation | HMAC-signed state bound to the person, 10-minute expiry; **single-use**: nonce recorded hashed in `action_otps` (082, action `meta_oauth_state`) at start, consumed by one atomic `UPDATE … WHERE used_at IS NULL … RETURNING` at callback (no migration needed); one fixed `META_OAUTH_REDIRECT_URI`, https only | ✅ unit here · ✅ CI written (replay, concurrent, expired, forged, wrong person, revoked) |
 | Permission checks | start/status: `leads.config`, never a marketing company; callback re-checks the person who started | ✅ CI |
@@ -98,18 +98,20 @@ In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI 
 
 ### Vercel
 - Both `vercel.json` (root) and `api/vercel.json` (the project `value-attendance` builds from `api/`) carry `"feat/marketing-intelligence": false`; commits after 38b7037 got **0** Vercel statuses (checked on 132be3e).
-- Production migrations run only from `api/scripts/migrate-if-production.mjs` (Vercel production build of `main`); a preview never migrates. `meta-sync.yml` knocks only on `refs/heads/main`.
-- **Cleanup to do by hand:** preview deployment `2jCzuWMHPFB33nCUo2TeAKRVpLgv` (project `value-attendance`, commit 06b5080) was created by mistake before the `api/vercel.json` fix. It is **not deleted** (no Vercel access from here). Delete it in Vercel → project `value-attendance` → Deployments → that id → ⋯ → Delete; and keep Deployment Protection on for previews.
+- Migrations at build time run only from `api/scripts/migrate-if-production.mjs` (Vercel production build of `main` of the real project); a preview never migrates. A second path exists: `.github/workflows/db-migrate.yml` (manual, `main` only, environment `production-db`). Which one applies 092 is an open owner decision — see «Pre-release readiness». `meta-sync.yml` knocks only on `refs/heads/main`.
+- **Cleanup to do by hand:** preview deployment `2jCzuWMHPFB33nCUo2TeAKRVpLgv` (project `value-attendance`, commit 06b5080) was created by mistake before the `api/vercel.json` fix. It is **not deleted** (no Vercel access from here); its current existence is **unverified** (GitHub still shows Vercel's «Deployment has completed» status for it, 2026-11-25 21:16 UTC). The same commit's status on the retired project `value-attendance-api` (`589n7wPBxs6E54Wsb9qemXkY3fwC`) reads «Canceled by Ignored Build Step» — not deployed. Delete it in Vercel → project `value-attendance` → Deployments → that id → ⋯ → Delete; and keep Deployment Protection on for previews.
 
 ### Release process (not done — waits for an independent review)
 1. Review `feat/marketing-intelligence` (diff vs `main`), CI green (API PG16/18 + least-privilege, App analyze/build check).
 2. Take a Neon branch/snapshot of production `main` before merge.
-3. Merge into `main` → Vercel production build runs `migrate-if-production.mjs` → applies `092_marketing_intelligence.sql` (additive). Rollback file: `db/proposed/092_rollback.sql` (drops only what 092 creates).
+3. Decide the migration path first (see «Pre-release readiness» → blockers), then merge into `main`. If the Vercel build's database credential may create tables, its production build of `main` runs `migrate-if-production.mjs` → applies `092_marketing_intelligence.sql` (additive) before the new code goes live; if it may not, that build fails and the previous deployment stays live — then 092 must be applied with `db-migrate.yml` (approved) first. Rollback file: `db/proposed/092_rollback.sql` (drops only what 092 creates).
 4. Set the Meta env vars and app callbacks above; connect via «اربط بحساب فيسبوك».
-5. App: the existing `app.yml` release on `main` builds the APK / Windows / web — only after review; not run by this work.
+5. App: **a merge that touches `app/**` starts `app.yml` automatically** (push to `main`), which builds and publishes the APK / web as a GitHub release and the live update — the merge is itself the app release. Only after the owner's explicit authorisation; not run by this work.
 6. After release, the owner decides who gets `leads.quality` and approves KPI formulas one by one.
 
 ## Meta permissions (`api/src/lib/meta-oauth.ts`)
+
+Verified against the code on 2026-11-26 (commit 6a83b42): the login dialog's `scope` is `META_SCOPES` = required + `business_management` + `ads_read`, in that order; a grant missing any **required** permission is not kept; the two optional ones never block.
 
 | List | Permissions | Used for | Asked by the current OAuth |
 |---|---|---|---|
@@ -119,7 +121,7 @@ In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI 
 | | `leads_retrieval` | read leads (bulk + webhook) | yes |
 | | `ads_management` | a lead's `campaign_id` / `ad_id` (attribution); Meta documents no read-only alternative | yes |
 | **Optional** (`META_SCOPES_OPTIONAL`) — not blocking | `business_management` | pages owned through a business portfolio only | yes |
-| **Insights** (`META_SCOPES_INSIGHTS`) — requested, not required | `ads_read` | `GET /{campaign}/insights`; declined → Insights off and reported, Lead Ads unaffected | **no** |
+| **Optional — Insights** (`META_SCOPES_INSIGHTS`) — not blocking | `ads_read` | `GET /{campaign}/insights`; declined → Insights off and reported as unavailable, Lead Ads unaffected | yes |
 
 ## External configuration still required (nothing set by this work)
 
@@ -153,7 +155,7 @@ In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI 
 | Written, not executed (need `pg`; package installs blocked here) | `meta-oauth-routes.test.ts` (11), `meta-sync-run.test.ts` (4) — run in `api-ci.yml` |
 | Flutter | not compiled / analysed (no Flutter SDK here) |
 
-No migration was added. No production data, schema, environment or deployment was changed.
+No migration was added at that stage (migration 092 came later, in phases A–K). No production data, schema, environment or deployment was changed.
 
 ### Final correction pass (2026-11-25)
 
@@ -162,7 +164,7 @@ No migration was added. No production data, schema, environment or deployment wa
 | `tokenIsOurs` accepted a missing type | `debug_token.data.type` must be exactly `USER` (missing / PAGE / APP / SYSTEM_USER refused) |
 | Deadline checked only between page requests | `Budget` + `eachWithin` (`lib/meta-sync-limits.ts`): checked before every Meta request and every lead; no new database work after it; per-lead transaction + advisory lock unchanged |
 | Checkpoint could advance after a cut-short pass | `syncMeta` returns `complete`; the checkpoint moves only after a complete pass (budget, the 20-page cap, or an unreadable page's forms make it incomplete) |
-| Permissions list | required / optional / future separated (table above); `pages_manage_ads` in the App Review list; `ads_read` in its own Insights group (requested, not required) |
+| Permissions list | required / optional / future separated at that stage (ads_read was then not requested; it is now — see «ads_read correction»); `pages_manage_ads` in the App Review list |
 | Flutter status | required missing (blocking, «إعادة ربط») vs optional missing (`business_management`, not blocking) — API status returns `missingRequired` and `missingOptional` |
 | Workflow branch guard | the knock job runs only when `github.ref == refs/heads/main`; a dispatch from another branch only prints a notice. Endpoint and secrets unchanged |
 
@@ -250,3 +252,56 @@ There was no recurring trigger (only the manual `POST /kpi/auto/run`). Added `PO
 - `syncInsights` never calls Meta without `ads_read` → `{ ran: false, reason: 'insights_permission_missing' }` (workflow warning); a permission error from Meta during Insights (code 10 / 200–299) reports «Insights unavailable», drops `ads_read` from the stored list, keeps the checkpoint. Lead sync, webhooks and reconnection do not read `meta_scopes`.
 - Reported: callback page, `GET /integrations/meta/oauth/status` → `insights { available, reason }`, `GET /marketing/overview` → `integration.insightsAvailable` (true / false / null = not known), Flutter integration settings and the marketing dashboard.
 
+
+## Pre-release readiness (2026-11-26) — documentation and verification only
+
+Branch head checked: `feat/marketing-intelligence` @ `6a83b427cd04` (last code commit). `main` @ `98f9f69c940b`, `pending-build` @ `3d53986600680d` — unchanged by this work. No merge, deployment, migration, build or setting change was made.
+
+### 1. CI evidence (GitHub Actions, completed runs on 6a83b42)
+| Check | Status | Evidence |
+|---|---|---|
+| API tests — PostgreSQL 16 (`npm test`) | ✅ 629 pass / 0 fail / 2 skipped (role-only tests) | [run 45734761741](https://github.com/peterbakheetuae-svg/value-attendance/actions/runs/45734761741) · [job PG16](https://github.com/peterbakheetuae-svg/value-attendance/actions/runs/45734761741/job/139625196376) |
+| API tests — PostgreSQL 18 | ✅ 629 / 0 / 2 | [job PG18](https://github.com/peterbakheetuae-svg/value-attendance/actions/runs/45734761741/job/139625195980) |
+| Least-privilege runtime role (both PG versions) | ✅ 630 / 630 | same jobs, step «npm test (least-privilege runtime role)» |
+| Production dependency audit (`npm audit --omit=dev --audit-level=high`) | ✅ 0 vulnerabilities | PG18 job only — by design (`if: matrix.pg == '18'`); skipped on PG16 |
+| TypeScript typecheck (`npm run typecheck`) | ✅ | both API jobs |
+| Flutter analyze (errors fail) | ✅ | [run 45734761776](https://github.com/peterbakheetuae-svg/value-attendance/actions/runs/45734761776) · [job](https://github.com/peterbakheetuae-svg/value-attendance/actions/runs/45734761776/job/139625196003) |
+| Android build check (throwaway key, nothing published) | ✅ | same job |
+| Web build check | ✅ | same job (web build kept 1 day as an Actions artifact) |
+| Vercel on 6a83b42 | 0 deployment statuses | GitHub commit statuses |
+
+Distinct from these: the agent's local runs (DB-free tests 66/66, typecheck without `nodemailer`, a stubbed-`curl` run of the `meta-sync.yml` script) are supporting evidence only. A documentation-only commit after 6a83b42 does not start either workflow (their `paths` are `api/**` / `db/**` and `app/**`); the code they test is unchanged.
+
+### 2. Migration ordering — code inspection (verified)
+- `api/src/migrate-core.ts`: lists `db/migrations/NNN_*.sql`, sorts by **filename**, skips every name already in `schema_migrations`, and applies **every other one**, each in its own transaction under one advisory lock (a concurrent runner re-checks and skips). There is **no ordering or gap check**: a lower-numbered file added later (090 after 091) is applied on the next run, after the higher one; a missing lower-numbered file is simply not applied, and nothing reports it. A file that fails rolls back alone and stops the run (the build fails).
+- Correctness therefore depends on migrations being independent of one another. Objects each file creates or alters (read on 2026-11-26): 090 — `brokerage_deals` (column, index, trigger); 091 — `file_objects`, `file_purge_log`, `schema_migration_rollbacks` and file-reference triggers on 16 tables incl. `employees` and `lead_attachments`; 092 — `leads`, `integrations`, `kpi_definitions`, `kpi_results` and four new tables. No object is created or altered by two of them; 090 and 092 only *reference* `employees`, which 091 alters (triggers), and 092 does not touch `lead_attachments`.
+- **What CI actually executed** (`api/test/helpers.ts`): the test template applies every migration except the release files (066, 083–089, 090, 091) — so 092 runs on a schema **without** 066 / 083–091; `release-migrations.test.ts` then applies those release files on top (after 092) and checks each is applied exactly once. The production order — everything through 091 already present, then 092 — has **not been executed** anywhere. Independence makes it very likely equivalent, but it is unverified. Recommended before applying 092: run it against a Neon branch copied from production (owner-authorised), or add a CI case that applies 092 after the full release chain.
+- Two ways the production database is migrated: (a) `migrate-if-production.mjs` in the Vercel build command (both `vercel.json` files) — only for `VERCEL_ENV=production`, `VERCEL_GIT_COMMIT_REF=main` and the real project (deployment guard: the retired project and unidentified projects never migrate); (b) `db-migrate.yml` — manual dispatch, `main` only, GitHub environment `production-db`. **Contradiction in the repository:** `db-migrate.yml` says migrations never run at Vercel build time, while the Vercel build command does run the guard script. Which path is live depends on the database credential in Vercel's environment, which cannot be read from here.
+
+### 3. Migration history in production — NOT independently verified
+- A read-only `SELECT` on `schema_migrations` through the session's Neon connection was refused by the session's permission control (2026-11-26); it was not retried by other means. The order 091 → 090 is therefore **only as recorded on 2026-11-25**, not re-verified.
+- Indirect evidence (GitHub, read-only): `db-migrate.yml` has **0 runs**; 091 reached `main` at 09:04:19 UTC (bdfc2a8) and 090 at 14:39:10 UTC (5a47d2a), and each push got a successful Vercel production deployment — consistent with the recorded apply times and with the Vercel build migrating with a credential that can create tables. This is an inference, not a verification.
+- Not assumed: that the recorded order is complete, that nothing else was applied by hand, or that the order is harmless beyond the shared-object check above.
+
+### 4. Release configuration (inspected, unchanged)
+- `vercel.json` and `api/vercel.json`: `git.deploymentEnabled["feat/marketing-intelligence"] = false` in both; build command `migrate-if-production.mjs && vercel-build.mjs`.
+- `migrate-if-production.mjs`: migrates only on a Vercel production build of `main` of the identified real project (or `VA_ALLOW_MIGRATE=production` outside Vercel/Netlify). A feature-branch build — even if one ran — is a preview (`VERCEL_GIT_COMMIT_REF` ≠ `main`) and does not migrate.
+- `deployment-guard.mjs`: the retired project `value-attendance-api` returns 410, never migrates; an unidentified production project returns 503, never migrates. Note: the retired project **still builds every push to `main`** (its statuses appear on main commits); its removal remains an owner action.
+- `meta-sync.yml`: scheduled triggers run only from the default branch; the `knock` job also requires `github.ref == refs/heads/main`; a dispatch from the feature branch only prints a notice.
+- `app.yml`: starts on a push to `main` touching `app/**` and publishes a release + live update — so merging this branch (it changes `app/`) **is** an app release.
+- Conclusion: the feature branch cannot migrate or deploy production through these paths; a merge into `main` would do both (API deploy + possible migration + app release).
+
+### 5. Release blockers and owner-only actions (nothing done here; no secret values recorded)
+1. **Decide the migration path for 092** (Vercel build vs `db-migrate.yml` with approval) and make the repository's two statements agree; confirm which credential Vercel's `value-attendance` project uses.
+2. **Neon**: take a snapshot / branch of production `main` immediately before applying 092; re-check `schema_migrations` read-only (091, 090 present; 092 absent). Optionally apply 092 first to a branch copied from production, to execute the real order (091, 090 present → 092), which CI has not run.
+3. **Meta app**: Facebook Login redirect `https://<API host>/public/meta/oauth/callback`; Deauthorize `…/public/meta/deauthorize`; Data Deletion `…/public/meta/data-deletion`; Webhooks Page `leadgen` → `…/public/hooks/meta` with the verify token.
+4. **Meta permissions / App Review (Advanced Access)**: required `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`; optional `business_management`, `ads_read` (Insights); Business Verification as Meta requires.
+5. **Vercel environment** (`value-attendance`): `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, existing `META_APP_SECRETS`, `BACKUP_TOKEN`; optional `META_GRAPH_VERSION`.
+6. **GitHub secret** `BACKUP_TOKEN` (same value as the host) for `meta-sync.yml`.
+7. **Vercel cleanup**: delete preview `2jCzuWMHPFB33nCUo2TeAKRVpLgv` (existence unverified); remove or disconnect the retired project `value-attendance-api`.
+8. **Privacy / legal**: confirm the Data Deletion scope (token + pages deleted; Lead Ads lead records retained) against the published privacy policy.
+9. **Business decisions** after release: who holds `leads.quality`; approval of each KPI formula.
+10. **Release authorisation**: the merge publishes the app (`app.yml`); only with the owner's explicit approval.
+
+### Verdict
+**READY FOR FINAL OWNER REVIEW** — code complete on the branch and every listed check green on GitHub Actions. **Not ready for release** until blockers 1–8 are settled by the owner; production migration history remains unverified in this session.
