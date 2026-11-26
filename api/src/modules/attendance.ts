@@ -1,4 +1,5 @@
 import { ok, type Module } from '../ctx.ts';
+import { eventsFor, withPunchEvidence } from './attendance-evidence.ts';
 import { one, type Q } from '../db.ts';
 import { AppError, conflict, forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { date, imageType, monthParam, num, obj, reqStr, time, uuid, isUuid } from '../http/validate.ts';
@@ -58,7 +59,7 @@ export async function hrAttendanceDesk(q: Q, exceptId: string): Promise<string[]
   return r.rows.map((x) => x.id);
 }
 
-export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>, now: Date, step: string) {
+export async function trustedTime(q: Q, a: Actor, body: Record<string, unknown>, now: Date, step: string): Promise<{ at: Date; offline: boolean; overridden?: boolean }> {
   const t = actionTime(body, now);
   if (!t.offline) return t;
   // an offline record belongs to today: a day already over is corrected by HR (who is told), never by the phone's clock —
@@ -201,9 +202,11 @@ function breakShape(b: any, now: Date) {
 export const attendanceModule: Module = (r, { db, clock }) => {
   r.post('/attendance/check-in', async (req) => {
     const a = await authenticate(db, req);
+    // SEC-06: the punch runs exactly as before, inside its evidence record (claims vs server facts, replay-safe)
+    return withPunchEvidence(db, a, req, 'check_in', clock(), async () => {
     await assertPunchClient(db, a, req, 'حضور');
     const b = obj(req.body ?? {});
-    const { at: now, offline } = await trustedTime(db, a, b, clock(), 'حضور'); const l = local(now);
+    const { at: now, offline, overridden } = await trustedTime(db, a, b, clock(), 'حضور'); const l = local(now);
     const selfie = selfieFrom(b);
     // R2 (091): the selfie is written and verified BEFORE the transaction — inside it, the employee row lock below
     // (FOR UPDATE) would block the file record's own foreign-key check on that employee (FOR KEY SHARE) and the check-in
@@ -246,14 +249,16 @@ export const attendanceModule: Module = (r, { db, clock }) => {
     // the account open on other phones too: they ring like a call so each is opened and followed
     const { ringOtherPhonesAtCheckIn } = await import('./tracking.ts');
     await ringOtherPhonesAtCheckIn(db, a.id, a.sessionId, l.date, now);
-    return ok({ attendance: shape(row, l.date) }, 201);
+    return { reply: ok({ attendance: shape(row, l.date) }, 201), usedTime: now, overridden };
+    });
   });
 
   r.post('/attendance/check-out', async (req) => {
     const a = await authenticate(db, req);
+    return withPunchEvidence(db, a, req, 'check_out', clock(), async () => {
     await assertPunchClient(db, a, req, 'انصراف');
     const b = obj(req.body ?? {});
-    const { at: now, offline } = await trustedTime(db, a, b, clock(), 'انصراف'); const l = local(now);
+    const { at: now, offline, overridden } = await trustedTime(db, a, b, clock(), 'انصراف'); const l = local(now);
     const row = await db.tx(async (q) => {
       const open = await one(q, `SELECT * FROM attendance WHERE employee_id = $1 AND work_date = $2 FOR UPDATE`, [a.id, l.date]);
       if (!open) throw conflict('You must check in first');
@@ -271,7 +276,18 @@ export const attendanceModule: Module = (r, { db, clock }) => {
       if (offline) await tellHrLateOffline(q, a, 'انصراف', now, clock(), open.id);
       return updated;
     });
-    return ok({ attendance: shape(row, l.date) });
+    return { reply: ok({ attendance: shape(row, l.date) }), usedTime: now, overridden };
+    });
+  });
+
+  /** SEC-06: the evidence of one employee's punches on one day — claims next to server facts, with review flags (HR) */
+  r.get('/attendance/events', async (req) => {
+    const a = await authenticate(db, req);
+    if (!has(a, 'attendance.correct')) throw forbidden();
+    const qp = Object.fromEntries(req.query) as Record<string, unknown>;
+    const employeeId = uuid(qp, 'employeeId')!;
+    const d = date(qp, 'date', true) ?? local(clock()).date;
+    return ok({ events: await eventsFor(db, employeeId, d) });
   });
 
   r.post('/attendance/break-start', async (req) => {
