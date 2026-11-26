@@ -3,7 +3,7 @@ name: File storage health (orphan / unfinished uploads alert)
 # The run FAILS — and GitHub e-mails the repository owner — while the API reports `alert: true`: a storage write that did
 # not finish (orphan, or a pending upload past its window) or a stored file never linked to its record for over an hour.
 # Before migration 091 is installed the API answers installed:false and this passes. Uses the API host's BACKUP_TOKEN
-# (repository secret BACKUP_TOKEN, the same value as on Vercel); without it the check is skipped with a warning.
+# (repository secret BACKUP_TOKEN, the same value as on Vercel); without it the run FAILS (never a silent pass).
 on:
   schedule:
     - cron: '17 6-17 * * 0-4,6'   # UTC (Cairo = UTC+2), working hours, Saturday–Thursday
@@ -18,9 +18,9 @@ jobs:
       - env:
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
         run: |
-          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — storage health not checked"; exit 0; fi
+          if [ -z "$BACKUP_TOKEN" ]; then echo "::error title=Not configured::repository secret BACKUP_TOKEN is not set — storage health NOT checked"; exit 1; fi
           code=$(curl -s -m 60 -o out.json -w '%{http_code}' -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/admin/files/health) || code=000
-          if [ "$code" = "404" ]; then echo "::notice::this API version has no storage health yet"; exit 0; fi
+          if [ "$code" = "404" ]; then echo "::error::the API has no storage health endpoint (404) — storage NOT checked"; exit 1; fi
           if [ "$code" != "200" ]; then echo "::error::storage health answered $code"; exit 1; fi
           jq '{installed, r2, storage, alert, problems, counts, oldestProblemAt, problemsByCategory}' out.json
           if [ "$(jq -r '.alert' out.json)" = "true" ]; then

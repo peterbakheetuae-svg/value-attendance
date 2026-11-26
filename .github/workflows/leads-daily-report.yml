@@ -17,11 +17,12 @@ jobs:
     steps:
       # the knock carries the API host's BACKUP_TOKEN (repository secret BACKUP_TOKEN = the same value as on Vercel);
       # since 2026-11-24 the server refuses an anonymous knock (401). The owner's minute heartbeat (Apps Script →
-      # /backup/sweep) also sends the report from 23:59, so a missing secret here only removes this second trigger.
+      # /backup/sweep) also sends the report from 23:59. A missing secret or an API that never answers FAILS the run (release
+      # gate 2026-11-26: a missing credential is never reported as success).
       - env:
           BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
         run: |
-          if [ -z "$BACKUP_TOKEN" ]; then echo "::warning::repository secret BACKUP_TOKEN is not set — only the heartbeat sends the daily leads report"; exit 0; fi
+          if [ -z "$BACKUP_TOKEN" ]; then echo "::error title=Not configured::repository secret BACKUP_TOKEN is not set — this trigger of the daily leads report did not run (set it, or disable this workflow)"; exit 1; fi
           for i in 1 2 3; do
             code=$(curl -s -m 60 -o out.json -w '%{http_code}' -X POST -H "X-Backup-Token: $BACKUP_TOKEN" https://valunivo.vercel.app/leads/daily-report/run) || code=000
             cat out.json 2>/dev/null; echo
@@ -29,4 +30,4 @@ jobs:
             if [ "$code" = "401" ] || [ "$code" = "403" ]; then echo "::error::the API refused the token ($code) — check the BACKUP_TOKEN secret"; exit 1; fi
             sleep 20
           done
-          echo "::warning::the API did not answer"
+          echo "::error::the API did not answer — the daily leads report was not triggered"; exit 1
