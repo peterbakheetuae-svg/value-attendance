@@ -58,7 +58,7 @@ async function sweep(idFor: (param: string) => string, token = c.t.solo, others0
         if (extraFields) leaks.push(`${r} → more than id / name`);
       } else if (r === ORG_CHART) {
         // P-1 (owner decision 2026-11-26): the directory for everyone — exactly these fields, no employee id at all
-        const fields = new Set((res.body?.teams ?? []).flatMap((t: any) => Object.keys(t)));
+        const fields = new Set<string>((res.body?.teams ?? []).flatMap((t: any) => Object.keys(t) as string[]));
         const allowed = ['id', 'name', 'active', 'department_name', 'manager_name', 'member_count'];
         if (seen.length || [...fields].some((f) => !allowed.includes(f))) leaks.push(`${r} → more than the team directory: ${[...fields]}`);
       } else if (seen.length) leaks.push(`${r} → carries ${seen.length} other employee id(s)`);
