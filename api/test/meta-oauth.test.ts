@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  META_SCOPES, META_SCOPES_LATER_INSIGHTS, META_SCOPES_OPTIONAL, META_SCOPES_REQUIRED, callbackPage, codeExchangeUrl, dialogUrl,
+  META_SCOPES, META_SCOPES_INSIGHTS, META_SCOPES_OPTIONAL, META_SCOPES_REQUIRED, grantedScopes, insightsGranted, isPermissionError, callbackPage, codeExchangeUrl, dialogUrl,
   graphVersion, longLivedUrl, metaFetch, missingScopes, newState, nonceHash, oauthConfig, redirectUriOk, safeMetaError, signStateWith,
   tokenFrom, tokenIsOurs, verifyState,
 } from '../src/lib/meta-oauth.ts';
@@ -81,10 +81,12 @@ test('URLs: the login dialog asks the minimum scopes with the fixed redirect; th
   assert.equal(graphVersion({}), 'v25.0', 'the default');
 });
 
-test('least privilege: required vs optional vs later (Insights) scopes; ads_read is not asked yet', () => {
-  assert.deepEqual([...META_SCOPES], [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL]);
-  assert.ok(META_SCOPES_REQUIRED.includes('leads_retrieval') && META_SCOPES_REQUIRED.includes('pages_manage_metadata'));
-  assert.ok(META_SCOPES_LATER_INSIGHTS.every((s) => !(META_SCOPES as readonly string[]).includes(s)), 'later scopes are not requested');
+test('least privilege: required vs optional vs Insights scopes; ads_read is asked for but never required', () => {
+  assert.deepEqual([...META_SCOPES], [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL, ...META_SCOPES_INSIGHTS]);
+  assert.deepEqual([...META_SCOPES_INSIGHTS], ['ads_read']);
+  assert.ok(!(META_SCOPES_REQUIRED as readonly string[]).includes('ads_read'), 'declining it never blocks the connection');
+  assert.deepEqual([...META_SCOPES_REQUIRED], ['pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management'],
+    'the Lead Ads requirements are unchanged');
   assert.equal(new Set(META_SCOPES).size, META_SCOPES.length, 'no duplicates');
 });
 
@@ -166,4 +168,17 @@ test('rate limits are recognised from Meta\'s error codes or HTTP 429', () => {
   for (const c of [4, 17, 32, 613, 80000, 80004, 80014]) assert.ok(isRateLimited({ metaCode: c }), String(c));
   assert.ok(isRateLimited({ httpStatus: 429 }));
   for (const c of [1, 100, 190, 80015, null]) assert.equal(isRateLimited({ metaCode: c }), false, String(c));
+});
+
+test('insightsGranted / grantedScopes / isPermissionError', () => {
+  assert.equal(insightsGranted(['ads_read', 'leads_retrieval']), true);
+  assert.equal(insightsGranted(['leads_retrieval', 'ads_management']), false, 'ads_management alone is not taken as ads_read');
+  assert.equal(insightsGranted(null), false);
+  assert.equal(insightsGranted([]), false);
+  assert.deepEqual(grantedScopes({ data: [{ permission: 'leads_retrieval', status: 'granted' }, { permission: 'ads_read', status: 'declined' },
+    { permission: 'ads_read', status: 'expired' }, { permission: 'x;DROP', status: 'granted' }, { permission: 'ads_management', status: 'granted' }] }),
+    ['ads_management', 'leads_retrieval']);
+  assert.deepEqual(grantedScopes(null), []);
+  for (const c of [10, 200, 270, 299]) assert.equal(isPermissionError(Object.assign(new Error('x'), { metaCode: c })), true, String(c));
+  for (const c of [4, 17, 100, 190, 300, null]) assert.equal(isPermissionError(Object.assign(new Error('x'), { metaCode: c })), false, String(c));
 });

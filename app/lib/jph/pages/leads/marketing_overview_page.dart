@@ -189,6 +189,12 @@ class _MarketingOverviewPageState extends State<MarketingOverviewPage> {
           '${tr('آخر مزامنة')}: ${it['lastSyncAt'] == null ? '—' : agoAr(it['lastSyncAt'])}',
           '${tr('الصرف متسجل لحد')}: ${it['insightsThrough'] ?? '—'}',
         ].join(' · '), style: TextStyle(fontSize: 12.5, color: JphUi.sub(isDark))),
+        if (connected && it['insightsAvailable'] == false)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(tr('أرقام الإعلانات (الصرف والتكلفة) مش متاحة: صلاحية ads_read ما اتسمحتش. الأرقام اللي تحت (لو فيه) قديمة ومش بتتحدث.'),
+                style: TextStyle(fontSize: 12.5, color: Ar.amber.shade800)),
+          ),
         if ('${it['lastError'] ?? ''}'.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6),

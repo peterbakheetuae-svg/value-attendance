@@ -47,17 +47,22 @@ export const graphBase = (env: Record<string, string | undefined> = process.env)
  *                                            attribution to our campaigns depends on campaign_id; the guide offers no
  *                                            read-only alternative. Also covers listing the ad accounts' campaigns.
  *  - business_management (optional)          only to reach pages owned through a business portfolio (me/businesses)
- * Not requested now: ads_read — for the Ads Insights phase (5), to be decided and verified when that phase is approved.
+ *  - ads_read (Insights feature)             GET /{campaign}/insights — Meta's Insights API states ads_read as its
+ *                                            permission. Requested, but NOT required: declined, the connection and
+ *                                            Lead Ads work; only Insights is off and reported as unavailable.
  * Several need Meta App Review (Advanced Access) before people outside the app's roles can grant them.
  */
 export const META_SCOPES_REQUIRED = [
   'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management',
 ] as const;
 export const META_SCOPES_OPTIONAL = ['business_management'] as const;
-/** what the login dialog asks for (required + optional) */
-export const META_SCOPES = [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL] as const;
-/** later phases (not requested by this code): Ads Insights */
-export const META_SCOPES_LATER_INSIGHTS = ['ads_read'] as const;
+/** the Ads Insights feature only (marketing.ts syncInsights runs only when it is granted) */
+export const META_SCOPES_INSIGHTS = ['ads_read'] as const;
+/** what the login dialog asks for (required + optional + Insights) */
+export const META_SCOPES = [...META_SCOPES_REQUIRED, ...META_SCOPES_OPTIONAL, ...META_SCOPES_INSIGHTS] as const;
+/** Insights is usable only when every Insights permission is among the granted ones */
+export const insightsGranted = (granted: readonly string[] | null | undefined): boolean =>
+  !!granted && META_SCOPES_INSIGHTS.every((s) => granted.includes(s));
 
 export interface OAuthConfig { appId: string; appSecret: string; redirectUri: string; version: string }
 
@@ -171,6 +176,13 @@ export function longLivedUrl(cfg: OAuthConfig, shortToken: string): string {
   return u.toString();
 }
 
+/** the permissions granted (from GET /me/permissions → data[{permission, status}]), sorted; only permission-like names */
+export function grantedScopes(perms: unknown): string[] {
+  return [...new Set((Array.isArray((perms as any)?.data) ? (perms as any).data : [])
+    .filter((p: any) => p?.status === 'granted').map((p: any) => String(p.permission))
+    .filter((p: string) => /^[a-z_]{2,60}$/.test(p)))].sort() as string[];
+}
+
 /** the asked permissions the person did not grant (from GET /me/permissions → data[{permission, status}]) */
 export function missingScopes(perms: unknown, wanted: readonly string[] = META_SCOPES): string[] {
   const granted = new Set((Array.isArray((perms as any)?.data) ? (perms as any).data : [])
@@ -214,6 +226,12 @@ export async function metaFetch(url: string, init?: RequestInit): Promise<any> {
 }
 
 /** Meta's documented throttling answers (application / user / page / ads-account limits) */
+/** Meta refused for a missing / revoked permission (code 10, or 200–299 "Permissions error") */
+export function isPermissionError(e: unknown): boolean {
+  const c = Number((e as any)?.metaCode);
+  return c === 10 || (c >= 200 && c <= 299);
+}
+
 export function isRateLimited(e: unknown): boolean {
   const c = Number((e as any)?.metaCode);
   return [4, 17, 32, 613].includes(c) || (c >= 80000 && c <= 80014) || (e as any)?.httpStatus === 429;

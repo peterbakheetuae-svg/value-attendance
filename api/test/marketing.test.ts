@@ -18,7 +18,8 @@ const KEYS = ['SECRETS_KEY', 'META_APP_ID', 'META_APP_SECRET', 'META_OAUTH_REDIR
 const saved: Record<string, string | undefined> = {};
 const SECRET = 'app-secret-0123456789abcdef';
 let insightsRows: any[] = []; let insightsError: { code: number; message: string } | null = null; let insightsCalls = 0;
-let insightsBody: unknown = undefined;   // when set: Meta's raw answer (malformed-response tests)
+let insightsBody: unknown = undefined;
+let permsGranted: string[] = []; let permissionsCalls = 0;   // GET me/permissions (a token whose permissions are not stored)   // when set: Meta's raw answer (malformed-response tests)
 const lead = (id: string, phone: string, extra: Record<string, unknown> = {}) => ({ id, campaign_id: '777', campaign_name: 'Meta 777',
   form_id: '9001', ad_id: '4401', adset_id: '3301', created_time: '2026-11-25T09:00:00+0000',
   field_data: [{ name: 'full_name', values: [`عميل ${id}`] }, { name: 'phone_number', values: [phone] }], ...extra });
@@ -47,13 +48,19 @@ before(async () => {
   company = (await h.db.query(`INSERT INTO marketing_companies (name, kind, created_by) VALUES ('شركة أ', 'commission', $1) RETURNING id`, [c.ids.owner])).rows[0].id;
   otherCompany = (await h.db.query(`INSERT INTO marketing_companies (name, kind, created_by) VALUES ('شركة ب', 'commission', $1) RETURNING id`, [c.ids.owner])).rows[0].id;
   await h.db.query(`UPDATE lead_campaigns SET form_assignees = $2, meta_campaign_ids = '{777}', marketing_company_id = $3 WHERE id = $1`, [campaign, [c.ids.e1], company]);
-  await h.db.query(`INSERT INTO integrations (source, active, access_token) VALUES ('meta', true, $1)
-                    ON CONFLICT (source) DO UPDATE SET active = true, access_token = EXCLUDED.access_token`, [seal('OFFICE-TOKEN-xxxxxxxxxxxx')]);
+  // a token whose granted permissions include ads_read (as stored by the OAuth callback)
+  await h.db.query(`INSERT INTO integrations (source, active, access_token, meta_scopes) VALUES ('meta', true, $1, $2)
+                    ON CONFLICT (source) DO UPDATE SET active = true, access_token = EXCLUDED.access_token, meta_scopes = EXCLUDED.meta_scopes`,
+    [seal('OFFICE-TOKEN-xxxxxxxxxxxx'), ['ads_management', 'ads_read', 'leads_retrieval', 'pages_manage_ads', 'pages_manage_metadata', 'pages_read_engagement', 'pages_show_list']]);
   globalThis.fetch = (async (url: any, init: any) => {
     const u = new URL(String(url));
     if (u.hostname !== 'graph.facebook.com') return realFetch(url, init);
     const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
     const path = u.pathname.replace(/^\/v[0-9]+\.0\//, '');
+    if (path === 'me/permissions') {
+      permissionsCalls++;
+      return j({ data: permsGranted.map((p) => ({ permission: p, status: 'granted' })) });
+    }
     if (path === '777/insights') {
       insightsCalls++;
       if (insightsError) return j({ error: insightsError }, 400);
@@ -268,6 +275,71 @@ test('P2: insights claim — a failure or an incomplete pass gives the claim bac
   const [x, y] = await Promise.all([runInsightsClaimed(h.db, t4, slow as any), runInsightsClaimed(h.db, t4, slow as any)]) as any[];
   assert.equal(runs, 1);
   assert.deepEqual([x.ran, y.ran].sort(), [false, true]);
+});
+
+const scopes = async () => (await h.db.query(`SELECT meta_scopes FROM integrations WHERE source = 'meta'`)).rows[0].meta_scopes;
+const LEAD_SCOPES = ['ads_management', 'leads_retrieval', 'pages_manage_ads', 'pages_manage_metadata', 'pages_read_engagement', 'pages_show_list'];
+
+test('ads_read: declined — Insights is never called, never reported as working, the checkpoint stays; the dashboard says unavailable', async () => {
+  const keep = await scopes();
+  const before = await checkpoint();
+  await h.db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [LEAD_SCOPES]);
+  try {
+    const calls = insightsCalls;
+    const r = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+    assert.deepEqual([r.ran, r.reason], [false, 'insights_permission_missing']);
+    assert.equal(insightsCalls, calls, 'no Insights request without the permission');
+    assert.equal(await checkpoint(), before);
+    const d = await h.call(c.t.owner, 'GET', '/marketing/overview');
+    assert.equal(d.status, 200, JSON.stringify(d.body));
+    assert.equal(d.body.integration.insightsAvailable, false);
+    assert.equal(d.body.integration.connected, true, 'the Meta connection itself is untouched');
+  } finally { await h.db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [keep]); }
+  const d2 = await h.call(c.t.owner, 'GET', '/marketing/overview');
+  assert.equal(d2.body.integration.insightsAvailable, true, 'granted → available');
+});
+
+test('ads_read: permissions not known yet (a token pasted by hand) — read once and kept; then granted / missing decides', async () => {
+  const keep = await scopes();
+  try {
+    await h.db.query(`UPDATE integrations SET meta_scopes = NULL WHERE source = 'meta'`);
+    assert.equal((await h.call(c.t.owner, 'GET', '/marketing/overview')).body.integration.insightsAvailable, null, 'unknown is not «available»');
+    permsGranted = LEAD_SCOPES; const p0 = permissionsCalls; const calls = insightsCalls;
+    const missing = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+    assert.deepEqual([missing.ran, missing.reason], [false, 'insights_permission_missing']);
+    assert.equal(permissionsCalls, p0 + 1);
+    assert.deepEqual(await scopes(), LEAD_SCOPES, 'stored with the token');
+    assert.equal(insightsCalls, calls);
+    await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 });
+    assert.equal(permissionsCalls, p0 + 1, 'not read again once known');
+    await h.db.query(`UPDATE integrations SET meta_scopes = NULL WHERE source = 'meta'`);
+    permsGranted = [...LEAD_SCOPES, 'ads_read'];
+    insightsRows = [];
+    const ok = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+    assert.deepEqual([ok.ran, ok.complete], [true, true]);
+    assert.ok((await scopes()).includes('ads_read'));
+  } finally { permsGranted = []; await h.db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [keep]); }
+});
+
+test('ads_read: revoked at Meta (permission error 200 / 10) — reported as unavailable, ads_read dropped, checkpoint unchanged; nothing else changes', async () => {
+  const keep = await scopes();
+  const before = await checkpoint();
+  try {
+    for (const code of [200, 10]) {
+      await h.db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [keep]);
+      insightsError = { code, message: '(#200) Requires ads_read permission' };
+      const r = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+      assert.deepEqual([r.ran, r.complete, r.rateLimited], [true, false, false]);
+      assert.match(r.errors.join(' '), /Insights unavailable.*ads_read/);
+      assert.ok(!(await scopes()).includes('ads_read'), 'no longer reported as available');
+      assert.deepEqual((await scopes()).filter((s: string) => s !== 'ads_read'), keep.filter((s: string) => s !== 'ads_read'), 'the other permissions stay');
+      assert.equal(await checkpoint(), before);
+      const it = (await h.db.query(`SELECT active, access_token IS NOT NULL AS connected FROM integrations WHERE source = 'meta'`)).rows[0];
+      assert.deepEqual([it.active, it.connected], [true, true], 'the Lead Ads connection is not switched off');
+      const again = await syncInsights(h.db, h.now.value, { deadlineMs: 10_000 }) as any;
+      assert.equal(again.reason, 'insights_permission_missing', 'the next run does not call Meta again');
+    }
+  } finally { insightsError = null; await h.db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [keep]); }
 });
 
 test('F. KPI sources: mapped → pending; only the owner approves; a run fills empty / automatic rows, never a manual entry', async () => {

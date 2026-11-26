@@ -9,7 +9,7 @@ import { hasBackupToken } from '../lib/backup-token.ts';
 import { unseal } from '../lib/secretbox.ts';
 import { graph } from './meta_sync.ts';
 import { Budget, eachWithin, passComplete, SCHEDULED_BUDGET_MS } from '../lib/meta-sync-limits.ts';
-import { isRateLimited, safeMetaError } from '../lib/meta-oauth.ts';
+import { grantedScopes, insightsGranted, isPermissionError, isRateLimited, safeMetaError } from '../lib/meta-oauth.ts';
 import { costPer, dayComplete, insightsPath, readInsightsPage, sumOrNull, type InsightDay } from '../lib/meta-insights.ts';
 
 /**
@@ -47,9 +47,19 @@ export async function upsertInsightDay(q: Q, d: InsightDay, now: Date): Promise<
  */
 export async function syncInsights(db: Db, now: Date, opts: { deadlineMs?: number; clock?: () => number } = {}) {
   const budget = new Budget(opts.deadlineMs ?? SCHEDULED_BUDGET_MS, opts.clock ?? Date.now);
-  const it = await one(db, `SELECT access_token, insights_synced_through FROM integrations WHERE source = 'meta'`);
+  const it = await one(db, `SELECT access_token, insights_synced_through, meta_scopes FROM integrations WHERE source = 'meta'`);
   const token = unseal(it?.access_token);
   if (!token) return { ran: false as const, reason: 'not_connected' };
+  // Insights needs ads_read (Meta's Insights API). Never called without it, never reported as working without it.
+  let scopes: string[] | null = it?.meta_scopes ?? null;
+  if (!scopes) {
+    // a token whose permissions are not known yet (pasted by hand): read them once and keep them with the token
+    try { scopes = grantedScopes(await graph('me/permissions', token)); }
+    catch (e) { return { ran: true as const, complete: false, stored: 0, kept: 0, rateLimited: isRateLimited(e), since: null, until: null,
+      errors: [`Insights: the token's permissions could not be read — ${safeMetaError(e)}`] }; }
+    await db.query(`UPDATE integrations SET meta_scopes = $1 WHERE source = 'meta'`, [scopes]);
+  }
+  if (!insightsGranted(scopes)) return { ran: false as const, reason: 'insights_permission_missing' };
   const ids = (await db.query(`SELECT DISTINCT unnest(meta_campaign_ids) AS id FROM lead_campaigns WHERE active`)).rows
     .map((x) => String(x.id)).filter((x) => /^[0-9]{3,30}$/.test(x)).sort();
   if (!ids.length) return { ran: false as const, reason: 'no_linked_campaigns' };
@@ -75,6 +85,12 @@ export async function syncInsights(db: Db, now: Date, opts: { deadlineMs?: numbe
       }
     } catch (e) {
       complete = false;
+      if (isPermissionError(e)) {
+        // ads_read revoked (or never effective for this ad account): Insights is off until a reconnection grants it again
+        errors.push(`Insights unavailable: Meta refused for a missing permission (ads_read) — ${safeMetaError(e)}`);
+        await db.query(`UPDATE integrations SET meta_scopes = array_remove(meta_scopes, 'ads_read') WHERE source = 'meta'`);
+        break;
+      }
       errors.push(safeMetaError(e));
       if (isRateLimited(e)) { rateLimited = true; break; }   // Meta asked us to slow down: stop the pass, retry next time
     }
@@ -354,7 +370,7 @@ export const marketingModule: Module = (r, { db, clock }) => {
         count(l.id) FILTER (WHERE l.stage = 'done_deal')::int won
       FROM leads l JOIN employees e ON e.id = l.assigned_to WHERE ${where} GROUP BY e.id ORDER BY leads DESC LIMIT 100`, p)).rows
       .map((x) => ({ id: x.id, name: x.full_name, leads: x.leads, qualified: x.qualified, won: x.won }));
-    const it = await one(db, `SELECT active, access_token IS NOT NULL AS connected, last_error, last_at, meta_sync_at, insights_synced_through FROM integrations WHERE source = 'meta'`);
+    const it = await one(db, `SELECT active, access_token IS NOT NULL AS connected, last_error, last_at, meta_sync_at, insights_synced_through, meta_scopes FROM integrations WHERE source = 'meta'`);
     const pages = (await one(db, `SELECT count(*)::int n, count(*) FILTER (WHERE subscribed)::int subscribed FROM meta_pages`)) ?? { n: 0, subscribed: 0 };
     const month = `${to.slice(0, 7)}-01`;
     const kpi = (await one(db, `SELECT count(*) FILTER (WHERE source = 'auto')::int auto, count(*) FILTER (WHERE source = 'manual' AND actual IS NOT NULL)::int manual,
@@ -362,6 +378,8 @@ export const marketingModule: Module = (r, { db, clock }) => {
     return ok({ from, to,
       integration: { connected: !!it?.connected, active: !!it?.active, pages: pages.n, subscribedPages: pages.subscribed,
         lastWebhookAt: it?.last_at ?? null, lastSyncAt: it?.meta_sync_at ?? null, insightsThrough: it?.insights_synced_through ?? null,
+        // true / false from the token's granted permissions; null = not known yet (read at the next Insights run)
+        insightsAvailable: !it?.connected ? false : it?.meta_scopes ? insightsGranted(it.meta_scopes) : null,
         lastError: it?.last_error ? safeMetaError(it.last_error) : null },
       totals: { leads: Object.values(byQuality).reduce((s: number, n: any) => s + n, 0), byQuality, bySource },
       campaigns, employees, kpi: { period: month, ...kpi } });

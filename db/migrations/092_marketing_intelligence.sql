@@ -105,6 +105,9 @@ ALTER TABLE integrations ADD COLUMN IF NOT EXISTS insights_sync_at timestamptz;
 ALTER TABLE integrations ADD COLUMN IF NOT EXISTS insights_synced_through date;
 -- A. the Meta user who connected the office (a hash only), to match Meta's deauthorize / data-deletion callbacks
 ALTER TABLE integrations ADD COLUMN IF NOT EXISTS meta_user_hash text;
+-- the Meta permissions actually granted to the saved token (Facebook Login / me/permissions / debug_token); NULL = not
+-- known yet (a token pasted by hand): Insights reads them once before running. Cleared with the token.
+ALTER TABLE integrations ADD COLUMN IF NOT EXISTS meta_scopes text[];
 
 -- ============================================================ E. lead quality (separate from the sales stage)
 -- The statuses are the owner's specification (2026-11-25). WHO may classify is the permission leads.quality, held by the

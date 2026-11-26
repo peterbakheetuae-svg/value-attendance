@@ -25,6 +25,7 @@ DROP INDEX IF EXISTS leads_quality;
 ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_quality;
 ALTER TABLE leads DROP COLUMN IF EXISTS quality;
 ALTER TABLE integrations DROP COLUMN IF EXISTS meta_user_hash;
+ALTER TABLE integrations DROP COLUMN IF EXISTS meta_scopes;
 ALTER TABLE integrations DROP COLUMN IF EXISTS insights_synced_through;
 ALTER TABLE integrations DROP COLUMN IF EXISTS insights_sync_at;
 DROP TABLE IF EXISTS meta_insights_daily;

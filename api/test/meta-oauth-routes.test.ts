@@ -16,7 +16,7 @@ const APP = '1234567890';
 // each code is single-use at Meta and maps to the long-lived token it yields
 const codes = new Map<string, string>();
 const tokens: Record<string, { app: string; valid: boolean; granted: string[] }> = {};
-const ALL = ['pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management', 'business_management'];
+const ALL = ['pages_show_list', 'pages_read_engagement', 'pages_manage_metadata', 'pages_manage_ads', 'leads_retrieval', 'ads_management', 'business_management', 'ads_read'];
 const code = (id: string, long: string, t: { app?: string; valid?: boolean; granted?: string[] } = {}) => {
   codes.set(id, long); tokens[long] = { app: t.app ?? APP, valid: t.valid ?? true, granted: t.granted ?? ALL };
 };
@@ -197,6 +197,50 @@ test('status: validity, expiry and missing permissions, without any token or sec
   assert.deepEqual(s.body.missingRequired, []);
   assert.deepEqual(s.body.missingOptional, []);
   assert.ok(!JSON.stringify(s.body).match(/LONG-TOKEN|PAGE-OF|app-secret/));
+});
+
+const stored = async () => (await h.db.query(`SELECT meta_scopes, active, access_token IS NOT NULL AS connected FROM integrations WHERE source = 'meta'`)).rows[0];
+
+test('ads_read is asked for in the login dialog; granted → stored with the token and status reports Insights available', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);
+  const st = await h.call(c.t.acc, 'POST', '/integrations/meta/oauth/start', {});
+  assert.ok(new URL(st.body.url).searchParams.get('scope')!.split(',').includes('ads_read'));
+  assert.ok(st.body.scopes.includes('ads_read'));
+  code('CODE-INSIGHTS-0001', 'LONG-TOKEN-INSIGHTSINSIGHTSINSI');
+  const r = await withState('CODE-INSIGHTS-0001', new URL(st.body.url).searchParams.get('state')!);
+  assert.equal(r.status, 200, r.raw.toString());
+  assert.ok(!r.raw.toString().includes('ads_read'), 'nothing to warn about');
+  assert.ok((await stored()).meta_scopes.includes('ads_read'));
+  const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
+  assert.deepEqual(s.body.insights, { available: true, reason: null });
+});
+
+test('ads_read declined: the connection is kept (Lead Ads work), the page says Insights is unavailable, status reports it', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);
+  code('CODE-NOADSREAD-001', 'LONG-TOKEN-NOADSREADNOADSREADNO', { granted: ALL.filter((p) => p !== 'ads_read') });
+  const r = await withState('CODE-NOADSREAD-001', await start());
+  assert.equal(r.status, 200, r.raw.toString());
+  assert.match(r.raw.toString(), /ads_read/);
+  assert.doesNotMatch(r.raw.toString(), /Business portfolio/, 'not mixed up with the optional business_management message');
+  const m = await stored();
+  assert.deepEqual([m.active, m.connected, m.meta_scopes.includes('ads_read')], [true, true, false]);
+  assert.equal((await h.db.query(`SELECT count(*)::int n FROM meta_pages WHERE subscribed`)).rows[0].n > 0, true, 'pages connected and subscribed for leads');
+  const s = await h.call(c.t.acc, 'GET', '/integrations/meta/oauth/status');
+  assert.deepEqual(s.body.missingRequired, [], 'ads_read is not a required permission');
+  assert.deepEqual(s.body.insights, { available: false, reason: 'permission_missing' });
+});
+
+test('ads_read granted but a Lead Ads permission declined: still refused — the requirements are not weakened', async () => {
+  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);
+  const before = await meta();
+  code('CODE-NOLEADS-00001', 'LONG-TOKEN-NOLEADSNOLEADSNOLEAD', { granted: ALL.filter((p) => p !== 'leads_retrieval') });
+  const r = await withState('CODE-NOLEADS-00001', await start());
+  assert.equal(r.status, 400);
+  assert.match(r.raw.toString(), /leads_retrieval/);
+  assert.deepEqual(await meta(), before, 'the working connection is unchanged');
+  // back to a full grant for the next tests
+  code('CODE-FULL-00000002', 'LONG-TOKEN-FULL2FULL2FULL2FULL2');
+  assert.equal((await withState('CODE-FULL-00000002', await start())).status, 200);  h.now.value = new Date(h.now.value.getTime() + 11 * 60_000);   // a fresh start-rate window for the next test
 });
 
 test('the start rate limit is kept in the database (5 per 10 minutes per person)', async () => {

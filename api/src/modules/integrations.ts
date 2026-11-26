@@ -16,7 +16,7 @@ import { LEAD_FIELDS, graph, pageToken, runScheduledMetaSync, syncMeta, takeMeta
 import { hasBackupToken } from '../lib/backup-token.ts';
 import { metaAppSecrets, metaSignatureOk } from '../lib/meta-signature.ts';
 import {
-  META_SCOPES, META_SCOPES_REQUIRED, STATE_ACTION, callbackPage, codeExchangeUrl, dialogUrl, graphBase, longLivedUrl, metaFetch, missingScopes,
+  META_SCOPES, META_SCOPES_INSIGHTS, META_SCOPES_REQUIRED, STATE_ACTION, grantedScopes, insightsGranted, callbackPage, codeExchangeUrl, dialogUrl, graphBase, longLivedUrl, metaFetch, missingScopes,
   metaUserHash, newState, nonceHash, oauthConfig, parseSignedRequest, safeMetaError, tokenFrom, tokenIsOurs, verifyState,
 } from '../lib/meta-oauth.ts';
 
@@ -282,14 +282,16 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     }
     const code = String(req.query.get('code') ?? '');
     if (!/^[A-Za-z0-9_\-#.]{10,2000}$/.test(code)) return page(400, false, 'الرابط ده مش صالح', 'ابدأ الربط تاني من التطبيق.');
-    let token: string; let missing: string[]; let userHash: string | null = null;
+    let token: string; let missing: string[]; let granted: string[]; let userHash: string | null = null;
     try {
       const short = tokenFrom(await metaFetch(codeExchangeUrl(c.cfg, code)));
       token = tokenFrom(await metaFetch(longLivedUrl(c.cfg, short.token))).token;
       const debug = await metaFetch(`${graphBase()}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(`${c.cfg.appId}|${c.cfg.appSecret}`)}`);
       if (!tokenIsOurs(debug, c.cfg.appId)) throw new Error('the token is not a valid user token of this app');
       if (/^[0-9]{3,30}$/.test(String(debug?.data?.user_id ?? ''))) userHash = metaUserHash(String(debug.data.user_id));
-      missing = missingScopes(await metaFetch(`${graphBase()}/me/permissions?access_token=${encodeURIComponent(token)}`));
+      const perms = await metaFetch(`${graphBase()}/me/permissions?access_token=${encodeURIComponent(token)}`);
+      missing = missingScopes(perms);
+      granted = grantedScopes(perms);
     } catch (e) {
       await ensure('meta');
       await noteError('meta', `OAuth: ${safeMetaError(e)}`);
@@ -303,12 +305,16 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       return page(400, false, 'الصلاحيات ناقصة — الربط ما اتحفظش', `اسمح بالصلاحيات دي وابدأ الربط تاني: ${missingRequired.join('، ')}. الربط القديم (لو موجود) فضل زي ما هو.`);
     }
     await ensure('meta');
-    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = '', updated_by = $3, updated_at = $4, meta_user_hash = $5 WHERE source = $1`,
-      ['meta', seal(token), actor.id, now, userHash]);
-    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingOptional: missing });
+    await db.query(`UPDATE integrations SET access_token = $2, active = true, last_error = '', updated_by = $3, updated_at = $4, meta_user_hash = $5,
+        meta_scopes = $6 WHERE source = $1`, ['meta', seal(token), actor.id, now, userHash, granted]);
+    const insightsOk = insightsGranted(granted);
+    await audit(db, actor.id, 'integration.meta_oauth_connected', 'integration', null, undefined, { missingOptional: missing, insights: insightsOk });
     let pages = 0;
     try { pages = (await connectPages(token, actor.id)).pages.length; } catch (e) { await noteError('meta', `OAuth pages: ${safeMetaError(e)}`); }
-    return page(200, true, 'تم ربط Meta', `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.${missing.length ? ` (صلاحية اختيارية ناقصة: ${missing.join('، ')} — الصفحات اللي تبع Business portfolio مش هتظهر.)` : ''}`);
+    const bizMissing = missing.filter((s) => !(META_SCOPES_INSIGHTS as readonly string[]).includes(s));
+    return page(200, true, 'تم ربط Meta', `اتربط ${pages} صفحة. الليدز هتدخل لوحدها.`
+      + (bizMissing.length ? ` (صلاحية اختيارية ناقصة: ${bizMissing.join('، ')} — الصفحات اللي تبع Business portfolio مش هتظهر.)` : '')
+      + (insightsOk ? '' : ` (صلاحية ads_read ما اتسمحتش — أرقام الإعلانات (الصرف والتكلفة) مش متاحة؛ الليدز شغالة عادي. اعمل «إعادة الربط» واسمح بيها.)`));
   });
 
   /**
@@ -322,7 +328,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     const it = await one(db, `SELECT meta_user_hash FROM integrations WHERE source = 'meta'`);
     if (!it?.meta_user_hash || it.meta_user_hash !== metaUserHash(userId)) return false;
     await db.tx(async (q) => {
-      await q.query(`UPDATE integrations SET access_token = NULL, meta_user_hash = NULL, last_error = $2, updated_at = $3 WHERE source = $1`,
+      await q.query(`UPDATE integrations SET access_token = NULL, meta_user_hash = NULL, meta_scopes = NULL, last_error = $2, updated_at = $3 WHERE source = $1`,
         ['meta', why, clock()]);
       await q.query(`DELETE FROM meta_pages WHERE page_id IS NOT NULL`);
       await audit(q, null, 'integration.meta_deauthorized', 'integration', null, undefined, { reason: why.slice(0, 80) });
@@ -373,6 +379,9 @@ export const integrationsModule: Module = (r, { db, clock }) => {
       configured: c.ok, missing: c.ok ? [] : c.missing, connected: !!token, active: !!it.active,
       lastWebhookAt: iso(it.last_at), lastSyncAt: iso(it.meta_sync_at), lastError: it.last_error ? safeMetaError(it.last_error) : null,
       pages, expiresAt: null, tokenValid: null, missingScopes: null, missingRequired: null, missingOptional: null,
+      // Insights: from the permissions stored with the token; refreshed below from debug_token. null = not known
+      insights: { available: !token ? false : it.meta_scopes ? insightsGranted(it.meta_scopes) : null,
+        reason: !token ? 'not_connected' : it.meta_scopes ? (insightsGranted(it.meta_scopes) ? null : 'permission_missing') : 'unknown' },
     };
     if (token && c.ok) {
       try {
@@ -383,6 +392,11 @@ export const integrationsModule: Module = (r, { db, clock }) => {
         out.missingScopes = META_SCOPES.filter((s) => !(Array.isArray(d.scopes) ? d.scopes : []).includes(s));
         out.missingRequired = out.missingScopes.filter((s: string) => (META_SCOPES_REQUIRED as readonly string[]).includes(s));
         out.missingOptional = out.missingScopes.filter((s: string) => !(META_SCOPES_REQUIRED as readonly string[]).includes(s));
+        if (out.tokenValid && Array.isArray(d.scopes)) {
+          const live = [...new Set(d.scopes.map(String).filter((p: string) => /^[a-z_]{2,60}$/.test(p)))].sort() as string[];
+          await db.query(`UPDATE integrations SET meta_scopes = $2 WHERE source = $1`, ['meta', live]);
+          out.insights = { available: insightsGranted(live), reason: insightsGranted(live) ? null : 'permission_missing' };
+        }
       } catch (e) { out.statusError = safeMetaError(e); }
     }
     return ok(out);
@@ -451,6 +465,7 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     if (source === 'meta' && b.accessToken !== undefined) {
       const t = (str(b, 'accessToken', { optional: true, max: 2000 }) ?? '').trim();
       set.access_token = seal(t || null);   // encrypted at rest when SECRETS_KEY is set
+      set.meta_scopes = null;               // a token pasted by hand: its permissions are read before Insights runs
     }
     if (source === 'meta' && b.newVerifyToken === true) {
       // replacing one already in use: only with the code e-mailed to whoever does it (the first one needs none)

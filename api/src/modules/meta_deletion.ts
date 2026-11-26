@@ -42,7 +42,7 @@ export async function processDeletionRequest(db: Db, code: string, now: Date): P
     const matched = !!it?.meta_user_hash && it.meta_user_hash === req.user_hash;
     let pages = 0;
     if (matched) {
-      await q.query(`UPDATE integrations SET access_token = NULL, meta_user_hash = NULL, last_error = $2, updated_at = $3 WHERE source = $1`,
+      await q.query(`UPDATE integrations SET access_token = NULL, meta_user_hash = NULL, meta_scopes = NULL, last_error = $2, updated_at = $3 WHERE source = $1`,
         ['meta', 'فيسبوك: طلب حذف بيانات من الحساب اللي ربط المكتب — اتشال التوكن والصفحات؛ اعمل «إعادة الربط»', now]);
       pages = (await q.query(`DELETE FROM meta_pages`)).rowCount ?? 0;
     }

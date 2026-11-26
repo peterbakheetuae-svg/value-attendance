@@ -70,6 +70,8 @@ jobs:
               r=$(jq '(.rejected // []) | length' out.json)
               if [ "$r" -gt 0 ]; then echo "::warning title=$path rejected leads::$(jq -r '(.rejected // []) | join(" | ")' out.json | head -c 600)"; fi
               if [ "$(jq -r '.complete == false' out.json)" = "true" ]; then echo "::notice::$path incomplete (time budget): the next run continues from the same checkpoint"; else echo "::notice::$path done"; fi
+            elif [ "$(jq -r '.reason' out.json)" = "insights_permission_missing" ]; then
+              echo "::warning title=Ads Insights unavailable::the Meta token has no ads_read permission — spend / cost figures are not updated (leads are not affected). Reconnect Meta and grant ads_read."
             else
               echo "::notice::$path not run: $(jq -r '.reason // "unknown"' out.json)"
             fi

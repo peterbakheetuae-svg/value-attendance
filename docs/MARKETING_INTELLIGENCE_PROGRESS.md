@@ -94,7 +94,7 @@ Weights, targets, periods and existing manual results are unchanged by this work
 - Data Deletion behaviour: see «Review corrections — P1 Data Deletion» below (the earlier status page overstated what was held; corrected).
 
 ### Meta configuration still required (exact)
-In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; **Deauthorize callback URL** `https://<API host>/public/meta/deauthorize`; **Data Deletion Request URL** `https://<API host>/public/meta/data-deletion`; Webhooks → Page → `leadgen` → `https://<API host>/public/hooks/meta`. Host env: `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, optional `META_GRAPH_VERSION` (default **v25.0** since the review corrections; see below). Insights read with the granted `ads_management` (Meta accepts `ads_read` or `ads_management` for the Insights API). GitHub secret `BACKUP_TOKEN` for `meta-sync.yml` (only runs on `main`). Nothing was set by this work and no real Meta call was made.
+In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; **Deauthorize callback URL** `https://<API host>/public/meta/deauthorize`; **Data Deletion Request URL** `https://<API host>/public/meta/data-deletion`; Webhooks → Page → `leadgen` → `https://<API host>/public/hooks/meta`. Host env: `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, `SECRETS_KEY`, optional `META_GRAPH_VERSION` (default **v25.0** since the review corrections; see below). Insights needs `ads_read` (Meta's Insights API states it as its permission); requested in the login dialog, not required (see «ads_read correction» below). GitHub secret `BACKUP_TOKEN` for `meta-sync.yml` (only runs on `main`). Nothing was set by this work and no real Meta call was made.
 
 ### Vercel
 - Both `vercel.json` (root) and `api/vercel.json` (the project `value-attendance` builds from `api/`) carry `"feat/marketing-intelligence": false`; commits after 38b7037 got **0** Vercel statuses (checked on 132be3e).
@@ -119,12 +119,12 @@ In the Meta app (Settings → Basic / Facebook Login): Valid OAuth Redirect URI 
 | | `leads_retrieval` | read leads (bulk + webhook) | yes |
 | | `ads_management` | a lead's `campaign_id` / `ad_id` (attribution); Meta documents no read-only alternative | yes |
 | **Optional** (`META_SCOPES_OPTIONAL`) — not blocking | `business_management` | pages owned through a business portfolio only | yes |
-| **Future** (`META_SCOPES_LATER_INSIGHTS`) — not requested | `ads_read` | Ads Insights (Phase 5), when approved | **no** |
+| **Insights** (`META_SCOPES_INSIGHTS`) — requested, not required | `ads_read` | `GET /{campaign}/insights`; declined → Insights off and reported, Lead Ads unaffected | **no** |
 
 ## External configuration still required (nothing set by this work)
 
 1. **Meta app** (developers.facebook.com): product «Facebook Login» with the Valid OAuth Redirect URI `https://<API host>/public/meta/oauth/callback`; Webhooks product, object Page, field `leadgen`, callback `https://<API host>/public/hooks/meta` with the existing verify token.
-2. **App Review / Advanced Access** for the permissions the current OAuth asks for — required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`; optional: `business_management` (only app roles can grant them before review); Business Verification as Meta requires. `ads_read` is **not** part of this review — it belongs to the later Ads Insights phase.
+2. **App Review / Advanced Access** for the permissions the current OAuth asks for — required: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`; optional: `business_management` (only app roles can grant them before review); Business Verification as Meta requires. `ads_read` (Insights) must be in the review too for Insights to work for people outside the app's roles.
 3. **API host environment** (Vercel): `META_APP_ID`, `META_APP_SECRET`, `META_OAUTH_REDIRECT_URI`, existing `META_APP_SECRETS` and `SECRETS_KEY`; optional `META_GRAPH_VERSION`.
 4. **GitHub repository secret** `BACKUP_TOKEN` (same value as on the host) for `meta-sync.yml`.
 
@@ -162,7 +162,7 @@ No migration was added. No production data, schema, environment or deployment wa
 | `tokenIsOurs` accepted a missing type | `debug_token.data.type` must be exactly `USER` (missing / PAGE / APP / SYSTEM_USER refused) |
 | Deadline checked only between page requests | `Budget` + `eachWithin` (`lib/meta-sync-limits.ts`): checked before every Meta request and every lead; no new database work after it; per-lead transaction + advisory lock unchanged |
 | Checkpoint could advance after a cut-short pass | `syncMeta` returns `complete`; the checkpoint moves only after a complete pass (budget, the 20-page cap, or an unreadable page's forms make it incomplete) |
-| Permissions list | required / optional / future separated (table above); `pages_manage_ads` in the App Review list; `ads_read` only in the future list |
+| Permissions list | required / optional / future separated (table above); `pages_manage_ads` in the App Review list; `ads_read` in its own Insights group (requested, not required) |
 | Flutter status | required missing (blocking, «إعادة ربط») vs optional missing (`business_management`, not blocking) — API status returns `missingRequired` and `missingOptional` |
 | Workflow branch guard | the knock job runs only when `github.ref == refs/heads/main`; a dispatch from another branch only prints a notice. Endpoint and secrets unchanged |
 
@@ -242,3 +242,11 @@ There was no recurring trigger (only the manual `POST /kpi/auto/run`). Added `PO
 - No `app/` change in this pass, so the Flutter check was not re-run (last: run 45715657993 @ 132be3e, success).
 - `meta-sync.yml` script exercised locally with a stubbed `curl` (no network): errors → exit 1; rejected leads → warning, exit 0; incomplete → notice; KPI knock only at :07, nightly and on dispatch.
 - Vercel: 0 deployment statuses on 8869c83.
+
+### ads_read correction (2026-11-26, second review)
+- Finding: Insights was implemented and scheduled, but `ads_read` (the permission Meta's Insights API states) was not requested; the earlier note that `ads_management` was enough was not verified and is withdrawn.
+- `ads_read` is now in `META_SCOPES` as its own group `META_SCOPES_INSIGHTS`, **not** in `META_SCOPES_REQUIRED` (unchanged: `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_manage_ads`, `leads_retrieval`, `ads_management`).
+- The permissions actually granted are stored with the token (`integrations.meta_scopes`, 092) by the OAuth callback and refreshed by the status check (debug_token); cleared with the token (deauthorize / data deletion); NULL for a token pasted by hand — Insights then reads `me/permissions` once.
+- `syncInsights` never calls Meta without `ads_read` → `{ ran: false, reason: 'insights_permission_missing' }` (workflow warning); a permission error from Meta during Insights (code 10 / 200–299) reports «Insights unavailable», drops `ads_read` from the stored list, keeps the checkpoint. Lead sync, webhooks and reconnection do not read `meta_scopes`.
+- Reported: callback page, `GET /integrations/meta/oauth/status` → `insights { available, reason }`, `GET /marketing/overview` → `integration.insightsAvailable` (true / false / null = not known), Flutter integration settings and the marketing dashboard.
+
