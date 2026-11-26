@@ -1,7 +1,9 @@
 name: API tests
 on:
   push: { paths: ['api/**', 'db/**', '.github/workflows/api-ci.yml'] }
-  pull_request: { paths: ['api/**', 'db/**'] }
+  # every pull request into main runs the full suite (no path filter): the jobs `test (16)` and `test (18)` are required
+  # checks on main, and a path-filtered required check would never report on a PR that does not touch api/ or db/
+  pull_request: { branches: [main] }
   workflow_dispatch:
 permissions: { contents: read }
 jobs:

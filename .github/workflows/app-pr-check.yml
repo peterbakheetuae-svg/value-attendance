@@ -1,0 +1,29 @@
+name: App PR check
+# Runs on every pull request into main: analyze (errors fail), the unit/widget tests, and a web build. No secrets, no
+# signing, no deployment, nothing published — app.yml (push to main) stays the only build that ships. The job name
+# `app-check` is a required check on main.
+on:
+  pull_request: { branches: [main] }
+permissions: { contents: read }
+concurrency:
+  group: app-pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  app-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with: { flutter-version: '3.38.10', channel: stable, cache: true }
+      - run: flutter pub get --enforce-lockfile
+      - name: Analyze (errors fail)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.txt; grep -E "^\s*error •" analyze.txt | head -200; ! grep -qE "^\s*error •" analyze.txt
+      - run: flutter test
+      - name: Web build check (same base path as production)
+        run: |
+          flutter create --platforms=web --org com.jph.valueattendance --project-name jph_real_estate_hr .
+          flutter build web --release --base-href /valunivo/
+          grep -q '<base href="/valunivo/">' build/web/index.html
