@@ -277,3 +277,34 @@ export function parseSignedRequest(sr: unknown, appSecret: string): { user_id: s
 
 /** the Meta user who connected, kept only as a hash (to match a later deauthorization / deletion request) */
 export const metaUserHash = (userId: string) => createHash('sha256').update(`valunivo/meta-user/v1:${userId}`).digest('hex');
+
+// ------------------------------------------------------------------ one explicit connection state (2026-11-26)
+export const META_STATES = ['not_configured', 'not_connected', 'authorization_pending', 'connected', 'permission_denied',
+  'token_expired_or_revoked', 'sync_failed', 'sync_succeeded'] as const;
+export type MetaState = typeof META_STATES[number];
+
+/**
+ * The one state the integrations page shows, from facts the status route already has. A connection is not a sync: «connected»
+ * stays until a sync pass after that connection recorded its outcome (sync_succeeded only for a complete pass with no
+ * error). Token problems and missing required permissions come first; with no token, an authorization still open (an
+ * unused, unexpired state) is «pending», and the last OAuth outcome tells «denied» / «revoked» from «never connected».
+ */
+export function metaConnectionState(x: {
+  configured: boolean; hasToken: boolean; tokenValid: boolean | null; expiresAt: string | null; now: Date;
+  missingRequired: readonly string[] | null; pendingAuthorization: boolean;
+  lastOAuth: 'connected' | 'declined' | 'incomplete' | 'failed' | 'deauthorized' | null;
+  connectedAt: Date | null; lastSync: { ok: boolean; at: Date } | null;
+}): MetaState {
+  if (!x.configured) return 'not_configured';
+  if (x.hasToken) {
+    if (x.tokenValid === false || (x.expiresAt && new Date(x.expiresAt).getTime() > 0 && new Date(x.expiresAt) <= x.now)) return 'token_expired_or_revoked';
+    if (x.missingRequired?.length) return 'permission_denied';
+    if (x.lastSync && (!x.connectedAt || x.lastSync.at >= x.connectedAt)) return x.lastSync.ok ? 'sync_succeeded' : 'sync_failed';
+    return 'connected';
+  }
+  if (x.pendingAuthorization) return 'authorization_pending';
+  if (x.lastOAuth === 'declined' || x.lastOAuth === 'incomplete') return 'permission_denied';
+  if (x.lastOAuth === 'deauthorized') return 'token_expired_or_revoked';
+  return 'not_connected';
+}
+

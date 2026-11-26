@@ -1719,7 +1719,7 @@ const Map<String, String> uiEn = {
   'تعديل وقت الحضور / الانصراف': 'Edit the check-in / check-out time',
   'تعديل ونقل الصفقات': 'Edit and move deals',
   'تعديلات التطبيق': 'App changes',
-  'تعذّر الاتصال بالخادم. تأكد من الإنترنت وحاول مرة أخرى\n({0})': 'Couldn\'t connect to the server. Check the internet and try again\n({0})',
+  'تأكد من الإنترنت وحاول مرة أخرى': 'Check the internet and try again',
   'تعذّر الطباعة: {0}': 'Couldn\'t print: {0}',
   'تعريف المؤشرات ومجموعاتها': 'Define KPIs and their groups',
   'تعطيل تسجيل الدخول': 'Disable sign-in',

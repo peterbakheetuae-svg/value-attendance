@@ -13,12 +13,46 @@ const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 
 /// reached — some mobile networks block a hosting domain; a mirror on another domain keeps the app working.
 const String kApiMirrorUrls = String.fromEnvironment('API_MIRROR_URLS', defaultValue: '');
 
+/// The ONE message the user sees for every connectivity failure — no internet, DNS lookup, refused / reset connection,
+/// TLS handshake, timeout (2026-11-26, exact wording). Never followed by an exception name, a host, a URL or a stack.
+const String kNetworkErrorMessage = 'تأكد من الإنترنت وحاول مرة أخرى';
+
+/// true for a failure to reach the server (no answer at all) — never for an HTTP answer (401 / 403 / 422 / 500 …)
+bool isNetworkFailure(Object e) {
+  if (e is ApiException) return e.isNetwork;
+  if (e is TimeoutException || e is http.ClientException) return true;
+  final s = e.toString();   // dart:io types (not importable on the web build): SocketException, HandshakeException …
+  return s.startsWith('SocketException') || s.startsWith('HandshakeException') || s.startsWith('TlsException')
+      || s.startsWith('HttpException') || s.contains('XMLHttpRequest error');
+}
+
+/// a diagnostic line with addresses removed (developer logs only — never shown on a screen)
+String redactDiagnostic(Object e) {
+  var s = e.toString().split('\n').first;
+  s = s.replaceAll(RegExp(r'[a-z][a-z0-9+.-]*://[^\s,)]+', caseSensitive: false), '[url]')
+      .replaceAll(RegExp(r"(host lookup: )'[^']*'"), r"$1'[host]'")
+      .replaceAll(RegExp(r'address = [^\s,)]+'), 'address = [host]')
+      .replaceAll(RegExp(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'), '[ip]');
+  return s.length > 160 ? s.substring(0, 160) : s;
+}
+
 class ApiException implements Exception {
   final int status;
   final String code;
   final String message;
   final Map<String, dynamic>? details;
-  ApiException(this.status, this.code, this.message, [this.details]);
+  /// for a network failure: what went wrong, addresses removed (developer logs only; [message] is what screens show)
+  final String? diagnostic;
+  ApiException(this.status, this.code, this.message, [this.details]) : diagnostic = null;
+  /// the server could not be reached: [message] is always [kNetworkErrorMessage]
+  ApiException.network(this.code, Object cause)
+      : status = 0, message = kNetworkErrorMessage, details = null, diagnostic = redactDiagnostic(cause) {
+    assert(() {
+      // ignore: avoid_print
+      print('[api] network failure ($code): $diagnostic');
+      return true;
+    }());
+  }
   bool get isNetwork => status == 0;
   bool get mustChangePassword => status == 403 && details?['reason'] == 'must_change_password';
   @override
@@ -319,7 +353,7 @@ class ApiClient {
           continue;
         }
         if (attempt < tries) continue;
-        throw ApiException(0, 'timeout', 'timeout — $baseUrl');
+        throw ApiException.network('timeout', 'timeout');
       } catch (e) {
         if (e is ApiException) rethrow;
         // unreachable address (blocked / DNS / refused): switch to the next mirror and try there
@@ -328,10 +362,9 @@ class ApiClient {
           continue;
         }
         if (attempt < tries) { await Future<void>.delayed(const Duration(seconds: 2)); continue; }
-        // SocketException / HandshakeException / ClientException / XMLHttpRequest error on web.
-        // Keep the real reason so the screen can show it (helps diagnose phone-only failures).
-        final why = e.toString().split('\n').first;
-        throw ApiException(0, 'network', '${why.length > 160 ? why.substring(0, 160) : why} — $baseUrl');
+        // SocketException / HandshakeException / ClientException / XMLHttpRequest error on web: the screen shows only
+        // kNetworkErrorMessage; the reason (addresses removed) stays in ApiException.diagnostic for developer logs
+        throw ApiException.network('network', e);
       }
     }
   }

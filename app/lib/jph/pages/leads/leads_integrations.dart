@@ -258,7 +258,20 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
     final missingOptional = ((_oauth['missingOptional'] as List?) ?? const []).cast<Object?>().where((s) => s != 'ads_read').toList();
     final insights = (_oauth['insights'] as Map?) ?? const {};
     final expires = DateTime.tryParse('${_oauth['expiresAt'] ?? ''}')?.toLocal();
+    // the server's one explicit state (GET /integrations/meta/oauth/status → state); older servers send none
+    const states = {
+      'not_configured': 'مش متجهز على السيرفر',
+      'not_connected': 'مش متربط',
+      'authorization_pending': 'مستني تكمّل الربط على فيسبوك',
+      'connected': 'متربط — لسه ما حصلش سحب بيانات بعد الربط',
+      'permission_denied': 'الصلاحيات اترفضت أو ناقصة',
+      'token_expired_or_revoked': 'الربط انتهى أو اتلغى',
+      'sync_failed': 'آخر سحب بيانات فشل',
+      'sync_succeeded': 'آخر سحب بيانات نجح ✅',
+    };
+    final state = states['${_oauth['state'] ?? ''}'];
     final lines = <String>[
+      if (state != null) '${tr('الحالة')}: ${tr(state)}',
       if (_oauth['configured'] != true) '${tr('الربط الرسمي مش متجهز على السيرفر — ناقص')}: ${((_oauth['missing'] as List?) ?? const []).join('، ')}',
       connected ? tr('متربط بحساب فيسبوك ✅') : tr('لسه مش متربط بحساب فيسبوك'),
       if (_oauth['tokenValid'] == false) tr('الربط انتهى أو اتلغى من فيسبوك — اعمل إعادة ربط'),

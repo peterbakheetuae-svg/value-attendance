@@ -67,7 +67,7 @@
   "terms": "Terms and Conditions",
   "support": "Support",
   "version": "Version",
-  "network_error": "Network connection error",
+  "network_error": "Check the internet and try again",
   "server_error": "Server error",
   "camera_error": "Camera error",
   "location_error": "Location error",
