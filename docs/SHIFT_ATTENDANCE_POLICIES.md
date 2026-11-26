@@ -17,10 +17,15 @@ it. Every code path is schema-tolerant: without 094 the API behaves as today (no
 ## 2. Behaviour by feature
 **Shift-based tracking** (`lib/attendance-policy.ts shiftEligibility`, `tracking.ts`): `/tracking/ping` and `/tracking/config`
 answer `tracking:false` / `enabled:false` with a reason (`before_shift`, `shift_ended`, `on_leave`, `holiday`,
-`not_working_day`) outside the scheduled shift of the day, on approved full-day leave and on holidays; check-in /
+`not_working_day`) outside the scheduled shift of the day — taken from the schedule snapshot saved on that day's attendance row
+(`presence.ts dayShifts`; the current schedule only before a check-in) — on approved full-day leave and on holidays; check-in /
 check-out keep their existing answers (409), so older APKs keep working and simply stop when told. The sweep's
 follow-up alerts and phone calls run only inside the shift. `/tracking/config` also returns `endsInMinutes`.
-Approved outings: an exit inside an approved, not-yet-returned, not-expired outing stays authorized (unchanged).
+Approved outings: tracking is NOT stopped during an approved outing; an exit inside an approved, not-yet-returned,
+not-expired outing is authorized (no alert, no incident); a ping back inside marks the outing returned (unchanged rule).
+App (`shift_service.dart`, `shift_tracker.dart`): stops on `tracking:false` / 409 / 401; no location permission → no
+tracking; secure-storage token missing → the background service stops (no plaintext fallback). A check-in before the
+shift start: tracking begins at the next app `start()` after the shift starts (the server refuses pings before it).
 **Device compatibility gate:** the server rule is authoritative, but older APKs may still run their own local alarm
 logic; keep company tracking OFF until updated phones are validated.
 
@@ -28,28 +33,35 @@ logic; keep company tracking OFF until updated phones are validated.
 approved permission opens one incident (`permission_state` none / pending / expired — a pending request is recorded,
 never treated as approval). Unique indexes: one open incident per employee, one per exit instant (replays, a second
 phone, parallel requests never open another). Closed once: back inside (no other phone outside), check-out, or the
-shift end (sweep) — minutes = exit → earlier of return and shift end; the tier and the amount are frozen then. A later
+shift end (sweep) — minutes = exit → earlier of return / check-out and the snapshot shift end; the tier and the amount
+are frozen then. Effective = `payroll_auto_deductions` AND `unauthorized_exit_deduction` AND a matching enabled tier,
+evaluated once at closing and stored (`deduction_enabled`, `amount_egp`); turning the global switch on never activates
+the exit deduction, and later setting changes never touch closed incidents. A later
 approval of the request changes nothing; the only correction is `POST /attendance/exit-incidents/:id/reverse`
 (payroll.approve, not one's own, reason ≥ 3, refused once that month's salary was received → use an approved bonus
 adjustment). A trigger keeps the exit record and frozen figures immutable and forbids DELETE.
 
 **Payroll exactly once** (`payroll-calc.ts`): the month's closed incidents with an amount are summed into the automatic
 deductions (`unauthorizedExit: {incidents, amount}`), read-only; nothing is written to payroll, so recalculation never
-adds it twice; payroll-sheet snapshots freeze it like every other figure. Subject to `payroll_auto_deductions` like the
-late / early deductions.
+adds it twice; payroll-sheet snapshots freeze it like every other figure (a later reversal never rewrites a sheet).
 
-**Sales manager leave / absence** (`presence.ts awaySet`): away = approved full-day absence today, or (only when the
-absence threshold is configured) a working day past the threshold with no check-in. An away manager is skipped as a
+**Sales manager leave / absence** (`presence.ts awaySet`): away **for routing only** = approved full-day absence today, or (only
+when the absence threshold is configured) a working day, not attendance-exempt, past the threshold with no check-in
+(an unresponsive manager). Nothing is written about him: no attendance row, no absence, no request; checking in ends it. An away manager is skipped as a
 request's first-stage approver (routed as when there is no manager: general manager for a leave, otherwise HR, who is
 authorized), is not told about outings (HR still is; he stays the outing's manager), and is not a watcher (exit alarm,
 late / absence / tracking alerts). The audit row of the request records `managerAway`. Restored automatically when he
-is back. Nothing is approved or rejected for him.
+is back. Nothing is approved or rejected for him. **No available approver** (`routing.ts escalateUnrouted`): the item
+stays pending; active owners (other than the submitter) get `routing_escalation` and the audit log `routing.escalated`;
+with no owner, `routing.unrouted` is recorded for administrative resolution. No permission is granted to anyone.
 
-**Absence threshold** (`attendance-calc.ts`): off by default; `fixed_hours` (needs its hours) or `half_shift` (half of
-the day's own scheduled shift stored on the attendance row). A check-in at / after the threshold on a working day makes
-the day an absence — the timestamps are kept, the day is not also counted as late (no double counting), an approved
-hourly permission is used first. Before the threshold: never an absence. Absence requests keep their existing rules
-(duplicate / overlap checks unchanged). Nothing creates or approves leave.
+**Absence threshold** (`presence.ts absenceWindow`, `requests.ts`): off by default; `fixed_hours` (needs its hours) or
+`half_shift` (half of the day's own scheduled shift: the attendance snapshot, else the employee's schedule). It only
+makes the employee **eligible to register** a full-day absence for today: before it the request is refused
+(422 `absence_threshold_not_reached`, `availableAtMinutes`); at / after it the normal request is created and goes to
+review. Nothing is registered, created or approved automatically; a late check-in stays a late attendance with its
+real timestamps (never an absence); the existing duplicate check (409 `pending_exists`) applies. Future days are not
+gated. `/attendance/today` returns `absenceThreshold` for the app.
 
 **«شرائح خروج بدون إذن»** (settings, `late_rules_page.dart`): a separate list `{fromMinutes, toMinutes|null, amount,
 enabled}`, validated server-side (whole minutes, `to > from`, positive amount, ≤ 10 tiers, no overlap among enabled
@@ -81,8 +93,10 @@ only to people who follow others. No row = on. History is never deleted. Away-ma
 | notification preferences | everything on | — |
 
 ## 5. Owner decisions still open
-1. Exit duration rule: implemented as exit → earlier of return / check-out and shift end. Confirm (or: always exit → shift end).
-2. Whether the exit deduction follows the global «تفعيل الخصم من المرتب» switch (implemented: yes, like late / early).
-3. Away = approved leave, or no check-in past the absence threshold — confirm both count.
-4. The threshold values, the exit tiers and their amounts; approval of migration 094.
-5. Outing with the manager away and no HR approver configured: nobody is notified; confirm HR always exists (or name a fallback).
+1. Exit duration rule: implemented as exit → earliest of return / check-out / shift end. Confirm.
+2. Whether an employee who already checked in late may still register an absence for that day (allowed today; HR reviews).
+3. Away for routing = approved leave, or no check-in past the absence threshold — confirm both count.
+4. A check-in before the shift start: tracking starts at the next app start after the shift begins — acceptable?
+5. The threshold values, the exit tiers and their amounts; approval of migration 094.
+6. Production connects as the table owner, which can disable triggers; full database enforcement needs the
+   least-privilege runtime role (`db/roles/valunivo_app_least_privilege.sql`) — an owner credential change.
