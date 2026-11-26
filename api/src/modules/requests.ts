@@ -9,6 +9,21 @@ import { gmRecipients, holdersOf, notify } from './notify.ts';
 import { absenceWindow, available } from './presence.ts';
 import { escalateUnrouted } from './routing.ts';
 
+/**
+ * 2026-11-26: a full-day absence can never be registered for a day that already has a check-in (the attendance record is
+ * kept as it is). No existing workflow turns an attended day into an absence (an attendance correction only changes the
+ * times), so the conflicting request is refused — at submission, when HR records it, and again at approval (a check-in
+ * made after the request was submitted). Returns the attended dates in the range.
+ */
+async function attendedDays(q: Q, employeeId: string, start: string, end: string): Promise<string[]> {
+  const r = await q.query(`SELECT work_date::text AS d FROM attendance WHERE employee_id = $1 AND work_date BETWEEN $2 AND $3
+                            AND check_in_at IS NOT NULL ORDER BY work_date`, [employeeId, start, end]);
+  return r.rows.map((x) => x.d as string);
+}
+function attendanceConflict(days: string[]) {
+  return new AppError('conflict', 'A full-day absence cannot cover a day with a check-in', { reason: 'attendance_exists', dates: days });
+}
+
 export const REQUEST_TYPES = ['hourly_permission', 'short_leave', 'full_day_absence', 'emergency_permission', 'attendance_correction'] as const;
 const ABSENCE_TYPES = ['annual', 'casual', 'sick', 'unpaid', 'mission'] as const;
 const TYPE_AR: Record<string, string> = {
@@ -138,6 +153,8 @@ export const requestsModule: Module = (r, { db, clock }) => {
           const overlap = await one(q, `SELECT 1 FROM requests WHERE employee_id = $1 AND type = 'full_day_absence'
               AND status = 'approved' AND start_date <= $3 AND end_date >= $2`, [forId, f.start_date, f.end_date]);
           if (overlap) throw conflict('These dates overlap an approved absence');
+          const att = await attendedDays(q, forId, f.start_date as string, f.end_date as string);
+          if (att.length) throw attendanceConflict(att);
         }
         const cols = Object.keys(f);
         const x = await one(q, `
@@ -171,6 +188,8 @@ export const requestsModule: Module = (r, { db, clock }) => {
         const overlap = await one(q, `SELECT 1 FROM requests WHERE employee_id = $1 AND type = 'full_day_absence'
             AND status = 'approved' AND start_date <= $3 AND end_date >= $2`, [a.id, f.start_date, f.end_date]);
         if (overlap) throw conflict('These dates overlap an approved absence');
+        const att = await attendedDays(q, a.id, f.start_date as string, f.end_date as string);
+        if (att.length) throw attendanceConflict(att);
       }
       let managerId = await resolveManager(q, a.id);
       // 2026-11-26: a direct manager on approved leave / recorded absence today is skipped — the request goes to the next
@@ -286,6 +305,11 @@ export const requestsModule: Module = (r, { db, clock }) => {
         throw forbidden(row.status === 'pending_manager'
           ? 'This request is waiting for the assigned sales manager'
           : 'This request is waiting for HR approval');
+      }
+      if (decision === 'approve' && row.type === 'full_day_absence') {
+        // checked in after the request was submitted: the attendance stands; the request can only be rejected
+        const att = await attendedDays(q, row.employee_id, String(row.start_date).slice(0, 10), String(row.end_date).slice(0, 10));
+        if (att.length) throw attendanceConflict(att);
       }
       let next: string;
       if (decision === 'reject') next = 'rejected';

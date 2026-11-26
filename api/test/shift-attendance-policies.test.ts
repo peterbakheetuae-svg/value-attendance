@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { harness, cast, PW, type Harness, regrantAppRole } from './helpers.ts';
 import { absenceThresholdMinutes, exitMinutes, exitTierFor, thresholdReached, shiftEligibility, validateExitTiers } from '../src/lib/attendance-policy.ts';
-import { categoryOf } from '../src/lib/notification-categories.ts';
+import { categoryOf, MANDATORY_TYPES } from '../src/lib/notification-categories.ts';
 import { computeMonth } from '../src/modules/attendance-calc.ts';
 import { computePayroll, loadRules } from '../src/modules/payroll-calc.ts';
 import { notify, forgetPrefsTable } from '../src/modules/notify.ts';
@@ -62,6 +62,8 @@ test('tracking eligibility: only inside the shift on a working day, never on lea
   const base = { nowMinutes: 12 * 60, isoDow: 2, weekendDays: [5], holiday: false, onLeave: false, shiftStart: '10:00', shiftEnd: '18:00', checkedIn: true, checkedOut: false };
   assert.deepEqual(shiftEligibility(base), { eligible: true, reason: null, endsInMinutes: 360 });
   assert.equal(shiftEligibility({ ...base, nowMinutes: 9 * 60 + 59 }).reason, 'before_shift');
+  assert.equal(shiftEligibility({ ...base, nowMinutes: 9 * 60 + 15 }).startsInMinutes, 45, 'the app is told when the shift starts');
+  assert.equal(shiftEligibility({ ...base, nowMinutes: 10 * 60 }).eligible, true, 'eligible exactly at the scheduled start');
   assert.equal(shiftEligibility({ ...base, nowMinutes: 18 * 60 }).reason, 'shift_ended');
   assert.equal(shiftEligibility({ ...base, isoDow: 5 }).reason, 'not_working_day');
   assert.equal(shiftEligibility({ ...base, holiday: true }).reason, 'holiday');
@@ -145,9 +147,21 @@ test('a sales manager on approved leave: no team notifications; requests go to t
   await h.call(c.t.e1, 'POST', `/outings/${o.body.outing.id}/cancel`, {});
 });
 
-test('the away manager is not alerted about an unauthorized exit; HR is; back at work → routing restored', async () => {
-  at('2026-03-10T08:00:00Z');
+test('an early check-in: no tracking before the scheduled shift start (config, pings, no incident); followed from the start', async () => {
+  at('2026-03-10T07:45:00Z'); // 09:45 local, the shift starts at 10:00
   assert.equal((await h.call(c.t.e1, 'POST', '/attendance/check-in', {})).status, 201);
+  const cfg = (await h.call(c.t.e1, 'GET', '/tracking/config')).body;
+  assert.equal(cfg.enabled, false); assert.equal(cfg.reason, 'before_shift'); assert.equal(cfg.startsInMinutes, 15);
+  const p = await ping(c.t.e1, OUT);
+  assert.equal(p.body.tracking, false); assert.equal(p.body.reason, 'before_shift');
+  assert.equal((await incidents(c.ids.e1)).length, 0, 'outside before the shift is no exit');
+  assert.equal((await h.db.query(`SELECT count(*)::int AS n FROM tracking_state WHERE employee_id = $1`, [c.ids.e1])).rows[0].n, 0, 'nothing recorded');
+  at('2026-03-10T08:00:00Z'); // exactly 10:00 local
+  assert.equal((await h.call(c.t.e1, 'GET', '/tracking/config')).body.enabled, true, 'eligible from the scheduled start');
+});
+
+test('the away manager is not alerted about an unauthorized exit; HR is; back at work → routing restored', async () => {
+  at('2026-03-10T08:00:00Z'); // e1 checked in early (above)
   assert.equal((await ping(c.t.e1, IN)).body.inside, true);
   at('2026-03-10T08:10:00Z');
   assert.equal((await ping(c.t.e1, OUT)).body.inside, false);
@@ -314,6 +328,25 @@ test('absence registration: before the threshold refused, exactly at / after it 
   await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'off' });
   assert.equal((await h.call(c.t.hr, 'POST', '/requests', today)).status, 201);
   assert.equal((await h.call(c.t.hr, 'GET', '/attendance/today')).body.absenceThreshold.configured, false);
+  // a day that already has a check-in can never become an absence: refused for him and when HR records it
+  const e1Day = await h.call(c.t.e1, 'POST', '/requests', today);
+  assert.equal(e1Day.status, 409); assert.equal(e1Day.body.error.details.reason, 'attendance_exists');
+  assert.deepEqual(e1Day.body.error.details.dates, ['2026-03-10']);
+  const byHr = await h.call(c.t.hr, 'POST', '/requests', { ...today, employeeId: c.ids.e1, absenceType: 'annual', reason: 'تسجيل' });
+  assert.equal(byHr.status, 409); assert.equal(byHr.body.error.details.reason, 'attendance_exists');
+  // a range that includes the attended day is refused too
+  assert.equal((await h.call(c.t.e1, 'POST', '/requests', { ...today, endDate: '2026-03-11' })).body.error.details.reason, 'attendance_exists');
+  // submitted before checking in, then he checked in: it cannot be approved (the attendance stands); it can be rejected
+  at('2026-03-10T11:31:00Z');
+  const accReq = (await h.db.query(`SELECT id FROM requests WHERE employee_id = $1 AND type = 'full_day_absence' AND start_date = '2026-03-10'`, [c.ids.acc])).rows[0].id;
+  assert.equal((await h.call(c.t.acc, 'POST', '/attendance/check-in', {})).status, 201);
+  const checkIn = (await h.db.query(`SELECT check_in_at FROM attendance WHERE employee_id = $1 AND work_date = '2026-03-10'`, [c.ids.acc])).rows[0].check_in_at;
+  const ap = await h.call(c.t.owner, 'POST', `/requests/${accReq}/decision`, { decision: 'approve' });
+  assert.equal(ap.status, 409, JSON.stringify(ap.body)); assert.equal(ap.body.error.details.reason, 'attendance_exists');
+  assert.ok(['pending_manager', 'pending_hr'].includes((await h.db.query(`SELECT status FROM requests WHERE id = $1`, [accReq])).rows[0].status), 'unchanged');
+  assert.equal((await h.call(c.t.owner, 'POST', `/requests/${accReq}/decision`, { decision: 'reject', comment: 'حضر اليوم' })).status, 200);
+  const after = (await h.db.query(`SELECT check_in_at FROM attendance WHERE employee_id = $1 AND work_date = '2026-03-10'`, [c.ids.acc])).rows[0].check_in_at;
+  assert.equal(new Date(after).toISOString(), new Date(checkIn).toISOString(), 'the attendance record is kept as it was');
   await h.call(c.t.owner, 'PATCH', '/settings', { absenceThresholdMode: 'fixed_hours', absenceThresholdHours: 3 });
 });
 
@@ -402,6 +435,51 @@ test('notification preferences: per person, only suppress, mandatory ones protec
   assert.notEqual(await notify(h.db, { to: c.ids.e1, type: 'advance_confirmed', title: 'تاني', dedupeKey: 'pref:again' }), null);
 });
 
+test('all seven categories: off suppresses only his own delivery, on delivers; routing and authorization never change', async () => {
+  at('2026-03-10T16:45:00Z');
+  const SAMPLE: Record<string, string> = { unauthorized_exit: 'unauthorized_exit', outings: 'outing_awaiting', requests: 'request_awaiting',
+    lateness_absence: 'not_checked_in', attendance: 'back_in_office', finance: 'advance_confirmed', announcements: 'message' };
+  const offered = (await h.call(c.t.sm2, 'GET', '/me/notification-preferences')).body.categories.map((x: any) => x.key).sort();
+  assert.deepEqual(offered, Object.keys(SAMPLE).sort(), 'a team manager is offered all seven');
+  let n = 0;
+  for (const [cat, type] of Object.entries(SAMPLE)) {
+    assert.equal(categoryOf(type), cat);
+    assert.equal((await h.call(c.t.sm2, 'PUT', '/me/notification-preferences', { categories: [{ key: cat, enabled: false }] })).status, 200, cat);
+    assert.equal(await notify(h.db, { to: c.ids.sm2, type, title: cat, dedupeKey: `cat:${cat}:off:${n}` }), null, `${cat} off → not delivered`);
+    assert.notEqual(await notify(h.db, { to: c.ids.sm1, type, title: cat, dedupeKey: `cat:${cat}:other:${n}` }), null, `${cat}: another person unaffected`);
+    assert.equal((await h.call(c.t.sm2, 'PUT', '/me/notification-preferences', { categories: [{ key: cat, enabled: true }] })).status, 200, cat);
+    assert.notEqual(await notify(h.db, { to: c.ids.sm2, type, title: cat, dedupeKey: `cat:${cat}:on:${n}` }), null, `${cat} on → delivered`);
+    n++;
+  }
+  // everything off: the mandatory alerts still arrive
+  assert.equal((await h.call(c.t.sm2, 'PUT', '/me/notification-preferences', { categories: Object.keys(SAMPLE).map((key) => ({ key, enabled: false })) })).status, 200);
+  for (const type of MANDATORY_TYPES) {
+    assert.equal(categoryOf(type), null);
+    assert.notEqual(await notify(h.db, { to: c.ids.sm2, type, title: type, dedupeKey: `cat:mand:${type}` }), null, `${type} is mandatory`);
+  }
+  // off never changes routing: his team member's request is still his to decide (he is just not pinged)
+  const r = await h.call(c.t.e3, 'POST', '/requests', { type: 'hourly_permission', day: '2026-03-17', fromTime: '15:00', toTime: '15:30', reason: 'مشوار' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.request.manager_id, c.ids.sm2); assert.equal(r.body.request.status, 'pending_manager');
+  const pinged = async (to: string, id: string) => (await h.db.query(`SELECT count(*)::int AS n FROM notifications WHERE recipient_id = $1 AND entity_id = $2`, [to, id])).rows[0].n;
+  assert.equal(await pinged(c.ids.sm2, r.body.request.id), 0);
+  // on never grants: a salesman cannot take a category he cannot receive, and even a stored «on» row adds no recipient
+  assert.equal((await h.call(c.t.e1, 'PUT', '/me/notification-preferences', { categories: [{ key: 'unauthorized_exit', enabled: true }] })).body.error.details.reason, 'not_available');
+  await h.db.query(`INSERT INTO notification_preferences (employee_id, category, enabled) SELECT $1, x, true FROM unnest($2::text[]) x
+                    ON CONFLICT (employee_id, category) DO UPDATE SET enabled = true`, [c.ids.e1, Object.keys(SAMPLE)]);
+  assert.equal(await pinged(c.ids.e1, r.body.request.id), 0, 'not a recipient of another team\'s request');
+  // the away manager (sm1, on leave today), with every category explicitly on, still gets nothing of his team
+  await h.db.query(`INSERT INTO notification_preferences (employee_id, category, enabled) SELECT $1, x, true FROM unnest($2::text[]) x
+                    ON CONFLICT (employee_id, category) DO UPDATE SET enabled = true`, [c.ids.sm1, Object.keys(SAMPLE)]);
+  const r2 = await h.call(c.t.e2, 'POST', '/requests', { type: 'hourly_permission', day: '2026-03-17', fromTime: '12:00', toTime: '12:30', reason: 'مشوار' });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body));
+  assert.equal(r2.body.request.manager_id, null); assert.equal(r2.body.request.status, 'pending_hr');
+  assert.equal(await pinged(c.ids.sm1, r2.body.request.id), 0, 'away → not a recipient whatever his preferences');
+  assert.ok(await pinged(c.ids.hr, r2.body.request.id) >= 1, 'HR (authorized) is');
+  // back to defaults for the following tests
+  await h.db.query(`DELETE FROM notification_preferences WHERE employee_id = ANY($1::uuid[])`, [[c.ids.sm2, c.ids.e1, c.ids.sm1]]);
+});
+
 test('the manager is back the next day (his leave ended): routing to him is restored automatically', async () => {
   at('2026-03-11T08:30:00Z'); // Wednesday 10:30 local
   assert.equal((await h.call(c.t.sm1, 'POST', '/attendance/check-in', {})).status, 201);
@@ -431,3 +509,56 @@ test('an unresponsive manager (no check-in once the threshold passed) is away fo
   assert.equal(r2.status, 201, JSON.stringify(r2.body));
   assert.equal(r2.body.request.manager_id, c.ids.sm2);
 });
+
+test('approved outing: tracking continues; outside inside the interval is no incident; return recorded; expiry restores enforcement', async () => {
+  at('2026-03-11T11:30:00Z'); // 13:30 local
+  assert.equal((await h.call(c.t.e1, 'POST', '/attendance/check-in', {})).status, 201);
+  await ping(c.t.e1, IN);
+  const outing = async (ret: string) => {
+    const o = await h.call(c.t.e1, 'POST', '/outings', { kind: 'visit', reason: 'معاينة عميل', expectedReturn: ret });
+    assert.equal(o.status, 201, JSON.stringify(o.body));
+    assert.equal((await h.call(c.t.hr, 'POST', `/outings/${o.body.outing.id}/decision`, { decision: 'approve' })).status, 200);
+    return (await h.db.query(`SELECT * FROM outing_requests WHERE id = $1`, [o.body.outing.id])).rows[0];
+  };
+  // 1) out and back inside the approved interval: followed, no incident, the return is recorded
+  const o1 = await outing('14:00');
+  assert.equal(new Date(o1.expected_return_at).toISOString(), '2026-03-11T12:00:00.000Z', '«14:00» is Cairo time');
+  at('2026-03-11T11:35:00Z');
+  const p1 = await ping(c.t.e1, OUT);
+  assert.equal(p1.body.tracking, true, 'tracking continues during the outing'); assert.equal(p1.body.inside, false);
+  at('2026-03-11T11:40:00Z');
+  await Promise.all([1, 2, 3, 4].map(() => ping(c.t.e1, OUT)));
+  assert.equal((await incidents(c.ids.e1)).length, 0, 'authorized: no incident (parallel pings too)');
+  assert.ok((await h.db.query(`SELECT 1 FROM audit_log WHERE action = 'tracking.authorized_exit' AND entity_id = $1`, [o1.id])).rows.length === 1);
+  at('2026-03-11T11:50:00Z');
+  await ping(c.t.e1, IN);
+  assert.equal(new Date((await h.db.query(`SELECT returned_at FROM outing_requests WHERE id = $1`, [o1.id])).rows[0].returned_at).toISOString(), '2026-03-11T11:50:00.000Z');
+  // 2) still outside when the return time passes: authorized until the exact second before; from it, normal enforcement
+  at('2026-03-11T12:01:00Z');
+  const o2 = await outing('14:30'); // 12:30Z
+  at('2026-03-11T12:02:00Z'); await ping(c.t.e1, OUT);
+  at('2026-03-11T12:29:59Z'); await ping(c.t.e1, OUT);
+  assert.equal((await incidents(c.ids.e1)).length, 0, 'one second before the return time: still authorized');
+  at('2026-03-11T12:30:00Z');
+  await Promise.all([1, 2, 3].map(() => ping(c.t.e1, OUT)));
+  at('2026-03-11T12:31:00Z');
+  await Promise.all([1, 2, 3].map(() => ping(c.t.e1, OUT)));
+  let inc = await incidents(c.ids.e1);
+  assert.equal(inc.length, 1, 'exactly one incident at expiry (concurrent pings)');
+  assert.equal(new Date(inc[0].exit_at).toISOString(), '2026-03-11T12:30:00.000Z');
+  assert.equal(inc[0].permission_state, 'expired'); assert.equal(inc[0].outing_id, o2.id); assert.equal(inc[0].amount_egp, null, 'open: no amount yet');
+  at('2026-03-11T12:50:00Z'); await ping(c.t.e1, IN);
+  inc = await incidents(c.ids.e1);
+  assert.equal(inc[0].status, 'closed'); assert.equal(inc[0].end_reason, 'returned'); assert.equal(inc[0].minutes, 20, 'counted from the expiry, not the departure');
+  assert.equal(Number(inc[0].amount_egp), 50, 'effective rule: all switches on and the 15–60 tier');
+  assert.ok((await h.db.query(`SELECT returned_at FROM outing_requests WHERE id = $1`, [o2.id])).rows[0].returned_at, 'return recorded');
+  // 3) the return time passed while he was inside: leaving afterwards is an ordinary unauthorized exit
+  at('2026-03-11T12:55:00Z');
+  const o3 = await outing('15:00'); // 13:00Z
+  at('2026-03-11T13:05:00Z'); await ping(c.t.e1, OUT);
+  inc = await incidents(c.ids.e1);
+  assert.equal(inc.length, 2); assert.equal(inc[1].permission_state, 'expired'); assert.equal(inc[1].outing_id, o3.id);
+  at('2026-03-11T13:10:00Z'); await ping(c.t.e1, IN);
+  assert.equal((await incidents(c.ids.e1))[1].minutes, 5);
+});
+

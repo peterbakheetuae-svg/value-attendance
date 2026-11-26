@@ -51,13 +51,14 @@ export type TrackingBlock = 'not_working_day' | 'holiday' | 'on_leave' | 'before
 export function shiftEligibility(x: {
   nowMinutes: number; isoDow: number; weekendDays: number[]; holiday: boolean; onLeave: boolean;
   shiftStart: string; shiftEnd: string; checkedIn: boolean; checkedOut: boolean;
-}): { eligible: boolean; reason: TrackingBlock | null; endsInMinutes: number | null } {
+}): { eligible: boolean; reason: TrackingBlock | null; endsInMinutes: number | null; startsInMinutes?: number } {
   const start = timeToMinutes(x.shiftStart), end = timeToMinutes(x.shiftEnd);
   const no = (reason: TrackingBlock) => ({ eligible: false, reason, endsInMinutes: null });
   if (x.holiday) return no('holiday');
   if (x.weekendDays.includes(x.isoDow)) return no('not_working_day');
   if (x.onLeave) return no('on_leave');
-  if (x.nowMinutes < start) return no('before_shift');
+  // before the shift: never followed, even after an early check-in; the app is told when it starts (to re-check then)
+  if (x.nowMinutes < start) return { ...no('before_shift'), startsInMinutes: start - x.nowMinutes };
   if (x.nowMinutes >= end) return no('shift_ended');
   if (!x.checkedIn) return no('not_checked_in');
   if (x.checkedOut) return no('checked_out');
