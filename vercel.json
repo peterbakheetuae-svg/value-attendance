@@ -19,7 +19,8 @@
       "security/ci-on-pull-requests": false,
       "security/remediation-2026-11-26": false,
       "fix/partner-device-approval": false,
-      "fix/partner-campaigns": false
+      "fix/partner-campaigns": false,
+      "fix/partner-campaign-active": false
     }
   }
 }
