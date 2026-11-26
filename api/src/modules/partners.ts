@@ -5,6 +5,7 @@ import { emailChangeMail, mailEnabled, sendMail } from '../lib/mail.ts';
 import { createHash, randomInt } from 'node:crypto';
 import { date, isUuid, obj, str } from '../http/validate.ts';
 import { adminOfficerSql, audit, authenticate, has } from '../auth/context.ts';
+import { effectiveSql } from '../auth/permission-admin.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
 import { hashPassword, passwordPolicyError } from '../auth/password.ts';
 import { clearAccount } from '../auth/throttle.ts';
@@ -582,6 +583,95 @@ function readCompanyFile(body: unknown, kind: string): { name: string; mime: str
       deals: deals.rows.map((d) => ({ refNo: Number(d.ref_no), title: d.title, stage: d.stage, createdAt: iso(d.created_at), closedAt: iso(d.closed_at) })),
       reserved: reserved.n > 0,
     });
+  });
+
+  // ------------------------------------------------------------------ its campaigns (098)
+  /**
+   * The company adds a campaign: it is linked to the signed-in company ONLY (the company comes from the session, never
+   * from the request — a companyId / marketingCompanyId in the body is refused), on the Meta channel, with the office's
+   * distribution left to the office (leads.config holders and the company's general manager / direct manager are told).
+   */
+  const CAMPAIGN_FIELDS = new Set(['name', 'channelId', 'projectId', 'startsOn', 'endsOn', 'active']);
+  const campaignInput = async (b: Record<string, unknown>, old?: any) => {
+    for (const k of Object.keys(b)) {
+      if (!CAMPAIGN_FIELDS.has(k)) throw forbidden(k === 'companyId' || k === 'marketingCompanyId' ? 'مش مسموح تختار الشركة' : `مش مسموح تغيّر ${k}`);
+    }
+    const name = b.name !== undefined || !old ? str(b, 'name', { min: 2, max: 120 })!.trim() : old.name;
+    const day = (k: 'startsOn' | 'endsOn', col: string) => {
+      if (b[k] === undefined) return old ? (old[col] ? new Date(old[col]).toISOString().slice(0, 10) : null) : null;
+      if (b[k] === null || b[k] === '') return null;
+      return date(b, k)!;
+    };
+    const startsOn = day('startsOn', 'starts_on'), endsOn = day('endsOn', 'ends_on');
+    if (startsOn && endsOn && endsOn < startsOn) throw invalid('تاريخ النهاية قبل البداية', { field: 'endsOn' });
+    let projectId = old?.project_id ?? null;
+    if (b.projectId !== undefined) {
+      projectId = b.projectId === null || b.projectId === '' ? null : String(b.projectId);
+      if (projectId && (!isUuid(projectId) || !(await one(db, `SELECT 1 FROM commission_projects WHERE id = $1 AND status = 'active'`, [projectId])))) {
+        throw invalid('اختار مشروع من المشاريع', { field: 'projectId' });
+      }
+    }
+    let channelId = old?.channel_id ?? null;
+    if (b.channelId !== undefined) {
+      channelId = b.channelId === null || b.channelId === '' ? null : String(b.channelId);
+      if (channelId && (!isUuid(channelId) || !(await one(db, `SELECT 1 FROM lead_channels WHERE id = $1 AND active`, [channelId])))) {
+        throw invalid('اختار القناة', { field: 'channelId' });
+      }
+    } else if (!old) {
+      // a new campaign: Facebook (Meta lead ads) unless the company chose another channel
+      channelId = (await one(db, `SELECT id FROM lead_channels WHERE active AND name = 'فيسبوك' LIMIT 1`))?.id ?? null;
+    }
+    const active = b.active === undefined ? (old?.active ?? true) : b.active === true;
+    if (b.active !== undefined && typeof b.active !== 'boolean') throw invalid('active', { field: 'active' });
+    return { name, startsOn, endsOn, projectId, channelId, active };
+  };
+  const campaignView = (c: any) => ({ id: c.id, name: c.name, active: c.active, projectId: c.project_id, channelId: c.channel_id, startsOn: c.starts_on ? new Date(c.starts_on).toISOString().slice(0, 10) : null,
+    endsOn: c.ends_on ? new Date(c.ends_on).toISOString().slice(0, 10) : null, metaCampaignIds: c.meta_campaign_ids ?? [], createdByCompany: !!c.created_by_company_id });
+
+  r.get('/partner/campaigns', async (req) => {
+    const p = await partner(req);
+    const rows = (await db.query(`SELECT * FROM lead_campaigns WHERE marketing_company_id = $1 ORDER BY active DESC, created_at DESC`, [p.companyId])).rows;
+    return ok({ campaigns: rows.map(campaignView) });
+  });
+
+  r.post('/partner/campaigns', async (req) => {
+    const p = await partner(req);
+    const c = await campaignInput(obj(req.body));
+    const x = await db.tx(async (q) => {
+      if (await one(q, `SELECT 1 FROM lead_campaigns WHERE marketing_company_id = $1 AND lower(name) = lower($2) AND active`, [p.companyId, c.name])) {
+        throw conflict('عندك حملة شغالة بنفس الاسم');
+      }
+      const row = await one(q, `INSERT INTO lead_campaigns (name, channel_id, project_id, starts_on, ends_on, active, marketing_company_id, created_by_company_id)
+                                VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *`, [c.name, c.channelId, c.projectId, c.startsOn, c.endsOn, c.active, p.companyId]);
+      await audit(q, null, 'partner.campaign_create', 'lead_campaign', row.id, undefined, { company: p.companyId, name: row.name });
+      const own = await one(q, `SELECT general_manager_id, manager_id FROM marketing_companies WHERE id = $1`, [p.companyId]);
+      const office = (await q.query(`SELECT e.id FROM employees e WHERE e.status = 'active' AND (${effectiveSql('e', "'leads.config'")} OR e.id = ANY($1::uuid[]))`,
+        [[own?.general_manager_id, own?.manager_id].filter(Boolean)])).rows.map((r) => r.id);
+      for (const to of office) {
+        await notify(q, { to, type: 'partner_campaign_new', title: `شركة ${p.name} أضافت حملة: ${row.name}`,
+          body: 'اختار السيلز اللي بيستقبلوا ليدز الحملة دي من «الربط»', dedupeKey: `partner_campaign:${row.id}` });
+      }
+      return row;
+    });
+    return ok({ campaign: campaignView(x) }, 201);
+  });
+
+  /** the company manages the campaigns IT added (name, project, dates, on / off); the office's campaigns stay the office's */
+  r.patch('/partner/campaigns/:id', async (req) => {
+    const p = await partner(req);
+    if (!isUuid(req.params.id)) throw notFound();
+    const x = await db.tx(async (q) => {
+      const old = await one(q, `SELECT * FROM lead_campaigns WHERE id = $1 AND marketing_company_id = $2 FOR UPDATE`, [req.params.id, p.companyId]);
+      if (!old) throw notFound();
+      if (old.created_by_company_id !== p.companyId) throw forbidden('الحملة دي بتاعة الإدارة — تقدر تختار حملات Meta بتاعتها بس');
+      const c = await campaignInput(obj(req.body), old);
+      const row = await one(q, `UPDATE lead_campaigns SET name = $2, project_id = $3, starts_on = $4, ends_on = $5, active = $6, channel_id = $7 WHERE id = $1 RETURNING *`,
+        [old.id, c.name, c.projectId, c.startsOn, c.endsOn, c.active, c.channelId]);
+      await audit(q, null, 'partner.campaign_update', 'lead_campaign', old.id,
+        { name: old.name, active: old.active, projectId: old.project_id }, { name: row.name, active: row.active, projectId: row.project_id });
+      return row;
+    });
+    return ok({ campaign: campaignView(x) });
   });
 
   /** a lead the company adds to one of its campaigns: distributed as that campaign says (one / online / turn) */
