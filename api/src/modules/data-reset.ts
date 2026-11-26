@@ -18,14 +18,37 @@ import { scheduleFor } from './attendance.ts';
  *
  * `dryRun: true` (the default) only matches the old employees to the current ones and reports; nothing changes.
  */
-const WIPE = [
-  'cash_attachments', 'deals', 'lead_whatsapp', 'lead_exports', 'lead_targets', 'lead_checkins', 'lead_requests', 'lead_attachments', 'tasks', 'lead_referrals', 'lead_logs', 'lead_actions', 'lead_quality_events', 'leads', 'lead_campaign_owners', 'lead_campaigns', 'meta_insights_daily',
+export const WIPE = [
+  'cash_attachments', 'deals', 'lead_whatsapp', 'lead_exports', 'lead_targets', 'lead_checkins', 'lead_requests', 'lead_attachments', 'tasks', 'lead_referrals', 'lead_logs', 'lead_actions', 'leads', 'lead_campaigns',
   'attendance_breaks', 'attendance_corrections', 'attendance_selfies', 'attendance', 'tracking_pings', 'tracking_state',
   'request_actions', 'requests', 'outing_requests', 'notifications', 'kpi_results', 'evaluations',
   'salary_adjustments', 'advance_deductions', 'payouts', 'advance_requests', 'payroll_batch_lines', 'payroll_batches',
   'commission_entitlements', 'cash_receipts', 'cash_expenses', 'cash_transfers', 'cash_adjustments',
   'sale_installments', 'unit_sales', 'commission_requests', 'project_images', 'ex_inventory', 'developer_images', 'commission_projects', 'partner_units', 'partner_projects', 'ex_payments', 'ex_installments', 'ex_commission_transfers', 'ex_unit_files', 'ex_units', 'action_otps', 'partner_email_otps', 'partner_notifications', 'partner_sessions', 'meta_seen_campaigns', 'marketing_company_files', 'marketing_companies', 'developers', 'cash_bank_moves',
 ];
+/**
+ * Tables a later migration may add that hold foreign keys to WIPE tables (092 marketing intelligence:
+ * lead_quality_events → leads, lead_campaign_owners → lead_campaigns / marketing_companies). PostgreSQL refuses to
+ * TRUNCATE a referenced table unless every table referencing it is in the same TRUNCATE, so each one that exists joins
+ * the same statement (never CASCADE: nothing outside these explicit lists is ever emptied). Before 092 none exists and
+ * the reset is exactly as before.
+ */
+export const WIPE_IF_PRESENT = ['lead_quality_events', 'lead_campaign_owners'];
+/** the WIPE_IF_PRESENT tables that exist in this database (checked inside the reset's transaction) */
+export async function presentDependents(q: Q): Promise<string[]> {
+  return presentTables(q, WIPE_IF_PRESENT);
+}
+/**
+ * Activity tables of migration 092 that reference no WIPE table (so the TRUNCATE does not need them) but describe the
+ * campaigns the reset removes: meta_insights_daily (Meta's daily spend / results per Meta campaign id, no foreign key).
+ * Emptied with the rest of the activity when present, so a reset leaves no figures for campaigns that no longer exist.
+ */
+export const WIPE_ACTIVITY_IF_PRESENT = ['meta_insights_daily'];
+/** the tables of `list` that exist in this database, in list order */
+export async function presentTables(q: Q, list: readonly string[]): Promise<string[]> {
+  return (await q.query(`SELECT t FROM unnest($1::text[]) WITH ORDINALITY AS x(t, n) WHERE to_regclass('public.' || t) IS NOT NULL ORDER BY n`,
+    [list])).rows.map((r: any) => String(r.t));
+}
 const CONFIRM = 'امسح البيانات';
 
 const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^(20|0020)/, '').replace(/^(?!0)(1\d{9})$/, '0$1');
@@ -189,10 +212,11 @@ export const dataResetModule: Module = (r, { db }) => {
     const done = await db.tx(async (q) => {
       // re-checked inside the transaction (nothing may slip in between the check and the wipe)
       if ((await resetBlockers(q)).length) throw new AppError('conflict', 'مسح البيانات مرفوض: فيه سجلات مالية / ملفات محمية مش بتتمسح', { reason: 'protected_data' });
+      const extra = [...await presentDependents(q), ...await presentTables(q, WIPE_ACTIVITY_IF_PRESENT)];
       const before: Record<string, number> = {};
-      for (const t of WIPE) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
+      for (const t of [...WIPE, ...extra]) before[t] = Number((await one(q, `SELECT count(*)::int AS n FROM ${t}`)).n);
       await q.query(`UPDATE integrations SET campaign_id = NULL`);   // the campaigns go; the integrations' keys stay
-      await q.query(`TRUNCATE ${WIPE.join(', ')}`);
+      await q.query(`TRUNCATE ${[...WIPE, ...extra].join(', ')}`);
       await q.query(`SELECT set_config('va.form_delete', '*', true)`);
       const forms = await q.query(`DELETE FROM employee_documents WHERE kind = 'other' AND employee_id IS NOT NULL
         AND (file_name LIKE 'custody-receipt-%' OR file_name LIKE 'laptop-receipt-%' OR file_name LIKE 'client-intro-%')`);
