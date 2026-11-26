@@ -172,9 +172,23 @@ export const isOwner = (a: Actor) => a.role === OWNER_ROLE && !a.settled;
  * broad key it was split from decides — exactly today's behaviour.
  */
 export function can(a: Actor, fine: string, broad: string | string[] | null): boolean {
-  if (a.known?.has(fine)) return holdsFine(a, fine);
+  if (!a.known) return false; // the database's key list is unknown: deny (never a grant on missing information)
+  if (a.known.has(fine)) return holdsFine(a, fine);
+  // the key is missing although its migration has run (another key of the same migration exists): a damaged or
+  // partly applied permission table — deny instead of falling back to the rule from before the key existed
+  if (migrationApplied(a.known, fine)) return false;
   if (broad === null) return !a.settled; // had no separate check before
   return (Array.isArray(broad) ? broad : [broad]).some((b) => has(a, b));
+}
+
+/**
+ * true when the migration that added `fine` has run on this database: another registered key introduced by the same
+ * migration (same `since`) is present. A key with no `since` is one of the original keys — its absence is always an anomaly.
+ */
+export function migrationApplied(known: ReadonlySet<string>, fine: string): boolean {
+  const since = PERM_BY_KEY.get(fine)?.since;
+  if (since === undefined) return true;
+  return PERMISSIONS.some((p) => p.since === since && p.key !== fine && known.has(p.key));
 }
 
 /** a fine key that exists in this database: held, and — where the registry says so — together with all its required keys */
@@ -199,6 +213,8 @@ export function effectivePermissions(a: Actor): string[] {
   if (a.settled) return [];
   for (const p of PERMISSIONS) {
     if (a.known?.has(p.key)) { if (!holdsFine(a, p.key)) out.delete(p.key); continue; }
+    // the same rule as can(): no key list, or a key missing after its migration ran → not held
+    if (!a.known || migrationApplied(a.known, p.key)) { out.delete(p.key); continue; }
     if (p.openBefore || (p.splitFrom ? (Array.isArray(p.splitFrom) ? p.splitFrom : [p.splitFrom]).some((b) => has(a, b)) : (p.since && a.role === 'owner'))) out.add(p.key);
   }
   return [...out].sort();

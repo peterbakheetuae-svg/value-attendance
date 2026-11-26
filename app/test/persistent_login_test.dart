@@ -73,6 +73,21 @@ void main() {
       expect(await TokenStore.read(), isNull, reason: 'a restart (memory cleared) needs a new sign-in');
     });
 
+    test('sign-out while the secure storage cannot delete: the left-over secure copy is never restored', () async {
+      await TokenStore.write('tok-old');
+      TokenStore.debugSecureStorageFails = true;
+      await TokenStore.clear(); // the delete fails (offline sign-out: the server session may still be alive)
+      TokenStore.debugSecureStorageFails = false;
+      expect(await const FlutterSecureStorage().read(key: 'session_token'), 'tok-old', reason: 'the copy really survived');
+      // next start of the app
+      expect(await TokenStore.read(), isNull, reason: 'signed out stays signed out');
+      expect(await const FlutterSecureStorage().read(key: 'session_token'), isNull, reason: 'removed as soon as it can be');
+      // a new sign-in works normally again
+      await TokenStore.write('tok-new');
+      expect(await TokenStore.read(), 'tok-new');
+      await TokenStore.clear();
+    });
+
     test('explicit sign-out clears the stored session', () async {
       await TokenStore.write('tok-123');
       await TokenStore.clear();

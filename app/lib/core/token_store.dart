@@ -22,6 +22,8 @@ class TokenStore {
   static const _plainKey = 'token';
   static const _protectedKey = 'token_dpapi';
   static const _secureKey = 'session_token';
+  // set when signing out could not delete the secure copy: that copy is never used again (cleared by the next sign-in)
+  static const _signedOutKey = 'session_signed_out';
   static const _secure = FlutterSecureStorage();
   // Android only: a session the secure storage refused to keep (never written to disk in plain text)
   static String? _memory;
@@ -45,6 +47,12 @@ class TokenStore {
   }
 
   static Future<String?> _readAndroid(SharedPreferences p) async {
+    if (p.getBool(_signedOutKey) == true) {
+      if (_memory != null) return _memory; // signed in again during this run, the secure storage refusing
+      await p.remove(_plainKey);
+      try { await _secure.delete(key: _secureKey); await p.remove(_signedOutKey); } catch (_) {}
+      return null;
+    }
     String? secure;
     try {
       if (debugSecureStorageFails) throw StateError('secure storage unavailable (test)');
@@ -90,6 +98,7 @@ class TokenStore {
       // the phone's secure storage failed: the session works for this run only, never as a plain file
       _memory = await _storeSecure(token) ? null : token;
       await p.remove(_plainKey);
+      if (_memory == null) await p.remove(_signedOutKey); // a fresh secure session replaces the signed-out one
       return;
     }
     if (!PlatformInfo.isWindows) {
@@ -108,8 +117,13 @@ class TokenStore {
     await p.remove(_protectedKey);
     if (_android) {
       try {
+        if (debugSecureStorageFails) throw StateError('secure storage unavailable (test)');
         await _secure.delete(key: _secureKey);
-      } catch (_) {}
+        await p.remove(_signedOutKey);
+      } catch (_) {
+        // the secure copy could not be deleted: mark it signed out so it is never restored (fail closed)
+        await p.setBool(_signedOutKey, true);
+      }
     }
   }
 }

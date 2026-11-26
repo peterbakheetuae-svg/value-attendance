@@ -75,8 +75,8 @@ class SessionService {
 
   static Future<void> logout() async {
     final p = await SharedPreferences.getInstance();
-    // keep the device id (phone binding) and the app look across sign-outs
-    final keep = {for (final k in ['device_id', 'language_code', 'theme_mode', 'is_dark']) k: p.get(k)};
+    // keep the device id (phone binding), the app look and the «secure copy signed out» mark (TokenStore) across sign-outs
+    final keep = {for (final k in ['device_id', 'language_code', 'theme_mode', 'is_dark', 'session_signed_out']) k: p.get(k)};
     await p.clear();
     for (final e in keep.entries) {
       final v = e.value;
