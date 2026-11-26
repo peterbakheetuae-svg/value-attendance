@@ -6,43 +6,48 @@ import type { Q } from '../db.ts';
  * the Home Screen). Free: the browser's own push service delivers it. No library: VAPID (ES256) and the
  * aes128gcm payload encryption are done with node:crypto.
  *
- * The VAPID key needs no new secret: it is derived from a secret the API already has (FCM_SERVICE_ACCOUNT's key,
- * else BACKUP_TOKEN), or VAPID_PRIVATE_KEY (base64url, 32 bytes) when set. The app reads the public key from the
- * API and re-subscribes by itself if it ever changes.
+ * The VAPID key (ES256 / P-256) is its OWN secret: VAPID_PRIVATE_KEY = the 32-byte private scalar, base64url (43
+ * characters, no padding) — generate it with `node api/scripts/vapid-key.mjs`. It is never derived from another
+ * credential any more (SEC-01 / rotation coupling: it used to be an HMAC of FCM_SERVICE_ACCOUNT's private key, else
+ * BACKUP_TOKEN, so rotating either one silently replaced every browser subscription's key). Without the variable, or
+ * with a value that is not a valid P-256 private key, Web Push is OFF (the API serves publicKey: null, the app does not
+ * subscribe, nothing is sent) — an invalid key never falls back to anything. Android (FCM) is independent of it.
+ * The app reads the public key from the API and re-subscribes by itself once when it changes (va-push.js).
  */
 const N = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551'); // P-256 order
 
-let keys: { d: Buffer; pub: Buffer } | null | undefined;
+export type VapidState = 'ok' | 'missing' | 'invalid';
+let cache: { raw: string | undefined; state: VapidState; keys: { d: Buffer; pub: Buffer } | null } | null = null;
+let warned = '';
 
-function seed(): string | null {
-  if (process.env.VAPID_PRIVATE_KEY) return null;
-  const raw = process.env.FCM_SERVICE_ACCOUNT;
-  if (raw) {
-    try {
-      const j = JSON.parse(raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8'));
-      if (j?.private_key) return String(j.private_key);
-    } catch { /* fall through */ }
-  }
-  return process.env.BACKUP_TOKEN || null;
+/** Parse a configured key strictly; null = not a valid P-256 private scalar (the value itself is never logged). */
+export function parseVapidPrivateKey(raw: string): { d: Buffer; pub: Buffer } | null {
+  const v = raw.trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(v)) return null;
+  const d = Buffer.from(v, 'base64url');
+  if (d.length !== 32 || d.toString('base64url') !== v) return null;
+  const n = BigInt('0x' + d.toString('hex'));
+  if (n < 1n || n >= N) return null;
+  try {
+    const ecdh = createECDH('prime256v1'); ecdh.setPrivateKey(d);
+    const pub = ecdh.getPublicKey();
+    return pub.length === 65 && pub[0] === 4 ? { d, pub } : null;
+  } catch { return null; }
 }
 
-export function vapidKeys(): { d: Buffer; pub: Buffer } | null {
-  if (keys !== undefined) return keys;
-  let d: Buffer | null = null;
-  if (process.env.VAPID_PRIVATE_KEY) d = Buffer.from(process.env.VAPID_PRIVATE_KEY, 'base64url');
-  else {
-    const s = seed();
-    if (s) {
-      const h = createHmac('sha256', s).update('value-attendance web push vapid v1').digest();
-      const v = (BigInt('0x' + h.toString('hex')) % (N - 1n)) + 1n;
-      d = Buffer.from(v.toString(16).padStart(64, '0'), 'hex');
-    }
-  }
-  if (!d || d.length !== 32) { keys = null; return null; }
-  const ecdh = createECDH('prime256v1'); ecdh.setPrivateKey(d);
-  keys = { d, pub: ecdh.getPublicKey() };
-  return keys;
+function current() {
+  const raw = process.env.VAPID_PRIVATE_KEY;
+  if (cache && cache.raw === raw) return cache;
+  const keys = raw ? parseVapidPrivateKey(raw) : null;
+  const state: VapidState = !raw ? 'missing' : keys ? 'ok' : 'invalid';
+  if (state === 'invalid' && warned !== 'invalid') console.error('[webpush] VAPID_PRIVATE_KEY is set but is not a valid P-256 private key (32 bytes, base64url) — Web Push is off');
+  warned = state;
+  cache = { raw, state, keys };
+  return cache;
 }
+
+export const vapidState = (): VapidState => current().state;
+export function vapidKeys(): { d: Buffer; pub: Buffer } | null { return current().keys; }
 
 export const webPushPublicKey = () => vapidKeys()?.pub.toString('base64url') ?? null;
 
