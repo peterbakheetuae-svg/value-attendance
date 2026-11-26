@@ -1,0 +1,25 @@
+name: Lockfiles (one-off, prints the resolved lockfiles; removed after use)
+on:
+  push: { branches: [feat/marketing-intelligence], paths: ['.github/workflows/lockfiles.yml'] }
+permissions: { contents: read }
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: '22' }
+      - name: API package-lock.json
+        working-directory: api
+        run: |
+          npm install --package-lock-only --include=dev --no-audit --no-fund
+          sha256sum package-lock.json
+          echo "BEGIN-API-LOCK"; gzip -9c package-lock.json | base64 -w0; echo; echo "END-API-LOCK"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with: { flutter-version: '3.38.10', channel: stable, cache: true }
+      - name: App pubspec.lock
+        working-directory: app
+        run: |
+          flutter pub get
+          sha256sum pubspec.lock
+          echo "BEGIN-APP-LOCK"; gzip -9c pubspec.lock | base64 -w0; echo; echo "END-APP-LOCK"
