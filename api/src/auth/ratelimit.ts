@@ -3,6 +3,7 @@ import { one } from '../db.ts';
 import { AppError } from '../http/errors.ts';
 import type { Req } from '../http/router.ts';
 import { securityAlert } from './alerts.ts';
+import { verifiedMirrorIp } from './mirror-ip.ts';
 
 /**
  * VA-06 — per-IP throttling of the sign-in / recovery endpoints, shared by every serverless instance (the counts live in
@@ -21,6 +22,9 @@ export const IP_LIMITS: Record<string, { max: number; minutes: number }> = {
 
 export function clientIp(req: Req): string | null {
   if (process.env.VERCEL !== '1' && process.env.TRUST_PLATFORM_IP !== '1') return null;
+  // through the Cloudflare mirror: the caller's own address, only when the Worker's signature verifies (mirror-ip.ts)
+  const mirrored = verifiedMirrorIp(req.headers, req.method, req.path);
+  if (mirrored) return mirrored;
   const v = req.headers['x-vercel-forwarded-for'] ?? req.headers['x-real-ip'];
   const ip = String(Array.isArray(v) ? v[0] : v ?? '').split(',')[0].trim();
   return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : null;

@@ -19,7 +19,7 @@ import { heartbeatReportDue, runDailyLeadsReport } from './leads-daily.ts';
 //     (value null) and listed in the reply's «redacted». Restoring: see the restore notes (password hashes, Meta tokens and
 //     the media signing secret are set again after a restore — users reset their passwords, the tokens are pasted again).
 const SKIP = new Set(['sessions', 'push_tokens', 'partner_sessions', 'password_otps', 'action_otps', 'partner_email_otps',
-  'web_push_subscriptions']);
+  'web_push_subscriptions', 'login_throttle']); // login_throttle: short-lived sign-in throttling state (095), nothing to restore
 /** a column holding a credential (password hashes, token hashes, OTP hashes, access / verify tokens, keys, secrets) */
 export const SECRET_COLUMN = /(password_hash|token_hash|code_hash|key_hash|access_token|refresh_token|verify_token|secret|private_key|api_key|p256dh|^auth$|^token$)/i;
 
