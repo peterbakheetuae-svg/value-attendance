@@ -51,7 +51,7 @@ void main() {
         expect(e.isNetwork, true);
         expectClean(e.message);
         expectClean(e.toString());
-        expectClean(ApiService.messageFor(e));
+        expectClean(JphRouter.messageFor(e));
         expect(isNetworkFailure(e), true);
         expect(e.diagnostic, isNotNull);
         expect(e.diagnostic!.contains(host), false, reason: 'no host in the diagnostic');
@@ -86,7 +86,7 @@ void main() {
         expect(e.isNetwork, false);
         expect(isNetworkFailure(e), false);
         expect(e.diagnostic, isNull);
-        final shown = ApiService.messageFor(e);
+        final shown = JphRouter.messageFor(e);
         expect(shown == exact, false);
         if (a.key == 401) {
           expect(shown, 'انتهت الجلسة، سجّل الدخول مرة أخرى');
