@@ -7,6 +7,7 @@ import { date, isUuid, obj, str } from '../http/validate.ts';
 import { adminOfficerSql, audit, authenticate, has } from '../auth/context.ts';
 import { authenticatePartner, type Partner } from '../auth/partner.ts';
 import { hashPassword, passwordPolicyError } from '../auth/password.ts';
+import { clearAccount } from '../auth/throttle.ts';
 import type { Req } from '../http/router.ts';
 import { duplicateWatchers, insertLead, phoneNorm, readLead, refuseExisting, stageShape, stagesOf } from './leads.ts';
 import { notify } from './notify.ts';
@@ -103,6 +104,7 @@ export const partnersModule: Module = (r, { db, clock }) => {
                          WHERE id = $1 RETURNING *`, [before.id, email, phone, norm, hash ?? null]);
       // turned off or a new password: every device is signed out
       if (off || hash) await q.query(`UPDATE partner_sessions SET revoked_at = now() WHERE company_id = $1 AND revoked_at IS NULL`, [before.id]);
+      if (hash) await clearAccount(q, `c:${before.id}`);
       await audit(q, a.id, 'marketing_company.login', 'marketing_company', before.id,
         { email: before.login_email, phone: before.login_phone, hasLogin: !!before.password_hash },
         { email: row.login_email, phone: row.login_phone, hasLogin: !!row.password_hash, passwordReset: !!hash });

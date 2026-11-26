@@ -11,35 +11,38 @@ import { notify } from './notify.ts';
 import { authenticate, audit, effectivePermissions, SESSION_TTL_HOURS } from '../auth/context.ts';
 import { hashPassword, newToken, passwordPolicyError, verifyPassword, PIN_ROLES } from '../auth/password.ts';
 import { partnerOf } from '../auth/partner.ts';
-import { withIpLimit } from '../auth/ratelimit.ts';
+import { clientIp, withIpLimit } from '../auth/ratelimit.ts';
+import { ACCT_FREE, PAIR_FREE, accountBucket, clear, clearAccount, deviceBucket, pairBucket, reserve, unknownBucket } from '../auth/throttle.ts';
 import { securityAlert } from '../auth/alerts.ts';
 
 const DEVICE_RE = /^[A-Za-z0-9_-]{16,100}$/;
 
-const MAX_FAILS = 5;
 /** password-reset codes: per account per 24 hours — codes sent, and wrong codes over all of them (then 24 h off) */
 const OTP_CODES_PER_DAY = 8, OTP_WRONG_PER_DAY = 10;
 
+/** SEC-05: sign-in is throttled per account + network / known device / account-wide (auth/throttle.ts) — never a hard lock */
+const LOCKED_MSG = 'Too many failed attempts. Try again later';
+const lockedError = (retryAfterS: number) => new AppError('locked', LOCKED_MSG, { reason: 'throttled', retryAfterS });
+
 /**
- * One sign-in attempt is reserved BEFORE the password is checked (atomically, in the database): parallel attempts can
- * not all slip in before the lock — at most MAX_FAILS are ever checked per lock window (one more right after a lock ends).
- * Returns the attempt number, or null when the account is locked now.
+ * Reserve this attempt in the account's buckets before the password is checked. A device already approved for (or
+ * last used by) this account gets its own bucket and skips the account-wide one; any other caller is counted per
+ * network AND account-wide. Throws 423 (the same reply as before, with a retry time) while a bucket waits.
  */
-async function reserveAttempt(q: Q, table: 'employees' | 'marketing_companies', id: string): Promise<number | null> {
-  const r = await one(q, `
-    UPDATE ${table} SET
-      failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN $2::int ELSE failed_logins + 1 END,
-      locked_until = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN NULL ELSE locked_until END
-     WHERE id = $1 AND (locked_until IS NULL OR locked_until <= now())
-     RETURNING failed_logins`, [id, MAX_FAILS]);
-  if (!r) return null;
-  if (r.failed_logins > MAX_FAILS) {
-    await q.query(`UPDATE ${table} SET locked_until = COALESCE(locked_until, now() + make_interval(mins => $2)) WHERE id = $1`, [id, LOCK_MINUTES]);
-    return null;
+async function reserveFor(q: Q, account: string, ip: string | null, knownDevice: string | null) {
+  const primary = knownDevice ? deviceBucket(account, knownDevice) : pairBucket(account, ip);
+  const acct = knownDevice ? null : accountBucket(account);
+  if (acct) {
+    const a = await reserve(q, acct);
+    if (!a.ok) throw lockedError(a.retryAfterS);
+    const p = await reserve(q, primary);
+    if (!p.ok) throw lockedError(p.retryAfterS);
+    return { primary, acct, fails: p.fails, acctFails: a.fails };
   }
-  return r.failed_logins;
+  const p = await reserve(q, primary);
+  if (!p.ok) throw lockedError(p.retryAfterS);
+  return { primary, acct, fails: p.fails, acctFails: 0 };
 }
-const LOCK_MINUTES = 15;
 // Constant-time-ish path for unknown users: verify against a fixed dummy hash.
 let dummyHash: Promise<string> | null = null;
 
@@ -66,16 +69,12 @@ export const authModule: Module = (r, { db }) => {
                                  WHERE password_hash IS NOT NULL AND (lower(login_email) = lower(trim($1)) OR (length($2) >= 10 AND right(login_phone_norm, 10) = right($2, 10)))
                                  LIMIT 1`, [identifier.trim(), digits]);
       if (co) {
-        const attempt = await reserveAttempt(db, 'marketing_companies', co.id);
-        if (attempt === null) {
-          throw new AppError('locked', `Too many failed attempts. Try again after ${LOCK_MINUTES} minutes`);
-        }
+        const known = deviceId && co.device_id === deviceId ? deviceId : null;
+        const res = await reserveFor(db, `c:${co.id}`, clientIp(req), known);
         if (!(await verifyPassword(password, co.password_hash))) {
-          if (attempt >= MAX_FAILS) {
-            await db.query(`UPDATE marketing_companies SET locked_until = now() + make_interval(mins => $2) WHERE id = $1`, [co.id, LOCK_MINUTES]);
-          }
           throw new AppError('unauthenticated', 'Wrong employee ID or password');
         }
+        await clear(db, res.primary); if (res.acct) await clear(db, res.acct);
         await db.query(`UPDATE marketing_companies SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [co.id]);
         if (!co.active) throw new AppError('forbidden', 'This account is deactivated');
         // «ربط الحساب بالجهاز»: the first device is its device; another one is refused until the administration frees it
@@ -98,30 +97,36 @@ export const authModule: Module = (r, { db }) => {
         });
         return ok({ token, mustChangePassword: co.must_change_password, expiresInHours: SESSION_TTL_HOURS, partner: true });
       }
+      // an unknown name is throttled exactly like a real account (same replies, same waits): no enumeration
+      const u = await reserve(db, unknownBucket(identifier, clientIp(req)));
+      if (!u.ok) throw lockedError(u.retryAfterS);
       dummyHash ??= hashPassword('dummy-password-1');
       await verifyPassword(password, await dummyHash);
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
-    const attempt = await reserveAttempt(db, 'employees', emp.id);
-    if (attempt === null) {
-      throw new AppError('locked', `Too many failed attempts. Try again after ${LOCK_MINUTES} minutes`);
-    }
+    // a phone already approved for this account (or the device of its last sessions) has its own bucket
+    const known = deviceId && await one(db, `SELECT 1 FROM employee_devices WHERE employee_id = $1 AND device_id = $2 AND status = 'approved'
+                                              UNION ALL SELECT 1 FROM sessions WHERE employee_id = $1 AND device_id = $2 LIMIT 1`, [emp.id, deviceId]) ? deviceId : null;
+    const res = await reserveFor(db, `e:${emp.id}`, clientIp(req), known);
     const good = await verifyPassword(password, emp.password_hash);
     if (!good) {
-      if (attempt >= MAX_FAILS) {
-        await db.query(`UPDATE employees SET locked_until = now() + make_interval(mins => $2) WHERE id = $1`, [emp.id, LOCK_MINUTES]);
-      }
-      if (attempt === MAX_FAILS) {
-        // suspicious: the account is locked now — the owners hear about it (once per lock)
-        await audit(db, emp.id, 'auth.locked', 'employee', emp.id);
+      if (res.fails === PAIR_FREE) {
+        // suspicious: sign-in from this network / device now waits — the owners hear about it (once per wait window)
+        await audit(db, emp.id, 'auth.locked', 'employee', emp.id, undefined, { scope: known ? 'device' : 'network' });
         const n = await one(db, `SELECT full_name FROM employees WHERE id = $1`, [emp.id]);
-        await securityAlert(db, `lock:${emp.id}:${Math.floor(Date.now() / (LOCK_MINUTES * 60000))}`, 'تنبيه أمان: حساب اتقفل',
-          `${n?.full_name ?? ''} — ${MAX_FAILS} محاولات دخول غلط، الحساب اتقفل ${LOCK_MINUTES} دقيقة`);
+        await securityAlert(db, `lock:${emp.id}:${Math.floor(Date.now() / 900000)}`, 'تنبيه أمان: حساب اتقفل',
+          `${n?.full_name ?? ''} — ${PAIR_FREE} محاولات دخول غلط، الدخول من نفس الشبكة أو الجهاز اتوقف مؤقتًا (الموظف يقدر يدخل من موبايله المعتمد)`);
+      }
+      if (res.acct && res.acctFails === ACCT_FREE) {
+        await audit(db, emp.id, 'auth.distributed_attempts', 'employee', emp.id);
+        const n = await one(db, `SELECT full_name FROM employees WHERE id = $1`, [emp.id]);
+        await securityAlert(db, `acct:${emp.id}:${Math.floor(Date.now() / 3600000)}`, 'تنبيه أمان: محاولات دخول من شبكات كتير',
+          `${n?.full_name ?? ''} — ${ACCT_FREE} محاولة غلط من أجهزة غير معتمدة خلال ساعة، الدخول من أجهزة جديدة بقى أبطأ`);
       }
       throw new AppError('unauthenticated', 'Wrong employee ID or password');
     }
-    // the right password: the reserved attempt is given back (a phone waiting for approval is not a failure)
-    await db.query(`UPDATE employees SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [emp.id]);
+    // the right password: the reserved attempts are given back (a phone waiting for approval is not a failure)
+    await clear(db, res.primary); if (res.acct) await clear(db, res.acct);
     if (emp.status !== 'active') throw new AppError('forbidden', 'This account is deactivated');
     // «ربط الحساب بالجهاز» (never for owners): the first phone is linked by itself, any other phone waits for the
     // general manager / administrative officer to approve it — only approved phones sign in
@@ -328,6 +333,7 @@ export const authModule: Module = (r, { db }) => {
       const hash = await hashPassword(next as string);
       await q.query(`UPDATE employees SET password_hash = $2, must_change_password = false, failed_logins = 0, locked_until = NULL, updated_at = now() WHERE id = $1`, [o.employee_id, hash]);
       await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [o.employee_id]);
+      await clearAccount(q, `e:${o.employee_id}`);
       await q.query(`UPDATE password_otps SET consumed_at = now() WHERE id = $1`, [o.id]);
       await audit(q, o.employee_id, 'auth.password_reset_by_otp', 'employee', o.employee_id);
       return true;

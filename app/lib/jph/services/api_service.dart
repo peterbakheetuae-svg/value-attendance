@@ -726,7 +726,7 @@ class JphRouter {
       await JphBridge.session.login(id, pass);
     } on ApiException catch (e) {
       if (e.status == 401) return _fail('الكود أو كلمة المرور غير صحيحة');
-      if (e.status == 423) return _fail('تم إيقاف الدخول مؤقتاً بسبب محاولات خاطئة كثيرة. حاول بعد 15 دقيقة');
+      if (e.status == 423) return _fail('تم إيقاف الدخول مؤقتاً بسبب محاولات خاطئة كثيرة. حاول مرة أخرى بعد قليل');
       return _fail(_message(e));
     }
     final me = JphBridge.session.me ?? {};

@@ -6,6 +6,7 @@ import { forbidden, invalid, notFound, unprocessable } from '../http/errors.ts';
 import { bool, date, num, obj, oneOf, reqStr, str, uuid, isUuid } from '../http/validate.ts';
 import { assertCanRead, audit, authenticate, can, has, isOwner, readableIds, requireCan, requirePerm, SETTLED, type Actor } from '../auth/context.ts';
 import { hashPassword, passwordPolicyError, tempPassword, tempPin, PIN_RE, PIN_ROLES } from '../auth/password.ts';
+import { clearAccount } from '../auth/throttle.ts';
 import { fileSchemaInstalled, readFileBytes, storeFile, withFile } from '../lib/files.ts';
 
 const ROLES = ['owner', 'manager', 'hr_manager', 'accountant', 'sales_manager', 'sales_employee'] as const;
@@ -456,6 +457,7 @@ export const employeesModule: Module = (r, { db, clock }) => {
       // a PIN is the employee's own (Value HR); a temporary password must be replaced at first sign-in
       await q.query(`UPDATE employees SET password_hash = $2, must_change_password = $3, failed_logins = 0, locked_until = NULL WHERE id = $1`, [e.id, hash, !usePin]);
       await q.query(`UPDATE sessions SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`, [e.id]);
+      await clearAccount(q, `e:${e.id}`); // SEC-05: the new password signs in right away
       await audit(q, a.id, usePin ? 'employee.reset_pin' : 'employee.reset_password', 'employee', e.id);
     });
     // email it to the employee when possible; the value is then not shown to the admin
