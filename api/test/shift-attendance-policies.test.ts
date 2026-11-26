@@ -43,6 +43,11 @@ before(async () => {
 });
 after(async () => { await h.close(); });
 
+test('the release copy in db/migrations is the reviewed proposed file, byte for byte, under a comment-only header', () => {
+  const m = readFileSync(new URL('../../db/migrations/094_shift_attendance_policies.sql', import.meta.url), 'utf8');
+  assert.ok(m.endsWith(SQL094)); assert.ok(m.slice(0, m.length - SQL094.length).split('\n').every((l) => !l.trim() || l.startsWith('--')));
+});
+
 // ================================================================================================ pure policy functions
 test('absence threshold: off, fixed hours, half of the actual shift (different durations)', () => {
   assert.equal(absenceThresholdMinutes(null, '10:00', '18:00'), null);

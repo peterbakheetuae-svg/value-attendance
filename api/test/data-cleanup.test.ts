@@ -16,9 +16,7 @@ const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(6
 const count = async (t: string, where = 'TRUE', p: unknown[] = []) => (await h.db.query(`SELECT count(*)::int AS n FROM ${t} WHERE ${where}`, p)).rows[0].n as number;
 
 before(async () => {
-  // the 2026-11-18 one-time script is SUPERSEDED (never to be run again): checked on the schema it was written for, i.e.
-  // without migration 094 (whose incident table references attendance, which this old script empties on its own)
-  h = await harness('2026-03-10T08:00:00Z', { migrationsExcept: ['094_shift_attendance_policies.sql'] }); c = await cast(h);
+  h = await harness('2026-03-10T08:00:00Z'); c = await cast(h);
   // activity of the employees on the job
   await h.call(c.t.e1, 'POST', '/attendance/check-in', {});
   await h.call(c.t.e1, 'POST', '/requests', { type: 'full_day_absence', startDate: '2026-03-20', endDate: '2026-03-20', absenceType: 'annual', reason: 'ظرف' });
