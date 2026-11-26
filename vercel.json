@@ -16,7 +16,8 @@
       "feat/shift-attendance-policies": false,
       "release/094-production": false,
       "feat/meta-oauth-network-errors": false,
-      "security/ci-on-pull-requests": false
+      "security/ci-on-pull-requests": false,
+      "security/remediation-2026-11-26": false
     }
   }
 }
