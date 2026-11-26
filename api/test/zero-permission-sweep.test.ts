@@ -10,7 +10,6 @@ import { buildRouter } from '../src/app.ts';
  * self-service routes (listed below), and no 2xx answer may carry another employee's id.
  */
 let h: Harness; let c: Awaited<ReturnType<typeof cast>>;
-before(async () => { h = await harness(); c = await cast(h); });
 after(async () => { await h.close(); });
 
 // anonymous by design (security.test.ts checks each of them)
@@ -46,6 +45,7 @@ async function sweep(idFor: (param: string) => string) {
 }
 
 before(async () => {
+  h = await harness(); c = await cast(h);
   // every permission individually denied (the strongest restriction an owner can set on an account)
   await h.db.query(`INSERT INTO employee_permissions (employee_id, perm_key, allow, by_id)
                     SELECT $1, key, false, $2 FROM permissions`, [c.ids.solo, c.ids.owner]);
