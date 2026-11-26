@@ -33,6 +33,7 @@ import '../id_card_page.dart';
 import '../login/login_page.dart';
 import '../attendance/attendance_report_page.dart';
 import 'privacy_policy_page.dart';
+import 'notification_preferences_page.dart';
 import 'support_policy_page.dart';
 import 'terms_page.dart';
 import '../leave_summary.dart';
@@ -494,6 +495,17 @@ class _SettingsPageState extends State<SettingsPage> {
                             activeColor: Theme.of(context).primaryColor,
                           ),
                         ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    SettingsTile(
+                      title: 'إعدادات الإشعارات',
+                      icon: Icons.notifications_active_outlined,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const NotificationPreferencesPage()),
                       ),
                     ),
 

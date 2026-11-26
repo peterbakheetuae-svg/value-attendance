@@ -403,6 +403,21 @@ class JphRouter {
             if (p['weekendAbsenceRule'] != null) 'weekendAbsenceRule': p['weekendAbsenceRule'] == true,
           });
           return _ok({'message': 'تم حفظ إعدادات خصم التأخير'});
+        // «شرائح خروج بدون إذن» + حد الغياب (proposed 094): separate from the late / early tiers above
+        case 'save_attendance_policies':
+          await _api.patch('/settings', {
+            if (p.containsKey('exitTiers')) 'unauthorizedExitTiers': p['exitTiers'],
+            if (p.containsKey('exitDeduction')) 'unauthorizedExitDeduction': p['exitDeduction'] == true,
+            if (p.containsKey('absenceMode')) 'absenceThresholdMode': p['absenceMode'] ?? 'off',
+            if (p.containsKey('absenceHours')) 'absenceThresholdHours': p['absenceHours'],
+          });
+          return _ok({'message': 'تم حفظ الإعدادات'});
+        // «إعدادات الإشعارات»: the categories this person receives (the server decides what he may change)
+        case 'get_notification_prefs':
+          return _ok((await _api.get('/me/notification-preferences')).cast<String, dynamic>());
+        case 'save_notification_prefs':
+          await _api.put('/me/notification-preferences', {'categories': p['categories']});
+          return _ok({'message': 'تم حفظ إعدادات الإشعارات'});
         // ---- صرف مالية: salary / advance / commission / work-expense payouts and cash handed to HR
         case 'payouts_list':
           final pl = await _api.get('/payouts', <String, String?>{

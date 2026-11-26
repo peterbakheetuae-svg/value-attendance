@@ -25,7 +25,6 @@ const incidents = async (id: string) => (await h.db.query(`SELECT * FROM unautho
 const ping = (tok: string, p: object) => h.call(tok, 'POST', '/tracking/ping', p);
 
 before(async () => {
-  at('2026-03-10T07:30:00Z');
   h = await harness('2026-03-10T07:30:00Z', { migrationsExcept: [] }); c = await cast(h);
   await h.db.tx(async (q) => { await q.query(SQL094); });
   await h.db.tx(async (q) => { await q.query(SQL094); }); // a second run changes nothing
