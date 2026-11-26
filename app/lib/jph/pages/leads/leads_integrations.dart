@@ -560,7 +560,9 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   /// a marketing company adds a campaign (linked to itself by the server) or edits one it added: name and on / off
   Future<void> _partnerCampaign([Map<String, dynamic>? c]) async {
     final name = TextEditingController(text: c == null ? '' : '${c['name']}');
-    var active = true;
+    // a new campaign starts on; an existing one keeps its own state unless the switch is changed here
+    final wasActive = c == null ? true : c['active'] != false;
+    var active = wasActive;
     final ok = await leadForm(context, isDark, c == null ? tr('حملة جديدة') : '${tr('تعديل الحملة')} ${c['name']}', (set) => [
           TextField(controller: name, decoration: InputDecoration(labelText: tr('اسم الحملة'))),
           if (c != null)
@@ -573,7 +575,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
             ),
           Text(tr('الحملة بتتربط بشركتك تلقائي، والإدارة بتختار السيلز اللي بيستقبلوا ليدزها.'), style: TextStyle(color: JphUi.sub(isDark))),
         ], () async {
-      final body = <String, dynamic>{'name': name.text.trim(), if (c != null) 'active': active};
+      final body = <String, dynamic>{'name': name.text.trim(), if (c != null && active != wasActive) 'active': active};
       final r = c == null
           ? await lpost('/partner/campaigns', body, ok: tr('اتضافت الحملة ✅'))
           : await lpost('/partner/campaigns/${c['id']}', body, method: 'patch', ok: tr('اتحفظ ✅'));
@@ -717,6 +719,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
                   ? tr('حملات Meta: مش مربوطة')
                   : '${tr('حملات Meta')}: ${[for (final m in (c['metaCampaignIds'] as List)) _metaName('$m')].join('، ')}',
               if (c['metaFormId'] != null) 'Form ${c['metaFormId']}',
+              if (c['active'] == false) tr('موقوفة'),
               if (!ro) routeSummary('${c['mode']}', [for (final x in (c['assignees'] as List? ?? const [])) '$x'], _people),
             ].join('\n')),
             isThreeLine: !ro,

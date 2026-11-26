@@ -89,14 +89,16 @@ export const integrationsModule: Module = (r, { db, clock }) => {
     if (a.partner) {
       // the company's view (read-only but for choosing its campaigns' Meta campaigns): no keys, tokens, salesmen or Value Aqar
       const meta = await ensure('meta');
-      const mine = await db.query(`SELECT id, name, meta_campaign_ids, created_by_company_id FROM lead_campaigns WHERE active AND marketing_company_id = $1 ORDER BY created_at DESC`, [a.partner]);
+      const mine = await db.query(`SELECT id, name, active, meta_campaign_ids, created_by_company_id FROM lead_campaigns
+                                    WHERE marketing_company_id = $1 AND (active OR created_by_company_id = $1) ORDER BY active DESC, created_at DESC`, [a.partner]);
       const hidden = await partnerHidden(a.partner);
       const seen = { rows: (await db.query(`SELECT * FROM meta_seen_campaigns ORDER BY last_at DESC LIMIT 200`)).rows.filter((x) => !hidden.has(String(x.campaign_id))) };
       return ok({
         partner: true,
         meta: { source: 'meta', active: meta.active, hasToken: !!meta.access_token, lastAt: iso(meta.last_at), lastError: null },
         valueaqar: null,
-        campaigns: mine.rows.map((c) => ({ id: c.id, name: c.name, metaCampaignIds: c.meta_campaign_ids ?? [], companyId: a.partner, assignees: [], mode: null, createdByCompany: !!c.created_by_company_id })),
+        // its own stopped campaigns stay listed (so it can start them again); the office's stopped ones do not, as before
+        campaigns: mine.rows.map((c) => ({ id: c.id, name: c.name, active: c.active, metaCampaignIds: c.meta_campaign_ids ?? [], companyId: a.partner, assignees: [], mode: null, createdByCompany: !!c.created_by_company_id })),
         metaSeen: seen.rows.map((x) => ({ id: x.campaign_id, name: x.name, leads: x.leads, skipped: x.skipped, lastAt: iso(x.last_at) })),
         companies: [{ id: a.partner, name: a.fullName, active: true }],
         routes: [], properties: [], people: [], projects: [],
