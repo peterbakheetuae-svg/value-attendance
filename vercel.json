@@ -15,7 +15,8 @@
       "feat/marketing-intelligence": false,
       "feat/shift-attendance-policies": false,
       "release/094-production": false,
-      "feat/meta-oauth-network-errors": false
+      "feat/meta-oauth-network-errors": false,
+      "security/ci-on-pull-requests": false
     }
   }
 }
