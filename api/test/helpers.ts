@@ -71,8 +71,8 @@ export interface Harness {
 
 /**
  * opts.migrationsExcept (optional): instead of the shared template, a fresh database with EVERY file of db/migrations
- * applied in the runner's own order except the named ones ([] = all of them: production's schema). Same settings as
- * the template. Default: the template.
+ * applied in the runner's own order except the named ones — e.g. production's state before a release
+ * (data-reset-092-compat.test.ts: everything up to 091, not 092). Same settings as the template. Default: the template.
  */
 export async function harness(startIso = '2026-03-10T08:00:00Z', opts: { migrationsExcept?: string[] } = {}): Promise<Harness> {
   const dbName = 'hr_t_' + randomBytes(6).toString('hex');

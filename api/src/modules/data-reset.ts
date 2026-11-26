@@ -36,12 +36,22 @@ export const WIPE = [
 export const WIPE_IF_PRESENT = ['lead_quality_events', 'lead_campaign_owners'];
 /** the WIPE_IF_PRESENT tables that exist in this database (checked inside the reset's transaction) */
 export async function presentDependents(q: Q): Promise<string[]> {
-  return (await q.query(`SELECT t FROM unnest($1::text[]) WITH ORDINALITY AS x(t, n) WHERE to_regclass('public.' || t) IS NOT NULL ORDER BY n`,
-    [WIPE_IF_PRESENT])).rows.map((r: any) => String(r.t));
+  return presentTables(q, WIPE_IF_PRESENT);
 }
-/** WIPE plus the 092 dependents that exist here: the tables this reset is allowed to empty with their rows */
+/**
+ * Activity tables of migration 092 that reference no WIPE table (so the TRUNCATE does not need them) but describe the
+ * campaigns the reset removes: meta_insights_daily (Meta's daily spend / results per Meta campaign id, no foreign key).
+ * Emptied with the rest of the activity when present, so a reset leaves no figures for campaigns that no longer exist.
+ */
+export const WIPE_ACTIVITY_IF_PRESENT = ['meta_insights_daily'];
+/** the tables of `list` that exist in this database, in list order */
+export async function presentTables(q: Q, list: readonly string[]): Promise<string[]> {
+  return (await q.query(`SELECT t FROM unnest($1::text[]) WITH ORDINALITY AS x(t, n) WHERE to_regclass('public.' || t) IS NOT NULL ORDER BY n`,
+    [list])).rows.map((r: any) => String(r.t));
+}
+/** WIPE plus the approved 092 tables that exist here: the tables this reset is allowed to empty with their rows */
 export async function approvedWipeSet(q: Q): Promise<string[]> {
-  return [...WIPE, ...await presentDependents(q)];
+  return [...WIPE, ...await presentDependents(q), ...await presentTables(q, WIPE_ACTIVITY_IF_PRESENT)];
 }
 
 /**

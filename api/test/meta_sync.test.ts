@@ -26,7 +26,7 @@ before(async () => {
     if (!u.startsWith('https://graph.facebook.com/')) return realFetch(url, init);
     calls.push(u);
     const tok = new URL(u).searchParams.get('access_token');
-    const path = new URL(u).pathname.replace('/v21.0/', '');
+    const path = new URL(u).pathname.replace('/v25.0/', '');   // every call on the default version
     const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } });
     if (path === 'me/accounts' && tok === 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx') return j({ data: [] });
     if (path === 'me/businesses' && tok === 'BIZ-TOKEN-xxxxxxxxxxxxxxxxx') return j({ data: [{ id: '4242' }] });

@@ -23,6 +23,7 @@ class LeadsIntegrationsView extends StatefulWidget {
 
 class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   Map<String, dynamic> _d = {};
+  Map<String, dynamic> _oauth = {};
   bool _loading = true;
   String _filter = 'new';
 
@@ -41,6 +42,13 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
       _loading = false;
       _d = r;
     });
+    if (r['partner'] != true && r['success'] != false) _loadOauth();
+  }
+
+  /// the official Meta connection's state (GET /integrations/meta/oauth/status) — never a token
+  Future<void> _loadOauth() async {
+    final r = await lget('/integrations/meta/oauth/status');
+    if (mounted) setState(() => _oauth = r['success'] == false ? {} : r);
   }
 
   Future<void> _copy(String text, [String? msg]) async {
@@ -228,6 +236,54 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   }
 
   // ------------------------------------------------------------------ Meta
+  /// «اربط بحساب فيسبوك»: the official Facebook Login dialog opens in the browser; the server finishes the connection
+  Future<void> _connectFacebook() async {
+    final r = await lpost('/integrations/meta/oauth/start', {});
+    if (!mounted) return;
+    if (r['success'] == false) return JphUi.toast(context, r);
+    if (r['configured'] != true) {
+      final missing = ((r['missing'] as List?) ?? const []).join('، ');
+      return JphUi.toast(context, {'success': false, 'message': '${tr('ربط فيسبوك مش متجهز على السيرفر — ناقص')}: $missing'});
+    }
+    await openUrl('${r['url']}');
+    if (mounted) JphUi.toast(context, {'success': true, 'message': tr('كمّل في المتصفح، وبعدها ارجع هنا ودوس «حدّث الحالة»')});
+  }
+
+  List<Widget> _oauthStatus() {
+    if (_oauth.isEmpty) return const [];
+    final connected = _oauth['connected'] == true;
+    // required permissions block the connection; optional ones (business_management) only limit what it reaches
+    final missingRequired = ((_oauth['missingRequired'] as List?) ?? const []).cast<Object?>();
+    // ads_read is the Insights feature's own permission (reported on its own line, below)
+    final missingOptional = ((_oauth['missingOptional'] as List?) ?? const []).cast<Object?>().where((s) => s != 'ads_read').toList();
+    final insights = (_oauth['insights'] as Map?) ?? const {};
+    final expires = DateTime.tryParse('${_oauth['expiresAt'] ?? ''}')?.toLocal();
+    final lines = <String>[
+      if (_oauth['configured'] != true) '${tr('الربط الرسمي مش متجهز على السيرفر — ناقص')}: ${((_oauth['missing'] as List?) ?? const []).join('، ')}',
+      connected ? tr('متربط بحساب فيسبوك ✅') : tr('لسه مش متربط بحساب فيسبوك'),
+      if (_oauth['tokenValid'] == false) tr('الربط انتهى أو اتلغى من فيسبوك — اعمل إعادة ربط'),
+      if (expires != null) '${tr('صلاحية الربط لحد')}: ${expires.year}-${expires.month.toString().padLeft(2, '0')}-${expires.day.toString().padLeft(2, '0')}',
+      if (missingRequired.isNotEmpty) '${tr('صلاحيات مطلوبة ناقصة — اعمل إعادة ربط واسمح بيها')}: ${missingRequired.join('، ')}',
+      if (missingOptional.isNotEmpty) '${tr('صلاحية اختيارية مش متاحة (الربط شغال؛ صفحات الـ Business portfolio بس مش هتظهر)')}: ${missingOptional.join('، ')}',
+      if (connected && insights['available'] == true) tr('أرقام الإعلانات (الصرف والتكلفة): متاحة ✅'),
+      if (connected && insights['available'] == false) tr('أرقام الإعلانات (الصرف والتكلفة) مش متاحة: صلاحية ads_read ما اتسمحتش — الليدز شغالة عادي؛ اعمل إعادة ربط واسمح بيها'),
+      if (connected && insights['available'] == null) tr('أرقام الإعلانات: لسه ما اتعرفش لو الصلاحية متاحة (بتتعرف في أول سحب)'),
+      '${tr('آخر سحب')}: ${_when(_oauth['lastSyncAt'])}',
+      if ('${_oauth['lastError'] ?? ''}'.isNotEmpty) '${tr('آخر مشكلة')}: ${_oauth['lastError']}',
+    ];
+    return [
+      const Divider(height: 26),
+      Text(tr('الربط الرسمي مع فيسبوك'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
+      for (final l in lines) Text(l, style: TextStyle(color: JphUi.sub(isDark))),
+      const SizedBox(height: 8),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        dirBtn(isDark, connected ? tr('إعادة الربط بفيسبوك') : tr('اربط بحساب فيسبوك'), Icons.facebook_rounded,
+            _oauth['configured'] == true ? _connectFacebook : null, primary: !connected),
+        dirBtn(isDark, tr('حدّث الحالة'), Icons.refresh_rounded, _load),
+      ]),
+    ];
+  }
+
   /// one Facebook page (a page token) or all the pages of a user token: each kept with its own token, subscribed to leads
   Future<void> _addPage() async {
     final t = TextEditingController();
@@ -259,6 +315,7 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
   List<Widget> _pages() {
     final pages = ll(_d['metaPages']);
     return [
+      ..._oauthStatus(),
       const Divider(height: 26),
       Text(tr('صفحات فيسبوك المربوطة'), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: JphUi.text(isDark))),
       Text(tr('كل صفحة بتوكن بتاعها، والليدز بتنزل لوحدها من فورمات الصفحة على الحملة المربوطة (كل 10 دقايق وكمان لحظة ما الليد يتعمل).'),
@@ -277,7 +334,8 @@ class _LeadsIntegrationsViewState extends State<LeadsIntegrationsView> {
           trailing: IconButton(tooltip: tr('شيل الصفحة'), icon: const Icon(Icons.link_off_rounded), onPressed: () => _removePage(p)),
         ),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        dirBtn(isDark, tr('ربط صفحة فيسبوك'), Icons.add_link_rounded, _addPage, primary: pages.isEmpty),
+        // pasting a token stays for backward compatibility; the official way is the button above
+        dirBtn(isDark, tr('ربط بتوكن (متقدم)'), Icons.add_link_rounded, _addPage, primary: pages.isEmpty && _oauth['configured'] != true),
         dirBtn(isDark, tr('اسحب الليدز دلوقتي'), Icons.sync_rounded, _syncNow),
       ]),
     ];

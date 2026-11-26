@@ -54,6 +54,15 @@ class _EmployeeKpiViewState extends State<EmployeeKpiView> {
               child: GlassCard(radius: 20, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   Expanded(child: Text(I18n.lang == 'ar' ? it.s('nameAr') : (it.s('nameEn').isEmpty ? it.s('nameAr') : it.s('nameEn')), style: const TextStyle(fontWeight: FontWeight.w800))),
+                  // an automatic value (an owner-approved formula, migration 092) is marked; a manual entry is not
+                  if (it.s('source') == 'auto') Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+                      child: Text(I18n.lang == 'ar' ? 'تلقائي' : 'Auto', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
                   StatusPill(it.s('state')),
                 ]),
                 const SizedBox(height: 8),

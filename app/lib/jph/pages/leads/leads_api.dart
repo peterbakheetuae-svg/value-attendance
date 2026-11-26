@@ -38,6 +38,10 @@ Future<Map<String, dynamic>> lpost(String path, Map<String, dynamic> body, {Stri
     ApiService.post({'action': 'cash_post', 'path': path, 'body': body, 'ok': ok ?? tr('تم ✅'), if (method != null) 'method': method});
 
 /// who sees the sales dashboard in the menu
+/// the unified marketing dashboard (GET /marketing/overview) is for whoever reads every lead
+bool get seesMarketing => ApiService.can('leads.read_all');
+/// a lead's quality (lead-quality classification, migration 092): read with leads.quality or leads.read_all
+bool get seesQuality => ApiService.can('leads.quality') || ApiService.can('leads.read_all');
 bool get seesLeads => ApiService.can('leads.own') || ApiService.can('leads.team') || ApiService.can('leads.read_all') || ApiService.can('leads.distribute');
 
 /// what /leads/meta says (cached for the session; refreshed after the settings change)

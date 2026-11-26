@@ -1,0 +1,88 @@
+name: Meta leads sync (scheduled)
+# Also knocks /integrations/meta/insights/run (hourly on the server) and /kpi/auto/scheduled (owner-approved KPI formulas).
+# Knocks on the API so the linked Meta campaigns' leads are pulled without anyone opening the app (the webhook stays the
+# real-time path; this is the safety net for missed deliveries). The server decides: one run at a time (a 5-minute claim;
+# a run lives at most 30 s), and every Meta lead comes in once (leads.meta_lead_id + a per-lead lock).
+# The schedule follows keep-warm.yml's working hours (the database compute is awake then anyway, so it costs no extra
+# Neon CU-hours on the Free plan), plus one nightly catch-up run.
+#
+# The run FAILS (red, e-mailed by GitHub) when: the BACKUP_TOKEN secret is missing; the API refuses the token (401/403);
+# the API keeps failing (5xx), times out or cannot be reached after the retries; any other status; an answer that is not
+# the expected JSON; or a sync that ran with errors. A run the server declines on purpose (off / not connected /
+# no linked campaign / ran recently) is green with a notice.
+on:
+  schedule:
+    - cron: '7,22,37,52 6-17 * * 0-4,6'   # every 15 minutes, 08:00–19:59 Cairo (UTC+2), Saturday–Thursday
+    - cron: '40 23 * * *'                 # a nightly catch-up, 01:40 Cairo
+  workflow_dispatch:
+permissions: {}
+concurrency: { group: meta-sync, cancel-in-progress: false }
+jobs:
+  # Branch guard: only the workflow on main may call the production API. A manual dispatch from any other branch (a review
+  # or feature branch carrying a modified copy of this file) does not run the knock at all — it ends here, green, with a notice.
+  guard:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "::notice title=Not run::the Meta sync calls the production API only from main (this run is on ${GITHUB_REF})"
+  knock:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Knock on /integrations/meta/sync/run
+        env:
+          BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          API: https://valunivo.vercel.app
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_TOKEN:-}" ]; then
+            echo "::error title=Meta sync not configured::repository secret BACKUP_TOKEN is not set (same value as the API host's BACKUP_TOKEN). Set it, or disable this workflow."
+            exit 1
+          fi
+          # knock PATH: 3 attempts, backoff 15 s then 45 s; only 5xx, timeouts and network errors are retried
+          knock() {
+            local path="$1" code="" attempt
+            for attempt in 1 2 3; do
+              code=$(curl -sS -m 45 --connect-timeout 10 -o out.json -w '%{http_code}' -X POST \
+                       -H "X-Backup-Token: ${BACKUP_TOKEN}" -H 'Accept: application/json' "${API}${path}" 2>curl.err) || code=000
+              case "$code" in
+                200) break ;;
+                401|403) echo "::error title=Token refused::the API refused the scheduler token ($code) on $path — check the BACKUP_TOKEN secret"; return 1 ;;
+                000|5??) echo "::warning::$path attempt $attempt: no usable answer ($code: $(head -c 200 curl.err 2>/dev/null | tr -d '\r\n'))" ;;
+                *) echo "::error title=Unexpected status::$path answered $code"; head -c 500 out.json 2>/dev/null || true; return 1 ;;
+              esac
+              if [ "$attempt" = 3 ]; then echo "::error title=API unavailable::$path: no successful answer after 3 attempts (last: $code)"; return 1; fi
+              sleep $(( attempt == 1 ? 15 : 45 ))
+            done
+            # the answer must be the pass's JSON: { ran: boolean, reason?, errors: [] }
+            if ! jq -e 'type == "object" and (.ran | type == "boolean") and ((.errors // []) | type == "array")' out.json >/dev/null; then
+              echo "::error title=Unexpected answer::$path did not answer with its result"; head -c 500 out.json || true; return 1
+            fi
+            jq -c '{ran, reason, added, stored, complete, errors, rejected, runs}' out.json
+            if [ "$(jq -r '.ran' out.json)" = "true" ]; then
+              n=$(jq '(.errors // []) | length' out.json)
+              if [ "$n" -gt 0 ]; then echo "::error title=$path ran with errors::$(jq -r '(.errors // []) | join(" | ")' out.json | head -c 600)"; return 1; fi
+              # leads Meta sent that can never be taken (no phone number): reported, not a failure of the run
+              r=$(jq '(.rejected // []) | length' out.json)
+              if [ "$r" -gt 0 ]; then echo "::warning title=$path rejected leads::$(jq -r '(.rejected // []) | join(" | ")' out.json | head -c 600)"; fi
+              if [ "$(jq -r '.complete == false' out.json)" = "true" ]; then echo "::notice::$path incomplete (time budget): the next run continues from the same checkpoint"; else echo "::notice::$path done"; fi
+            elif [ "$(jq -r '.reason' out.json)" = "insights_permission_missing" ]; then
+              echo "::warning title=Ads Insights unavailable::the Meta token has no ads_read permission — spend / cost figures are not updated (leads are not affected). Reconnect Meta and grant ads_read."
+            else
+              echo "::notice::$path not run: $(jq -r '.reason // "unknown"' out.json)"
+            fi
+          }
+          status=0
+          knock /integrations/meta/sync/run || status=1
+          # Ads Insights: the server runs it at most hourly (a knock inside the hour answers "recent")
+          knock /integrations/meta/insights/run || status=1
+          # automatic KPIs (only owner-approved formulas; with none approved nothing is written): once an hour (the :07
+          # knock), at the nightly catch-up and on a manual dispatch
+          if [ "$(date -u +%M)" -lt 15 ] || [ "${EVENT_SCHEDULE}" = "40 23 * * *" ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            knock /kpi/auto/scheduled || status=1
+          fi
+          exit $status
