@@ -609,8 +609,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           if (_packageInfo != null) ...[
-                            Text(
-                              _packageInfo!.appName,
+                            const Text(
+                              // the product's display name everywhere (on the web PackageInfo.appName is the Dart package name)
+                              'VALUNIVO - فاليو نيفو',
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
