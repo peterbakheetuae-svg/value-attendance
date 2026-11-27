@@ -66,7 +66,16 @@ jobs:
           echo "VERSION_ARGS=--build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "candidate 1.0.${{ github.run_number }}+${{ github.run_number }} from ${{ github.sha }}"
       - name: Build Web (WebAssembly — faster; browsers without it get the JavaScript build automatically)
-        run: flutter build web --release --wasm --base-href "/valunivo/" $VERSION_ARGS --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+        run: |
+          flutter build web --release --wasm --base-href "/valunivo/" ${VERSION_ARGS:---build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}} --dart-define=API_BASE_URL=$API_BASE_URL --dart-define=API_MIRROR_URLS=$API_MIRROR_URLS
+          # version.json is what the web app reports as its name / version: the product name, never the Dart package name
+          python3 - <<'PY'
+          import json
+          p = 'build/web/version.json'; j = json.load(open(p, encoding='utf-8'))
+          j['app_name'] = 'VALUNIVO - فاليو نيفو'; j['package_name'] = 'valunivo'
+          json.dump(j, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
+          PY
+          grep -q 'VALUNIVO - ' build/web/version.json
       - name: Web Push (notifications for the web app on iPhone / browsers) — its worker + helper next to the app
         run: |
           cp web_push/push-sw.js web_push/va-push.js build/web/
