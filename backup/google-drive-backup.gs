@@ -12,7 +12,7 @@
  * Each run writes a folder "Value Attendance Backups/YYYY-MM-DD" with one JSON file per table
  * and keeps the last 30 days. Files are private to your Drive.
  */
-const API = 'https://value-attendance-api.peter-bakheet-uae.workers.dev';
+const API = 'https://value-attendance-api.valunivo.workers.dev';
 const ROOT_FOLDER = 'Value Attendance Backups';
 const KEEP_DAYS = 30;
 

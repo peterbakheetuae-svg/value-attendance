@@ -1,4 +1,5 @@
 // Cloudflare Worker (free plan, no card): a mirror address for the Value Attendance API.
+// Deployed as Worker `value-attendance-api` on the Cloudflare account valunivo@gmail.com → https://value-attendance-api.valunivo.workers.dev
 // Some mobile networks block or throttle host domains; the app tries this address first and the
 // API host (Vercel) second. It only forwards requests — nothing is stored here, and the API still does every
 // authentication and authorization check itself.

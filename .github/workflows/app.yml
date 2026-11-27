@@ -20,7 +20,7 @@ env:
   # Public HTTPS URL of the API (repository variable, not a secret — it ships in the app anyway)
   API_BASE_URL: ${{ vars.API_BASE_URL }}
   # Mirror (Cloudflare Worker forwarding to the API) tried first: some mobile networks block or throttle host domains
-  API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
+  API_MIRROR_URLS: https://value-attendance-api.valunivo.workers.dev
   # Firebase client config for phone push — public by design (it ships inside every app; not a secret).
   # The server-side key (FCM_SERVICE_ACCOUNT) lives only in Netlify's environment.
   FIREBASE_DEFINES: >-
