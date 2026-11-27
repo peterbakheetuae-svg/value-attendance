@@ -21,7 +21,7 @@ concurrency: { group: windows-release, cancel-in-progress: false }
 env:
   FLUTTER_VERSION: '3.38.10'
   API_BASE_URL: ${{ vars.API_BASE_URL }}
-  API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
+  API_MIRROR_URLS: https://value-attendance-api.valunivo.workers.dev
   # firebase_core's Windows C++ SDK (pulled in for Android push; unused on Windows) still declares
   # cmake_minimum_required < 3.5, which CMake 4 refuses — CMake's documented way to configure it anyway
   CMAKE_POLICY_VERSION_MINIMUM: '3.5'

@@ -18,7 +18,7 @@ env:
   FLUTTER_VERSION: '3.38.10'
   # public endpoints (not secrets): the live API and its Cloudflare mirror
   API_BASE_URL: https://valunivo.vercel.app
-  API_MIRROR_URLS: https://value-attendance-api.peter-bakheet-uae.workers.dev
+  API_MIRROR_URLS: https://value-attendance-api.valunivo.workers.dev
   CMAKE_POLICY_VERSION_MINIMUM: '3.5'
   # public Firebase client identifiers, the same ones app.yml builds with
   FIREBASE_DEFINES: >-
